@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vuln-audit"
+version = "0.1.0"
+description = "Single-user PHP white-box audit workbench driven by source units and a fixed checklist"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.32,<1",
+  "pydantic>=2.9,<3",
+  "pydantic-ai-slim[openai]>=0.0.20",
+  "openai>=1.0,<3",
+  # tree-sitter-php 0.23.x is built against the 0.23 runtime. Pairing it with the
+  # 0.26 runtime corrupts the heap: the cyclic GC then frees native tree-sitter
+  # objects that are still referenced and the process dies in an unrelated
+  # allocation (observed as a segfault inside json.dumps during ZIP import).
+  "tree-sitter>=0.23,<0.24",
+  "tree-sitter-php>=0.23,<0.24",
+  "python-multipart>=0.0.9",
+  "httpx>=0.27,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["audit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

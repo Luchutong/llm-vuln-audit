@@ -1,0 +1,83 @@
+name: vuln-audit
+
+# Two things run here: the audit application, and a target it can be validated against.
+#
+# The target is DVWA built from `demo/dvwa`, which is checked out at commit
+# a96943dc1f52f390ee5df72144660636c4b7dd06. `demo/dvwa-source.zip` is byte-identical to that
+# tree (verified: every one of its 227 entries hashes the same), and it is the archive the
+# audit snapshots are imported from — mounted read-only at /demo so the demo always audits
+# the exact source the container is serving. That is what lets a confirmed finding be
+# reproduced against the running target instead of "a" DVWA from somewhere else.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vuln-audit:local
+    ports:
+      # 8787 is the documented address; AUDIT_PORT exists only so a machine that already has
+      # something on 8787 can still start the demo without stopping the other service.
+      - "127.0.0.1:${AUDIT_PORT:-8787}:8787"
+    environment:
+      AUDIT_DATA_DIR: /app/data
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_THINKING: ${LLM_THINKING:-disabled}
+    volumes:
+      - audit-data:/app/data
+      # The same archive DVWA is serving from, for the demo import step.
+      - ./demo/dvwa-source.zip:/demo/dvwa-source.zip:ro
+    extra_hosts:
+      # Lets the audit container reach a model endpoint published on the host.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    init: true
+
+  dvwa:
+    build:
+      context: ./demo/dvwa
+      dockerfile: Dockerfile
+    image: vuln-audit-dvwa:local
+    # Build from the pinned local source rather than pulling a floating tag: the audit and
+    # the target must be the same code, and `latest` would silently drift away from it.
+    pull_policy: build
+    ports:
+      - "127.0.0.1:4280:80"
+    environment:
+      # DVWA reads DB_PASSWORD, not MYSQL_PASSWORD — it falls back to its own built-in
+      # default when unset, which is not the password the db service below was initialised
+      # with. Telling it only DB_SERVER produced "Access denied for user 'dvwa'" on the
+      # setup page. Both services now read the same variable so they cannot drift apart.
+      DB_SERVER: db
+      DB_DATABASE: dvwa
+      DB_USER: dvwa
+      DB_PASSWORD: ${DVWA_DB_PASSWORD:-vulnerables}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: docker.io/library/mariadb:10
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DVWA_DB_PASSWORD:-vulnerables}
+      MYSQL_DATABASE: dvwa
+      MYSQL_USER: dvwa
+      MYSQL_PASSWORD: ${DVWA_DB_PASSWORD:-vulnerables}
+    volumes:
+      - dvwa-db:/var/lib/mysql
+    healthcheck:
+      # DVWA's setup page fails confusingly if it starts before the database accepts
+      # connections, so wait for a real query rather than just for the process.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  audit-data:
+  dvwa-db:

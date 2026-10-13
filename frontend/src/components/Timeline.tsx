@@ -17,6 +17,17 @@ const LABELS: Record<string, string> = {
   model_retry: '模型重试',
   settle_started: '预算收尾',
   settled: '收尾判定',
+  run_completed: '队列结束',
+  agent_phase: '审计阶段',
+  tool_call: '补读源码',
+  tool_result: '工具结果',
+  model_request: '模型请求',
+  model_response: '模型响应',
+  exploration_stopped: '探索停止',
+  category_completed: '类别完成',
+  category_incomplete: '类别未完成',
+  unit_checkpoint: '结果检查点',
+  agent_terminal: '单元终止原因',
 };
 
 const PAYLOAD_LABELS: Record<string, string> = {
@@ -52,6 +63,14 @@ const PAYLOAD_LABELS: Record<string, string> = {
   prompt_id: 'Prompt',
   model: '模型',
   budgets: '预算',
+  phase: '阶段',
+  tool: '工具',
+  args: '参数',
+  new_lines: '新增代码行',
+  remaining_seconds: '剩余时间',
+  category_errors: '未完成类别',
+  preview: '已返回代码预览',
+  agent_policy: '执行策略',
 };
 
 function label(key: string) {
@@ -194,6 +213,14 @@ export function Timeline({ events, detail }: { events: AuditEvent[]; detail: Run
 
 function Inline({ event, payload }: { event: AuditEvent; payload: Record<string, unknown> }) {
   const kind = event.kind;
+  if (kind === 'tool_call' || kind === 'tool_result') {
+    return <span className="small mono">{String(payload.tool ?? '')} · {kind === 'tool_call'
+      ? JSON.stringify(payload.args ?? {}) : `${String(payload.status ?? '')} · 新增 ${String(payload.new_lines ?? 0)} 行`}</span>;
+  }
+  if (kind === 'agent_phase' || kind === 'agent_terminal' || kind === 'exploration_stopped') {
+    return <span className="small">{String(payload.phase ?? '')} {String(payload.reason ?? '')}
+      {payload.remaining_seconds != null ? ` · 剩余 ${String(payload.remaining_seconds)}s` : ''}</span>;
+  }
   if (kind === 'unit_started') {
     return <span className="mono small">{String(payload.file_path ?? '')}</span>;
   }

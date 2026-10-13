@@ -7,7 +7,25 @@ export interface UnitUsage { requests: number; tool_calls: number; input_tokens:
 export interface UnitResult {
   summary?: string;
   conclusions?: Record<Category, Conclusion>;
+  // Verdicts are preserved even when a later POC call times out, so the UI/report can
+  // distinguish an unfinished proof from a missing source-level judgement.
+  verdicts?: Partial<Record<Category, {
+    conclusion: Conclusion;
+    reasoning: string;
+    evidence: string;
+    input_source: string;
+    propagation: string;
+    dangerous_operation: string;
+    protection: string;
+    preconditions: string;
+    missing_context: string;
+    severity: string;
+  }>>;
+  poc_status?: Partial<Record<Category, 'not_required' | 'pending' | 'completed' | 'incomplete'>>;
   exploration_incomplete?: string | null;
+  terminal_reason?: string;
+  phase?: string;
+  category_errors?: Record<string, string>;
 }
 export interface AuditUnit { id: string; run_id?: string; file_path: string; start_line: number; end_line: number; symbol: string; kind: string; priority: number; slice_index: number; slice_count: number; cleaned_lines?: unknown[]; omissions?: unknown; slice_rule?: string; status?: string; result?: UnitResult | null; error?: string; usage?: Usage; seen?: {path: string; start_line: number; end_line: number}[]; checklist?: string[] }
 /**
@@ -27,7 +45,7 @@ export interface SnapshotSummary {
 }
 export interface Snapshot { id: string; name: string; created_at: string; archive_sha256: string; source: string; files: FileRecord[]; units: AuditUnit[]; warnings: string[]; immutable: boolean }
 export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string }
-export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope: string[]; prompt_id: string; prompt_label: string; prompt_text: string; model: string; budgets: Budget; status: string; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units: number; completed_units: number }
+export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope: string[]; prompt_id: string; prompt_label: string; prompt_text: string; model: string; budgets: Budget; agent_policy?: {version: string}; status: string; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units: number; completed_units: number }
 export interface POC { filename: string; language: string; script: string; instructions: string; normal_input: string; attack_input: string; expected_result: string }
 export type Verdict = 'confirmed' | 'rejected' | 'uncertain';
 export type Conclusion = 'candidate' | 'no_candidate' | 'insufficient_context';

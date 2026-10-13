@@ -77,7 +77,7 @@ cd backend && uv sync --extra dev && uv run pytest tests/ -q   # 单元测试（
 
 # 以下需要后端在跑，且有一个已产生候选的运行
 scripts/sse_reconnect.py http://127.0.0.1:8787 <run-id>   # 事件流推送与断线续传（有无重复/有无空洞）
-scripts/verify_gate.py   http://127.0.0.1:8787 <run-id>   # 人工验证闸门（执行失败不得判排除、XSS 需浏览器证据）
+scripts/verify_gate.py   http://127.0.0.1:8787 <run-id>   # 人工验证闸门（确认/排除需成功执行与对照，XSS 需浏览器证据）
 scripts/ui_smoke.py      http://127.0.0.1:5173 <run-id>   # 用真实数据打开每个标签页并检查控制台报错
 scripts/verify_rounds.py http://127.0.0.1:8787            # 两轮优化对比：Markdown 与 result.json 是否一致
 ```
@@ -88,7 +88,7 @@ scripts/verify_rounds.py http://127.0.0.1:8787            # 两轮优化对比�
 
 **只有三个只读工具**：`read_source`、`search_code`、`get_context`。重复调用同一参数的组合会被拒绝并回注预算提示——小模型在查不到事实时会反复发起同一次搜索，而不是下结论。
 
-**预算是收尾的触发器，不是失败的终点**。探索阶段耗尽响应/工具/时间预算后不会直接判该单元失败，而是进入**无工具的收尾阶段**：隐藏全部工具，把已经读到的代码原文回放给模型，按类别分次强制作答，收尾阶段有独立的墙钟预算（`SETTLE_SECONDS=420`）、按次调用的上限（`SETTLE_CALL_SECONDS=200`）与按请求超时（`SETTLE_REQUEST_SECONDS=90`）。收尾成功则该单元带 `exploration_incomplete`（`timeout` / `budget` / `error`）标记，报告 6.1 节单列一张表说明「模型还想继续读」，并明确它**仍计入统计**（结论是模型自己下的，引用行号逐条核验过）：把「还想继续读」当成「没有依据」，等于每次预算截断都抹掉一个已经成立的观察。真的没有依据时应答 `insufficient_context`，那一类才单列且不进混淆矩阵。
+**预算覆盖整个单元而不续期**。`whitebox-2` 将准备补读、探索、无工具判定、POC 生成和一次输出纠正纳入同一响应、工具和墙钟预算。探索因预算、超时或无进展停止后，会只回放模型实际收到并登记过的代码，用剩余预算完成无工具判定；每个类别完成即持久化检查点。某个 POC 没生成完时，候选的判定依据与缺失的 POC 状态仍会保留供人工复核，但整个单元保持未完成，绝不把它计作阴性或计入混淆矩阵。
 
 **预算耗尽、解析失败、缺上下文都不算阴性**。未完成的单元单独列出，绝不参与"没有漏洞"的判断。单元完成了、但就某一类明确答 `insufficient_context`（看到的代码不足以判断）时同样单列：记为漏报等于把模型的诚实当失误，记作真阴则等于凭空记一次正确否定，两种都会让 Precision 与 Recall 同时失真。
 
@@ -96,7 +96,7 @@ scripts/verify_rounds.py http://127.0.0.1:8787            # 两轮优化对比�
 
 **统计口径分两种**。没有独立核验的真值集时，只报告候选数、人工结论、审计覆盖率与验证覆盖率，**召回率 / 漏报数 / 真阴数标记为"不可计算"而不是 0**——没有基准就没有漏报可言。录入真值集后才计算 TP/FP/FN/TN、精确率、召回率与 F1。
 
-**POC 执行错误不会自动变成误报**。执行状态与人工结论是两个字段；`not_triggered`、`syntax_error`、`connection_failed`、`environment_mismatch` 都保留原样。执行未成功时不能判为「排除」。
+**POC 原件与人工验证都可复核**。下载与证据包中的 POC 都是模型给出的原始字节，不额外插入 PHP 注释或改写其他语言脚本。执行状态与人工结论是两个字段；`not_triggered`、`syntax_error`、`connection_failed`、`environment_mismatch` 都保留原样。确认或排除都必须记录成功执行、目标版本、命令和正常/攻击输入观测；确认还必须上传证据，反射型 XSS 另需浏览器执行证据。
 
 **审计的代码就是运行的代码**。`scripts/prepare_dvwa.py` 校验固定提交的源码，并生成 ZIP 和逐文件哈希清单 `demo/dvwa-manifest.json`。已导出演示报告使用的归档 SHA256 为 `90f29031d48f187c7e8a332c5bf768aad0820326ee91b6f7d0df4055b7edf8df`；新生成归档的 ZIP 元数据可能不同，源码逐文件哈希保持一致。Compose 中 DVWA 用 `pull_policy: build` 从同一份 `demo/dvwa` 构建。
 
@@ -107,7 +107,8 @@ scripts/verify_rounds.py http://127.0.0.1:8787            # 两轮优化对比�
 ```
 backend/audit/        FastAPI 应用与审计 worker
   source.py           快照导入、tree-sitter PHP 索引、AuditUnit 切片
-  agent.py            PydanticAI agent、三个工具、预算收尾
+  agent.py            PydanticAI agent、三个工具、统一预算与分阶段 POC
+  runtime.py          执行策略、精确源码账本与历史大小限制
   prompts.py          四段式提示词 P0/P1/P2
   evidence.py         证据范围校验
   worker.py           队列消费、失败与未完成处理
@@ -123,5 +124,5 @@ deliverable/          已导出的实验报告（report.md / report.json / evide
 
 * DVWA 六个样本只用于检验流程是否走得通，**不能据此声称对未知 PHP 项目的检测能力**。
 * 切片只按函数/方法/顶层脚本在语句边界切分，不做完整污点分析；跨文件的传播依赖 agent 主动读取，读不到就是 `insufficient_context`，不猜。
-* 演示用的模型（阿里云 Ark 计划端点）不会主动终止探索，因此多数单元会耗尽预算进入收尾阶段。这是该端点的行为，不是审计逻辑的要求。收尾阶段还会**间歇性地**触顶：含 POC 脚本的 XSS 类别作答超过 `SETTLE_REQUEST_SECONDS=90` 单次请求上限，重试两次即触顶 `SETTLE_CALL_SECONDS=200`，该单元整体记为未完成——P0、P1 两轮都发生在 `xss_r/source/low.php` 上，P2 的同一单元则通过了，所以这是端点延迟而非审计逻辑的确定性结果。报告第 5 章会点名列出发生这种情况的单元，4.2.1 的「可判定样本」列会说明这如何缩小了 Precision/Recall 的分母。
+* `deliverable/` 中已导出的演示报告来自旧版独立收尾策略，保留它是为了复现历史实验；它不能与 `whitebox-2` 的新运行直接比较。要评估当前策略，需在同一快照、模型、范围和预算下重新运行 P0/P1/P2。
 * 快照一旦导入不可变；重跑同一快照会创建新的运行记录，不会覆盖历史结果。

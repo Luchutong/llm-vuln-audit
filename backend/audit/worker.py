@@ -19,10 +19,13 @@ from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
 from .health import ModelHealth
 from .prompts import system_prompt
 from .source import SourceRepository
+from .runtime import AgentPolicy
+from .schemas import Check
 
 # Two model-level failures in a row mean the endpoint itself is down; grinding
 # through the rest of the queue would only burn budget.
 MODEL_ERROR_ABORT_AFTER = 2
+MODEL_FAILURE_REASONS = frozenset(("model_error", "request_timeout"))
 
 
 def _now() -> str:
@@ -49,15 +52,20 @@ class AuditWorker:
         self._current: asyncio.Task | None = None
         self._run_id: str | None = None
         self._stopping = False
+        self._cancel_reason = "user_cancelled"
 
     # --- lifecycle ---------------------------------------------------------
 
     async def start(self) -> None:
+        if self._task is not None and not self._task.done():
+            return
+        self._stopping = False
         self.store.interrupt_stale_runs()
         self._task = asyncio.create_task(self._loop(), name="audit-worker")
 
     async def stop(self) -> None:
         self._stopping = True
+        self._cancel_reason = "server_shutdown"
         self._wake.set()
         if self._current is not None:
             self._current.cancel()
@@ -72,9 +80,16 @@ class AuditWorker:
     def notify(self) -> None:
         self._wake.set()
 
+    def cancel(self, run_id: str, *, reason: str = "user_cancelled") -> None:
+        if self._run_id == run_id and self._current is not None:
+            self._cancel_reason = reason
+            self._current.cancel()
+        self.notify()
+
     @property
     def status(self) -> dict:
-        return {"name": self.settings.worker, "current_run": self._run_id, "busy": self._current is not None}
+        return {"name": self.settings.worker, "current_run": self._run_id,
+                "busy": self._current is not None, "alive": self._task is not None and not self._task.done()}
 
     # --- main loop ---------------------------------------------------------
 
@@ -93,12 +108,14 @@ class AuditWorker:
             try:
                 await self._current
             except asyncio.CancelledError:
-                self.store.update_run(run["id"], status="cancelled", finished_at=_now())
-                self.store.abandon_pending_units(run["id"], "Run cancelled")
-                self.bus.emit(run["id"], None, "run_cancelled", {"reason": "cancelled by request or shutdown"})
+                status = "interrupted" if self._stopping else "cancelled"
+                self.store.update_run(run["id"], status=status, finished_at=_now(), error=self._cancel_reason)
+                self.store.abandon_pending_units(run["id"], self._cancel_reason)
+                self.bus.emit(run["id"], None, f"run_{status}", {"reason": self._cancel_reason})
                 if self._stopping:
                     raise
             except Exception as exc:  # a worker crash must not strand a run
+                self.store.abandon_pending_units(run["id"], f"Worker failure: {type(exc).__name__}")
                 self.store.update_run(
                     run["id"], status="failed", finished_at=_now(), error=f"{type(exc).__name__}: {exc}"[:600]
                 )
@@ -111,6 +128,12 @@ class AuditWorker:
 
     async def _execute(self, run: dict) -> None:
         run_id = run["id"]
+        if self.health.is_open():
+            error = "模型熔断窗口尚未结束；未发起新的模型请求"
+            self.store.abandon_pending_units(run_id, error)
+            self.store.update_run(run_id, status="failed", finished_at=_now(), error=error)
+            self.bus.emit(run_id, None, "run_failed", {"reason": "model_unavailable", "error": error})
+            return
         self.bus.emit(
             run_id,
             None,
@@ -153,6 +176,29 @@ class AuditWorker:
                 },
             )
 
+            saved_categories: set[str] = set()
+            checkpoint = {"result": None, "usage": None, "seen": []}
+
+            def record(event: dict) -> None:
+                # Synchronous callback: the durable event is committed before the
+                # model advances to another graph node or receives another tool result.
+                kind = event.get("kind", "agent_event")
+                payload = {key: value for key, value in event.items() if key != "kind"}
+                self.bus.emit(run_id, unit["unit_id"], kind, payload)
+                for key in checkpoint:
+                    if key in event:
+                        checkpoint[key] = event[key]
+                if any(key in event for key in checkpoint):
+                    self.store.checkpoint_unit(run_id, unit["unit_id"], **checkpoint)
+                if kind == "unit_checkpoint" and event.get("result"):
+                    completed = {
+                        name: Check.model_validate(check)
+                        for name, check in event["result"].get("checks", {}).items()
+                        if name not in saved_categories
+                    }
+                    self._store_findings(run, unit, {"checks": completed, "seen": checkpoint["seen"], "seen_exact": True})
+                    saved_categories.update(completed)
+
             outcome = await audit_unit(
                 repository=self.repository,
                 snapshot_id=run["snapshot_id"],
@@ -161,10 +207,17 @@ class AuditWorker:
                 prompt_text=system_prompt(run["prompt_text"]),
                 config=self.settings.model,
                 budgets=run["budgets"],
+                policy=AgentPolicy(**run["agent_policy"]) if run.get("agent_policy", {}).get("version") == "whitebox-2" else AgentPolicy(),
+                on_event=record,
             )
 
+            remaining_checks = {name: check for name, check in outcome.get("checks", {}).items() if name not in saved_categories}
+            if remaining_checks:
+                self._store_findings(run, unit, {**outcome, "checks": remaining_checks})
+
             if outcome["analysis"] is None:
-                status = "incomplete" if outcome["incomplete"] in ("timeout", "budget") else "failed"
+                model_failure = outcome["incomplete"] in MODEL_FAILURE_REASONS
+                status = "failed" if model_failure or outcome["incomplete"] == "internal_error" else "incomplete"
                 # Settlement judges one category per call, so it can get part of the way and
                 # then time out on the next one. Those settled categories are real work and
                 # are kept in the record even though the unit as a whole stays unfinished —
@@ -176,7 +229,7 @@ class AuditWorker:
                 self.store.finish_unit(
                     run_id, unit["unit_id"], status, usage=outcome["usage"], seen=outcome["seen"],
                     error=outcome["error"],
-                    result={"conclusions": partial, "settlement": "partial"} if partial else None,
+                    result=outcome.get("result") or ({"conclusions": partial, "settlement": "partial"} if partial else None),
                 )
                 self.bus.emit(
                     run_id,
@@ -185,13 +238,16 @@ class AuditWorker:
                     {"reason": outcome["incomplete"], "error": outcome["error"], "usage": outcome["usage"],
                      "settled_categories": partial},
                 )
-                if outcome["incomplete"] == "error":
+                # A request-level timeout means the provider did not produce an answer.
+                # It must count toward the same breaker as connection/HTTP failures;
+                # otherwise a dead endpoint makes us exhaust every queued unit.
+                if model_failure:
                     self.health.trip(outcome["error"] or "model error", status=outcome.get("status"))
                     consecutive_errors += 1
                 else:
                     consecutive_errors = 0
-                if consecutive_errors >= MODEL_ERROR_ABORT_AFTER:
-                    message = f"模型连续 {consecutive_errors} 次调用失败，运行中止：{outcome['error']}"
+                if consecutive_errors >= MODEL_ERROR_ABORT_AFTER or self.health.is_open():
+                    message = f"模型熔断或连续失败阈值触发（本次 {consecutive_errors} 次），运行中止：{outcome['error']}"
                     self.store.abandon_pending_units(run_id, message)
                     self.store.update_run(run_id, status="failed", finished_at=_now(), error=message)
                     self.bus.emit(run_id, None, "run_failed", {"error": message})
@@ -200,7 +256,7 @@ class AuditWorker:
 
             self.health.pass_()
             consecutive_errors = 0
-            stored = self._store_findings(run, unit, outcome)
+            stored = self._store_findings(run, unit, outcome) if "checks" not in outcome else []
             # Exploration can run out of budget and still be settled into an answer. That
             # answer stands — its evidence passed the same validation as any other — but
             # the unit is not a clean one: less code was read than the model asked for, so
@@ -209,7 +265,7 @@ class AuditWorker:
             partial = outcome.get("exploration_incomplete")
             self.store.finish_unit(
                 run_id, unit["unit_id"], "completed",
-                result={
+                result=outcome.get("result") or {
                     "summary": outcome["analysis"].summary,
                     "conclusions": {
                         name: check.conclusion for name, check in outcome["analysis"].by_category().items()
@@ -238,10 +294,13 @@ class AuditWorker:
         """Validate and persist candidates, returning a short event summary."""
         snapshot = self.repository.get_snapshot(run["snapshot_id"])
         file_lines = {item["path"]: item["line_count"] for item in snapshot["files"]}
-        ranges = seen_ranges(unit, outcome["seen"])
+        ranges = seen_ranges(unit, outcome["seen"], exact=outcome.get("seen_exact", False))
         stored: list[dict] = []
 
-        for category, check in outcome["analysis"].by_category().items():
+        checks = outcome.get("checks")
+        if checks is None:
+            checks = outcome["analysis"].by_category()
+        for category, check in checks.items():
             if check.conclusion != "candidate":
                 continue
             cited = [ref.model_dump() for ref in check.evidence]

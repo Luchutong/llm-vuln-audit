@@ -68,12 +68,26 @@ expect_status(
     200,
 )
 
-print("\nconfirmation must carry an observation")
+print("\nconfirmation must carry a reproducible control experiment")
 expect_status(
-    "confirmed without attack_observation",
+    "confirmed without normal/attack observations",
     post(any_finding, {"verdict": "confirmed", "execution_status": "success"}),
     400,
 )
+
+
+def confirmed_record(**overrides) -> dict:
+    payload = {
+        "verdict": "confirmed",
+        "execution_status": "success",
+        "attack_observation": "攻击输入产生了可观察差异",
+        "normal_observation": "正常输入没有产生该差异",
+        "target_version": "DVWA 2.5 @ a96943dc",
+        "command": "php poc.php",
+        "modified_script": "原样运行，未修改",
+    }
+    payload.update(overrides)
+    return payload
 
 # --- the XSS-specific gate --------------------------------------------------
 xss = by_category.get("xss_r")
@@ -83,33 +97,25 @@ else:
     print("\nreflected XSS needs browser evidence, not just a payload in the response")
     expect_status(
         "xss confirmed without browser_execution",
-        post(xss["id"], {"verdict": "confirmed", "execution_status": "success", "attack_observation": "响应中出现 <script>"}),
+        post(xss["id"], confirmed_record(attack_observation="响应中出现 <script>"),
+             files=[("xss-evidence.txt", b"browser log placeholder\n")]),
         400,
     )
     expect_status(
         "xss confirmed with browser_execution but no attachment",
         post(
             xss["id"],
-            {
-                "verdict": "confirmed",
-                "execution_status": "success",
-                "attack_observation": "响应中出现 <script>",
-                "browser_execution": True,
-            },
+            confirmed_record(attack_observation="响应中出现 <script>", browser_execution=True),
         ),
         400,
     )
     response = post(
         xss["id"],
-        {
-            "verdict": "confirmed",
-            "execution_status": "success",
-            "attack_observation": "payload 在浏览器中执行，弹出 alert(1)，控制台可见对话框",
-            "browser_execution": True,
-            "target_version": "DVWA 2.5 @ a96943dc",
-            "command": "chromium --headless --dump-dom 'http://127.0.0.1:4280/vulnerabilities/xss_r/?name=<script>alert(1)</script>'",
-            "modified_script": "原样运行，未修改",
-        },
+        confirmed_record(
+            attack_observation="payload 在浏览器中执行，弹出 alert(1)，控制台可见对话框",
+            browser_execution=True,
+            command="chromium --headless --dump-dom 'http://127.0.0.1:4280/vulnerabilities/xss_r/?name=<script>alert(1)</script>'",
+        ),
         files=[("xss-evidence.txt", b"dialog opened: alert(1) at xss_r low.php line 8\n")],
     )
     expect_status("xss confirmed with browser evidence + attachment", response, 200)

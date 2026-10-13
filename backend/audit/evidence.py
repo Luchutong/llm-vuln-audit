@@ -12,7 +12,7 @@ import hashlib
 MAX_REPORTED_ERRORS = 8
 
 
-def seen_ranges(unit: dict, tool_reads: list[dict]) -> list[tuple[str, int, int]]:
+def seen_ranges(unit: dict, tool_reads: list[dict], *, exact: bool = False) -> list[tuple[str, int, int]]:
     """Ranges the model demonstrably received: its own unit plus every tool result.
 
     Adjacent and overlapping reads are merged first. A model that reads 380-395, 396-415
@@ -20,7 +20,9 @@ def seen_ranges(unit: dict, tool_reads: list[dict]) -> list[tuple[str, int, int]
     read" — which is what happened while each tool result stayed a separate island. Only
     ranges that already touch are merged, so no gap ever becomes readable by accident.
     """
-    raw: list[tuple[str, int, int]] = [(unit["file_path"], int(unit["start_line"]), int(unit["end_line"]))]
+    # New runs include the cleaned unit in an exact delivered-line ledger. Do not
+    # silently grant visibility to omitted comments or truncated source lines.
+    raw: list[tuple[str, int, int]] = [] if exact else [(unit["file_path"], int(unit["start_line"]), int(unit["end_line"]))]
     for read in tool_reads:
         path = read.get("path")
         start = read.get("start_line")

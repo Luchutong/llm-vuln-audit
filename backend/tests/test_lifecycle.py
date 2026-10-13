@@ -131,6 +131,17 @@ def test_an_orphaned_running_unit_is_swept_even_without_a_running_run(store):
     assert store.get_run(run_id)["status"] == "cancelled", "an already-cancelled run keeps its status"
 
 
+def test_restart_repairs_pending_units_left_under_a_terminal_run(store):
+    """A crash after changing the run state must not leave work nobody can claim."""
+    run_id = make_run(store)
+    store.request_cancel(run_id)
+
+    store.interrupt_stale_runs()
+
+    assert store.get_run(run_id)["status"] == "cancelled"
+    assert set(statuses(store, run_id).values()) == {"skipped"}
+
+
 def test_starting_the_worker_is_what_clears_stale_runs(store):
     """The sweep only helps if boot actually reaches it.
 

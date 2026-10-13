@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from pydantic import ValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -26,9 +27,11 @@ from .schemas import (
     CreateRunRequest,
     PromptCreateRequest,
     TruthRequest,
+    VerificationRecord,
 )
 from .source import SourceRepository
 from .worker import AuditWorker
+from .runtime import AgentPolicy
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
@@ -41,6 +44,16 @@ def _iso() -> str:
 def _safe_name(value: str) -> str:
     cleaned = Path(value.replace("\\", "/")).name.strip()[:120]
     return "".join(ch for ch in cleaned if ch.isprintable() and ch not in '/\\:*?"<>|') or "upload.bin"
+
+
+def _required_verification_fields(record: VerificationRecord) -> list[str]:
+    labels = {
+        "target_version": "目标版本",
+        "command": "执行命令",
+        "normal_observation": "正常输入的实际观测",
+        "attack_observation": "攻击输入的实际观测",
+    }
+    return [label for field, label in labels.items() if not getattr(record, field).strip()]
 
 
 class Services:
@@ -114,6 +127,7 @@ async def get_config(request: Request) -> dict:
         **state.settings.model.public(),
         "budgets": state.settings.budgets,
         "budget_limits": {"defaults": DEFAULT_BUDGETS},
+        "agent_policy": AgentPolicy().snapshot(),
         "worker": state.worker.status,
         "model_health": state.health.snapshot(),
         "version": VERSION,
@@ -243,6 +257,7 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "prompt_text": prompt["text"],
         "model": state.settings.model.label,
         "budgets": budgets,
+        "agent_policy": AgentPolicy().snapshot(),
         "created_at": _iso(),
     }
     state.store.create_run(run, units)
@@ -269,6 +284,7 @@ async def cancel_run(request: Request, run_id: str) -> dict:
     if run["status"] not in ("pending", "running"):
         raise HTTPException(status_code=409, detail=f"Run is already {run['status']}")
     state.store.request_cancel(run_id)
+    state.worker.cancel(run_id, reason="user_cancelled")
     # A pending unit may be mid-flight; the worker observes the status between units.
     if state.worker._run_id != run_id:
         current = state.store.get_run(run_id)
@@ -362,11 +378,11 @@ async def download_poc(request: Request, finding_id: str) -> Response:
     if not poc.get("script"):
         raise HTTPException(status_code=404, detail="This finding has no proof-of-concept script")
     filename = _safe_name(poc.get("filename") or f"poc_{finding_id[:8]}.php")
-    body = poc["script"]
-    if poc.get("instructions"):
-        body = f"<?php /*\n运行说明：\n{poc['instructions']}\n\n正常输入：{poc.get('normal_input', '')}\n攻击输入：{poc.get('attack_input', '')}\n预期结果：{poc.get('expected_result', '')}\n*/\n?>\n" + body
     return Response(
-        content=body,
+        # The exported report stores the model artifact verbatim. Downloads must do
+        # the same: a PHP comment header corrupts Python/shell POCs and makes the two
+        # supposedly identical copies impossible to reproduce.
+        content=poc["script"],
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -388,41 +404,55 @@ async def add_verification(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="record must be a JSON object") from exc
 
-    verdict = payload.get("verdict")
-    if verdict not in ("confirmed", "rejected", "uncertain"):
-        raise HTTPException(status_code=400, detail="verdict must be confirmed, rejected or uncertain")
-    execution_status = payload.get("execution_status")
-    allowed = {
-        "success", "syntax_error", "connection_failed", "environment_mismatch",
-        "not_triggered", "not_run", "other_error",
-    }
-    if execution_status not in allowed:
-        raise HTTPException(status_code=400, detail=f"execution_status must be one of {sorted(allowed)}")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="record must be a JSON object")
+    try:
+        verification = VerificationRecord.model_validate(payload)
+    except ValidationError as exc:
+        first = exc.errors(include_url=False)[0]
+        raise HTTPException(status_code=400, detail=f"record is invalid: {first['msg']}") from exc
+
+    verdict = verification.verdict
+    execution_status = verification.execution_status
+    has_upload = any(upload is not None and bool((upload.filename or "").strip()) for upload in files)
+
+    # A confirmation claims that the vulnerability was reproduced, so it needs a
+    # successful run, both sides of the control experiment, enough environment detail
+    # to reproduce it, and an attachment. An exclusion also needs a successful run and
+    # observations; a failed POC is an uncertain result, never an automatic false positive.
+    if verdict in ("confirmed", "rejected"):
+        if execution_status != "success":
+            label = "确认" if verdict == "confirmed" else "排除"
+            raise HTTPException(status_code=400, detail=f"执行未成功时不能{label}；请改用 uncertain 或补充决定性观测")
+        missing = _required_verification_fields(verification)
+        if missing:
+            raise HTTPException(status_code=400, detail=f"{verdict} 需要填写：{'、'.join(missing)}")
+    if verdict == "confirmed" and not has_upload:
+        raise HTTPException(status_code=400, detail="确认为漏洞时必须上传日志、截图或其他可复核证据")
+    if finding["category"] == "xss_r" and verdict == "confirmed" and not verification.browser_execution:
+        raise HTTPException(status_code=400, detail="反射型 XSS 确认需要浏览器执行证据")
 
     verification_id = uuid.uuid4().hex
     saved: list[dict] = []
-    for upload in files:
-        if upload is None or not upload.filename:
-            continue
-        name = f"{verification_id[:8]}-{_safe_name(upload.filename)}"
-        target = state.settings.evidence_dir / name
-        await asyncio.to_thread(target.write_bytes, await upload.read())
-        saved.append({"name": upload.filename, "stored": name, "url": f"/api/evidence/{name}"})
-
-    # An excluded verdict is only credible with a decisive observation; a failed run
-    # cannot silently become a false positive.
-    if verdict == "rejected" and execution_status != "success":
-        raise HTTPException(
-            status_code=400,
-            detail="执行未成功时不能判定为排除；请改用 uncertain 或补充决定性观测",
-        )
-    if verdict == "confirmed" and not (payload.get("attack_observation") or "").strip():
-        raise HTTPException(status_code=400, detail="确认为漏洞时必须填写攻击输入的实际观测结果")
-    if finding["category"] == "xss_r" and verdict == "confirmed":
-        if not payload.get("browser_execution"):
-            raise HTTPException(status_code=400, detail="反射型 XSS 确认需要浏览器执行证据")
-        if not saved:
-            raise HTTPException(status_code=400, detail="反射型 XSS 确认需要上传日志或截图")
+    written: list[Path] = []
+    try:
+        for index, upload in enumerate(files, 1):
+            if upload is None or not (upload.filename or "").strip():
+                continue
+            name = f"{verification_id[:8]}-{index:02d}-{_safe_name(upload.filename)}"
+            target = state.settings.evidence_dir / name
+            content = await upload.read()
+            if not content:
+                continue
+            await asyncio.to_thread(target.write_bytes, content)
+            written.append(target)
+            saved.append({"name": upload.filename, "stored": name, "url": f"/api/evidence/{name}"})
+    except Exception:
+        for path in written:
+            path.unlink(missing_ok=True)
+        raise
+    if verdict == "confirmed" and not saved:
+        raise HTTPException(status_code=400, detail="确认证据附件不能为空")
 
     entry = {
         "id": verification_id,
@@ -431,19 +461,23 @@ async def add_verification(
         "execution_status": execution_status,
         "verdict": verdict,
         "original_script": ((finding.get("poc") or {}).get("script") or ""),
-        "modified_script": payload.get("modified_script") or "",
-        "modification_notes": payload.get("modification_notes") or "",
-        "target_version": payload.get("target_version") or "",
-        "command": payload.get("command") or "",
-        "expected_result": payload.get("expected_result") or "",
-        "normal_observation": payload.get("normal_observation") or "",
-        "attack_observation": payload.get("attack_observation") or "",
-        "browser_execution": bool(payload.get("browser_execution")),
-        "notes": payload.get("notes") or "",
+        "modified_script": verification.modified_script,
+        "modification_notes": verification.modification_notes,
+        "target_version": verification.target_version,
+        "command": verification.command,
+        "expected_result": verification.expected_result,
+        "normal_observation": verification.normal_observation,
+        "attack_observation": verification.attack_observation,
+        "browser_execution": verification.browser_execution,
+        "notes": verification.notes,
         "files": saved,
     }
-    state.store.add_verification(entry)
-    state.store.set_finding_verdict(finding_id, verdict)
+    try:
+        state.store.record_verification(entry)
+    except Exception:
+        for path in written:
+            path.unlink(missing_ok=True)
+        raise
     state.bus.emit(
         finding["run_id"],
         finding["unit_id"],

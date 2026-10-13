@@ -1,106 +1,147 @@
-"""The audit agent: one unit in, one structured UnitAnalysis out.
+"""Finite white-box audit: evidence exploration, verdicts, then POCs.
 
-The agent's autonomy is deliberately narrow. The queue decides *what* is examined and
-the fixed checklist decides *which* categories are reported; the model only decides
-which additional code it needs in order to answer. It has exactly three read-only
-tools, and every range they return is recorded so evidence citations can be checked
-against what the model actually saw.
+PydanticAI owns the model/tool loop. The host owns termination, phase allocation,
+source provenance and durable checkpoints. No phase renews the unit budget.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 from dataclasses import dataclass, field
 
+from openai import AsyncOpenAI
 from pydantic import ValidationError
-from pydantic_ai import Agent, RunContext, UsageLimits
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai import Agent, ModelRetry, RunContext, UsageLimits
+from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior, UsageLimitExceeded
+from pydantic_ai.messages import RetryPromptPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.usage import RunUsage
 
 from .config import ModelConfig
-from .schemas import CATEGORIES, CATEGORY_LABELS, CategoryPoc, CategoryVerdict, Check, PocBundle, UnitAnalysis
+from .evidence import seen_ranges, validate_evidence
+from .runtime import AgentPolicy, Execution, SourceLedger, StopAudit, canonical_call, history_size
+from .schemas import CATEGORIES, CATEGORY_LABELS, CategoryPoc, CategoryVerdict, Check, UnitAnalysis, UnitVerdicts
 from .source import SourceRepository
 
-MAX_TOOL_TEXT = 32 * 1024
-# The forced answer inlines what exploration read; a unit that wandered through a whole
-# framework must not push the settlement call past the context window.
-MAX_SETTLEMENT_CONTEXT = 120 * 1024
-# The wrap-up phase runs on its own wall clock, not on what is left of exploration.
-SETTLE_SECONDS = 420.0
-# Even past the deadline a call gets this much, so a long settlement degrades into a
-# slow answer instead of an immediate failure.
-SETTLE_MIN_CALL = 60.0
-# Ceiling on one settlement call. `retries=1` means up to two attempts inside it.
-SETTLE_CALL_SECONDS = 200.0
-# Per-request timeout, passed to the model. This is the one that matters: without it a
-# single hung request consumes the whole call budget and the correction attempt never
-# happens, which is how the first settlement call died with a bare `TimeoutError` and no
-# indication of how long it had waited.
-SETTLE_REQUEST_SECONDS = 90.0
+
+def build_model(config: ModelConfig):
+    # The host budgets every attempt; invisible transport retries would multiply it.
+    client = AsyncOpenAI(base_url=config.base_url, api_key=config.api_key, max_retries=0)
+    return OpenAIChatModel(config.model, provider=OpenAIProvider(openai_client=client))
 
 
 @dataclass
 class AuditDeps:
-    """Everything a tool call needs, plus the record of what was handed to the model."""
-
     repository: SourceRepository
     snapshot_id: str
     unit: dict
-    reads: list[dict] = field(default_factory=list)
+    execution: Execution
+    ledger: SourceLedger
     calls: set = field(default_factory=set)
     repeats: int = 0
-    tool_limit: int = 0
+    stagnant: int = 0
+    notes: list[str] = field(default_factory=list)
 
-    def record(self, path: str, start_line: int, end_line: int) -> None:
-        self.reads.append({"path": path, "start_line": start_line, "end_line": end_line})
+    @property
+    def reads(self) -> list[dict]:
+        return self.ledger.reads()
 
-    def first_time(self, name: str, args: dict) -> bool:
-        """False when this exact tool call has already been made for this unit.
-
-        A small model that cannot resolve a fact will sometimes re-issue the identical
-        search instead of concluding. Re-running it returns the same bytes and burns the
-        unit's whole budget, so the repeat is refused and the model is told why.
-        """
-        key = (name, tuple(sorted(args.items())))
+    async def call(self, name: str, args: dict) -> str:
+        execution = self.execution
+        execution.before_tool()
+        key = canonical_call(name, args)
+        execution.emit({"kind": "tool_call", "tool": name, "args": args, "turn": execution.tools})
+        added = 0
+        ledger_full = False
         if key in self.calls:
             self.repeats += 1
-            return False
-        self.calls.add(key)
-        return True
-
-    def budget_note(self) -> str:
-        """A squeeze appended to tool results once the tool budget runs low.
-
-        The prompts say what a verdict must establish; nothing in them bounds how far to
-        chase it, and an unbounded checklist makes a model explore until the unit dies as
-        `incomplete` — which is the one outcome that yields no finding at all.
-        """
-        if not self.tool_limit:
-            return ""
-        remaining = self.tool_limit - len(self.calls)
-        if remaining > max(2, self.tool_limit // 4):
-            return ""
-        return (
-            f"\n\n【预算提示】工具调用已用 {len(self.calls)}/{self.tool_limit} 次，剩余 {max(remaining, 0)} 次。"
-            "请立即停止探索，基于已经读到的代码给出三类的结构化结论；"
-            "任何仍未证实的事实写进 missing_context 或 preconditions，不要再去读新文件。"
-        )
-
-
-def build_model(config: ModelConfig):
-    provider = OpenAIProvider(base_url=config.base_url, api_key=config.api_key)
-    return OpenAIChatModel(config.model, provider=provider)
+            text = "此工具参数已调用过；结果见已有上下文。请基于证据作答，缺失信息写入 missing_context。"
+            status = "duplicate"
+        else:
+            self.calls.add(key)
+            try:
+                if name == "read_source":
+                    result = await asyncio.wait_for(asyncio.to_thread(
+                        self.repository.read_source, self.snapshot_id, args["path"], args["start"], args["end"]
+                    ), timeout=execution.policy.tool_seconds)
+                    text, added, ledger_full = self.ledger.offer(
+                        result["path"], result["lines"], execution.policy.tool_bytes
+                    )
+                    if result.get("truncated"):
+                        text += f"\n[源文件还有未返回内容；下一行 {result.get('next_start')}]"
+                elif name == "search_code":
+                    result = await asyncio.wait_for(asyncio.to_thread(
+                        self.repository.search_code, self.snapshot_id, args["query"], args.get("path"), limit=40
+                    ), timeout=execution.policy.tool_seconds)
+                    text = ""
+                    for match in result["matches"]:
+                        remaining = execution.policy.tool_bytes - len(text.encode("utf-8"))
+                        if remaining <= 0:
+                            break
+                        block, new, full = self.ledger.offer(
+                            match["path"], [{"number": match["line"], "text": match["text"]}], remaining
+                        )
+                        text += block
+                        added += new
+                        ledger_full = ledger_full or full
+                        if ledger_full:
+                            break
+                    text = text or "没有匹配结果；这不表示代码安全。"
+                    if result.get("truncated"):
+                        text += "\n[搜索结果不完整；缩小文件或查询范围]"
+                else:
+                    result = await asyncio.wait_for(asyncio.to_thread(
+                        self.repository.get_context, self.snapshot_id, self.unit
+                    ), timeout=execution.policy.tool_seconds)
+                    text = ""
+                    for excerpt in result["excerpts"]:
+                        remaining = execution.policy.tool_bytes - len(text.encode("utf-8"))
+                        if remaining <= 0:
+                            break
+                        block, new, full = self.ledger.offer(excerpt["path"], excerpt["lines"], remaining)
+                        text += block
+                        added += new
+                        ledger_full = ledger_full or full
+                        if ledger_full:
+                            break
+                    unresolved = result.get("unresolved_dependencies") or []
+                    if unresolved:
+                        note = "无法解析的依赖（不是安全结论）：" + json.dumps(unresolved[:8], ensure_ascii=False)[:1600]
+                        self.notes.append(note)
+                        text += "\n" + note
+                    text = text or "未找到额外静态上下文；运行时依赖需要人工补充。"
+                status = "ok"
+            except (ValueError, FileNotFoundError, OSError, asyncio.TimeoutError) as exc:
+                text = f"{name} 未能补读：{type(exc).__name__}: {str(exc)[:200]}。缺失依赖应记录为 missing_context。"
+                status = "context_missing"
+                self.notes.append(text)
+        self.stagnant = 0 if added else self.stagnant + 1
+        execution.emit({"kind": "tool_result", "tool": name, "status": status,
+                        "new_lines": added, "chars": len(text), "preview": text[:1200],
+                        "seen": self.reads, "usage": execution.snapshot()})
+        if self.repeats >= execution.policy.repeated_calls or self.stagnant >= execution.policy.no_progress_calls:
+            raise StopAudit("no_progress", "重复读取或连续工具调用未增加代码证据，停止探索并进入判定")
+        if ledger_full or self.ledger.bytes_used >= self.ledger.max_bytes:
+            raise StopAudit("context_limit", "已读源码达到上限，停止探索并基于现有证据作答")
+        return text + f"\n[剩余工具 {execution.budgets['tools'] - execution.tools}；判定和 POC 共享总预算]"
 
 
 def _format_lines(lines: list[dict]) -> str:
     return "\n".join(f"{line['number']:>5} | {line['text']}" for line in lines)
 
 
-def render_unit(unit: dict, snapshot_name: str, budgets: dict | None = None) -> str:
+def render_unit(
+    unit: dict,
+    snapshot_name: str,
+    budgets: dict | None = None,
+    *,
+    displayed_lines: list[dict] | None = None,
+    source_truncated: bool = False,
+    include_source: bool = True,
+) -> str:
     """The single user message: the frozen slice with original line numbers."""
     header = [
         f"快照: {snapshot_name}",
@@ -120,12 +161,11 @@ def render_unit(unit: dict, snapshot_name: str, budgets: dict | None = None) -> 
         header.append(f"切片规则: {rule.get('boundary', 'unknown')}（重叠 {rule.get('overlap_lines', 0)} 行）")
 
     omitted = unit.get("omissions") or []
-    body = [
-        "",
-        "```php",
-        _format_lines(unit.get("cleaned_lines") or []),
-        "```",
-    ]
+    body = [""]
+    if include_source:
+        body.extend(("```php", _format_lines(displayed_lines if displayed_lines is not None else unit.get("cleaned_lines") or []), "```"))
+    if source_truncated:
+        body.append("\n（本单元展示内容达到上下文上限；未显示的行没有登记为已读，可用工具按范围补读。）")
     if omitted:
         kinds: dict[str, int] = {}
         for item in omitted:
@@ -140,7 +180,7 @@ def render_unit(unit: dict, snapshot_name: str, budgets: dict | None = None) -> 
         body.append(
             f"\n## 本单元的工具预算\n"
             f"你最多可以做 {budgets['tools']} 次工具调用、最多 {budgets['responses']} 次模型往返。"
-            "预算用尽时本单元会被记为「未完成」，既不算漏洞也不算安全——所以给出结论永远优于继续探索。\n"
+            "判定与 POC 也共享这个总预算；需要预留时间完成结论，未证实的信息如实写入 missing_context。\n"
             "- 上面的代码就是本单元的全部内容，不必再读一遍；只有需要原始（未清洗）文本时才读回。\n"
             "- 同一个工具用完全相同的参数重复调用会被拒绝；结果就在上文，请直接用。\n"
             "- 优先回答决定结论的那个问题。若某个事实在代码里查不到（例如配置值、运行时开关、"
@@ -151,408 +191,263 @@ def render_unit(unit: dict, snapshot_name: str, budgets: dict | None = None) -> 
     return "\n".join(header + body)
 
 
-async def audit_unit(
-    *,
-    repository: SourceRepository,
-    snapshot_id: str,
-    snapshot_name: str,
-    unit: dict,
-    prompt_text: str,
-    config: ModelConfig,
-    budgets: dict,
-    on_event=None,
-) -> dict:
-    """Run one unit. Returns the analysis (or None) plus budget accounting.
+async def _run(agent, message: str, deps: AuditDeps, *, deadline: float, limit: int):
+    """Advance the framework's graph, guarding *before* every network request."""
+    execution = deps.execution
+    async with agent.iter(message, deps=deps, usage=execution.usage,
+                          usage_limits=UsageLimits(request_limit=execution.budgets["responses"])) as run:
+        node = run.next_node
+        while not run.result:
+            if Agent.is_model_request_node(node):
+                # The graph has not yet appended its current request to all_messages().
+                # Counting only the history let an oversized first request (and a large
+                # tool response) bypass the cap entirely.
+                if history_size([*run.all_messages(), node.request]) > execution.policy.history_bytes:
+                    raise StopAudit("context_limit", "模型历史已达到上下文上限")
+                correction = any(isinstance(part, RetryPromptPart) for part in node.request.parts)
+                ceiling = execution.before_model(deadline=deadline, limit=limit, correction=correction)
+                try:
+                    node = await asyncio.wait_for(run.next(node), timeout=ceiling)
+                except asyncio.TimeoutError as exc:
+                    raise StopAudit("request_timeout", f"模型请求超过 {ceiling:.1f}s；不重复同一网络请求") from exc
+                execution.emit({"kind": "model_response", "phase": execution.phase, "usage": execution.snapshot()})
+            else:
+                node = await run.next(node)
+        return run.result.output
 
-    Never raises for model-side problems: a failed unit is reported as incomplete,
-    because the report must not turn an execution failure into a negative finding.
 
-    `on_event(turn)` is an optional diagnostic tap used by scripts/demo_trace.py; the
-    worker leaves it unset so a run records only its event log.
-    """
-    deps = AuditDeps(
-        repository=repository,
-        snapshot_id=snapshot_id,
-        unit=unit,
-        tool_limit=int(budgets.get("tools") or 0),
-    )
-    agent: Agent[AuditDeps, UnitAnalysis] = Agent(
-        build_model(config),
-        deps_type=AuditDeps,
-        output_type=UnitAnalysis,
-        instructions=prompt_text,
-        model_settings=ModelSettings(extra_body=config.extra_body()),
-        # One correction attempt for output validation; the spec allows exactly one.
-        retries=1,
-    )
-
-    @agent.tool
+def _register_tools(agent) -> None:
+    @agent.tool(sequential=True, retries=0)
     async def read_source(ctx: RunContext[AuditDeps], path: str, start: int, end: int) -> str:
-        """Read original source lines from the snapshot.
+        """Read original snapshot lines; path is snapshot-relative, start/end are inclusive original line numbers."""
+        return await ctx.deps.call("read_source", {"path": path, "start": start, "end": end})
 
-        Args:
-            path: Snapshot-relative file path, exactly as printed in the unit header.
-            start: First line to read, one-based.
-            end: Last line to read, inclusive.
-        """
-        if not ctx.deps.first_time("read_source", {"path": path, "start": start, "end": end}):
-            return f"read_source({path}, {start}-{end}) 已经调用过，内容见上文工具返回。请不要重复读取，直接下结论。"
-        try:
-            result = ctx.deps.repository.read_source(ctx.deps.snapshot_id, path, start, end)
-        except (ValueError, FileNotFoundError) as exc:
-            return f"read_source failed: {exc}"
-        ctx.deps.record(result["path"], result["start_line"], result["end_line"])
-        text = _format_lines(result["lines"])
-        if result.get("truncated"):
-            text += f"\n... truncated at line {result['end_line']}; continue from line {result['next_start']}"
-        return (text + ctx.deps.budget_note())[:MAX_TOOL_TEXT]
-
-    @agent.tool
+    @agent.tool(sequential=True, retries=0)
     async def search_code(ctx: RunContext[AuditDeps], query: str, path: str | None = None) -> str:
-        """Search the snapshot for a literal string, to find callers, sinks or definitions.
+        """Find literal symbols, calls or variables; query <=200 characters; optional snapshot-relative file."""
+        return await ctx.deps.call("search_code", {"query": query, "path": path})
 
-        Args:
-            query: Literal text to find, at most 200 characters.
-            path: Optional single file to restrict the search to.
-        """
-        if not ctx.deps.first_time("search_code", {"query": query, "path": path}):
-            return f"search_code({query!r}) 已经调用过，结果见上文。同一个搜索不会给出新结果，请改用已有证据下结论。"
-        try:
-            result = ctx.deps.repository.search_code(ctx.deps.snapshot_id, query, path, limit=40)
-        except (ValueError, FileNotFoundError) as exc:
-            return f"search_code failed: {exc}"
-        if not result["matches"]:
-            return f"no matches for {query!r}"
-        lines = []
-        for match in result["matches"]:
-            ctx.deps.record(match["path"], match["line"], match["line"])
-            lines.append(f"{match['path']}:{match['line']}: {match['text'].strip()[:300]}")
-        if result.get("truncated"):
-            lines.append("... results truncated")
-        return ("\n".join(lines) + ctx.deps.budget_note())[:MAX_TOOL_TEXT]
-
-    @agent.tool
+    @agent.tool(sequential=True, retries=0)
     async def get_context(ctx: RunContext[AuditDeps]) -> str:
-        """Fetch the owning class, include statements, related functions, call sites and
-        the list of dependencies that could not be resolved statically."""
-        if not ctx.deps.first_time("get_context", {}):
-            return "get_context() 已经调用过，内容见上文工具返回。请直接下结论。"
-        try:
-            result = ctx.deps.repository.get_context(ctx.deps.snapshot_id, ctx.deps.unit)
-        except (ValueError, FileNotFoundError) as exc:
-            return f"get_context failed: {exc}"
-        chunks = []
-        for excerpt in result["excerpts"]:
-            ctx.deps.record(excerpt["path"], excerpt["start_line"], excerpt["end_line"])
-            chunks.append(
-                f"--- {excerpt['path']}:{excerpt['start_line']}-{excerpt['end_line']}"
-                f"（{excerpt.get('reason', 'context')}）\n{_format_lines(excerpt['lines'])}"
-            )
-        unresolved = result.get("unresolved_dependencies") or []
-        if unresolved:
-            chunks.append(
-                "无法静态解析的依赖:\n"
-                + "\n".join(
-                    f"- {item.get('path')}:{item.get('line', '?')} {item.get('expression', '')} — {item['reason']}"
-                    for item in unresolved[:20]
-                )
-            )
-        return (("\n\n".join(chunks) or "no static context available") + ctx.deps.budget_note())[:MAX_TOOL_TEXT]
+        """Read owning class, includes, related functions/callers, and unresolved dependencies for this unit."""
+        return await ctx.deps.call("get_context", {})
 
-    limits = UsageLimits(
-        request_limit=budgets["responses"],
-        tool_calls_limit=budgets["tools"],
-    )
-    started = time.monotonic()
-    usage = {"requests": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0}
-    # Our own accumulator, passed into the run and incremented in place. `result.usage` is
-    # only reachable when the run returns, and the usual end of exploration here is a
-    # raised budget error — which is why the report used to show "0 次工具调用" for units
-    # that had in fact read thirty ranges through the tools.
-    accumulator = RunUsage()
 
-    def capture() -> None:
-        for name in usage:
-            value = getattr(accumulator, name, None)
-            if isinstance(value, int):
-                usage[name] = value
+async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot_name: str,
+                     unit: dict, prompt_text: str, config: ModelConfig, budgets: dict,
+                     on_event=None, policy: AgentPolicy | None = None) -> dict:
+    """One finite unit, preserving successful categories even if another stage fails."""
+    policy = policy or AgentPolicy()
+    emit = on_event or (lambda event: None)
+    execution = Execution(budgets, policy, emit)
+    ledger = SourceLedger(policy.source_bytes)
+    deps = AuditDeps(repository, snapshot_id, unit, execution, ledger)
+    cleaned_lines = unit.get("cleaned_lines") or []
+    _, _, initial_ledger_full = ledger.offer(unit["file_path"], cleaned_lines, policy.source_bytes)
+    initial_ledger_keys = set(ledger.lines)
+    initial_lines = ledger.line_records(unit["file_path"])
+    initial_truncated = initial_ledger_full or len(initial_lines) < len(cleaned_lines)
+    checks: dict[str, Check] = {}
+    verdicts: dict[str, CategoryVerdict] = {}
+    summary = ""
+    exploration_reason = None
+    failures: dict[str, str] = {}
+    poc_status: dict[str, str] = {}
+    terminal = "completed"
+    status = None
+    model = None
 
-    handler = None
-    if on_event is not None:
-        turn = {"n": 0}
+    def mark_pending_pocs_incomplete() -> None:
+        for name, state in tuple(poc_status.items()):
+            if state == "pending":
+                poc_status[name] = "incomplete"
 
-        def _describe(event) -> dict | None:
-            kind = getattr(event, "event_kind", "")
-            part = getattr(event, "part", None)
-            # Use the completed events: a part_start for a tool call may still carry
-            # empty args while the call is being streamed.
-            if kind == "function_tool_call":
-                turn["n"] += 1
-                args = part.args_as_dict() if hasattr(part, "args_as_dict") else getattr(part, "args", None)
-                return {"turn": turn["n"], "tool": getattr(part, "tool_name", "?"), "args": args}
-            if kind == "function_tool_result":
-                content = getattr(part, "content", "")
-                return {"tool": getattr(part, "tool_name", "?"),
-                        "chars": len(str(content)), "preview": str(content)[:160]}
-            if kind != "part_start" or not part:
-                return None
-            part_kind = getattr(part, "part_kind", "")
-            if part_kind == "retry-prompt":
-                return {"retry": str(getattr(part, "content", ""))[:300]}
-            if part_kind == "final-result":
-                return {"final": True}
-            return None
+    def outcome(reason: str, error: str | None = None) -> dict:
+        analysis = UnitAnalysis(summary=summary, **checks) if len(checks) == len(CATEGORIES) else None
+        state = {
+            "summary": summary,
+            "conclusions": {name: verdict.conclusion for name, verdict in verdicts.items()},
+            # Keep the complete pre-POC decision even when a later POC request times
+            # out.  A partial unit remains unscored, but a reviewer can still inspect
+            # the source-to-sink reasoning and resume the missing proof work.
+            "verdicts": {name: verdict.model_dump() for name, verdict in verdicts.items()},
+            "checks": {name: check.model_dump() for name, check in checks.items()},
+            "poc_status": dict(poc_status),
+            "exploration_incomplete": exploration_reason,
+            "terminal_reason": reason, "phase": execution.phase,
+            "category_errors": failures, "agent_policy": policy.snapshot(),
+        }
+        return {"analysis": analysis, "checks": dict(checks), "verdicts": dict(verdicts),
+                "usage": execution.snapshot(), "seen": deps.reads, "seen_exact": True,
+                "repeats": deps.repeats, "incomplete": None if analysis else reason,
+                "error": error, "status": status, "settled": execution.phase != "explore",
+                "exploration_incomplete": exploration_reason, "result": state,
+                "terminal_reason": reason}
 
-        def handler(_ctx, event_stream):
-            async def consume():
-                async for event in event_stream:
-                    described = _describe(event)
-                    if described is not None:
-                        on_event(described)
-            return consume()
+    def checkpoint() -> None:
+        data = outcome("working")
+        emit({"kind": "unit_checkpoint", "result": data["result"], "usage": data["usage"], "seen": data["seen"]})
+
+    def build(schema, *, tools: bool = False):
+        nonlocal model
+        if model is None:
+            model = build_model(config)
+        instruction = prompt_text + (
+            "\n\n# 当前阶段约束\n先完成证据与判定，POC 在判定后单独生成。"
+            "本次若为 UnitVerdicts，仅输出三类判定，不输出脚本。可引用已返回的任何快照文件路径，"
+            "不要把缺失配置、路由或登录条件当作事实。缺少会改变结论的源码时用 insufficient_context。"
+        )
+        agent = Agent(model, deps_type=AuditDeps, output_type=schema,
+                      instructions=instruction, retries={"tools": 1, "output": 1},
+                      model_settings=ModelSettings(extra_body=config.extra_body(),
+                                                   timeout=policy.request_seconds, max_tokens=4096))
+        if tools:
+            _register_tools(agent)
+        return agent
+
+    async def verdict_call(*, tools: bool, deadline: float, limit: int):
+        agent = build(UnitVerdicts, tools=tools)
+        @agent.output_validator
+        def validate(ctx, result: UnitVerdicts):
+            for name, verdict in result.by_category().items():
+                if verdict.conclusion != "candidate":
+                    continue
+                missing = _candidate_verdict_missing(verdict)
+                if missing:
+                    raise ModelRetry(f"{name} 判为 candidate 但缺少: {', '.join(missing)}。补齐或改为 insufficient_context。")
+                refs = _parse_evidence(verdict.evidence)
+                paths = {path for path, _, _ in ledger.lines}
+                # At this stage file membership/visibility is enough; the worker also
+                # checks original file bounds before a finding can be persisted.
+                _, problems = validate_evidence(refs, {path: 10**9 for path in paths}, seen_ranges(unit, deps.reads, exact=True))
+                if problems:
+                    raise ModelRetry(f"{name} 的证据不在已显示源码中：{'; '.join(problems)}。补读或写 insufficient_context。")
+            return result
+        message = render_unit(
+            unit, snapshot_name, budgets, displayed_lines=initial_lines,
+            source_truncated=initial_truncated, include_source=tools,
+        )
+        if tools:
+            prepared_context = ledger.replay(exclude=initial_ledger_keys)
+            if prepared_context:
+                message += "\n# 主机已用 get_context 补读的证据\n" + prepared_context
+            message += "\nget_context 已执行，结果在上文。针对决定结论的变量补读即可；不要重复读取上方代码。"
+        else:
+            message += "\n# 已读代码（只回放实际返回的行）\n" + ledger.replay() + "\n工具已停用。请直接提交三类判定；没有证据的类别写 insufficient_context。"
+        message += "\n# 上下文缺失记录\n" + "\n".join(deps.notes[-8:])
+        return await _run(agent, message, deps, deadline=deadline, limit=limit)
 
     try:
-        result = await asyncio.wait_for(
-            agent.run(
-                render_unit(unit, snapshot_name, budgets),
-                deps=deps,
-                usage=accumulator,
-                usage_limits=limits,
-                event_stream_handler=handler,
-            ),
-            timeout=budgets["seconds"],
-        )
+        # Preparation is host-controlled and uses the same read-only get_context tool;
+        # it supplies useful cross-file context before a model can wander blindly.
+        async with asyncio.timeout(budgets["seconds"]):
+            if unit.get("parse_incomplete"):
+                raise StopAudit("parse_error", "源码解析不完整；保留未完成状态并要求检查原始源码")
+            execution.enter("prepare", agent_policy=policy.snapshot())
+            if budgets["tools"]:
+                try:
+                    await deps.call("get_context", {})
+                except StopAudit as exc:
+                    # The host's initial cross-file read uses the same source ledger as
+                    # model-driven exploration. Reaching that ledger cap should switch
+                    # to a tool-free verdict, not skip verdict generation altogether.
+                    exploration_reason = exc.reason
+                    emit({"kind": "exploration_stopped", "reason": exploration_reason, "error": str(exc)[:400]})
+            reserve = min(4, max(1, budgets["responses"] // 2))
+            explore_limit = budgets["responses"] - reserve
+            decision = None
+            if explore_limit > 0 and budgets["tools"] and exploration_reason is None:
+                execution.enter("explore", reserved_responses=reserve)
+                try:
+                    decision = await verdict_call(tools=True,
+                        deadline=execution.started + budgets["seconds"] * policy.exploration_fraction,
+                        limit=explore_limit)
+                except (StopAudit, UsageLimitExceeded, UnexpectedModelBehavior) as exc:
+                    exploration_reason = getattr(exc, "reason", "invalid_output")
+                    emit({"kind": "exploration_stopped", "reason": exploration_reason, "error": str(exc)[:400]})
+            if decision is None:
+                execution.enter("verdict", reason=exploration_reason or "direct")
+                decision = await verdict_call(tools=False, deadline=execution.deadline, limit=budgets["responses"])
+            summary = decision.summary
+            verdicts.update(decision.by_category())
+            for name, verdict in verdicts.items():
+                if verdict.conclusion != "candidate":
+                    checks[name] = _to_check(name, verdict, None)
+                    poc_status[name] = "not_required"
+                else:
+                    poc_status[name] = "pending"
+            checkpoint()
+            for name in CATEGORIES:
+                verdict = verdicts[name]
+                if verdict.conclusion != "candidate":
+                    continue
+                execution.enter("poc", category=name)
+                agent = build(CategoryPoc)
+                @agent.output_validator
+                def validate_proof(ctx, proof: CategoryPoc):
+                    if proof.category != name:
+                        raise ModelRetry(f"本次只为 {name} 生成 POC。")
+                    try:
+                        _to_check(name, verdict, proof)
+                    except (ValueError, ValidationError) as exc:
+                        raise ModelRetry(str(exc)[:600]) from exc
+                    return proof
+                try:
+                    proof = await _run(agent,
+                        render_unit(unit, snapshot_name, displayed_lines=initial_lines,
+                                    source_truncated=initial_truncated, include_source=False)
+                        + "\n# 可用源码证据\n" + ledger.replay()
+                        + f"\n# 已完成判定 {name}\n" + verdict.model_dump_json()
+                        + "\n只为本类别生成完整脚本和修复建议，正常/攻击输入作对照。"
+                        "目标地址、登录会话和安全等级写为可配置参数，并写明适配步骤；缺失的路由和配置不编造。"
+                        "XSS 需浏览器执行证据，响应包含 payload 不能确认。本系统不执行脚本。",
+                        deps, deadline=execution.deadline, limit=budgets["responses"])
+                    checks[name] = _to_check(name, verdict, proof)
+                    poc_status[name] = "completed"
+                    emit({"kind": "category_completed", "category": name, "conclusion": "candidate"})
+                    checkpoint()
+                except (StopAudit, UnexpectedModelBehavior, ValidationError, ValueError) as exc:
+                    terminal = getattr(exc, "reason", "invalid_output")
+                    failures[name] = f"{type(exc).__name__}: {str(exc)[:400]}"
+                    poc_status[name] = "incomplete"
+                    emit({"kind": "category_incomplete", "category": name, "reason": terminal, "error": failures[name]})
+                    checkpoint()
+                    if terminal in ("budget", "timeout"):
+                        break
+            if len(checks) < len(CATEGORIES):
+                terminal = terminal if terminal != "completed" else "incomplete"
+            elif any(check.conclusion == "insufficient_context" for check in checks.values()):
+                terminal = "insufficient_context"
+    except asyncio.CancelledError:
+        mark_pending_pocs_incomplete()
+        checkpoint()
+        emit({"kind": "agent_terminal", "reason": "cancelled", "usage": execution.snapshot(), "phase": execution.phase})
+        raise
     except asyncio.TimeoutError:
-        capture()
-        return await _settle(
-            repository=repository, snapshot_id=snapshot_id, unit=unit, snapshot_name=snapshot_name,
-            prompt_text=prompt_text, config=config, budgets=budgets, deps=deps, usage=usage,
-            reason="timeout", error=f"Unit exceeded the {budgets['seconds']}s wall-clock budget",
-            on_event=on_event, started=started,
-        )
-    except UsageLimitExceeded as exc:
-        capture()
-        return await _settle(
-            repository=repository, snapshot_id=snapshot_id, unit=unit, snapshot_name=snapshot_name,
-            prompt_text=prompt_text, config=config, budgets=budgets, deps=deps, usage=usage,
-            reason="budget", error=f"Budget exhausted: {exc}", on_event=on_event, started=started,
-        )
+        terminal = "timeout"
+        failures[execution.phase] = "单元总墙钟预算已到期；保留已完成类别和代码证据"
+    except (StopAudit, UsageLimitExceeded, UnexpectedModelBehavior) as exc:
+        terminal = getattr(exc, "reason", "invalid_output")
+        failures[execution.phase] = f"{type(exc).__name__}: {str(exc)[:400]}"
     except Exception as exc:
-        # Includes the model failing to produce the structured output at all, which is
-        # the common case for a small model: it is a prompt for settlement, not a dead end.
+        # Source/runtime/output problems do not open the provider's circuit breaker.
         status = getattr(exc, "status_code", None)
-        capture()
-        return await _settle(
-            repository=repository, snapshot_id=snapshot_id, unit=unit, snapshot_name=snapshot_name,
-            prompt_text=prompt_text, config=config, budgets=budgets, deps=deps, usage=usage,
-            reason="error", error=f"{type(exc).__name__}: {str(exc)[:400]}", status=status,
-            on_event=on_event, started=started,
-        )
-
-    capture()
-    return {"analysis": result.output, "usage": usage, "seen": deps.reads, "repeats": deps.repeats,
-            "incomplete": None, "error": None, "settled": False}
-
-
-def _gathered_context(repository: SourceRepository, snapshot_id: str, deps: AuditDeps) -> str:
-    """Everything the exploration phase read, inlined so the forced answer can use it.
-
-    The transcript is rebuilt from the recorded reads rather than from the model's
-    message history: the reads are exact, they survive a failed or cancelled run, and
-    they are the same ranges the evidence validator accepts.
-    """
-    if not deps.reads:
-        return ""
-    blocks: list[str] = []
-    budget = MAX_SETTLEMENT_CONTEXT
-    seen: set[tuple[str, int, int]] = set()
-    for read in deps.reads:
-        key = (read["path"], read["start_line"], read["end_line"])
-        if key in seen:
-            continue
-        seen.add(key)
-        try:
-            result = repository.read_source(snapshot_id, read["path"], read["start_line"], read["end_line"])
-        except (ValueError, FileNotFoundError):
-            continue
-        block = (
-            f"--- {result['path']}:{result['start_line']}-{result['end_line']}\n"
-            f"{_format_lines(result['lines'])}"
-        )
-        if len(block) > budget:
-            break
-        budget -= len(block)
-        blocks.append(block)
-    if not blocks:
-        return ""
-    return "\n\n# 探索阶段读到的代码\n\n" + "\n\n".join(blocks)
-
-
-async def _settle(
-    *,
-    repository: SourceRepository,
-    snapshot_id: str,
-    unit: dict,
-    snapshot_name: str,
-    prompt_text: str,
-    config: ModelConfig,
-    budgets: dict,
-    deps: AuditDeps,
-    usage: dict,
-    reason: str,
-    error: str,
-    on_event=None,
-    started: float = 0.0,
-    status: int | None = None,
-) -> dict:
-    """Force the answer after exploration ends, with the tools taken away.
-
-    The unit is still reported `incomplete` if this fails: a unit the model could not
-    answer is never a negative result.
-    """
-    def unfinished(error_text: str, verdicts=None) -> dict:
-        # `usage` counts nothing when exploration never returned a result: pydantic-ai's
-        # UsageLimitExceeded carries no usage object, so the numbers would be a fabricated
-        # zero. Reporting None says "unknown", which is what the run actually knows.
-        return {"analysis": None, "usage": usage if usage["requests"] else None,
-                "seen": deps.reads, "repeats": deps.repeats,
-                "incomplete": reason, "error": error_text, "status": status,
-                "settled": False, "verdicts": verdicts}
-
-    # Settlement is a phase with a wall clock of its own. The exploration budget is
-    # already spent by the time we get here, so inheriting it left every settlement
-    # call timing out on the 30s floor. Ending a run the same way ARTEX does: the
-    # wrap-up turn gets a budget of its own, not the remainder of the one that ran out.
-    deadline = time.monotonic() + SETTLE_SECONDS
-
-    def remaining() -> float:
-        return max(SETTLE_MIN_CALL, deadline - time.monotonic())
-
-    def call_ceiling() -> float:
-        """How long one settlement call may take: the phase deadline, capped per call."""
-        return max(SETTLE_MIN_CALL, min(SETTLE_CALL_SECONDS, deadline - time.monotonic()))
-
-    context = render_unit(unit, snapshot_name, None) + _gathered_context(repository, snapshot_id, deps)
-
-    def build(schema):
-        return Agent(
-            build_model(config),
-            output_type=schema,
-            instructions=prompt_text,
-            # `timeout` bounds one HTTP request, so a hung request still leaves room for the
-            # correction attempt; the outer wait in `settle_call` bounds the whole call.
-            model_settings=ModelSettings(extra_body=config.extra_body(), timeout=SETTLE_REQUEST_SECONDS),
-            retries=1,
-        )
-
-    async def settle_call(schema, message: str):
-        """One forced answer, timed, with the elapsed time reported on failure.
-
-        The first version of this returned a bare `TimeoutError` with no duration, which
-        could equally have meant a hung endpoint or a phase deadline that had already
-        passed. The elapsed number is what makes the failure diagnosable.
-        """
-        started_call = time.monotonic()
-        ceiling = call_ceiling()
-        try:
-            return await asyncio.wait_for(build(schema).run(message), timeout=ceiling)
-        except Exception as exc:
-            elapsed = time.monotonic() - started_call
-            raise RuntimeError(
-                f"{type(exc).__name__} after {elapsed:.0f}s "
-                f"(ceiling {ceiling:.0f}s, {SETTLE_REQUEST_SECONDS:.0f}s per request): {str(exc)[:200]}"
-            ) from exc
-
-    # One category per call. A candidate that omits a required field burns the call's
-    # retries, so judging all three at once lets one sloppy category destroy the other
-    # two; alone, each category fails or succeeds on its own.
-    verdicts: dict[str, CategoryVerdict] = {}
-    for key, label in (("sqli", "SQL 注入"), ("xss_r", "反射型 XSS"), ("command_injection", "命令注入")):
-        try:
-            result = await settle_call(
-                CategoryVerdict,
-                f"{context}\n\n# 现在作答\n\n"
-                f"工具已停用，不会再读到任何新代码。只判断 {key}（{label}）这一类。\n"
-                "输出对象的每一个字段都必须填写：\n"
-                "- evidence：`路径:起行-止行`，多条用 `;` 分隔；行号是原始文件行号，"
-                "路径必须与单元头部完全一致。非 candidate 时写 不适用。\n"
-                "- input_source / propagation / dangerous_operation：输入来源、传播路径、"
-                "危险操作，各自一句话并可带行号；非 candidate 时写 不适用。\n"
-                "- protection：已有的防护以及它为什么没有覆盖这条路径；没有任何防护时写 无。\n"
-                "- preconditions：触发所需的前提条件，例如需要先登录、需要某个参数名、"
-                "需要特定安全等级或数据库分支；非 candidate 时写 不适用。\n"
-                "- missing_context：还缺什么上下文；没有就写 无。\n"
-                "- severity：low / medium / high / critical；非 candidate 时填 low。\n"
-                "- conclusion 为 candidate 时，evidence、input_source、propagation、"
-                "dangerous_operation、preconditions 必须有实质内容，写 不适用 会被判为无效。",
-            )
-        except Exception as exc:
-            return unfinished(
-                f"{error} | 收尾阶段 {key} 判定失败: {exc}",
-                verdicts=verdicts,
-            )
-        _add_usage(usage, result.usage)
-        verdicts[key] = result.output
-        if on_event is not None:
-            on_event({"settled": key, "conclusion": result.output.conclusion})
-
-    candidates = {name for name, check in verdicts.items() if check.conclusion == "candidate"}
-    proofs: dict[str, CategoryPoc] = {}
-    if candidates:
-        listed = "、".join(sorted(candidates))
-        for name in sorted(candidates):
-            verdict = verdicts[name]
-            try:
-                poc_result = await settle_call(
-                    PocBundle,
-                    f"{context}\n\n# 现在作答\n\n"
-                    f"已判定 {name} 为 candidate，依据是：{verdict.reasoning[:400]}\n\n"
-                    "工具已停用。请只为这一个类别给出一个完整可运行的验证脚本，"
-                    "包含正常输入与攻击输入，并说明两者的预期差异；同时给出修复建议。"
-                    "proofs 里只放一条。",
-                )
-            except Exception as exc:
-                return unfinished(
-                    f"{error} | 已判定 candidate 为 {listed}，但收尾阶段未能产出 POC"
-                    f"（{name}）: {exc}",
-                    verdicts=verdicts,
-                )
-            _add_usage(usage, poc_result.usage)
-            for item in poc_result.output.proofs:
-                proofs.setdefault(item.category, item)
-        missing = sorted(candidates - set(proofs))
-        if missing:
-            return unfinished(
-                f"{error} | 已判定 candidate 为 {listed}，但收尾阶段未返回 POC：{'、'.join(missing)}",
-                verdicts=verdicts,
-            )
-
-    checks: dict[str, Check] = {}
-    for name in CATEGORIES:
-        try:
-            checks[name] = _to_check(name, verdicts[name], proofs.get(name))
-        except (ValidationError, ValueError) as exc:
-            return unfinished(f"{error} | 收尾结果不完整（{name}）: {str(exc)[:400]}", verdicts=verdicts)
-
-    summary = "；".join(
-        f"{CATEGORY_LABELS[name]}[{verdicts[name].conclusion}]："
-        f"{verdicts[name].reasoning.strip().splitlines()[0][:120]}"
-        for name in CATEGORIES
-        if verdicts[name].reasoning.strip()
-    )
-    analysis = UnitAnalysis(summary=summary, **checks)
-    if on_event is not None:
-        on_event({"settled": "done"})
-    return {"analysis": analysis, "usage": usage, "seen": deps.reads, "repeats": deps.repeats,
-            "incomplete": None, "error": None, "settled": True,
-            "exploration_incomplete": reason, "exploration_error": error}
-
-
-def _add_usage(usage: dict, run_usage) -> None:
-    for name in usage:
-        value = getattr(run_usage, name, None)
-        if isinstance(value, int):
-            usage[name] += value
+        model_error = isinstance(exc, ModelHTTPError) or type(exc).__name__ in (
+            "APIConnectionError", "APITimeoutError", "AuthenticationError", "RateLimitError", "APIStatusError")
+        terminal = "model_error" if model_error else "internal_error"
+        error_text = str(exc).replace(config.api_key, "[redacted]") if config.api_key else str(exc)
+        failures[execution.phase] = f"{type(exc).__name__}: {error_text[:400]}"
+    finally:
+        client = getattr(model, "client", None)
+        if client is not None:
+            await client.close()
+    if terminal != "completed":
+        mark_pending_pocs_incomplete()
+    error = "; ".join(f"{key}: {value}" for key, value in failures.items()) or None
+    data = outcome(terminal, error)
+    emit({"kind": "agent_terminal", "reason": terminal, "phase": execution.phase,
+          "usage": data["usage"], "category_errors": failures})
+    return data
 
 
 # Text the model writes when a field carries no information. Treated as blank, so a
@@ -562,6 +457,29 @@ _BLANK = {"", "无", "不适用", "n/a", "na", "none", "null", "-", "—"}
 
 def _blank(value: str | None) -> bool:
     return value is None or value.strip().strip("。.") in _BLANK
+
+
+def _candidate_verdict_missing(verdict: CategoryVerdict) -> list[str]:
+    """Fields a candidate must settle before the separate POC phase begins.
+
+    The POC schema cannot repair a missing input source or sink.  Catching these here
+    directs the one allowed structured-output retry at the only response that can
+    actually change them.
+    """
+    missing = [
+        field
+        for field, value in (
+            ("evidence", verdict.evidence),
+            ("input_source", verdict.input_source),
+            ("propagation", verdict.propagation),
+            ("dangerous_operation", verdict.dangerous_operation),
+            ("preconditions", verdict.preconditions),
+        )
+        if _blank(value)
+    ]
+    if not _parse_evidence(verdict.evidence):
+        missing.append("evidence(无法解析)")
+    return missing
 
 
 # Only these extensions are indexed, so a path can be recognised by its ending even
@@ -596,7 +514,7 @@ def _parse_evidence(text: str) -> list[dict]:
         match = _EVIDENCE_RANGE.search(chunk)
         if match:
             refs.append({
-                "path": match.group("path").lstrip("./").replace("\\", "/"),
+                "path": _normalise_evidence_path(match.group("path")),
                 "start_line": int(match.group("start")),
                 "end_line": int(match.group("end")),
             })
@@ -605,11 +523,19 @@ def _parse_evidence(text: str) -> list[dict]:
         if match:
             line = int(match.group("line"))
             refs.append({
-                "path": match.group("path").lstrip("./").replace("\\", "/"),
+                "path": _normalise_evidence_path(match.group("path")),
                 "start_line": line,
                 "end_line": line,
             })
     return refs
+
+
+def _normalise_evidence_path(path: str) -> str:
+    """Remove only explicit current-directory prefixes, never traversal markers."""
+    normalised = path.replace("\\", "/")
+    while normalised.startswith("./"):
+        normalised = normalised[2:]
+    return normalised
 
 
 def _parse_list(text: str) -> list[str]:
@@ -639,18 +565,8 @@ def _to_check(name: str, verdict: CategoryVerdict, proof: CategoryPoc | None) ->
         payload["severity"] = None
         return Check(**payload)
 
-    blanks = [
-        field
-        for field, value in (
-            ("evidence", verdict.evidence),
-            ("input_source", verdict.input_source),
-            ("propagation", verdict.propagation),
-            ("dangerous_operation", verdict.dangerous_operation),
-            ("preconditions", verdict.preconditions),
-        )
-        if _blank(value)
-    ]
-    if not evidence:
+    blanks = _candidate_verdict_missing(verdict)
+    if not evidence and not any(item.startswith("evidence") for item in blanks):
         blanks.append(f"evidence(无法解析: {verdict.evidence[:200]!r})")
     if proof is None:
         blanks.append("poc")

@@ -225,6 +225,8 @@ def comparable_runs(runs: list[dict]) -> dict:
             reasons.append("模型不同")
         if other["budgets"] != first["budgets"]:
             reasons.append("预算不同")
+        if other.get("agent_policy", {"version": "legacy"}) != first.get("agent_policy", {"version": "legacy"}):
+            reasons.append("Agent 执行策略不同")
 
     # Coverage is not a precondition — how much of the queue a run gets through is part of
     # what is being measured. But it is a trap when reading the table: a run that finished

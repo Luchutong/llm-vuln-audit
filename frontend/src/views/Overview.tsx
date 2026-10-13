@@ -136,7 +136,7 @@ export function Overview({
       <div className="panel">
         <div className="panel-head">
           <span className="panel-title">单元级结论</span>
-          <span className="faint small">每个单元都检查三类，缺一类不会发生</span>
+          <span className="faint small">三类逐项保存；失败或缺上下文保留为未完成</span>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -163,6 +163,7 @@ export function Overview({
                   <td style={{ padding: '8px 10px', minWidth: 96 }}>
                     <span className={`chip chip-${unit.status}`}>{unit.status}</span>
                     {partial && <span className="chip chip-incomplete" title={partial}>探索未走完</span>}
+                    {unit.result?.terminal_reason && <div className="faint small">{unit.result.terminal_reason}</div>}
                     {unit.error && (
                       <div className="error-box small" style={{ marginTop: 5, maxWidth: 320, maxHeight: 90, overflowY: 'auto' }}>
                         {unit.error}

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 CATEGORIES = ("sqli", "xss_r", "command_injection")
 CATEGORY_LABELS = {
@@ -25,6 +25,15 @@ ExecutionStatus = Literal[
     "other_error",
 ]
 
+_PLACEHOLDER_TEXT = {"", "无", "不适用", "n/a", "na", "none", "null", "todo", "待补充", "...", "…", "-", "—"}
+
+
+def _meaningful_text(value: str, field_name: str) -> str:
+    """Reject empty template fields before a candidate can become an artifact."""
+    if not value.strip() or value.strip().strip("。.").casefold() in _PLACEHOLDER_TEXT:
+        raise ValueError(f"{field_name} must contain a concrete value, not a placeholder")
+    return value
+
 
 class EvidenceRef(BaseModel):
     """A one-based, inclusive original-file line range."""
@@ -42,6 +51,11 @@ class PocSpec(BaseModel):
     normal_input: str = Field(description="Benign input used as the control")
     attack_input: str = Field(description="Payload that should trigger the vulnerability")
     expected_result: str = Field(description="Observable difference between the control and the attack run")
+
+    @field_validator("filename", "language", "script", "instructions", "normal_input", "attack_input", "expected_result")
+    @classmethod
+    def _required_poc_content(cls, value: str, info) -> str:
+        return _meaningful_text(value, info.field_name)
 
 
 class Check(BaseModel):
@@ -72,13 +86,13 @@ class Check(BaseModel):
             name
             for name, value in (
                 ("evidence", self.evidence),
-                ("input_source", self.input_source),
-                ("propagation", self.propagation),
-                ("dangerous_operation", self.dangerous_operation),
+                ("input_source", self.input_source.strip()),
+                ("propagation", self.propagation.strip()),
+                ("dangerous_operation", self.dangerous_operation.strip()),
                 ("preconditions", self.preconditions),
                 ("severity", self.severity),
                 ("poc", self.poc),
-                ("remediation", self.remediation),
+                ("remediation", self.remediation.strip()),
             )
             if not value
         ]
@@ -183,6 +197,11 @@ class CategoryPoc(BaseModel):
     poc: PocSpec
     remediation: str = Field(description="Concrete fix for this category")
 
+    @field_validator("remediation")
+    @classmethod
+    def _required_remediation(cls, value: str) -> str:
+        return _meaningful_text(value, "remediation")
+
 
 class PocBundle(BaseModel):
     """Settlement call 2: one script per candidate category."""
@@ -228,3 +247,19 @@ class AttributionRequest(BaseModel):
     cause: str = ""
     check_item: str = ""
     finding_id: str | None = None
+
+
+class VerificationRecord(BaseModel):
+    """The JSON portion of a multipart human-verification submission."""
+
+    execution_status: ExecutionStatus
+    verdict: Verdict
+    modified_script: str = ""
+    modification_notes: str = ""
+    target_version: str = ""
+    command: str = ""
+    expected_result: str = ""
+    normal_observation: str = ""
+    attack_observation: str = ""
+    browser_execution: bool = False
+    notes: str = ""

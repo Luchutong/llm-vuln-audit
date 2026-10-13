@@ -13,8 +13,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .agent import SETTLE_CALL_SECONDS, SETTLE_REQUEST_SECONDS
 from .config import VERSION
+from .runtime import AgentPolicy
 from .schemas import CATEGORY_LABELS
 
 NOT_MEASURED = "待实测"
@@ -26,6 +26,10 @@ CATEGORY_ORDER = ("sqli", "xss_r", "command_injection")
 # Reading it back is how chapter 5 can say which categories ran out of wall clock instead of
 # blaming "模型输出不稳定" in the abstract.
 SETTLEMENT_FAILURE = re.compile(r"收尾阶段 ([a-z_]+) 判定失败")
+# Interpret old experiment records using their old limits; never present these as
+# the policy of the new executor. Historical reports remain reproducible.
+SETTLE_CALL_SECONDS = 200.0
+SETTLE_REQUEST_SECONDS = 90.0
 
 
 def _cell(value) -> object:
@@ -411,14 +415,15 @@ def render_markdown(bundle: dict) -> str:
         "",
         "三级分层推理：语法结构 → 漏洞语义 → 实际风险。每单元固定检查三类漏洞，结论取 candidate / no_candidate / insufficient_context。",
         f"每单元预算为 {run['budgets'].get('responses')} 次模型响应、{run['budgets'].get('tools')} 次工具调用、{run['budgets'].get('seconds')} 秒，输出纠正重试一次。",
+        f"本次执行策略：`{run.get('agent_policy', {}).get('version', 'legacy')}`。新策略将补读、判定、POC 与一次纠正共享总预算；旧策略的独立收尾预算只适用于历史记录。",
         "预算耗尽、解析失败与上下文缺失均保留为未完成状态，不计入阴性结论。",
         "输入与输出：输入是该单元的文件范围与行号区间、该类别的判定规则、以及 Prompt 全文；输出是结构化结论（candidate / no_candidate / insufficient_context），候选附原文件行号、输入来源、传播关系、危险操作、防护判断、触发前提、风险等级、POC 与修复建议。",
-        "工具只有 `read_source`、`search_code`、`get_context` 三个且均为只读；同一参数的重复调用会被拒绝并回注预算提示，防止小模型反复发起同一次搜索而不下结论。危险 API 命中只影响单元排序，不改变「每个单元都检查三类漏洞」这条覆盖规则。",
+        "工具只有 `read_source`、`search_code`、`get_context` 三个且均为只读。whitebox-2 先补读静态上下文；两次重复调用或连续三次未增加代码行时停止探索，回放实际显示的源码做无工具判定。判定与 POC 分开，每个类别完成即保存检查点。危险 API 命中只影响排序，不改变三类检查清单。",
         "",
         "### 4.4 POC 实操验证模块",
         "",
         "候选漏洞必须附可运行 POC（原文件行号、输入来源、传播关系、危险操作、防护判断、触发前提、风险等级、修复建议）。",
-        "验证记录区分脚本执行状态与人工结论：执行失败、语法错误、连接失败、环境不匹配、单次未触发均不自动算作误报。",
+        "验证记录区分脚本执行状态与人工结论：执行失败、语法错误、连接失败、环境不匹配、单次未触发均不自动算作误报。确认或排除必须有成功执行、目标版本、命令和正常/攻击对照观测；确认还必须附可复核证据。",
         "XSS 需要浏览器执行证据，仅响应包含 payload 不足以确认。",
         "输入与输出：输入是候选自带的 POC 脚本与靶机环境；输出是人工验证记录——执行状态、人工结论、正常输入对照、攻击输入观测、浏览器证据、脚本适配说明与问题归因、附件。操作方法：在「发现与验证」页下载 POC，对 <http://127.0.0.1:4280> 实际运行后回填记录；脚本按原样跑不通时先做适配再运行，适配内容照实记录而不是直接判为排除。",
         "",
@@ -450,9 +455,9 @@ def render_markdown(bundle: dict) -> str:
             + "。收尾把已读到的代码回放给模型、按类别分次强制作答，"
             f"单次调用上限 {SETTLE_CALL_SECONDS:.0f} 秒、单次请求 {SETTLE_REQUEST_SECONDS:.0f} 秒；"
             "含 POC 脚本的类别作答在该端点上会超过单次请求上限，重试两次即触顶，"
-            "于是探索阶段的观察连同已判定的其余类别一起丢失。"
-            "改进方向：按类别放宽单次请求上限（XSS 的作答最长），或让收尾在墙钟将尽时降级为"
-            "「只判定、不给 POC」，并保留已判定类别的结论。",
+            "因此这份历史记录中的单元未完成。"
+            "当前 whitebox-2 已将判定与 POC 拆分、保留类别检查点，并严格共享总墙钟预算。"
+            "新策略的效果需使用同策略、同模型与同预算重新实测，不能套用历史提升数值。",
         ]
     doc += [
         f"- 证据校验剔除的引用：{len(discarded)} 条候选的引用全部无法核实，另有 {len(partially_cited)} 条候选被剔除了部分引用"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, downloadUrl, errorText, post } from '../api';
-import type { Category, Finding, RunDetail } from '../types';
+import type { Category, Evidence, Finding, RunDetail } from '../types';
 import { SourceViewer } from '../components/SourceViewer';
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -24,6 +24,74 @@ const VERDICT_LABELS: Record<string, string> = {
   rejected: '排除（误报）',
   uncertain: '无法确定',
 };
+
+const SOURCE_CONTEXT_LINES = 4;
+const MAX_SOURCE_WINDOW_LINES = 400;
+const MAX_EVIDENCE_LINES_PER_WINDOW = MAX_SOURCE_WINDOW_LINES - SOURCE_CONTEXT_LINES * 2;
+
+interface EvidenceGroup {
+  path: string;
+  references: Evidence[];
+}
+
+interface EvidenceWindow {
+  start: number;
+  end: number;
+  highlights: Evidence[];
+}
+
+function groupEvidence(references: Evidence[]): EvidenceGroup[] {
+  const byPath = new Map<string, Evidence[]>();
+  for (const reference of references) {
+    const group = byPath.get(reference.path);
+    if (group) group.push(reference);
+    else byPath.set(reference.path, [reference]);
+  }
+  return [...byPath].map(([path, refs]) => ({ path, references: refs }));
+}
+
+/**
+ * Keep every source request below the API's 400-line limit. Most findings need one
+ * window, but split widely separated or unusually large cited ranges without ever
+ * rendering a line from one file under the path of another.
+ */
+function evidenceWindows(references: Evidence[]): EvidenceWindow[] {
+  const chunks: Evidence[] = [];
+  for (const reference of references) {
+    for (let start = reference.start_line; start <= reference.end_line; start += MAX_EVIDENCE_LINES_PER_WINDOW) {
+      chunks.push({
+        ...reference,
+        start_line: start,
+        end_line: Math.min(reference.end_line, start + MAX_EVIDENCE_LINES_PER_WINDOW - 1),
+      });
+    }
+  }
+  chunks.sort((left, right) => left.start_line - right.start_line || left.end_line - right.end_line);
+
+  const windows: EvidenceWindow[] = [];
+  for (const reference of chunks) {
+    const start = Math.max(1, reference.start_line - SOURCE_CONTEXT_LINES);
+    const end = reference.end_line + SOURCE_CONTEXT_LINES;
+    const previous = windows.at(-1);
+    const combinedEnd = previous ? Math.max(previous.end, end) : end;
+
+    if (previous && start <= previous.end + 1 && combinedEnd - previous.start + 1 <= MAX_SOURCE_WINDOW_LINES) {
+      previous.end = combinedEnd;
+      previous.highlights.push(reference);
+    } else {
+      windows.push({ start, end, highlights: [reference] });
+    }
+  }
+  return windows;
+}
+
+function evidenceRangeLabel(references: Evidence[]): string {
+  return references.map((reference) => `${reference.start_line}-${reference.end_line}`).join('、');
+}
+
+function auditUnitLocation(finding: Pick<Finding, 'file_path' | 'unit_start_line' | 'unit_end_line'>): string {
+  return `审计单元：${finding.file_path}:${finding.unit_start_line}-${finding.unit_end_line}`;
+}
 
 /**
  * Findings and the human verification gate.
@@ -71,7 +139,7 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
               </div>
               <div className="small" style={{ fontWeight: 500 }}>{CATEGORY_LABELS[finding.category]}</div>
               <div className="mono faint" style={{ fontSize: 11.5 }}>
-                {finding.file_path}:{finding.line}
+                {auditUnitLocation(finding)}
               </div>
             </button>
           ))}
@@ -85,13 +153,14 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
 
 function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; snapshotId: string; onChanged: () => void }) {
   const poc = finding.poc;
+  const evidenceGroups = groupEvidence(finding.evidence);
   return (
     <div className="grid">
       <div className="panel">
         <div className="panel-head">
           <div>
             <div className="panel-title">{CATEGORY_LABELS[finding.category]} · {finding.title}</div>
-            <div className="mono faint small">{finding.file_path}:{finding.line}</div>
+            <div className="mono faint small">{auditUnitLocation(finding)}</div>
           </div>
           <div className="row">
             <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>
@@ -128,19 +197,47 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
 
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">原始源码（高亮为证据行）</span>
+          <div>
+            <div className="panel-title">证据源码（高亮为证据行）</div>
+            <div className="faint small">按证据文件分组；审计单元位置见上方</div>
+          </div>
           <span className="faint small">
-            {finding.evidence.map((ref) => `${ref.start_line}-${ref.end_line}`).join('、')}
+            {evidenceGroups.length} 个文件 · {finding.evidence.length} 处引用
           </span>
         </div>
-        <SourceViewer
-          snapshotId={snapshotId}
-          path={finding.file_path}
-          start={Math.max(1, finding.unit_start_line)}
-          end={finding.unit_end_line}
-          highlight={finding.evidence}
-          height={280}
-        />
+        {evidenceGroups.length === 0 ? (
+          <div className="empty">没有可显示的已验证证据行。</div>
+        ) : evidenceGroups.map((group, groupIndex) => {
+          const windows = evidenceWindows(group.references);
+          return (
+            <section
+              key={group.path}
+              style={{ padding: '12px 16px', borderBottom: groupIndex < evidenceGroups.length - 1 ? '1px solid var(--line-soft)' : undefined }}
+            >
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 8 }}>
+                <span className="mono small" style={{ overflowWrap: 'anywhere' }}>{group.path}</span>
+                <span className="faint small">证据行：{evidenceRangeLabel(group.references)}</span>
+              </div>
+              {windows.map((window, windowIndex) => (
+                <div key={`${window.start}-${window.end}-${windowIndex}`} style={{ marginTop: windowIndex ? 12 : 0 }}>
+                  {windows.length > 1 && (
+                    <div className="faint small" style={{ marginBottom: 4 }}>源码窗口：{window.start}-{window.end}</div>
+                  )}
+                  <div style={{ border: '1px solid var(--line-soft)', borderRadius: 6, overflow: 'hidden' }}>
+                    <SourceViewer
+                      snapshotId={snapshotId}
+                      path={group.path}
+                      start={window.start}
+                      end={window.end}
+                      highlight={window.highlights}
+                      height={280}
+                    />
+                  </div>
+                </div>
+              ))}
+            </section>
+          );
+        })}
       </div>
 
       {poc && (
@@ -303,11 +400,11 @@ function VerificationForm({ finding, onRecorded }: { finding: Finding; onRecorde
 
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <div className="field">
-          <span className="field-label">正常输入的实际观测</span>
+          <span className="field-label">正常输入的实际观测（确认或排除时必填）</span>
           <textarea rows={2} value={form.normal_observation} onChange={(event) => set('normal_observation', event.target.value)} />
         </div>
         <div className="field">
-          <span className="field-label">攻击输入的实际观测（确认漏洞时必填）</span>
+          <span className="field-label">攻击输入的实际观测（确认或排除时必填）</span>
           <textarea rows={2} value={form.attack_observation} onChange={(event) => set('attack_observation', event.target.value)} />
         </div>
       </div>
@@ -328,7 +425,7 @@ function VerificationForm({ finding, onRecorded }: { finding: Finding; onRecorde
         <span className="field-hint">
           {finding.category === 'xss_r'
             ? '反射型 XSS 确认必须勾选浏览器执行证据并上传日志或截图。'
-            : '执行失败的输出也请上传：它让这次失败可复核，而不是一句结论。'}
+            : '确认漏洞需上传日志、截图或其他可复核证据；执行失败的输出也建议保留。'}
         </span>
       </div>
 
@@ -352,7 +449,7 @@ function VerificationForm({ finding, onRecorded }: { finding: Finding; onRecorde
           {busy ? '提交中…' : '提交验证记录'}
         </button>
         <span className="field-hint">
-          执行未成功时不能判定为「排除」；漏洞未触发请记为 not_triggered，它不计入假阳性。
+          确认或排除都需要成功执行、目标版本、命令和正常/攻击观测；确认还必须上传证据附件。
         </span>
       </div>
     </div>

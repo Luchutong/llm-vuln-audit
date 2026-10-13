@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS runs (
     prompt_text TEXT NOT NULL,
     model TEXT NOT NULL,
     budgets TEXT NOT NULL,
+    agent_policy TEXT,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     started_at TEXT,
@@ -204,7 +205,10 @@ class Store:
             self._migrate()
 
     # Additive migrations so a database written by an earlier build keeps working.
-    _ADDED_COLUMNS = {"run_units": {"unit_json": "TEXT NOT NULL DEFAULT '{}'"}}
+    _ADDED_COLUMNS = {
+        "run_units": {"unit_json": "TEXT NOT NULL DEFAULT '{}'"},
+        "runs": {"agent_policy": "TEXT"},
+    }
 
     def _migrate(self) -> None:
         for table, columns in self._ADDED_COLUMNS.items():
@@ -262,7 +266,7 @@ class Store:
             try:
                 self._db.execute(
                     "INSERT INTO runs (id, snapshot_id, snapshot_name, scope, prompt_id, prompt_label,"
-                    " prompt_text, model, budgets, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    " prompt_text, model, budgets, status, created_at, agent_policy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         run["id"],
                         run["snapshot_id"],
@@ -275,6 +279,7 @@ class Store:
                         _dumps(run["budgets"]),
                         "pending",
                         run["created_at"],
+                        _dumps(run["agent_policy"]) if run.get("agent_policy") else None,
                     ),
                 )
                 self._db.executemany(
@@ -304,6 +309,7 @@ class Store:
         run = dict(row)
         run["scope"] = _loads(run.get("scope"), [])
         run["budgets"] = _loads(run.get("budgets"), {})
+        run["agent_policy"] = _loads(run.get("agent_policy"), {"version": "legacy"})
         counts = self._row(
             "SELECT COUNT(*) AS total,"
             " SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed"
@@ -372,34 +378,49 @@ class Store:
         )
 
     def interrupt_stale_runs(self) -> int:
-        """On boot, no worker exists yet, so anything mid-flight was interrupted."""
+        """Repair work left unresolved by a process that stopped between writes."""
         with self._lock:
-            stale = [row["id"] for row in self._db.execute("SELECT id FROM runs WHERE status = 'running'")]
-            if stale:
-                marks = ",".join("?" for _ in stale)
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                stale = [row["id"] for row in self._db.execute("SELECT id FROM runs WHERE status = 'running'")]
+                if stale:
+                    marks = ",".join("?" for _ in stale)
+                    self._db.execute(
+                        f"UPDATE runs SET status = 'interrupted', finished_at = ?,"
+                        f" error = 'Server restarted while this run was in flight'"
+                        f" WHERE id IN ({marks})",
+                        (now(), *stale),
+                    )
+                    # Whatever was still queued will never run: the worker that owned the queue
+                    # is gone. Leaving it `pending` would keep it listed as "about to start" in a
+                    # run that has already finished, and `pending` is one of the unresolved
+                    # statuses that keeps a truth sample out of the confusion matrix.
+                    self._db.execute(
+                        f"UPDATE run_units SET status = 'skipped', error = 'Run interrupted before this unit started',"
+                        f" finished_at = ? WHERE run_id IN ({marks}) AND status = 'pending'",
+                        (now(), *stale),
+                    )
+                # Sweep every unit still marked running, not only those of the runs just
+                # interrupted: a run cancelled and then hard-killed leaves the same orphan, and
+                # nothing will ever come back to move it.
                 self._db.execute(
-                    f"UPDATE runs SET status = 'interrupted', finished_at = ?,"
-                    f" error = 'Server restarted while this run was in flight'"
-                    f" WHERE id IN ({marks})",
-                    (now(), *stale),
+                    "UPDATE run_units SET status = 'incomplete', error = 'Run interrupted by server restart',"
+                    " finished_at = ? WHERE status = 'running'",
+                    (now(),),
                 )
-                # Whatever was still queued will never run: the worker that owned the queue
-                # is gone. Leaving it `pending` would keep it listed as "about to start" in a
-                # run that has already finished, and `pending` is one of the unresolved
-                # statuses that keeps a truth sample out of the confusion matrix.
+                # A cancel/failure state can be committed just before the process dies. Repair
+                # its still-pending queue on the next boot so terminal runs never retain work
+                # that no worker will claim.
                 self._db.execute(
-                    f"UPDATE run_units SET status = 'skipped', error = 'Run interrupted before this unit started',"
-                    f" finished_at = ? WHERE run_id IN ({marks}) AND status = 'pending'",
-                    (now(), *stale),
+                    "UPDATE run_units SET status = 'skipped', error = 'Run ended before this unit started',"
+                    " finished_at = ? WHERE status = 'pending' AND run_id IN ("
+                    "SELECT id FROM runs WHERE status IN ('cancelled', 'interrupted', 'failed', 'completed'))",
+                    (now(),),
                 )
-            # Sweep every unit still marked running, not only those of the runs just
-            # interrupted: a run cancelled and then hard-killed leaves the same orphan, and
-            # nothing will ever come back to move it.
-            self._db.execute(
-                "UPDATE run_units SET status = 'incomplete', error = 'Run interrupted by server restart',"
-                " finished_at = ? WHERE status = 'running'",
-                (now(),),
-            )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
             return len(stale)
 
     # --- run units ---------------------------------------------------------
@@ -441,6 +462,12 @@ class Store:
             "UPDATE run_units SET status = 'running' WHERE run_id = ? AND unit_id = ?", (run_id, unit_id)
         )
 
+    def checkpoint_unit(self, run_id: str, unit_id: str, *, result: Any, usage: Any, seen: Any) -> None:
+        self._write(
+            "UPDATE run_units SET result = ?, usage = ?, seen = ? WHERE run_id = ? AND unit_id = ? AND status = 'running'",
+            (_dumps(result), _dumps(usage), _dumps(seen), run_id, unit_id),
+        )
+
     def finish_unit(
         self,
         run_id: str,
@@ -468,11 +495,27 @@ class Store:
         )
 
     def abandon_pending_units(self, run_id: str, reason: str) -> None:
-        self._write(
-            "UPDATE run_units SET status = 'skipped', error = ?, finished_at = ?"
-            " WHERE run_id = ? AND status IN ('pending','running')",
-            (reason, now(), run_id),
-        )
+        # The current unit and its remaining queue must transition together. With
+        # autocommit enabled, two ordinary writes could strand a terminal run with
+        # `pending` units if the process stopped after the first one.
+        with self._lock:
+            self._db.execute("BEGIN")
+            try:
+                ended_at = now()
+                self._db.execute(
+                    "UPDATE run_units SET status = 'incomplete', error = ?, finished_at = ?"
+                    " WHERE run_id = ? AND status = 'running'",
+                    (reason, ended_at, run_id),
+                )
+                self._db.execute(
+                    "UPDATE run_units SET status = 'skipped', error = ?, finished_at = ?"
+                    " WHERE run_id = ? AND status = 'pending'",
+                    (reason, ended_at, run_id),
+                )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
 
     # --- findings ----------------------------------------------------------
 
@@ -543,8 +586,9 @@ class Store:
 
     # --- verifications -----------------------------------------------------
 
-    def add_verification(self, record: dict) -> None:
-        self._write(
+    def _insert_verification(self, record: dict) -> None:
+        """Insert while the caller owns ``_lock`` (and optionally a transaction)."""
+        self._db.execute(
             "INSERT INTO verifications (id, finding_id, created_at, execution_status, verdict,"
             " original_script, modified_script, modification_notes, target_version, command,"
             " expected_result, normal_observation, attack_observation, browser_execution, notes, files)"
@@ -568,6 +612,22 @@ class Store:
                 _dumps(record.get("files", [])),
             ),
         )
+
+    def add_verification(self, record: dict) -> None:
+        with self._lock:
+            self._insert_verification(record)
+
+    def record_verification(self, record: dict) -> None:
+        """Commit the verification and the finding's current verdict together."""
+        with self._lock:
+            self._db.execute("BEGIN")
+            try:
+                self._insert_verification(record)
+                self._db.execute("UPDATE findings SET verdict = ? WHERE id = ?", (record["verdict"], record["finding_id"]))
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
 
     def list_verifications(self, finding_id: str) -> list[dict]:
         rows = self._rows(

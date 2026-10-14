@@ -23,6 +23,16 @@ docker compose up --build
 
 ### 本地开发
 
+在项目根目录运行下面的脚本即可同时启动本项目的 FastAPI 后端和 Vite 前端：
+
+```bash
+./scripts/start.sh
+```
+
+它默认将后端启动在 <http://127.0.0.1:8899>、前端启动在 <http://127.0.0.1:5173>，会同步 Python 与 Node 依赖；按 `Ctrl+C` 会同时停止两者。日志保存在 `.run/backend.log` 与 `.run/frontend.log`。已安装依赖时可用 `./scripts/start.sh --skip-install` 跳过同步；需要换端口时使用 `AUDIT_PORT=8900 WEB_PORT=5174 ./scripts/start.sh`。
+
+仍可按下面方式分别启动，便于单独调试：
+
 ```bash
 # 后端（Python 3.12 + uv）
 cd backend

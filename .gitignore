@@ -3,6 +3,7 @@
 !.env.example
 data/
 backend/data/
+.run/
 backend/.venv/
 .venv/
 __pycache__/

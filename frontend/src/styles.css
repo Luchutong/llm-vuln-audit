@@ -102,6 +102,9 @@ code, pre, .mono {
 .chip-failed, .chip-incomplete, .chip-interrupted, .chip-invalid_evidence { background: #fbeeee; border-color: #eec9c9; color: var(--danger); }
 .chip-succeeded, .chip-completed { background: #eaf6ef; border-color: #c3e3d1; color: var(--ok); }
 .chip-cancelled, .chip-pending, .chip-skipped { background: var(--surface-sunken); }
+.chip-met, .chip-done { background: #eaf6ef; border-color: #c3e3d1; color: var(--ok); }
+.chip-open { background: var(--surface-sunken); }
+.chip-unreachable, .chip-inconclusive, .chip-exhausted, .chip-blocked { background: #fdf6e8; border-color: #f0dfb8; color: var(--warn); }
 
 .sev-critical { background: #fbeeee; border-color: #eec9c9; color: #8c2318; }
 .sev-high { background: #fdf1e7; border-color: #f2d3b8; color: #9c4a12; }

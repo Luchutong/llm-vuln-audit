@@ -1,10 +1,18 @@
-import type { RunDetail } from '../types';
-import type { AuditEvent } from '../types';
+import type { AuditEvent, RunDetail, TaskWorkItem } from '../types';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
   xss_r: '反射型 XSS',
   command_injection: '命令注入',
+};
+
+const TASK_WORK_STATE_LABELS: Record<string, string> = {
+  open: '排队中',
+  running: '执行中',
+  done: '已完成',
+  exhausted: '轮次耗尽',
+  blocked: '受阻',
+  skipped: '已跳过',
 };
 
 function Stat({ value, label, note }: { value: string | number; label: string; note?: string }) {
@@ -37,8 +45,10 @@ export function Overview({
   events: AuditEvent[];
 }) {
   const { run, units, findings, metrics } = detail;
+  const taskWorkItems = detail.work_items ?? [];
   const evaluation = metrics.evaluation;
   const withTruth = metrics.truth_status === 'has_truth_set';
+  const goalTaskNotComparable = metrics.truth_status === 'goal_task_not_comparable';
 
   const unitRows = units.map((unit) => {
     const result = unit.result as { conclusions?: Record<string, string>; exploration_incomplete?: string | null } | null;
@@ -57,8 +67,8 @@ export function Overview({
   return (
     <div className="grid">
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-        <Stat value={`${run.completed_units}/${run.total_units}`} label="已审计单元" note={`未完成 ${metrics.incomplete_units} · 待处理 ${metrics.pending_units ?? units.filter((u) => u.status === 'pending').length}`} />
-        <Stat value={metrics.candidates} label="候选（证据通过）" note={`证据不通过 ${metrics.discarded_candidates ?? 0}`} />
+        <Stat value={`${run.completed_units}/${run.total_units}`} label={run.task_spec ? '已结算源码单元' : '已审计单元'} note={`未完成 ${metrics.incomplete_units} · 待处理 ${metrics.pending_units ?? units.filter((u) => u.status === 'pending').length}`} />
+        <Stat value={metrics.candidates} label={run.task_spec ? '目标发现（证据通过）' : '候选（证据通过）'} note={`证据不通过 ${metrics.discarded_candidates ?? 0}`} />
         <Stat value={metrics.confirmed} label="人工确认" note={`排除 ${metrics.rejected} · 待验证 ${metrics.awaiting_verification}`} />
         <Stat value={percent(metrics.audit_coverage)} label="审计覆盖率" note="已完成单元 / 全部单元" />
         <Stat value={percent(metrics.verification_coverage)} label="验证覆盖率" note="已验证候选 / 全部候选" />
@@ -68,8 +78,8 @@ export function Overview({
       <div className="panel">
         <div className="panel-head">
           <span className="panel-title">统计口径</span>
-          <span className={`chip ${withTruth ? 'chip-confirmed' : 'chip-pending'}`}>
-            {withTruth ? '已建立已知真实样本' : '无已知真实样本'}
+          <span className={`chip ${withTruth ? 'chip-confirmed' : goalTaskNotComparable ? 'chip-inconclusive' : 'chip-pending'}`}>
+            {withTruth ? '已建立已知真实样本' : goalTaskNotComparable ? '自定义目标任务不适用真值矩阵' : '无已知真实样本'}
           </span>
         </div>
         <div style={{ padding: '12px 16px' }}>
@@ -120,6 +130,12 @@ export function Overview({
                 </table>
               )}
             </>
+          ) : goalTaskNotComparable ? (
+            <div className="small muted">
+              自定义目标任务不适用三类漏洞真值矩阵。它按任务目标、验收条件和工作项证据判断是否达成，
+              因此不计算 SQL 注入、反射型 XSS、命令注入的 TP、FP、FN、TN、精确率或召回率。
+              请在上方目标任务面板查看目标终态、工作项轮次和证据链。
+            </div>
           ) : (
             <div className="small muted">
               这个快照没有独立核验过的真实样本集，所以只报告候选数、人工结论、审计覆盖率与验证覆盖率。
@@ -135,60 +151,66 @@ export function Overview({
 
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">单元级结论</span>
-          <span className="faint small">三类逐项保存；失败或缺上下文保留为未完成</span>
+          <span className="panel-title">{run.task_spec ? '目标工作项结论' : '单元级结论'}</span>
+          <span className="faint small">
+            {run.task_spec ? '每次尝试和最终队列状态均可回放' : '三类逐项保存；失败或缺上下文保留为未完成'}
+          </span>
         </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
-                <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>单元</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>状态</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>SQL 注入</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>反射型 XSS</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>命令注入</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>模型</th>
-              </tr>
-            </thead>
-            <tbody>
-              {unitRows.map(({ unit, conclusions, partial, candidates }) => (
-                <tr key={unit.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                  <td style={{ padding: '8px 14px' }}>
-                    <div className="mono small">{unit.file_path}:{unit.start_line}-{unit.end_line}</div>
-                    <div className="faint" style={{ fontSize: 11.5 }}>
-                      {unit.symbol} · {unit.kind} · 切片 {unit.slice_index}/{unit.slice_count} · 排序优先级 {unit.priority}
-                      {candidates > 0 && <> · 候选 {candidates}</>}
-                    </div>
-                  </td>
-                  <td style={{ padding: '8px 10px', minWidth: 96 }}>
-                    <span className={`chip chip-${unit.status}`}>{unit.status}</span>
-                    {partial && <span className="chip chip-incomplete" title={partial}>探索未走完</span>}
-                    {unit.result?.terminal_reason && <div className="faint small">{unit.result.terminal_reason}</div>}
-                    {unit.error && (
-                      <div className="error-box small" style={{ marginTop: 5, maxWidth: 320, maxHeight: 90, overflowY: 'auto' }}>
-                        {unit.error}
-                      </div>
-                    )}
-                  </td>
-                  {(['sqli', 'xss_r', 'command_injection'] as const).map((category) => (
-                    <td key={category} style={{ padding: '8px 10px' }}>
-                      {conclusions?.[category]
-                        ? <span className={`chip chip-${conclusions[category]}`}>{CATEGORY_LABELS[category]}·{conclusions[category]}</span>
-                        : <span className="faint">—</span>}
-                    </td>
-                  ))}
-                  <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                    <span className="faint small" title={unit.usage ? undefined : '未完成：模型调用次数未记录'}>
-                      {unit.status !== 'completed' && !unit.usage
-                        ? '未记录'
-                        : unit.usage ? `${unit.usage.requests} 响应 / ${unit.usage.tool_calls} 工具` : '—'}
-                    </span>
-                  </td>
+        {run.task_spec ? (
+          <GoalWorkTable workItems={taskWorkItems} units={units} />
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
+                  <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>单元</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>状态</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>SQL 注入</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>反射型 XSS</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>命令注入</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>模型</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {unitRows.map(({ unit, conclusions, partial, candidates }) => (
+                  <tr key={unit.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                    <td style={{ padding: '8px 14px' }}>
+                      <div className="mono small">{unit.file_path}:{unit.start_line}-{unit.end_line}</div>
+                      <div className="faint" style={{ fontSize: 11.5 }}>
+                        {unit.symbol} · {unit.kind} · 切片 {unit.slice_index}/{unit.slice_count} · 排序优先级 {unit.priority}
+                        {candidates > 0 && <> · 候选 {candidates}</>}
+                      </div>
+                    </td>
+                    <td style={{ padding: '8px 10px', minWidth: 96 }}>
+                      <span className={`chip chip-${unit.status}`}>{unit.status}</span>
+                      {partial && <span className="chip chip-incomplete" title={partial}>探索未走完</span>}
+                      {unit.result?.terminal_reason && <div className="faint small">{unit.result.terminal_reason}</div>}
+                      {unit.error && (
+                        <div className="error-box small" style={{ marginTop: 5, maxWidth: 320, maxHeight: 90, overflowY: 'auto' }}>
+                          {unit.error}
+                        </div>
+                      )}
+                    </td>
+                    {(['sqli', 'xss_r', 'command_injection'] as const).map((category) => (
+                      <td key={category} style={{ padding: '8px 10px' }}>
+                        {conclusions?.[category]
+                          ? <span className={`chip chip-${conclusions[category]}`}>{CATEGORY_LABELS[category]}·{conclusions[category]}</span>
+                          : <span className="faint">—</span>}
+                      </td>
+                    ))}
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                      <span className="faint small" title={unit.usage ? undefined : '未完成：模型调用次数未记录'}>
+                        {unit.status !== 'completed' && !unit.usage
+                          ? '未记录'
+                          : unit.usage ? `${unit.usage.requests} 响应 / ${unit.usage.tool_calls} 工具` : '—'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -209,7 +231,7 @@ export function Overview({
                 </div>
                 {unit.error && <div className="small mono" style={{ marginTop: 5, color: 'var(--danger)' }}>{unit.error}</div>}
                 <div className="faint small" style={{ marginTop: 4 }}>
-                  该单元不能作为「没有漏洞」的证据。
+                  {run.task_spec ? '该工作项不能单独作为目标不可达的依据。' : '该单元不能作为「没有漏洞」的证据。'}
                 </div>
               </div>
             ))}
@@ -228,6 +250,67 @@ export function Overview({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function GoalWorkTable({
+  workItems,
+  units,
+}: {
+  workItems: TaskWorkItem[];
+  units: RunDetail['units'];
+}) {
+  const unitById = new Map(units.map((unit) => [unit.id, unit]));
+  if (workItems.length === 0) {
+    return <div className="empty">工作队列尚未建立。</div>;
+  }
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
+            <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>源码工作项</th>
+            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>状态</th>
+            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>轮次</th>
+            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>最近结果</th>
+            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>模型</th>
+          </tr>
+        </thead>
+        <tbody>
+          {workItems.map((item) => {
+            const unit = unitById.get(item.unit_id);
+            const lastUsage = item.attempt_history?.at(-1)?.usage;
+            const terminalReason = item.result?.terminal_reason;
+            return (
+              <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                <td style={{ padding: '8px 14px', minWidth: 220 }}>
+                  <div className="mono small">
+                    {unit ? `${unit.file_path}:${unit.start_line}-${unit.end_line}` : item.unit_id}
+                  </div>
+                  <div className="faint" style={{ fontSize: 11.5 }}>{item.summary}</div>
+                  {item.focus && <div className="faint small" style={{ marginTop: 3 }}>关注点：{item.focus}</div>}
+                </td>
+                <td style={{ padding: '8px 10px', minWidth: 110 }}>
+                  <span className={`chip chip-${item.state}`}>{TASK_WORK_STATE_LABELS[item.state] ?? item.state}</span>
+                  {item.error && <div className="error-box small" style={{ marginTop: 5, maxWidth: 320 }}>{item.error}</div>}
+                </td>
+                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{item.attempt}/{item.max_attempts}</td>
+                <td style={{ padding: '8px 10px', minWidth: 220 }}>
+                  <div className="small">{item.result?.summary || '—'}</div>
+                  {item.result?.outcome && <div className="faint small">{item.result.outcome}</div>}
+                  {terminalReason && <div className="faint small">{terminalReason}</div>}
+                </td>
+                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                  <span className="faint small">
+                    {lastUsage ? `${lastUsage.requests} 响应 / ${lastUsage.tool_calls} 工具` : '—'}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

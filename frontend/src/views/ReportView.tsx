@@ -30,6 +30,7 @@ export function ReportView({
   onChanged: () => void;
 }) {
   const { run, metrics, findings, attributions } = detail;
+  const isGoalTask = Boolean(run.task_spec);
   const [truths, setTruths] = useState<Truth[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
@@ -99,7 +100,12 @@ export function ReportView({
         <div style={{ padding: '12px 16px' }} className="small">
           <div>快照 <span className="mono">{run.snapshot_id}</span>（{run.snapshot_name}）</div>
           <div>范围 {run.scope.length} 个文件：<span className="mono">{run.scope.join('、')}</span></div>
-          <div>Prompt <span className="mono">{run.prompt_id}</span> · 模型 <span className="mono">{run.model}</span> · 预算 <span className="mono">{JSON.stringify(run.budgets)}</span></div>
+          <div>
+            {run.task_spec
+              ? '目标任务执行器'
+              : <>Prompt <span className="mono">{run.prompt_id}</span></>}
+            {' · '}模型 <span className="mono">{run.model}</span> · 预算 <span className="mono">{JSON.stringify(run.budgets)}</span>
+          </div>
           <div>Truth 状态：<span className={`chip ${metrics.truth_status === 'has_truth_set' ? 'chip-confirmed' : 'chip-pending'}`}>{metrics.truth_status}</span></div>
         </div>
       </div>
@@ -141,11 +147,17 @@ export function ReportView({
             </table>
           ) : (
             <div className="small muted" style={{ marginBottom: 12 }}>
-              还没有真实样本。没有它，召回率与漏报数不可计算。
+              {isGoalTask
+                ? '目标任务不使用固定三类漏洞真值集；请依据目标、工作项历史和证据链复核结果。'
+                : '还没有真实样本。没有它，召回率与漏报数不可计算。'}
             </div>
           )}
 
-          <div className="grid" style={{ gridTemplateColumns: '2fr 1fr auto auto 3fr auto', alignItems: 'end' }}>
+          {isGoalTask ? (
+            <div className="small muted">
+              这份快照的固定类别真值集不会参与本次目标任务的统计，因此这里不提供录入入口。
+            </div>
+          ) : <div className="grid" style={{ gridTemplateColumns: '2fr 1fr auto auto 3fr auto', alignItems: 'end' }}>
             <div className="field">
               <span className="field-label">文件路径</span>
               <input type="text" className="mono" value={draft.file_path} placeholder="vulnerabilities/sqli/source/low.php" onChange={(event) => setDraft({ ...draft, file_path: event.target.value })} />
@@ -175,14 +187,14 @@ export function ReportView({
               <input type="text" value={draft.verification_basis} placeholder="例如：人工执行 POC 复现，见 DVWA low 分支" onChange={(event) => setDraft({ ...draft, verification_basis: event.target.value })} />
             </div>
             <button className="btn btn-primary" onClick={addTruth} disabled={!draft.file_path}>录入样本</button>
-          </div>
+          </div>}
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">失败归因</span>
-          <span className="faint small">每条误报 / 漏报都要能指到提示词里的哪一条</span>
+          <span className="panel-title">{isGoalTask ? '目标任务复盘' : '失败归因'}</span>
+          <span className="faint small">{isGoalTask ? '以目标、工作项轮次和证据链复核终态' : '每条误报 / 漏报都要能指到提示词里的哪一条'}</span>
         </div>
         <div style={{ padding: '12px 16px' }}>
           {attributions.length > 0 && (
@@ -210,7 +222,11 @@ export function ReportView({
             </table>
           )}
 
-          <div className="grid" style={{ gridTemplateColumns: '1.2fr 1.2fr 1fr 2fr 1.5fr 1.5fr auto', alignItems: 'end' }}>
+          {isGoalTask ? (
+            <div className="small muted">
+              自定义目标任务不使用固定三类漏洞的误报/漏报归因表；请在目标工作项、事件时间线和人工验证记录中复盘。
+            </div>
+          ) : <div className="grid" style={{ gridTemplateColumns: '1.2fr 1.2fr 1fr 2fr 1.5fr 1.5fr auto', alignItems: 'end' }}>
             <div className="field">
               <span className="field-label">类型</span>
               <select value={attribution.kind} onChange={(event) => setAttribution({ ...attribution, kind: event.target.value })}>
@@ -247,7 +263,7 @@ export function ReportView({
               </select>
             </div>
             <button className="btn btn-primary" onClick={addAttribution} disabled={!attribution.file_path}>记录</button>
-          </div>
+          </div>}
         </div>
       </div>
 
@@ -258,7 +274,7 @@ export function ReportView({
         <div style={{ padding: '12px 16px' }}>
           <div className="small">
             <div>证据不通过的候选：<strong>{invalid.length}</strong> 条，不计入可信发现。</div>
-            <div>人工排除的候选：<strong>{rejected.length}</strong> 条，计入假阳性并需要归因。</div>
+            <div>人工排除的发现：<strong>{rejected.length}</strong> 条，{isGoalTask ? '保留人工结论供复盘。' : '计入假阳性并需要归因。'}</div>
             <div>人工确认的候选：<strong>{confirmed.length}</strong> 条。</div>
             <div>未完成单元：<strong>{metrics.incomplete_units}</strong> 个，单独列出，不作为阴性结果。</div>
           </div>

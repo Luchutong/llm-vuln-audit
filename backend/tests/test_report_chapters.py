@@ -367,3 +367,43 @@ def test_section_6_5_stays_quiet_when_every_poc_worked_as_written():
     doc = render([unit("u1", "vuln.php")], [finding(verifications=[verification()])])
     section = doc.split("### 6.5", 1)[1].split("### 6.6", 1)[0]
     assert "按原样运行无法证明漏洞成立" not in section
+
+
+def test_goal_task_report_uses_goal_termination_instead_of_fixed_truth_matrix():
+    """The exported artifact must not narrate a custom objective as a three-class run."""
+    task_run = {
+        **RUN,
+        "status": "unreachable",
+        "task_spec": {
+            "objective": "寻找未经授权的文件读取路径。",
+            "success_criteria": "保存一处带原始行号的可达读取证据。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+            "require_poc": True,
+        },
+    }
+    units = [unit("u1", "safe.php")]
+    made = {
+        **bundle(units),
+        "run": task_run,
+        "metrics": summarise(task_run, units, [], TRUTHS),
+        "goals": [{
+            "status": "unreachable",
+            "attempts": 2,
+            "max_total_attempts": 8,
+            "terminal_reason": "所有已规划工作项均已完成，仍未满足验收条件",
+        }],
+    }
+    doc = render_markdown(made)
+    assert "运行模式：自定义目标任务" in doc
+    assert "寻找未经授权的文件读取路径" in doc
+    assert "不套用固定 SQL 注入 / XSS / 命令注入真值矩阵" in doc
+    assert "TP、FP、FN、TN、Precision、Recall 或 F1" in doc
+    assert "### 4.2 目标任务与执行约束模块" in doc
+    assert "目标模式不复用固定 SQL 注入 / XSS / 命令注入 Prompt" in doc
+    assert "Prompt 版本：P0" not in doc
+    assert "目标任务协调器" in doc
+    assert "任务总尝试上限为 8 次并由所有 worker 共享" in doc
+    assert "缺少 POC 的 achieved 输出会被要求纠正，不能达成目标" in doc

@@ -41,6 +41,9 @@ export function PromptsView({ prompts, onChanged }: { prompts: Prompt[]; onChang
   }, []);
 
   const current = prompts.find((prompt) => prompt.id === selected) ?? prompts[0] ?? null;
+  // Goal-task runs use their own constrained executor instruction and do not belong in
+  // the P0 → P1 → P2 experiment or its prompt-attribution review.
+  const fixedRuns = runs.filter((run) => !run.task_spec);
   // Caveats that do not block a comparison but change how the numbers should be read.
   const experimentNotes = experiment?.notes ?? [];
 
@@ -125,7 +128,7 @@ export function PromptsView({ prompts, onChanged }: { prompts: Prompt[]; onChang
             只有快照、范围、模型与预算都一致时才可比较；不一致会在这里说明原因，而不是照常给出对比数字。
           </div>
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-            {runs.map((run) => (
+            {fixedRuns.map((run) => (
               <label key={run.id} className="checkbox" style={{ marginBottom: 4 }}>
                 <input
                   type="checkbox"
@@ -201,7 +204,7 @@ export function PromptsView({ prompts, onChanged }: { prompts: Prompt[]; onChang
         </div>
       </div>
 
-      <AttributionGaps runs={runs} />
+      <AttributionGaps runs={fixedRuns} />
     </div>
   );
 }

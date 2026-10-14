@@ -111,6 +111,8 @@ def _run_bundle(state: Services, run_id: str) -> dict:
     return {
         "run": run,
         "units": units,
+        "goals": state.store.list_task_goals(run_id),
+        "work_items": state.store.list_task_work_items(run_id),
         "findings": findings,
         "attributions": state.store.list_attributions(run_id),
         "metrics": summarise(run, units, findings, truths),
@@ -228,9 +230,20 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Snapshot does not exist") from exc
 
-    prompt = state.store.get_prompt(payload.prompt_id)
-    if prompt is None:
-        raise HTTPException(status_code=400, detail="Prompt version does not exist")
+    # Goal tasks have their own constrained executor instruction in agent.py.  Carrying a
+    # P0/P1/P2 record into this mode would be misleading because those prompts explicitly
+    # require the fixed SQLi/XSS/command-injection checklist.  Fixed-audit runs retain the
+    # historical prompt lookup and frozen full text unchanged.
+    if payload.task is not None:
+        prompt = {
+            "id": "goal-task",
+            "label": "目标任务执行器",
+            "text": "",
+        }
+    else:
+        prompt = state.store.get_prompt(payload.prompt_id or "")
+        if prompt is None:
+            raise HTTPException(status_code=400, detail="Prompt version does not exist")
 
     available = {item["path"] for item in snapshot["files"] if not item["excluded"]}
     requested = list(dict.fromkeys(payload.scope))
@@ -258,6 +271,7 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "model": state.settings.model.label,
         "budgets": budgets,
         "agent_policy": AgentPolicy().snapshot(),
+        "task_spec": payload.task.model_dump() if payload.task else None,
         "created_at": _iso(),
     }
     state.store.create_run(run, units)
@@ -290,6 +304,7 @@ async def cancel_run(request: Request, run_id: str) -> dict:
         current = state.store.get_run(run_id)
         if current and current["status"] == "cancelled":
             state.store.abandon_pending_units(run_id, "Run cancelled")
+            state.store.abandon_task_work(run_id, "Run cancelled")
             state.bus.emit(run_id, None, "run_cancelled", {"reason": "cancel requested"})
     state.worker.notify()
     return state.store.get_run(run_id)
@@ -558,8 +573,14 @@ async def set_truths(request: Request, snapshot_id: str, payload: TruthRequest) 
 @app.post("/api/runs/{run_id}/attributions")
 async def add_attribution(request: Request, run_id: str, payload: AttributionRequest) -> dict:
     state = services(request)
-    if state.store.get_run(run_id) is None:
+    run = state.store.get_run(run_id)
+    if run is None:
         raise HTTPException(status_code=404, detail="Run does not exist")
+    if run.get("task_spec"):
+        raise HTTPException(
+            status_code=409,
+            detail="Goal-driven tasks do not use the fixed three-category attribution table",
+        )
     record = {
         "id": uuid.uuid4().hex,
         "run_id": run_id,
@@ -589,10 +610,23 @@ def _round_comparison(state: Services, run: dict) -> dict:
     as a fourth round, and an interrupted scratch run would be dragged into the comparison
     as if it were a data point.
     """
+    # Goal-task runs are coordinated by their frozen TaskSpec, not by P0/P1/P2.  A
+    # target run must never appear as another prompt round or inherit that experiment's
+    # SQLi/XSS/command-injection matrix.
+    if run.get("task_spec"):
+        return {
+            "comparable": False,
+            "reasons": ["自定义目标任务不参与固定提示词轮次对比"],
+            "notes": [],
+            "runs": [],
+        }
+
     prompts = {item["id"]: item for item in state.store.list_prompts()}
     newest: dict[str, dict] = {}
     for candidate in state.store.list_runs():
         if candidate["snapshot_id"] != run["snapshot_id"]:
+            continue
+        if candidate.get("task_spec"):
             continue
         prompt = prompts.get(candidate["prompt_id"])
         if prompt is not None and prompt.get("phase") == "custom":
@@ -621,6 +655,11 @@ async def experiments(request: Request, run_ids: str = Query(...)) -> dict:
     runs = [state.store.get_run(run_id) for run_id in wanted]
     if any(run is None for run in runs):
         raise HTTPException(status_code=404, detail="One or more runs do not exist")
+    if any(run.get("task_spec") for run in runs):
+        raise HTTPException(
+            status_code=400,
+            detail="Goal-driven tasks cannot be compared as fixed prompt experiment rounds",
+        )
     ordered = sorted(runs, key=lambda run: run["created_at"])
     entries = []
     for run in ordered:

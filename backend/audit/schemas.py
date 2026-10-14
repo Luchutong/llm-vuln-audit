@@ -15,6 +15,7 @@ CATEGORY_LABELS = {
 Conclusion = Literal["candidate", "no_candidate", "insufficient_context"]
 Severity = Literal["low", "medium", "high", "critical"]
 Verdict = Literal["confirmed", "rejected", "uncertain"]
+TaskOutcome = Literal["achieved", "continue", "no_evidence", "blocked"]
 ExecutionStatus = Literal[
     "success",
     "syntax_error",
@@ -209,14 +210,119 @@ class PocBundle(BaseModel):
     proofs: list[CategoryPoc] = Field(default_factory=list, description="One entry per category judged a candidate")
 
 
+# --- goal-driven source tasks ----------------------------------------------
+
+
+class TaskSpec(BaseModel):
+    """A user-defined source-analysis target, frozen with the run that executes it."""
+
+    objective: str = Field(min_length=8, max_length=2000, description="What the agents should establish from the selected source")
+    success_criteria: str = Field(
+        default="在所选源码中找到至少一处能由原始行号证据支撑的目标相关发现。",
+        min_length=8,
+        max_length=2000,
+        description="Observable condition that lets the coordinator mark the goal reached",
+    )
+    max_iterations: int = Field(default=3, ge=1, le=8, description="Maximum agent passes over one work item")
+    max_total_attempts: int = Field(
+        default=24,
+        ge=1,
+        le=128,
+        description="Maximum settled attempts across the entire task queue",
+    )
+    max_workers: int = Field(default=2, ge=1, le=4, description="Concurrent source-analysis workers for this run")
+    stop_on_achieved: bool = Field(default=True, description="Stop queued work once an evidence-backed result reaches the goal")
+    require_poc: bool = Field(
+        default=True,
+        description="Require an achieved finding to include a manually reviewable proof of concept",
+    )
+
+    @field_validator("objective", "success_criteria")
+    @classmethod
+    def _concrete_task_text(cls, value: str, info) -> str:
+        return _meaningful_text(value, info.field_name)
+
+
+class GoalFinding(BaseModel):
+    """Evidence-backed finding emitted only when a goal executor reaches its target.
+
+    A goal can also ask for non-exploit source facts, so the TaskSpec decides whether a
+    POC is required. When it is required, the same immutable artifact flows into the
+    existing manual-verification path.
+    """
+
+    title: str = Field(min_length=3, max_length=240)
+    severity: Severity
+    summary: str = Field(min_length=8, max_length=4000)
+    evidence: str = Field(min_length=3, max_length=2000, description="Snapshot citations as path:start-end")
+    input_source: str = Field(min_length=1, max_length=1200)
+    propagation: str = Field(min_length=1, max_length=1800)
+    dangerous_operation: str = Field(min_length=1, max_length=1200)
+    protection: str = Field(min_length=1, max_length=1200)
+    preconditions: str = Field(min_length=1, max_length=1600)
+    poc: PocSpec | None = Field(default=None, description="Runnable POC when the target is a vulnerability")
+    remediation: str = Field(min_length=3, max_length=2400)
+
+    @field_validator(
+        "title", "summary", "evidence", "input_source", "propagation", "dangerous_operation",
+        "protection", "preconditions", "remediation",
+    )
+    @classmethod
+    def _concrete_finding_text(cls, value: str, info) -> str:
+        return _meaningful_text(value, info.field_name)
+
+
+class GoalAssessment(BaseModel):
+    """One bounded executor pass over a source work item.
+
+    A worker may ask for another, distinct pass but cannot unilaterally call the whole
+    task unreachable. The coordinator only makes that judgement after the durable queue
+    drains and all worker outcomes are available.
+    """
+
+    outcome: TaskOutcome
+    summary: str = Field(min_length=3, max_length=4000)
+    reasoning: str = Field(min_length=3, max_length=4000)
+    next_focus: str = Field(default="", max_length=1600)
+    missing_context: list[str] = Field(default_factory=list)
+    finding: GoalFinding | None = None
+
+    @model_validator(mode="after")
+    def _outcome_has_the_required_payload(self) -> "GoalAssessment":
+        if self.outcome == "achieved" and self.finding is None:
+            raise ValueError("achieved requires an evidence-backed finding")
+        if self.outcome != "achieved" and self.finding is not None:
+            raise ValueError("only achieved may attach a finding")
+        if self.outcome == "continue":
+            _meaningful_text(self.next_focus, "next_focus")
+        return self
+
+
 # --- request bodies ---------------------------------------------------------
 
 
 class CreateRunRequest(BaseModel):
     snapshot_id: str
     scope: list[str] = Field(min_length=1, description="Exact file paths frozen into this run")
-    prompt_id: str
+    prompt_id: str | None = Field(
+        default=None,
+        description="Fixed-audit prompt version; omitted for a goal-driven task",
+    )
     budgets: dict | None = None
+    task: TaskSpec | None = Field(default=None, description="Optional goal-driven task; omit for the fixed three-category audit")
+
+    @field_validator("prompt_id")
+    @classmethod
+    def _normalise_prompt_id(cls, value: str | None) -> str | None:
+        return value.strip() if value and value.strip() else None
+
+    @model_validator(mode="after")
+    def _require_a_fixed_prompt_only_for_the_fixed_audit(self) -> "CreateRunRequest":
+        if self.task is None and self.prompt_id is None:
+            raise ValueError("prompt_id is required when task is omitted")
+        if self.task is not None and self.prompt_id is not None:
+            raise ValueError("prompt_id must be omitted when task is provided")
+        return self
 
 
 class PromptCreateRequest(BaseModel):

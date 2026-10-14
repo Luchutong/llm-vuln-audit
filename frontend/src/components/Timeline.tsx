@@ -28,6 +28,19 @@ const LABELS: Record<string, string> = {
   category_incomplete: '类别未完成',
   unit_checkpoint: '结果检查点',
   agent_terminal: '单元终止原因',
+  task_coordinator_started: '目标协调开始',
+  // Kept for any event records written while the target mode was introduced.
+  task_planner_started: '目标协调开始',
+  task_work_started: '目标工作项开始',
+  task_work_requeued: '目标工作项重试',
+  task_work_completed: '目标工作项完成',
+  task_work_exhausted: '目标工作项轮次耗尽',
+  task_work_blocked: '目标工作项受阻',
+  task_work_skipped: '目标工作项跳过',
+  task_goal_met: '目标达成',
+  goal_unreachable: '目标不可达',
+  goal_inconclusive: '目标未决',
+  task_agent_terminal: '目标工作项终止原因',
 };
 
 const PAYLOAD_LABELS: Record<string, string> = {
@@ -71,6 +84,18 @@ const PAYLOAD_LABELS: Record<string, string> = {
   category_errors: '未完成类别',
   preview: '已返回代码预览',
   agent_policy: '执行策略',
+  goal_id: '目标 ID',
+  work_id: '工作项 ID',
+  worker_id: 'worker',
+  attempt: '当前轮次',
+  max_attempts: '最大轮次',
+  max_iterations: '每项最大轮次',
+  max_total_attempts: '任务总尝试上限',
+  max_workers: 'worker 上限',
+  goal_status: '目标状态',
+  stop_on_achieved: '达成后停止',
+  terminal_reason: '终止原因',
+  mode: '运行模式',
 };
 
 function label(key: string) {
@@ -217,12 +242,25 @@ function Inline({ event, payload }: { event: AuditEvent; payload: Record<string,
     return <span className="small mono">{String(payload.tool ?? '')} · {kind === 'tool_call'
       ? JSON.stringify(payload.args ?? {}) : `${String(payload.status ?? '')} · 新增 ${String(payload.new_lines ?? 0)} 行`}</span>;
   }
-  if (kind === 'agent_phase' || kind === 'agent_terminal' || kind === 'exploration_stopped') {
+  if (kind === 'agent_phase' || kind === 'agent_terminal' || kind === 'task_agent_terminal' || kind === 'exploration_stopped') {
     return <span className="small">{String(payload.phase ?? '')} {String(payload.reason ?? '')}
       {payload.remaining_seconds != null ? ` · 剩余 ${String(payload.remaining_seconds)}s` : ''}</span>;
   }
   if (kind === 'unit_started') {
     return <span className="mono small">{String(payload.file_path ?? '')}</span>;
+  }
+  if (kind === 'task_work_started' || kind === 'task_work_requeued' || kind === 'task_work_completed' || kind === 'task_work_exhausted' || kind === 'task_work_blocked' || kind === 'task_work_skipped') {
+    return <span className="small">
+      {String(payload.file_path ?? '')} · 第 {String(payload.attempt ?? '')}/{String(payload.max_attempts ?? '')} 轮
+      {payload.summary ? ` · ${String(payload.summary)}` : ''}
+      {payload.terminal_reason ? ` · ${String(payload.terminal_reason)}` : ''}
+    </span>;
+  }
+  if (kind === 'task_goal_met' || kind === 'goal_unreachable' || kind === 'goal_inconclusive') {
+    return <span className="small">
+      {String(payload.goal_status ?? '')} {String(payload.reason ?? '')}
+      {payload.attempts != null ? ` · 累计 ${String(payload.attempts)} 次` : ''}
+    </span>;
   }
   if (kind === 'unit_completed' || kind === 'unit_incomplete') {
     const conclusions = payload.conclusions as Record<string, string> | undefined;

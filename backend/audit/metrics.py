@@ -55,9 +55,16 @@ def summarise(run: dict, units: list[dict], findings: list[dict], truths: list[d
         "pending_units": len(pending),
     }
 
-    scope = set(run.get("scope") or [])
-    scoped_truths = [t for t in truths if t["file_path"] in scope]
-    evaluation, truth_status = _evaluate(scoped_truths, units, candidates, run)
+    # A custom objective does not make the fixed SQLi/XSS/command-injection
+    # checklist disappear from historic truth data.  It does make that matrix
+    # inapplicable: treating a goal finding as one of those categories would invent
+    # false positives or, worse, bank an unexplored category as a true negative.
+    if run.get("task_spec"):
+        evaluation, truth_status = None, "goal_task_not_comparable"
+    else:
+        scope = set(run.get("scope") or [])
+        scoped_truths = [t for t in truths if t["file_path"] in scope]
+        evaluation, truth_status = _evaluate(scoped_truths, units, candidates, run)
     metrics["truth_status"] = truth_status
     metrics["evaluation"] = evaluation
     return metrics
@@ -227,6 +234,8 @@ def comparable_runs(runs: list[dict]) -> dict:
             reasons.append("预算不同")
         if other.get("agent_policy", {"version": "legacy"}) != first.get("agent_policy", {"version": "legacy"}):
             reasons.append("Agent 执行策略不同")
+        if other.get("task_spec") != first.get("task_spec"):
+            reasons.append("目标任务定义不同")
 
     # Coverage is not a precondition — how much of the queue a run gets through is part of
     # what is being measured. But it is a trap when reading the table: a run that finished

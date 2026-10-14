@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS runs (
     model TEXT NOT NULL,
     budgets TEXT NOT NULL,
     agent_policy TEXT,
+    task_spec TEXT,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     started_at TEXT,
@@ -67,6 +69,70 @@ CREATE TABLE IF NOT EXISTS run_units (
     PRIMARY KEY (run_id, unit_id)
 );
 CREATE INDEX IF NOT EXISTS idx_run_units_status ON run_units(run_id, status, ordinal);
+
+-- Goal mode follows the same durable-queue shape as ARTEX: the goal is the
+-- coordinator's source of truth, while workers only claim and resolve one work item.
+-- The legacy run_units queue remains unchanged so historic three-category experiments
+-- stay reproducible.
+CREATE TABLE IF NOT EXISTS task_goals (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    success_criteria TEXT NOT NULL,
+    max_iterations INTEGER NOT NULL,
+    max_total_attempts INTEGER NOT NULL DEFAULT 24,
+    status TEXT NOT NULL DEFAULT 'open',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    terminal_reason TEXT,
+    reached_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_goals_run ON task_goals(run_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_goals_one_per_run ON task_goals(run_id);
+
+CREATE TABLE IF NOT EXISTS task_work_items (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL,
+    unit_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    focus TEXT NOT NULL DEFAULT '',
+    priority INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL DEFAULT 'open',
+    attempt INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL,
+    claimed_by TEXT,
+    claimed_at TEXT,
+    result TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    UNIQUE (run_id, goal_id, unit_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_work_claim ON task_work_items(run_id, goal_id, state, priority DESC, ordinal);
+
+-- Work rows carry the latest state for scheduling.  This append-only log keeps the
+-- evidence, usage and worker identity for every pass, so an exhausted task can be
+-- reviewed instead of merely asserted.
+CREATE TABLE IF NOT EXISTS task_work_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    worker_id TEXT,
+    outcome TEXT NOT NULL,
+    state TEXT NOT NULL,
+    result TEXT NOT NULL,
+    usage TEXT,
+    seen TEXT NOT NULL DEFAULT '[]',
+    error TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (work_id, attempt)
+);
+CREATE INDEX IF NOT EXISTS idx_task_work_attempts_work ON task_work_attempts(work_id, attempt);
 
 CREATE TABLE IF NOT EXISTS findings (
     id TEXT PRIMARY KEY,
@@ -173,8 +239,18 @@ CREATE TABLE IF NOT EXISTS model_health (
 );
 """
 
-RUN_TERMINAL = ("completed", "cancelled", "interrupted", "failed")
+RUN_TERMINAL = ("completed", "unreachable", "inconclusive", "cancelled", "interrupted", "failed")
 UNIT_INCOMPLETE = ("incomplete", "failed", "skipped")
+DEFAULT_TASK_MAX_TOTAL_ATTEMPTS = 24
+
+# A worker may ask for another source-analysis direction (a genuine ``continue``),
+# or it may be unable to obtain a usable model result at all.  Both retry through
+# the same durable work row, but exhausting the latter cannot prove the requested
+# source property is absent.  Keep it as a blocked observation so the coordinator
+# reaches ``inconclusive`` rather than ``unreachable``.
+TASK_RETRY_FAILURE_REASONS = frozenset(
+    {"model_error", "request_timeout", "timeout", "budget", "invalid_output"}
+)
 
 
 def now() -> str:
@@ -207,7 +283,10 @@ class Store:
     # Additive migrations so a database written by an earlier build keeps working.
     _ADDED_COLUMNS = {
         "run_units": {"unit_json": "TEXT NOT NULL DEFAULT '{}'"},
-        "runs": {"agent_policy": "TEXT"},
+        "runs": {"agent_policy": "TEXT", "task_spec": "TEXT"},
+        "task_goals": {
+            "max_total_attempts": f"INTEGER NOT NULL DEFAULT {DEFAULT_TASK_MAX_TOTAL_ATTEMPTS}"
+        },
     }
 
     def _migrate(self) -> None:
@@ -266,7 +345,7 @@ class Store:
             try:
                 self._db.execute(
                     "INSERT INTO runs (id, snapshot_id, snapshot_name, scope, prompt_id, prompt_label,"
-                    " prompt_text, model, budgets, status, created_at, agent_policy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " prompt_text, model, budgets, status, created_at, agent_policy, task_spec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         run["id"],
                         run["snapshot_id"],
@@ -280,6 +359,7 @@ class Store:
                         "pending",
                         run["created_at"],
                         _dumps(run["agent_policy"]) if run.get("agent_policy") else None,
+                        _dumps(run["task_spec"]) if run.get("task_spec") else None,
                     ),
                 )
                 self._db.executemany(
@@ -300,6 +380,42 @@ class Store:
                         for index, unit in enumerate(units)
                     ],
                 )
+                task = run.get("task_spec") or None
+                if task:
+                    goal_id = uuid.uuid4().hex
+                    created_at = now()
+                    self._db.execute(
+                        "INSERT INTO task_goals (id, run_id, objective, success_criteria, max_iterations, max_total_attempts, status,"
+                        " attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,'open',0,?,?)",
+                        (
+                            goal_id,
+                            run["id"],
+                            task["objective"],
+                            task["success_criteria"],
+                            int(task["max_iterations"]),
+                            int(task.get("max_total_attempts", DEFAULT_TASK_MAX_TOTAL_ATTEMPTS)),
+                            created_at,
+                            created_at,
+                        ),
+                    )
+                    self._db.executemany(
+                        "INSERT INTO task_work_items (id, run_id, goal_id, unit_id, ordinal, summary, priority,"
+                        " state, max_attempts, created_at) VALUES (?,?,?,?,?,?,?,'open',?,?)",
+                        [
+                            (
+                                uuid.uuid4().hex,
+                                run["id"],
+                                goal_id,
+                                unit["id"],
+                                index,
+                                f"分析 {unit['file_path']}:{unit['start_line']}-{unit['end_line']}（{unit['symbol']}）",
+                                int(unit["priority"]),
+                                int(task["max_iterations"]),
+                                created_at,
+                            )
+                            for index, unit in enumerate(units)
+                        ],
+                    )
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -310,6 +426,14 @@ class Store:
         run["scope"] = _loads(run.get("scope"), [])
         run["budgets"] = _loads(run.get("budgets"), {})
         run["agent_policy"] = _loads(run.get("agent_policy"), {"version": "legacy"})
+        task_spec = _loads(run.get("task_spec"), None)
+        # Task runs created before the total-cap field was introduced still have a
+        # durable goal row migrated with this default. Reflect the same frozen value
+        # in their public TaskSpec so the worker, report and UI agree.
+        if isinstance(task_spec, dict):
+            task_spec.setdefault("max_total_attempts", DEFAULT_TASK_MAX_TOTAL_ATTEMPTS)
+            task_spec.setdefault("require_poc", True)
+        run["task_spec"] = task_spec
         counts = self._row(
             "SELECT COUNT(*) AS total,"
             " SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed"
@@ -414,7 +538,30 @@ class Store:
                 self._db.execute(
                     "UPDATE run_units SET status = 'skipped', error = 'Run ended before this unit started',"
                     " finished_at = ? WHERE status = 'pending' AND run_id IN ("
-                    "SELECT id FROM runs WHERE status IN ('cancelled', 'interrupted', 'failed', 'completed'))",
+                    "SELECT id FROM runs WHERE status IN ('cancelled', 'interrupted', 'failed', 'completed', 'unreachable', 'inconclusive'))",
+                    (now(),),
+                )
+                # Goal-mode workers claim a separate durable work queue. A restart must
+                # repair it in lockstep with run_units so no terminal run retains an
+                # open/running intent that a future worker could accidentally revive.
+                self._db.execute(
+                    "UPDATE task_work_items SET state = 'blocked', error = 'Run interrupted by server restart',"
+                    " finished_at = ? WHERE state = 'running'",
+                    (now(),),
+                )
+                self._db.execute(
+                    "UPDATE task_work_items SET state = 'skipped', error = 'Run ended before this work item started',"
+                    " finished_at = ? WHERE state = 'open' AND run_id IN ("
+                    "SELECT id FROM runs WHERE status IN ('cancelled', 'interrupted', 'failed', 'completed', 'unreachable', 'inconclusive'))",
+                    (now(),),
+                )
+                self._db.execute(
+                    "UPDATE task_goals SET status = 'inconclusive',"
+                    " terminal_reason = '运行在目标完成前被中断或终止', updated_at = ? "
+                    "WHERE (status = 'open' AND run_id IN ("
+                    "SELECT id FROM runs WHERE status IN ('cancelled', 'interrupted', 'failed', 'completed', 'unreachable', 'inconclusive'))) "
+                    "OR (status IN ('unreachable', 'inconclusive') AND run_id IN ("
+                    "SELECT id FROM runs WHERE status IN ('cancelled', 'interrupted', 'failed')))",
                     (now(),),
                 )
                 self._db.execute("COMMIT")
@@ -517,10 +664,451 @@ class Store:
                 self._db.execute("ROLLBACK")
                 raise
 
+    # --- goal-task queue --------------------------------------------------
+
+    @staticmethod
+    def _goal_dict(row: sqlite3.Row) -> dict:
+        return dict(row)
+
+    @staticmethod
+    def _task_work_dict(row: sqlite3.Row) -> dict:
+        work = dict(row)
+        work["result"] = _loads(work.get("result"), None)
+        return work
+
+    def list_task_goals(self, run_id: str) -> list[dict]:
+        rows = self._rows("SELECT * FROM task_goals WHERE run_id = ? ORDER BY created_at", (run_id,))
+        return [self._goal_dict(row) for row in rows]
+
+    def get_task_goal(self, run_id: str) -> dict | None:
+        row = self._row("SELECT * FROM task_goals WHERE run_id = ? ORDER BY created_at LIMIT 1", (run_id,))
+        return self._goal_dict(row) if row else None
+
+    def list_task_work_items(self, run_id: str) -> list[dict]:
+        rows = self._rows(
+            "SELECT * FROM task_work_items WHERE run_id = ? ORDER BY ordinal, created_at", (run_id,)
+        )
+        work_items = [self._task_work_dict(row) for row in rows]
+        for work in work_items:
+            work["attempt_history"] = self.list_task_work_attempts(work["id"])
+        return work_items
+
+    def get_task_work_item(self, work_id: str) -> dict | None:
+        row = self._row("SELECT * FROM task_work_items WHERE id = ?", (work_id,))
+        if row is None:
+            return None
+        work = self._task_work_dict(row)
+        work["attempt_history"] = self.list_task_work_attempts(work_id)
+        return work
+
+    def list_task_work_attempts(self, work_id: str) -> list[dict]:
+        rows = self._rows(
+            "SELECT * FROM task_work_attempts WHERE work_id = ? ORDER BY attempt, id", (work_id,)
+        )
+        attempts: list[dict] = []
+        for row in rows:
+            attempt = dict(row)
+            attempt["result"] = _loads(attempt.get("result"), {})
+            attempt["usage"] = _loads(attempt.get("usage"), None)
+            attempt["seen"] = _loads(attempt.get("seen"), [])
+            attempts.append(attempt)
+        return attempts
+
+    def claim_next_task_work(self, run_id: str, worker_id: str) -> dict | None:
+        """Atomically lease one open goal-task work item to a named worker.
+
+        The conditional lookup and transition share a SQLite write transaction.  This
+        is the important boundary for the worker pool: two asyncio tasks may wake at
+        the same time, but only one can receive a particular intent.  The same
+        transaction reserves one of the task-wide attempt slots for the lease, so a
+        concurrent pool cannot overshoot the frozen total-attempt cap.
+        """
+        work_id: str | None = None
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                goal = self._db.execute(
+                    "SELECT g.id, g.status, g.attempts, g.max_total_attempts FROM task_goals AS g "
+                    "JOIN runs AS r ON r.id = g.run_id "
+                    "WHERE g.run_id = ? AND r.status = 'running' ORDER BY g.created_at LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if goal is None or goal["status"] not in ("open", "met"):
+                    self._db.execute("COMMIT")
+                    return None
+                active = self._db.execute(
+                    "SELECT COUNT(*) AS total FROM task_work_items WHERE goal_id = ? AND state = 'running'",
+                    (goal["id"],),
+                ).fetchone()
+                attempts_in_play = int(goal["attempts"] or 0) + int(active["total"] or 0)
+                max_total_attempts = int(goal["max_total_attempts"] or 0)
+                if attempts_in_play >= max_total_attempts:
+                    # Do not leave rows open after the task-wide cap has already
+                    # been reserved by settled or in-flight attempts.  Any running
+                    # rows still get to persist their result; once they finish,
+                    # settle_task_goal_if_idle decides unreachable vs inconclusive.
+                    ended_at = now()
+                    retry_blocked = []
+                    for pending in self._db.execute(
+                        "SELECT id, unit_id, result FROM task_work_items "
+                        "WHERE run_id = ? AND goal_id = ? AND state = 'open'",
+                        (run_id, goal["id"]),
+                    ).fetchall():
+                        prior = _loads(pending["result"], {}) or {}
+                        if str(prior.get("terminal_reason") or "") in TASK_RETRY_FAILURE_REASONS:
+                            retry_blocked.append(pending)
+
+                    # A normal `continue` can be bounded by the task-wide search
+                    # cap. A row whose only prior result was a provider/output/
+                    # budget failure cannot: it was waiting to retry an execution
+                    # problem, not asking for another source direction. Keep those
+                    # rows blocked so their task resolves inconclusive.
+                    retry_reason = (
+                        f"任务级最大尝试次数 {max_total_attempts} 已达到；"
+                        "上一次未取得可用模型结论，不能据此判定目标不可达"
+                    )
+                    if retry_blocked:
+                        self._db.executemany(
+                            "UPDATE task_work_items SET state = 'blocked', error = ?, finished_at = ? "
+                            "WHERE id = ? AND state = 'open'",
+                            [(retry_reason, ended_at, pending["id"]) for pending in retry_blocked],
+                        )
+                        self._db.executemany(
+                            "UPDATE run_units SET status = 'incomplete', error = ?, finished_at = ? "
+                            "WHERE run_id = ? AND unit_id = ? AND status = 'pending'",
+                            [
+                                (retry_reason, ended_at, run_id, pending["unit_id"])
+                                for pending in retry_blocked
+                            ],
+                        )
+
+                    reason = f"任务级最大尝试次数 {max_total_attempts} 已达到，未领取工作项停止"
+                    self._db.execute(
+                        "UPDATE task_work_items SET state = 'skipped', error = ?, finished_at = ? "
+                        "WHERE run_id = ? AND goal_id = ? AND state = 'open'",
+                        (reason, ended_at, run_id, goal["id"]),
+                    )
+                    self._db.execute(
+                        "UPDATE run_units SET status = 'skipped', error = ?, finished_at = ? "
+                        "WHERE run_id = ? AND status = 'pending' AND unit_id IN ("
+                        "SELECT unit_id FROM task_work_items WHERE run_id = ? AND goal_id = ? AND state = 'skipped')",
+                        (reason, ended_at, run_id, run_id, goal["id"]),
+                    )
+                    self._db.execute("COMMIT")
+                    return None
+                row = self._db.execute(
+                    "SELECT w.id, w.unit_id FROM task_work_items AS w "
+                    "JOIN task_goals AS g ON g.id = w.goal_id "
+                    "JOIN runs AS r ON r.id = w.run_id "
+                    "WHERE w.run_id = ? AND w.state = 'open' "
+                    "AND w.goal_id = ? AND g.status IN ('open', 'met') AND r.status = 'running' "
+                    "ORDER BY w.priority DESC, w.ordinal, w.created_at LIMIT 1",
+                    (run_id, goal["id"]),
+                ).fetchone()
+                if row is None:
+                    self._db.execute("COMMIT")
+                    return None
+                claimed_at = now()
+                self._db.execute(
+                    "UPDATE task_work_items SET state = 'running', claimed_by = ?, claimed_at = ? "
+                    "WHERE id = ? AND state = 'open'",
+                    (worker_id, claimed_at, row["id"]),
+                )
+                self._db.execute(
+                    "UPDATE run_units SET status = 'running' WHERE run_id = ? AND unit_id = ? "
+                    "AND status = 'pending'",
+                    (run_id, row["unit_id"]),
+                )
+                work_id = str(row["id"])
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+        return self.get_task_work_item(work_id) if work_id else None
+
+    def resolve_task_work(
+        self,
+        work_id: str,
+        *,
+        outcome: str,
+        result: dict | None,
+        usage: dict | None,
+        seen: list | None,
+        error: str | None = None,
+        finding: dict | None = None,
+        stop_on_achieved: bool = True,
+        goal_reason: str | None = None,
+    ) -> dict | None:
+        """Resolve a leased work item, its evidence and goal transition atomically.
+
+        In particular, an achieved result cannot be committed while leaving its goal
+        open.  The same transaction persists the finding, closes the work item,
+        records the attempt, marks the goal met and (when configured) skips work that
+        has not started yet.
+        """
+        if outcome not in {"achieved", "continue", "no_evidence", "blocked"}:
+            raise ValueError(f"unsupported task outcome: {outcome}")
+        if outcome == "achieved" and finding is None:
+            raise ValueError("achieved task work requires a validated finding")
+
+        goal_met = False
+        finding_id: str | None = None
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._db.execute(
+                    "SELECT * FROM task_work_items WHERE id = ?", (work_id,)
+                ).fetchone()
+                if row is None or row["state"] != "running":
+                    self._db.execute("COMMIT")
+                    return None
+                goal = self._db.execute(
+                    "SELECT status FROM task_goals WHERE id = ? AND run_id = ?",
+                    (row["goal_id"], row["run_id"]),
+                ).fetchone()
+                if goal is None:
+                    raise RuntimeError("task work has no owning goal")
+
+                attempt = int(row["attempt"] or 0) + 1
+                stored_result = dict(result or {})
+                stored_result["outcome"] = outcome
+                stored_result["attempt"] = attempt
+                state = "done"
+                unit_status = "completed"
+                focus = row["focus"] or ""
+                finished_at: str | None = now()
+                claimed_by: str | None = row["claimed_by"]
+                claimed_at: str | None = row["claimed_at"]
+                stored_error = error
+
+                if outcome == "continue":
+                    next_focus = str(stored_result.get("next_focus") or "").strip()
+                    if attempt < int(row["max_attempts"]):
+                        state = "open"
+                        unit_status = "pending"
+                        focus = next_focus or focus
+                        finished_at = None
+                        claimed_by = None
+                        claimed_at = None
+                    else:
+                        failure_reason = str(stored_result.get("terminal_reason") or "")
+                        if failure_reason in TASK_RETRY_FAILURE_REASONS:
+                            state = "blocked"
+                            unit_status = "incomplete"
+                            stored_result["retry_exhausted"] = True
+                            stored_error = stored_error or (
+                                f"工作项在 {failure_reason} 后达到最大重试次数，无法据此判定目标不可达"
+                            )
+                        else:
+                            state = "exhausted"
+                            stored_result["terminal_reason"] = "attempts_exhausted"
+                            stored_error = stored_error or "工作项已达到最大尝试次数"
+                elif outcome == "blocked":
+                    state = "blocked"
+                    unit_status = "incomplete"
+                    stored_error = stored_error or str(
+                        stored_result.get("terminal_reason") or "工作项缺少继续分析所需的上下文"
+                    )
+
+                # A different in-flight worker can reach the goal while this one is
+                # waiting on a model response.  Do not revive its queue item on the
+                # way out: retain the attempt log, but close the lease with the same
+                # stop decision that skipped work which had not started yet.
+                if goal["status"] == "met" and stop_on_achieved:
+                    state = "skipped"
+                    unit_status = "skipped"
+                    stored_error = stored_error or "目标已满足，执行中的工作项停止"
+
+                if finding is not None:
+                    self._insert_finding(finding)
+                    finding_id = str(finding["id"])
+
+                self._db.execute(
+                    "UPDATE task_work_items SET state = ?, attempt = ?, focus = ?, claimed_by = ?, claimed_at = ?,"
+                    " result = ?, error = ?, finished_at = ? WHERE id = ?",
+                    (
+                        state,
+                        attempt,
+                        focus,
+                        claimed_by,
+                        claimed_at,
+                        _dumps(stored_result),
+                        stored_error,
+                        finished_at,
+                        work_id,
+                    ),
+                )
+                self._db.execute(
+                    "UPDATE run_units SET status = ?, result = ?, usage = ?, seen = ?, error = ?, finished_at = ?"
+                    " WHERE run_id = ? AND unit_id = ?",
+                    (
+                        unit_status,
+                        _dumps(stored_result),
+                        _dumps(usage) if usage is not None else None,
+                        _dumps(seen or []),
+                        stored_error,
+                        finished_at,
+                        row["run_id"],
+                        row["unit_id"],
+                    ),
+                )
+                self._db.execute(
+                    "UPDATE task_goals SET attempts = attempts + 1, updated_at = ? WHERE id = ?",
+                    (now(), row["goal_id"]),
+                )
+                self._db.execute(
+                    "INSERT INTO task_work_attempts (work_id, run_id, goal_id, attempt, worker_id, outcome,"
+                    " state, result, usage, seen, error, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        work_id,
+                        row["run_id"],
+                        row["goal_id"],
+                        attempt,
+                        row["claimed_by"],
+                        outcome,
+                        state,
+                        _dumps(stored_result),
+                        _dumps(usage) if usage is not None else None,
+                        _dumps(seen or []),
+                        stored_error,
+                        now(),
+                    ),
+                )
+                if outcome == "achieved":
+                    goal_met = bool(
+                        self._db.execute(
+                            "UPDATE task_goals SET status = 'met', terminal_reason = ?, reached_by = ?, updated_at = ? "
+                            "WHERE id = ? AND run_id = ? AND status = 'open'",
+                            (
+                                goal_reason or stored_result.get("summary") or "已取得有证据的目标发现",
+                                work_id,
+                                now(),
+                                row["goal_id"],
+                                row["run_id"],
+                            ),
+                        ).rowcount
+                    )
+                    if goal_met and stop_on_achieved:
+                        ended_at = now()
+                        self._db.execute(
+                            "UPDATE task_work_items SET state = 'skipped', error = ?, finished_at = ? "
+                            "WHERE run_id = ? AND goal_id = ? AND state = 'open'",
+                            ("目标已满足，未领取工作项停止", ended_at, row["run_id"], row["goal_id"]),
+                        )
+                        self._db.execute(
+                            "UPDATE run_units SET status = 'skipped', error = ?, finished_at = ? "
+                            "WHERE run_id = ? AND status = 'pending' AND unit_id IN ("
+                            "SELECT unit_id FROM task_work_items WHERE run_id = ? AND goal_id = ? AND state = 'skipped')",
+                            (
+                                "目标已满足，未领取工作项停止",
+                                ended_at,
+                                row["run_id"],
+                                row["run_id"],
+                                row["goal_id"],
+                            ),
+                        )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+        resolved = self.get_task_work_item(work_id)
+        if resolved is not None:
+            resolved["goal_met"] = goal_met
+            resolved["finding_id"] = finding_id
+        return resolved
+
+    def settle_task_goal_if_idle(self, run_id: str) -> dict | None:
+        """Close a goal only after its complete shared queue has stopped moving."""
+        goal_id: str | None = None
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                goal = self._db.execute(
+                    "SELECT * FROM task_goals WHERE run_id = ? ORDER BY created_at LIMIT 1", (run_id,)
+                ).fetchone()
+                if goal is None:
+                    self._db.execute("COMMIT")
+                    return None
+                active = self._db.execute(
+                    "SELECT COUNT(*) AS total FROM task_work_items WHERE goal_id = ? "
+                    "AND state IN ('open', 'running')",
+                    (goal["id"],),
+                ).fetchone()
+                if int(active["total"] or 0):
+                    self._db.execute("COMMIT")
+                    return None
+
+                goal_id = str(goal["id"])
+                if goal["status"] == "open":
+                    blocked = self._db.execute(
+                        "SELECT COUNT(*) AS total FROM task_work_items WHERE goal_id = ? AND state = 'blocked'",
+                        (goal_id,),
+                    ).fetchone()
+                    if int(blocked["total"] or 0):
+                        status = "inconclusive"
+                        reason = "一个或多个工作项因缺少上下文或执行失败而阻塞"
+                    elif int(goal["attempts"] or 0) >= int(goal["max_total_attempts"] or 0):
+                        status = "unreachable"
+                        reason = (
+                            f"任务级最大尝试次数 {goal['max_total_attempts']} 已耗尽，"
+                            "仍未满足验收条件"
+                        )
+                    else:
+                        status = "unreachable"
+                        reason = "所有已规划工作项均已完成，仍未满足验收条件"
+                    self._db.execute(
+                        "UPDATE task_goals SET status = ?, terminal_reason = ?, updated_at = ? WHERE id = ?",
+                        (status, reason, now(), goal_id),
+                    )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+        return self.get_task_goal(run_id) if goal_id else None
+
+    def abandon_task_work(self, run_id: str, reason: str) -> None:
+        """Stop a goal-task queue after cancellation or a terminal worker failure."""
+        with self._lock:
+            self._db.execute("BEGIN")
+            try:
+                ended_at = now()
+                self._db.execute(
+                    "UPDATE task_goals SET status = 'inconclusive', terminal_reason = ?, updated_at = ? "
+                    "WHERE run_id = ? AND status IN ('open', 'unreachable', 'inconclusive')",
+                    (reason, ended_at, run_id),
+                )
+                self._db.execute(
+                    "UPDATE task_work_items SET state = 'blocked', error = ?, finished_at = ? "
+                    "WHERE run_id = ? AND state = 'running'",
+                    (reason, ended_at, run_id),
+                )
+                self._db.execute(
+                    "UPDATE task_work_items SET state = 'skipped', error = ?, finished_at = ? "
+                    "WHERE run_id = ? AND state = 'open'",
+                    (reason, ended_at, run_id),
+                )
+                self._db.execute(
+                    "UPDATE run_units SET status = 'incomplete', error = ?, finished_at = ? "
+                    "WHERE run_id = ? AND status = 'running' AND unit_id IN ("
+                    "SELECT unit_id FROM task_work_items WHERE run_id = ?)",
+                    (reason, ended_at, run_id, run_id),
+                )
+                self._db.execute(
+                    "UPDATE run_units SET status = 'skipped', error = ?, finished_at = ? "
+                    "WHERE run_id = ? AND status = 'pending' AND unit_id IN ("
+                    "SELECT unit_id FROM task_work_items WHERE run_id = ?)",
+                    (reason, ended_at, run_id, run_id),
+                )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+
     # --- findings ----------------------------------------------------------
 
-    def add_finding(self, finding: dict) -> None:
-        self._write(
+    def _insert_finding(self, finding: dict) -> None:
+        """Insert a finding while the caller owns ``_lock`` and maybe a transaction."""
+        self._db.execute(
             "INSERT OR REPLACE INTO findings (id, run_id, unit_id, fingerprint, category, title, severity,"
             " summary, evidence, input_source, propagation, dangerous_operation, protection, preconditions,"
             " missing_context, poc, remediation, validation_state, validation_errors, verdict, created_at)"
@@ -549,6 +1137,10 @@ class Store:
                 finding["created_at"],
             ),
         )
+
+    def add_finding(self, finding: dict) -> None:
+        with self._lock:
+            self._insert_finding(finding)
 
     def _finding_dict(self, row: sqlite3.Row) -> dict:
         finding = dict(row)

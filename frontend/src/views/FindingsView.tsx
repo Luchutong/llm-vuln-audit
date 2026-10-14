@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import { api, downloadUrl, errorText, post } from '../api';
-import type { Category, Evidence, Finding, RunDetail } from '../types';
+import type { Evidence, Finding, RunDetail } from '../types';
 import { SourceViewer } from '../components/SourceViewer';
 
-const CATEGORY_LABELS: Record<Category, string> = {
+const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
   xss_r: '反射型 XSS',
   command_injection: '命令注入',
 };
+
+function categoryLabel(category: string | null | undefined) {
+  return CATEGORY_LABELS[category ?? ''] ?? (category ? `自定义目标：${category}` : '未标注类别');
+}
 
 const EXECUTION_LABELS: Record<string, string> = {
   success: '执行成功，出现预期差异',
@@ -137,7 +141,7 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
                 <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>
                 {finding.verdict && <span className={`chip chip-${finding.verdict}`}>{VERDICT_LABELS[finding.verdict]}</span>}
               </div>
-              <div className="small" style={{ fontWeight: 500 }}>{CATEGORY_LABELS[finding.category]}</div>
+              <div className="small" style={{ fontWeight: 500 }}>{categoryLabel(finding.category)}</div>
               <div className="mono faint" style={{ fontSize: 11.5 }}>
                 {auditUnitLocation(finding)}
               </div>
@@ -159,7 +163,7 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
       <div className="panel">
         <div className="panel-head">
           <div>
-            <div className="panel-title">{CATEGORY_LABELS[finding.category]} · {finding.title}</div>
+            <div className="panel-title">{categoryLabel(finding.category)} · {finding.title}</div>
             <div className="mono faint small">{auditUnitLocation(finding)}</div>
           </div>
           <div className="row">

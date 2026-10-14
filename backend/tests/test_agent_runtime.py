@@ -367,3 +367,197 @@ def test_cancellation_propagates_and_emits_a_terminal_checkpoint(monkeypatch):
         raise AssertionError("Cancellation was swallowed")
     asyncio.run(cancel())
     assert any(e.get("reason") == "cancelled" for e in events)
+
+
+def test_goal_executor_returns_achieved_only_with_exact_source_evidence(monkeypatch):
+    received = []
+
+    def provider(messages, info):
+        received.append(str(messages))
+        return output(info, {
+            "outcome": "achieved",
+            "summary": "找到用户输入直达输出的位置。",
+            "reasoning": "当前单元把请求参数直接写入响应，满足给定目标。",
+            "next_focus": "",
+            "missing_context": [],
+            "finding": {
+                "title": "未编码的请求参数输出",
+                "severity": "high",
+                "summary": "请求参数在 a.php 中直接输出。",
+                "evidence": "a.php:3-3",
+                "input_source": "$_GET['x']",
+                "propagation": "参数直接传给 echo",
+                "dangerous_operation": "echo（a.php:3）",
+                "protection": "未见 HTML 上下文编码",
+                "preconditions": "通过包含该文件的入口提供 x 参数",
+                "poc": {
+                    "filename": "controlled_xss_poc.php",
+                    "language": "php",
+                    "script": "<?php echo 'controlled test artifact';",
+                    "instructions": "仅在本地受控演示环境中运行。",
+                    "normal_input": "x=plain",
+                    "attack_input": "x=<script>alert(1)</script>",
+                    "expected_result": "攻击输入会原样进入响应，而正常输入不会产生脚本标记。",
+                },
+                "remediation": "按 HTML 上下文编码输出值。",
+            },
+        })
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    result = asyncio.run(agent.pursue_task_work(
+        repository=Repository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        unit=UNIT,
+        task={
+            "objective": "寻找请求参数未经编码输出的可达路径。",
+            "success_criteria": "保存至少一处带原始行号的直接输出证据。",
+            "max_iterations": 2,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+        },
+        attempt=1,
+        config=CONFIG,
+        budgets={"responses": 8, "tools": 16, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+    ))
+
+    assert result["outcome"] == "achieved", result
+    assert result["result"]["finding"]["evidence"] == "a.php:3-3"
+    assert any("寻找请求参数未经编码输出的可达路径" in message for message in received)
+
+
+def test_goal_executor_requeues_model_failure_instead_of_calling_it_missing_context(monkeypatch):
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    def provider(messages, info):
+        raise ModelHTTPError(503, "test", {"message": "temporary outage"})
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    result = asyncio.run(agent.pursue_task_work(
+        repository=Repository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        unit=UNIT,
+        task={
+            "objective": "寻找请求参数未经编码输出的可达路径。",
+            "success_criteria": "保存至少一处带原始行号的直接输出证据。",
+            "max_iterations": 2,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+        },
+        attempt=1,
+        config=CONFIG,
+        budgets={"responses": 8, "tools": 16, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+    ))
+
+    assert result["outcome"] == "continue"
+    assert result["terminal_reason"] == "model_error"
+    assert CONFIG.api_key not in str(result)
+
+
+def test_goal_executor_does_not_accept_achieved_without_the_required_poc(monkeypatch):
+    """A vulnerability task cannot satisfy its goal with evidence alone when POC is required."""
+    calls = 0
+
+    def provider(messages, info):
+        nonlocal calls
+        calls += 1
+        return output(info, {
+            "outcome": "achieved",
+            "summary": "找到用户输入直达输出的位置。",
+            "reasoning": "当前单元把请求参数直接写入响应，满足给定目标。",
+            "next_focus": "",
+            "missing_context": [],
+            "finding": {
+                "title": "未编码的请求参数输出",
+                "severity": "high",
+                "summary": "请求参数在 a.php 中直接输出。",
+                "evidence": "a.php:3-3",
+                "input_source": "$_GET['x']",
+                "propagation": "参数直接传给 echo",
+                "dangerous_operation": "echo（a.php:3）",
+                "protection": "未见 HTML 上下文编码",
+                "preconditions": "通过包含该文件的入口提供 x 参数",
+                "remediation": "按 HTML 上下文编码输出值。",
+            },
+        })
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    result = asyncio.run(agent.pursue_task_work(
+        repository=Repository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        unit=UNIT,
+        task={
+            "objective": "寻找请求参数未经编码输出的可达路径。",
+            "success_criteria": "保存至少一处带原始行号和 POC 的直接输出证据。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+            "require_poc": True,
+        },
+        attempt=1,
+        config=CONFIG,
+        budgets={"responses": 8, "tools": 16, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+    ))
+
+    assert result["outcome"] == "continue"
+    assert result["terminal_reason"] == "invalid_output"
+    assert calls >= 2
+
+
+def test_goal_executor_allows_a_source_fact_goal_without_poc_when_explicitly_disabled(monkeypatch):
+    """The POC gate is configurable for non-vulnerability source facts."""
+    calls = 0
+
+    def provider(messages, info):
+        nonlocal calls
+        calls += 1
+        return output(info, {
+            "outcome": "achieved",
+            "summary": "已确认输出点缺少 HTML 上下文编码。",
+            "reasoning": "当前目标只要求确认源码事实，不要求制作利用脚本。",
+            "next_focus": "",
+            "missing_context": [],
+            "finding": {
+                "title": "未编码的请求参数输出",
+                "severity": "medium",
+                "summary": "请求参数在 a.php 中直接输出。",
+                "evidence": "a.php:3-3",
+                "input_source": "$_GET['x']",
+                "propagation": "参数直接传给 echo",
+                "dangerous_operation": "echo（a.php:3）",
+                "protection": "未见 HTML 上下文编码",
+                "preconditions": "通过包含该文件的入口提供 x 参数",
+                "remediation": "按 HTML 上下文编码输出值。",
+            },
+        })
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    result = asyncio.run(agent.pursue_task_work(
+        repository=Repository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        unit=UNIT,
+        task={
+            "objective": "确认所选源码是否将请求参数未经 HTML 上下文编码直接输出。",
+            "success_criteria": "保存至少一处带原始行号的源码事实。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+            "require_poc": False,
+        },
+        attempt=1,
+        config=CONFIG,
+        budgets={"responses": 8, "tools": 16, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+    ))
+
+    assert result["outcome"] == "achieved", result
+    assert result["result"]["finding"]["poc"] is None
+    assert calls == 1

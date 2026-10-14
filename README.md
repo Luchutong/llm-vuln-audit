@@ -14,10 +14,10 @@ cp .env.example .env      # 填 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY
 docker compose up --build
 ```
 
-* 审计应用 <http://127.0.0.1:8787>
+* 审计应用 <http://127.0.0.1:8899>
 * 演示靶机 DVWA <http://127.0.0.1:4280>
 
-8787 被别的服务占用时（本机就跑着另一个项目），用 `AUDIT_PORT=8790 docker compose up --build` 换端口，其余不变。
+8899 被别的服务占用时，用 `AUDIT_PORT=8900 docker compose up --build` 换端口，其余不变。
 
 首次启动后需要初始化 DVWA：打开 <http://127.0.0.1:4280/setup.php>，点击 **Create / Reset Database**，然后用 `admin` / `password` 登录，把 **DVWA Security** 设为 `low`。
 
@@ -27,15 +27,15 @@ docker compose up --build
 # 后端（Python 3.12 + uv）
 cd backend
 uv sync
-uv run uvicorn audit.app:app --host 127.0.0.1 --port 8787
+uv run uvicorn audit.app:app --host 127.0.0.1 --port 8899
 
 # 前端（另开一个终端）
 cd frontend
 npm install
-VITE_API_TARGET=http://127.0.0.1:8787 npm run dev
+VITE_API_TARGET=http://127.0.0.1:8899 npm run dev
 ```
 
-后端启动时读取 `backend/.env`、项目根目录 `.env` 或进程环境变量。前端开发服务器默认把 `/api` 代理到 `127.0.0.1:8787`，可用 `VITE_API_TARGET` 改指别处。
+后端启动时读取 `backend/.env`、项目根目录 `.env` 或进程环境变量。前端开发服务器默认把 `/api` 代理到 `127.0.0.1:8899`，可用 `VITE_API_TARGET` 改指别处。
 
 ### 环境变量
 
@@ -69,10 +69,10 @@ VITE_API_TARGET=http://127.0.0.1:8787 npm run dev
 命令行等价入口：
 
 ```bash
-python scripts/demo_upload.py  http://127.0.0.1:8787 demo/dvwa-source.zip   # 导入快照
-python scripts/seed_truths.py http://127.0.0.1:8787 <snapshot-id>          # 录入真值集
-python scripts/demo_run.py    http://127.0.0.1:8787 <snapshot-id> P2       # 跑完整流程
-python scripts/demo_run.py    http://127.0.0.1:8787 --follow <run-id>      # 跟随已有运行
+python scripts/demo_upload.py  http://127.0.0.1:8899 demo/dvwa-source.zip   # 导入快照
+python scripts/seed_truths.py http://127.0.0.1:8899 <snapshot-id>          # 录入真值集
+python scripts/demo_run.py    http://127.0.0.1:8899 <snapshot-id> P2       # 跑完整流程
+python scripts/demo_run.py    http://127.0.0.1:8899 --follow <run-id>      # 跟随已有运行
 python scripts/demo_trace.py  <snapshot-id> sqli/source/low.php P2 8 16    # 单单元逐轮追踪
 ```
 
@@ -84,10 +84,10 @@ python scripts/demo_trace.py  <snapshot-id> sqli/source/low.php P2 8 16    # 单
 cd backend && uv sync --extra dev && uv run pytest tests/ -q   # 单元测试（快照导入、生命周期）
 
 # 以下需要后端在跑，且有一个已产生候选的运行
-scripts/sse_reconnect.py http://127.0.0.1:8787 <run-id>   # 事件流推送与断线续传（有无重复/有无空洞）
-scripts/verify_gate.py   http://127.0.0.1:8787 <run-id>   # 人工验证闸门（确认/排除需成功执行与对照，XSS 需浏览器证据）
+scripts/sse_reconnect.py http://127.0.0.1:8899 <run-id>   # 事件流推送与断线续传（有无重复/有无空洞）
+scripts/verify_gate.py   http://127.0.0.1:8899 <run-id>   # 人工验证闸门（确认/排除需成功执行与对照，XSS 需浏览器证据）
 scripts/ui_smoke.py      http://127.0.0.1:5173 <run-id>   # 用真实数据打开每个标签页并检查控制台报错
-scripts/verify_rounds.py http://127.0.0.1:8787            # 两轮优化对比：Markdown 与 result.json 是否一致
+scripts/verify_rounds.py http://127.0.0.1:8899            # 两轮优化对比：Markdown 与 result.json 是否一致
 ```
 
 `ui_smoke.py` 需要 Playwright 与 chromium，未纳入后端依赖；安装后执行 `python -m playwright install chromium`。可通过 `CHROME_BIN` 指定已有浏览器。`sse_reconnect.py` / `verify_gate.py` 只用 httpx。

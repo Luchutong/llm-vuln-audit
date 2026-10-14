@@ -16,9 +16,9 @@ services:
       dockerfile: Dockerfile
     image: vuln-audit:local
     ports:
-      # 8787 is the documented address; AUDIT_PORT exists only so a machine that already has
-      # something on 8787 can still start the demo without stopping the other service.
-      - "127.0.0.1:${AUDIT_PORT:-8787}:8787"
+      # 8899 is the documented address; AUDIT_PORT exists only so a machine that already has
+      # something on 8899 can still start the demo without stopping the other service.
+      - "127.0.0.1:${AUDIT_PORT:-8899}:8899"
     environment:
       AUDIT_DATA_DIR: /app/data
       LLM_MODEL: ${LLM_MODEL:-}

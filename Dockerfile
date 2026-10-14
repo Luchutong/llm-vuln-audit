@@ -28,7 +28,7 @@ COPY --from=backend-build /app/backend /app/backend
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 WORKDIR /app/backend
 USER audit
-EXPOSE 8787
+EXPOSE 8899
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/api/config', timeout=4)" || exit 1
-CMD ["uvicorn", "audit.app:app", "--host", "0.0.0.0", "--port", "8787", "--workers", "1"]
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8899/api/config', timeout=4)" || exit 1
+CMD ["uvicorn", "audit.app:app", "--host", "0.0.0.0", "--port", "8899", "--workers", "1"]

@@ -170,7 +170,7 @@ def make_worker(store: Store, repository: SourceRepository) -> AuditWorker:
 def test_create_request_requires_a_planner_task_and_rejects_legacy_prompt_fields():
     request = CreateRunRequest(snapshot_id="snapshot-1", task=TASK)
     assert request.task.max_planner_rounds == 3
-    assert request.scope == []
+    assert not hasattr(request, "scope")
 
     with pytest.raises(ValidationError, match="task"):
         CreateRunRequest(snapshot_id="snapshot-1")
@@ -201,8 +201,9 @@ def test_api_creation_freezes_a_project_map_not_a_static_source_queue(store, rep
     project_map = store.get_project_map(created["id"])
     assert session is not None and session["current_round"] == 0
     assert project_map is not None
-    assert set(project_map["scope"]) == {"public/index.php", "src/auth.php", "src/files.php"}
-    assert "vendor/helper.inc" not in project_map["scope"]
+    # The whole uploaded project is the frozen scope, dependency tree included.
+    assert set(project_map["scope"]) == {"public/index.php", "src/auth.php", "src/files.php", "vendor/helper.inc"}
+    assert created["scope"] == [] and created["scope_mode"] == "snapshot"
 
 
 def test_project_map_and_bundle_keep_cross_file_context(repository):
@@ -376,10 +377,31 @@ def test_planner_worker_replans_after_dependency_aware_multiworker_wave(store, r
 
 
 def test_evidence_backed_worker_finding_closes_a_stop_on_achieved_run(store, repository, monkeypatch):
+    """The run is closed on the worker's conclusion -- after one round that reviews it."""
     run, _ = create_planner_run(store, repository)
     worker = make_worker(store, repository)
+    rounds: list[int] = []
 
-    async def fake_plan(**_kwargs):
+    async def fake_plan(**kwargs):
+        rounds.append(kwargs["round_no"])
+        if kwargs["round_no"] > 1:
+            # The pre-closure review.  The host runs one Planner round before it closes on an
+            # existing conclusion, so a Planner has somewhere to say "this one is wrong"
+            # -- or, as here, to confirm it and let the run end.
+            return {
+                "decision": {
+                    "goal_state": "met",
+                    "basis_summary": "入口方向的结论站得住，收束。",
+                    "next_action": "",
+                    "missing_context": [],
+                    "tasks": [],
+                    "updates": [],
+                },
+                "usage": {"requests": 1, "tool_calls": 0, "input_tokens": 4, "output_tokens": 3},
+                "error": None,
+                "status": None,
+                "terminal_reason": "completed",
+            }
         return {
             "decision": {
                 "goal_state": "continue",
@@ -430,14 +452,34 @@ def test_evidence_backed_worker_finding_closes_a_stop_on_achieved_run(store, rep
     findings = store.list_findings(run["id"])
     assert len(findings) == 1 and findings[0]["validation_state"] == "candidate"
     assert findings[0]["task_key"] == "entry-flow"
+    # Two rounds: the direction, then the review of the conclusion it produced.  A run that
+    # closes on a conclusion nobody was shown is a run whose conclusion cannot be corrected.
+    assert rounds == [1, 2]
 
 
 def test_stop_on_achieved_false_finishes_the_current_frontier_then_marks_met(store, repository, monkeypatch):
     task = {**TASK, "stop_on_achieved": False}
     run, _ = create_planner_run(store, repository, task=task)
     worker = make_worker(store, repository)
+    rounds: list[int] = []
 
-    async def fake_plan(**_kwargs):
+    async def fake_plan(**kwargs):
+        rounds.append(kwargs["round_no"])
+        if kwargs["round_no"] > 1:
+            return {
+                "decision": {
+                    "goal_state": "met",
+                    "basis_summary": "前沿已跑完，入口方向的结论成立。",
+                    "next_action": "",
+                    "missing_context": [],
+                    "tasks": [],
+                    "updates": [],
+                },
+                "usage": {"requests": 1, "tool_calls": 0, "input_tokens": 2, "output_tokens": 2},
+                "error": None,
+                "status": None,
+                "terminal_reason": "completed",
+            }
         return {
             "decision": {
                 "goal_state": "continue",
@@ -471,6 +513,8 @@ def test_stop_on_achieved_false_finishes_the_current_frontier_then_marks_met(sto
     assert store.get_run(run["id"])["status"] == "completed"
     assert {item["state"] for item in store.list_tasks(run["id"])} == {"completed"}
     assert store.get_task_goal(run["id"])["status"] == "met"
+    # Both directions ran (nothing was held back) and the review is what closed the run.
+    assert rounds == [1, 2]
 
 
 def test_blocked_frontier_cannot_be_finalized_as_unreachable(store, repository):

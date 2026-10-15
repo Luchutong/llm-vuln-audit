@@ -1,12 +1,15 @@
-"""Immutable ZIP snapshots and bounded, read-only PHP source tools.
+"""Immutable ZIP snapshots and bounded, read-only source tools.
 
-Tree-sitter is a syntax index, never a vulnerability filter. Every named function,
+Tree-sitter indexes PHP syntax, never a vulnerability filter. Every named function,
 method and remaining script region is indexed, including code without sink hits.
-Original files are kept byte-for-byte; cleaning only changes model projections.
+Other languages are indexed as plain text lines so they can be searched, read and
+cited as evidence without pretending to a symbol model they do not have. Original
+files are kept byte-for-byte; cleaning only changes model projections.
 """
 from __future__ import annotations
 
 import bisect
+from collections import OrderedDict
 import hashlib
 import io
 import json
@@ -26,21 +29,91 @@ from tree_sitter import Language, Parser
 import tree_sitter_php
 
 
-MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
-MAX_EXTRACTED_BYTES = 128 * 1024 * 1024
+MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
 MAX_FILE_BYTES = 8 * 1024 * 1024
-MAX_ENTRIES = 10_000
+MAX_ENTRIES = 40_000
 MAX_COMPRESSION_RATIO = 1000
 MAX_SLICE_LINES = 200
 MAX_SLICE_BYTES = 16 * 1024
 SLICE_OVERLAP_LINES = 24
 MAX_READ_LINES = 400
 MAX_READ_BYTES = 64 * 1024
-# PHP projects in the wild still use versioned suffixes and PHP source includes.  The
-# importer remains deliberately language-specific (the task is PHP source analysis), but
-# it is not tied to a particular framework or demo layout.
+# A whole project is the audit scope, so a search may have to sweep tens of
+# thousands of files.  Cap how many are opened per call and report the shortfall
+# instead of stalling the model on a silent full-tree scan.
+MAX_SEARCH_FILES = 3_000
+# Snapshot listings are bounded: a project can hold far more paths than a model,
+# a report or a browser ever needs to enumerate inline.
+MAX_LISTED_PATHS = 200
+MAX_WARNINGS = 200
+# The entry budget above is soft.  Safety validation (path traversal, symlinks,
+# special files, collisions) still has to walk every entry, so an archive far past
+# the budget is rejected outright rather than held in memory just to be trimmed.
+MAX_SCANNED_ENTRIES = MAX_ENTRIES * 4
+SCHEMA_VERSION = 2
+# PHP projects in the wild still use versioned suffixes and PHP source includes.
+# PHP keeps its tree-sitter symbol index; every other text file is imported as plain
+# lines, so it can be searched, read and cited without a language model of its own.
 PHP_EXTENSIONS = {".php", ".php3", ".php4", ".php5", ".php6", ".php7", ".php8", ".phps", ".inc", ".phtml"}
 EXCLUDED_DIRECTORIES = {"vendor", "node_modules", "bower_components", "cache", "caches", "dist", "build", "coverage", "generated", ".git", ".hg", ".svn"}
+# Dependency and build trees stay inside the snapshot: the whole project is the scope,
+# and only the Planner's budget decides what gets read.  This set is navigation
+# metadata (``dependency_tree``), never a filter.
+DEPENDENCY_DIRECTORIES = EXCLUDED_DIRECTORIES | {
+    "out", "target", ".venv", "venv", "__pycache__", ".next", ".nuxt", ".cache",
+    ".gradle", ".tox", ".mypy_cache", ".pytest_cache", ".idea", ".vscode",
+}
+LANGUAGE_BY_EXTENSION = {
+    ".php": "php", ".php3": "php", ".php4": "php", ".php5": "php", ".php6": "php",
+    ".php7": "php", ".php8": "php", ".phps": "php", ".inc": "php", ".phtml": "php",
+    ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascript",
+    ".ts": "typescript", ".tsx": "typescript", ".vue": "vue", ".svelte": "svelte",
+    ".py": "python", ".rb": "ruby", ".go": "go", ".java": "java", ".kt": "kotlin",
+    ".cs": "csharp", ".rs": "rust", ".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp",
+    ".swift": "swift", ".scala": "scala", ".pl": "perl", ".lua": "lua", ".r": "r",
+    ".html": "html", ".htm": "html", ".xhtml": "html", ".twig": "template",
+    ".tpl": "template", ".mustache": "template", ".hbs": "template", ".ejs": "template",
+    ".css": "css", ".scss": "scss", ".sass": "sass", ".less": "less",
+    ".json": "json", ".jsonc": "json", ".json5": "json", ".lock": "json",
+    ".yaml": "yaml", ".yml": "yaml", ".toml": "toml", ".ini": "config", ".cfg": "config",
+    ".conf": "config", ".properties": "config", ".env": "config", ".dist": "config",
+    ".xml": "xml", ".xsd": "xml", ".xsl": "xml", ".svg": "xml", ".plist": "xml",
+    ".sql": "sql", ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".fish": "shell",
+    ".ps1": "powershell", ".bat": "batch", ".cmd": "batch",
+    ".md": "markdown", ".markdown": "markdown", ".rst": "rst", ".adoc": "asciidoc",
+    ".txt": "text", ".text": "text", ".log": "text", ".csv": "csv", ".tsv": "csv",
+    ".diff": "diff", ".patch": "diff", ".map": "json", ".htaccess": "config",
+}
+# Suffixes whose bytes are never decoded as source.  Everything else falls back to a
+# bounded NUL/UTF-8 probe, so an unknown extension is still readable when it is text.
+BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tif", ".tiff", ".avif",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".jar", ".war", ".whl", ".egg",
+    ".pdf", ".ps", ".eps", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt",
+    ".mp3", ".mp4", ".avi", ".mov", ".wav", ".ogg", ".webm", ".flac", ".mkv",
+    ".so", ".dll", ".dylib", ".a", ".lib", ".o", ".obj", ".class", ".pyc", ".pyo", ".wasm",
+    ".exe", ".bin", ".dat", ".db", ".sqlite", ".sqlite3", ".mdb", ".pdb",
+    ".psd", ".ai", ".sketch", ".blend",
+}
+# Manifests, container files and server configuration describe how a project is wired
+# together.  They are ordinary readable text; the role only helps navigation.
+PROJECT_MANIFEST_NAMES = {
+    "composer.json", "composer.lock", "package.json", "package-lock.json", "yarn.lock",
+    "requirements.txt", "pyproject.toml", "setup.py", "setup.cfg", "pom.xml",
+    "build.gradle", "go.mod", "cargo.toml", "gemfile", "dockerfile", "docker-compose.yml",
+    "docker-compose.yaml", "compose.yml", "compose.yaml", "makefile", ".env",
+    ".env.example", ".env.dist", ".htaccess", "web.config", "nginx.conf", "httpd.conf",
+}
+# Root-level generic entry names.  Only the repository root counts, so these stay
+# high-confidence orientation leads rather than turning every nested ``index.html``
+# or bundled ``app.js`` into a fake request entrypoint.
+GENERIC_ROOT_ENTRY_NAMES = {
+    "index.html", "index.htm", "index.js", "index.ts", "app.js", "app.ts",
+    "main.js", "main.ts", "app.py", "main.py", "wsgi.py", "asgi.py", "manage.py",
+    "server.js", "server.ts", "server.py", "index.rb", "app.rb", "main.go",
+}
 SECURITY_COMMENT = re.compile(r"security|saniti|escap|validat|auth|csrf|inject|xss|sql|command|taint|input|password|whitelist|blacklist|用户|安全|漏洞|过滤|转义|验证|权限|密码", re.I)
 PRIORITY_HINT = re.compile(r"\$_(?:GET|POST|REQUEST|COOKIE|FILES|SERVER)|\b(?:mysqli_query|mysql_query|query|exec|system|shell_exec|passthru|echo|print)\b", re.I)
 FUNCTION_TYPES = {"function_definition", "method_declaration"}
@@ -89,6 +162,20 @@ def _path(value: str) -> str:
     return value
 
 
+def _search_path(value: object) -> object:
+    """Read the path a search was narrowed to, where the project root is spelled ".".
+
+    A model writes the root as "", "." or "src/" as readily as it writes a bare path;
+    left alone every one of those reaches ``_path`` as an empty or dot segment and is
+    refused as a traversal.  A non-string is passed through so ``_path`` still rejects
+    it with its own error.
+    """
+    if not isinstance(value, str):
+        return value
+    path = value.strip().rstrip("/")
+    return path if path and path != "." else None
+
+
 def _lines(data: bytes) -> list[bytes]:
     # Tree-sitter rows count LF, not Python's wider splitlines separator set.
     result = data.split(b"\n")
@@ -130,6 +217,62 @@ def _looks_like_php(content: bytes) -> bool:
     immutable snapshot workflow.
     """
     return PHP_OPEN_TAG.search(content) is not None
+
+
+def _unknown_source_suffix(path: str) -> bool:
+    """True when the suffix tables are silent about this name.
+
+    ``_looks_like_php`` exists for framework-specific suffixes and extensionless
+    entrypoints.  Applying it to a *known* other language instead turns any Python test
+    or Markdown report that merely quotes a ``<?php`` sample into a PHP file, and the
+    tree-sitter pass then harvests that file's ERROR nodes as its parse errors.
+    """
+    parsed = PurePosixPath(path)
+    return (
+        parsed.suffix.casefold() not in LANGUAGE_BY_EXTENSION
+        and parsed.name.casefold() not in LANGUAGE_BY_EXTENSION
+        and parsed.name.casefold() not in PROJECT_MANIFEST_NAMES
+    )
+
+
+def _line_count(data: bytes) -> int:
+    """Count LF-delimited rows the way ``_lines`` does, without materialising them."""
+    if not data:
+        return 1
+    return data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
+
+
+def _dependency_tree(path: str) -> bool:
+    """True when any parent directory belongs to a dependency or build tree."""
+    return any(part.casefold() in DEPENDENCY_DIRECTORIES for part in path.split("/")[:-1])
+
+
+def _classify(content: bytes, path: str) -> tuple[str, str]:
+    """Return ``(kind, language)`` for one archive entry.
+
+    The file name and suffix tables are the fast path.  An unknown suffix is still
+    text when the entry passes a bounded NUL probe and a bounded UTF-8 decode, so a
+    project's odd-but-readable files stay searchable and citable.  Only entries that
+    fail both probes become ``binary``: registered in the snapshot, never decoded.
+    """
+    parsed = PurePosixPath(path)
+    name = parsed.name.casefold()
+    suffix = parsed.suffix.casefold()
+    if suffix in BINARY_EXTENSIONS or name in BINARY_EXTENSIONS:
+        return "binary", "binary"
+    # Dotfiles such as ``.env`` / ``.htaccess`` have no suffix, so match the name too.
+    language = LANGUAGE_BY_EXTENSION.get(suffix) or LANGUAGE_BY_EXTENSION.get(name)
+    if language is None and name in PROJECT_MANIFEST_NAMES:
+        language = "config"
+    if language is not None:
+        return "text", language
+    if b"\x00" in content[:8192]:
+        return "binary", "binary"
+    try:
+        content[:65536].decode("utf-8")
+    except UnicodeDecodeError:
+        return "binary", "binary"
+    return "text", "text"
 
 
 def _project_path_profile(path: str) -> dict:
@@ -198,6 +341,13 @@ def _project_path_profile(path: str) -> dict:
     elif not non_entry and (name in CLI_ENTRY_NAMES or directory_set & CLI_DIRECTORIES):
         entrypoint = ("cli_command", 70)
         signals.append("cli_name_or_directory")
+    # A non-PHP project has no ``index.php``; a root-level framework entry such as
+    # ``app.py``, ``server.js`` or ``wsgi.py`` is the equivalent orientation lead.
+    # Only the repository root counts, so a bundled ``app.js`` deep inside a tree
+    # never becomes a fake request entrypoint.
+    elif not non_entry and not directories and name in GENERIC_ROOT_ENTRY_NAMES:
+        entrypoint = ("root_generic_entry", 85)
+        signals.append("root_generic_entry_name")
 
     if entrypoint:
         roles.add("entrypoint")
@@ -207,6 +357,34 @@ def _project_path_profile(path: str) -> dict:
         "entrypoint": entrypoint,
         "signals": signals,
     }
+
+
+# Orientation preference when a snapshot offers no entry or bootstrap candidate.
+# Manifests and configuration describe how a project is wired together, then come
+# application code and web roots, then everything else — always in a deterministic
+# order so the same snapshot yields the same orientation reads.
+_ORIENTATION_ROLE_RANK = ("configuration", "application_code", "web_root", "controller", "route_definition")
+
+
+def _orientation_leads(project_map: dict, scope: set[str]) -> list[str]:
+    """Rank readable files as orientation leads when no entrypoint exists."""
+    ranked = []
+    for row in project_map.get("files") or []:
+        path = str(row.get("path") or "")
+        if path not in scope:
+            continue
+        name = PurePosixPath(path).name.casefold()
+        if name in PROJECT_MANIFEST_NAMES:
+            rank = 0
+        else:
+            roles = set(row.get("roles") or [])
+            rank = next(
+                (index + 1 for index, role in enumerate(_ORIENTATION_ROLE_RANK) if role in roles),
+                len(_ORIENTATION_ROLE_RANK) + 1,
+            )
+        ranked.append((rank, bool(row.get("dependency_tree")), path))
+    ranked.sort()
+    return [path for _, _, path in ranked]
 
 
 def _project_module_path(path: str) -> str:
@@ -226,6 +404,14 @@ class SourceRepository:
         self.snapshots.mkdir(parents=True, exist_ok=True)
         self.parser = Parser(Language(tree_sitter_php.language_php()))
         self._parser_lock = threading.Lock()
+        # A whole-project snapshot is megabytes of JSON and every tool call needs a
+        # slice of it.  Publication is atomic and snapshot files are read-only, so an
+        # mtime check keeps a small LRU honest.  Not ``lru_cache`` on a method: that
+        # would pin ``self`` for the process lifetime.
+        self._cache_lock = threading.Lock()
+        self._snapshot_cache: OrderedDict[str, tuple[int, dict, dict]] = OrderedDict()
+        self._syntax_cache: OrderedDict[str, tuple[int, dict]] = OrderedDict()
+        self._cache_limit = 4
 
     def _directory(self, snapshot_id: str) -> Path:
         if not re.fullmatch(r"[a-f0-9]{32}", snapshot_id or ""):
@@ -235,12 +421,47 @@ class SourceRepository:
             raise FileNotFoundError("Snapshot does not exist")
         return directory
 
+    def _cached(self, snapshot_id: str) -> tuple[dict, dict]:
+        """Return ``(snapshot, records_by_path)`` for a published snapshot."""
+        directory = self._directory(snapshot_id)
+        stamp = (directory / "index.json").stat().st_mtime_ns
+        with self._cache_lock:
+            hit = self._snapshot_cache.get(snapshot_id)
+            if hit is not None and hit[0] == stamp:
+                self._snapshot_cache.move_to_end(snapshot_id)
+                return hit[1], hit[2]
+        snapshot = json.loads((directory / "index.json").read_text("utf-8"))
+        records = {item["path"]: item for item in snapshot.get("files") or []}
+        with self._cache_lock:
+            self._snapshot_cache[snapshot_id] = (stamp, snapshot, records)
+            self._snapshot_cache.move_to_end(snapshot_id)
+            while len(self._snapshot_cache) > self._cache_limit:
+                self._snapshot_cache.popitem(last=False)
+        return snapshot, records
+
     def get_snapshot(self, snapshot_id: str) -> dict:
-        return json.loads((self._directory(snapshot_id) / "index.json").read_text("utf-8"))
+        return self._cached(snapshot_id)[0]
+
+    def syntax_index(self, snapshot_id: str) -> dict:
+        """Return the PHP symbol index, parsed at most once per published snapshot."""
+        path = self._directory(snapshot_id) / "syntax.json"
+        stamp = path.stat().st_mtime_ns
+        with self._cache_lock:
+            hit = self._syntax_cache.get(snapshot_id)
+            if hit is not None and hit[0] == stamp:
+                self._syntax_cache.move_to_end(snapshot_id)
+                return hit[1]
+        syntax = json.loads(path.read_text("utf-8"))
+        with self._cache_lock:
+            self._syntax_cache[snapshot_id] = (stamp, syntax)
+            self._syntax_cache.move_to_end(snapshot_id)
+            while len(self._syntax_cache) > self._cache_limit:
+                self._syntax_cache.popitem(last=False)
+        return syntax
 
     def import_zip(self, data: bytes, filename: str) -> dict:
         if not isinstance(data, bytes) or len(data) > MAX_ARCHIVE_BYTES:
-            raise ValueError("ZIP exceeds the 32 MiB upload limit")
+            raise ValueError(f"ZIP exceeds the {MAX_ARCHIVE_BYTES // (1024 * 1024)} MiB upload limit")
         try:
             archive = zipfile.ZipFile(io.BytesIO(data))
         except (zipfile.BadZipFile, OSError) as exc:
@@ -249,11 +470,13 @@ class SourceRepository:
         try:
             with archive:
                 entries = archive.infolist()
-                if len(entries) > MAX_ENTRIES:
-                    raise ValueError("ZIP contains too many entries")
-                checked = []
-                normalized = {}
-                total = 0
+                if len(entries) > MAX_SCANNED_ENTRIES:
+                    raise ValueError(f"ZIP contains too many entries ({len(entries)} > {MAX_SCANNED_ENTRIES})")
+                # Safety properties stay hard rejects.  Only capacity limits downgrade
+                # to a per-entry skip with a warning: one oversized asset or one
+                # pathological entry must not fail an otherwise importable project.
+                accepted: dict[str, zipfile.ZipInfo] = {}
+                normalized: dict[str, bool] = {}
                 for entry in entries:
                     # orig_filename retains NULs that ZipInfo.filename truncates.
                     original = entry.orig_filename
@@ -270,46 +493,67 @@ class SourceRepository:
                         raise ValueError("ZIP special files are forbidden")
                     if entry.flag_bits & 1:
                         raise ValueError("Encrypted ZIP entries are unsupported")
-                    if entry.file_size > MAX_FILE_BYTES:
-                        raise ValueError(f"ZIP entry exceeds the 8 MiB file limit: {name}")
-                    if entry.file_size / max(1, entry.compress_size) > MAX_COMPRESSION_RATIO:
-                        raise ValueError(f"ZIP compression ratio exceeds limit: {name}")
-                    total += entry.file_size
-                    if total > MAX_EXTRACTED_BYTES:
-                        raise ValueError("ZIP exceeds the 128 MiB extraction limit")
-                    checked.append((entry, name, key))
-                for _, name, key in checked:
+                    if not entry.is_dir():
+                        accepted[name] = entry
+                for name in accepted:
+                    key = unicodedata.normalize("NFC", name).casefold()
                     for parent in PurePosixPath(key).parents:
                         if str(parent) != "." and normalized.get(str(parent)) is False:
                             raise ValueError(f"ZIP file/directory collision: {name}")
+                # Budgets are applied in path order so that which entries a given ZIP
+                # loses is reproducible rather than an artefact of central-directory order.
+                skipped: list[dict] = []
+                candidates = sorted(accepted)
+                if len(candidates) > MAX_ENTRIES:
+                    for name in candidates[MAX_ENTRIES:]:
+                        skipped.append({"path": name, "reason": "entry_limit", "detail": f"archive holds more than {MAX_ENTRIES} files"})
+                    candidates = candidates[:MAX_ENTRIES]
+                usable = []
+                for name in candidates:
+                    entry = accepted[name]
+                    if entry.file_size > MAX_FILE_BYTES:
+                        skipped.append({"path": name, "reason": "file_too_large", "detail": f"{entry.file_size} bytes exceeds the {MAX_FILE_BYTES} byte per-file limit"})
+                        continue
+                    if entry.file_size / max(1, entry.compress_size) > MAX_COMPRESSION_RATIO:
+                        skipped.append({"path": name, "reason": "compression_ratio", "detail": f"ratio exceeds {MAX_COMPRESSION_RATIO}; entry not expanded"})
+                        continue
+                    usable.append(name)
                 snapshot_id = uuid.uuid4().hex
                 digest = _sha(data)
                 sources = staging / "sources"
                 sources.mkdir()
                 files, units, syntax, warnings = [], [], {}, []
                 extracted = 0
-                for entry, name, _ in checked:
-                    if entry.is_dir():
-                        continue
+                for name in usable:
+                    entry = accepted[name]
                     with archive.open(entry) as handle:
                         content = handle.read(MAX_FILE_BYTES + 1)
+                    if len(content) != entry.file_size or len(content) > MAX_FILE_BYTES:
+                        skipped.append({"path": name, "reason": "size_mismatch", "detail": "decompressed size does not match the archive directory"})
+                        continue
                     extracted += len(content)
-                    if len(content) != entry.file_size or len(content) > MAX_FILE_BYTES or extracted > MAX_EXTRACTED_BYTES:
-                        raise ValueError("ZIP decompressed size does not match allowed bounds")
+                    if extracted > MAX_EXTRACTED_BYTES:
+                        raise ValueError(f"ZIP exceeds the {MAX_EXTRACTED_BYTES // (1024 * 1024)} MiB extraction limit")
                     destination = sources / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(content)
+                    kind, language = _classify(content, name)
                     reason = next((part for part in PurePosixPath(name).parts[:-1] if part.casefold() in EXCLUDED_DIRECTORIES), None)
                     is_php = (
                         PurePosixPath(name).suffix.casefold() in PHP_EXTENSIONS
-                        or _looks_like_php(content)
+                        or (kind == "text" and _unknown_source_suffix(name) and _looks_like_php(content))
                     )
-                    record = {"path": name, "sha256": _sha(content), "size": len(content), "line_count": len(_lines(content)), "excluded": bool(reason) or not is_php, "exclude_reason": f"Default dependency/generated directory: {reason}" if reason else (None if is_php else "Not a PHP source file"), "is_php": is_php, "parse_errors": []}
-                    try:
-                        content.decode("utf-8")
-                    except UnicodeDecodeError:
-                        record["encoding_warning"] = "Not valid UTF-8; display uses replacement characters; original bytes preserved"
-                        warnings.append(f"{name}: display decoding contains replacement characters")
+                    record = {"path": name, "sha256": _sha(content), "size": len(content), "line_count": _line_count(content), "excluded": bool(reason) or not is_php, "exclude_reason": f"Default dependency/generated directory: {reason}" if reason else (None if is_php else "Not a PHP source file"), "is_php": is_php, "kind": kind, "language": language, "dependency_tree": _dependency_tree(name), "parse_errors": []}
+                    # Only text entries are ever decoded for display; warning about a
+                    # PNG or a nested archive not being UTF-8 is noise, not a finding.
+                    if kind == "text":
+                        try:
+                            content.decode("utf-8")
+                        except UnicodeDecodeError:
+                            record["encoding_warning"] = "Not valid UTF-8; display uses replacement characters; original bytes preserved"
+                            warnings.append(f"{name}: display decoding contains replacement characters")
+                    # ``_index`` needs real PHP syntax nodes; running it on another
+                    # language would only harvest ERROR nodes as fake parse errors.
                     if is_php:
                         file_units, file_syntax, errors = self._index(content, name, digest, snapshot_id)
                         record["parse_errors"] = errors
@@ -318,7 +562,40 @@ class SourceRepository:
                         if errors:
                             warnings.append(f"{name}: PHP parse errors; indexed units require context review")
                     files.append(record)
-                snapshot = {"id": snapshot_id, "name": PurePosixPath(str(filename).replace("\\", "/")).name[:200], "created_at": datetime.now(timezone.utc).isoformat(), "archive_sha256": digest, "source": "uploaded_zip", "files": sorted(files, key=lambda item: item["path"]), "units": sorted(units, key=lambda item: (-item["priority"], item["file_path"], item["start_byte"])), "warnings": warnings, "immutable": True, "import_limits": {"archive_bytes": MAX_ARCHIVE_BYTES, "extracted_bytes": MAX_EXTRACTED_BYTES, "file_bytes": MAX_FILE_BYTES, "entries": MAX_ENTRIES, "compression_ratio": MAX_COMPRESSION_RATIO}, "excluded_files": [item["path"] for item in files if item["excluded"]]}
+                files.sort(key=lambda item: item["path"])
+                languages: dict[str, int] = {}
+                for record in files:
+                    languages[record["language"]] = languages.get(record["language"], 0) + 1
+                excluded = [record["path"] for record in files if record["excluded"]]
+                if skipped:
+                    warnings.append(f"{len(skipped)} files were skipped at import and are not in this snapshot; see skipped_files for each reason")
+                if len(warnings) > MAX_WARNINGS:
+                    warnings = warnings[:MAX_WARNINGS] + [f"{len(warnings) - MAX_WARNINGS} further import warnings omitted; see skipped_files and files for details"]
+                snapshot = {
+                    "id": snapshot_id,
+                    "schema_version": SCHEMA_VERSION,
+                    "name": PurePosixPath(str(filename).replace("\\", "/")).name[:200],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "archive_sha256": digest,
+                    "source": "uploaded_zip",
+                    "files": files,
+                    "units": sorted(units, key=lambda item: (-item["priority"], item["file_path"], item["start_byte"])),
+                    "warnings": warnings,
+                    "immutable": True,
+                    "import_limits": {"archive_bytes": MAX_ARCHIVE_BYTES, "extracted_bytes": MAX_EXTRACTED_BYTES, "file_bytes": MAX_FILE_BYTES, "entries": MAX_ENTRIES, "compression_ratio": MAX_COMPRESSION_RATIO},
+                    "stats": {
+                        "files": len(files),
+                        "text_files": sum(1 for record in files if record["kind"] == "text"),
+                        "binary_files": sum(1 for record in files if record["kind"] == "binary"),
+                        "php_files": sum(1 for record in files if record["is_php"]),
+                        "dependency_tree_files": sum(1 for record in files if record["dependency_tree"]),
+                        "languages": dict(sorted(languages.items(), key=lambda item: (-item[1], item[0]))),
+                        "skipped_count": len(skipped),
+                        "excluded_count": len(excluded),
+                    },
+                    "excluded_files": excluded[:MAX_LISTED_PATHS],
+                    "skipped_files": skipped[:MAX_LISTED_PATHS],
+                }
                 (staging / "archive.zip").write_bytes(data)
                 (staging / "syntax.json").write_text(json.dumps(syntax, ensure_ascii=False), "utf-8")
                 (staging / "index.json").write_text(json.dumps(snapshot, ensure_ascii=False), "utf-8")
@@ -481,10 +758,12 @@ class SourceRepository:
 
     def _content(self, snapshot_id: str, path: str):
         path = _path(path)
-        snapshot = self.get_snapshot(snapshot_id)
-        record = next((item for item in snapshot["files"] if item["path"] == path), None)
+        _, records = self._cached(snapshot_id)
+        record = records.get(path)
         if record is None:
             raise FileNotFoundError("Source file does not exist in snapshot")
+        if record.get("kind") == "binary":
+            raise ValueError("Binary file is registered in the snapshot but cannot be decoded; use the archive for its bytes")
         content = (self._directory(snapshot_id) / "sources" / path).read_bytes()
         if _sha(content) != record["sha256"]:
             raise ValueError("Snapshot integrity check failed")
@@ -518,33 +797,62 @@ class SourceRepository:
         limit: int = 40,
         *,
         allowed_paths: set[str] | None = None,
+        include_dependencies: bool = False,
     ) -> dict:
         if not isinstance(query, str) or not query or len(query) > 200 or "\n" in query or "\r" in query:
             raise ValueError("Search query must be a nonempty literal of at most 200 characters")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
             raise ValueError("Search limit must be between 1 and 100")
-        snapshot = self.get_snapshot(snapshot_id)
+        _, records = self._cached(snapshot_id)
         allowed = set(allowed_paths) if allowed_paths is not None else None
         if allowed is not None:
-            known = {item["path"] for item in snapshot["files"]}
-            unknown_allowed = allowed - known
+            unknown_allowed = allowed - set(records)
             if unknown_allowed:
                 raise ValueError("Source access policy contains files outside the snapshot")
+        path = _search_path(path)
         if path is not None:
             path = _path(path)
-            if not any(item["path"] == path for item in snapshot["files"]):
-                raise FileNotFoundError("Source file does not exist in snapshot")
-            if allowed is not None and path not in allowed:
-                raise ValueError("Source path is outside this task's frozen scope")
-        matches, size, truncated = [], 0, False
+            if path in records:
+                if allowed is not None and path not in allowed:
+                    raise ValueError("Source path is outside this task's frozen scope")
+                if records[path].get("kind") == "binary":
+                    raise ValueError("Binary file is registered in the snapshot but cannot be searched")
+                candidates = [records[path]]
+            else:
+                # A directory narrows the search instead of failing.  Callers ask for
+                # "the files under this tree" far more often than they guess a file, and
+                # a directory always raised here, so no working call changes meaning.
+                prefix = path.rstrip("/") + "/"
+                subtree = [
+                    record for record in records.values() if record["path"].startswith(prefix)
+                ]
+                if not subtree:
+                    raise FileNotFoundError("Source file or directory does not exist in snapshot")
+                candidates = [
+                    record for record in subtree
+                    if record.get("kind") != "binary"
+                    and (allowed is None or record["path"] in allowed)
+                    and (include_dependencies or not record.get("dependency_tree"))
+                ]
+                candidates.sort(key=lambda record: (bool(record.get("dependency_tree")), record["path"]))
+        else:
+            # A whole-project scope means a search may sweep tens of thousands of
+            # files, so the candidate set is explicit, deterministically ordered and
+            # bounded; the shortfall is reported instead of stalling the model.
+            candidates = [
+                record for record in records.values()
+                if record.get("kind") != "binary"
+                and (allowed is None or record["path"] in allowed)
+                and (include_dependencies or not record.get("dependency_tree"))
+            ]
+            candidates.sort(key=lambda record: (bool(record.get("dependency_tree")), record["path"]))
+        scan_truncated = len(candidates) > MAX_SEARCH_FILES
+        if scan_truncated:
+            candidates = candidates[:MAX_SEARCH_FILES]
+        matches, size, truncated, scanned = [], 0, False, 0
         directory = self._directory(snapshot_id) / "sources"
-        for file in snapshot["files"]:
-            if path is not None and file["path"] != path:
-                continue
-            if allowed is not None and file["path"] not in allowed:
-                continue
-            if path is None and not file["is_php"]:
-                continue
+        for file in candidates:
+            scanned += 1
             # Avoid reloading/scanning a potentially large index for each file.
             content = (directory / file["path"]).read_bytes()
             if _sha(content) != file["sha256"]:
@@ -560,7 +868,16 @@ class SourceRepository:
                 matches.append({"snapshot_id": snapshot_id, "path": file["path"], "line": number, "number": number, "text": line, "sha256": file["sha256"]})
             if truncated:
                 break
-        return {"snapshot_id": snapshot_id, "query": query, "matches": matches, "truncated": truncated}
+        return {
+            "snapshot_id": snapshot_id,
+            "query": query,
+            "matches": matches,
+            "truncated": truncated or scan_truncated,
+            "scanned_files": scanned,
+            "scan_limit": MAX_SEARCH_FILES,
+            "scan_truncated": scan_truncated,
+            "include_dependencies": bool(include_dependencies),
+        }
 
     @staticmethod
     def _resolve_include(expression: str, path: str, available: set[str]) -> str | None:
@@ -605,13 +922,16 @@ class SourceRepository:
         owned = next((item for item in snapshot["units"] if item["id"] == unit.get("id")), None)
         if owned is None:
             raise ValueError("Audit unit does not belong to snapshot")
-        syntax = json.loads((self._directory(snapshot_id) / "syntax.json").read_text("utf-8"))
+        syntax = self.syntax_index(snapshot_id)
         path = owned["file_path"]
         allowed_scope = set(allowed_paths) if allowed_paths is not None else None
         if allowed_scope is not None and path not in allowed_scope:
             raise ValueError("Audit unit is outside this task's frozen scope")
-        current = syntax[path]
-        available = {item["path"] for item in snapshot["files"]}
+        # Only PHP files carry a syntax index; other languages are read as plain lines.
+        current = syntax.get(path)
+        if current is None:
+            raise ValueError("This file has no PHP syntax index; read it with read_source instead")
+        available = {item["path"] for item in snapshot["files"] if item.get("kind") != "binary"}
         requests, unresolved = [], []
         for item in current["classes"]:
             if item["start_byte"] <= owned["start_byte"] and item["end_byte"] >= owned["end_byte"]:
@@ -699,28 +1019,39 @@ class SourceRepository:
         so a planner cannot use an out-of-scope file as a hidden hint.
         """
         snapshot = self.get_snapshot(snapshot_id)
-        syntax = json.loads((self._directory(snapshot_id) / "syntax.json").read_text("utf-8"))
-        php_files = {
+        # A snapshot now holds a whole project: every readable text file is in scope,
+        # and only PHP files have a symbol index.  Binary entries are registered but
+        # excluded from the map so the Planner cannot select something unreadable.
+        text_files = {
             item["path"]: item
             for item in snapshot["files"]
-            if bool(item.get("is_php", not item.get("excluded", False)))
+            if item.get("kind", "text" if not item.get("excluded", False) else "binary") == "text"
         }
-        # Match the API's default-selection semantics even when the repository is
-        # called directly: dependency/generated trees remain indexable when an
-        # explicit scope names them, but do not silently enlarge an implicit map.
-        default_scope = {path for path, item in php_files.items() if not item.get("excluded")}
-        scope = set(allowed_paths) if allowed_paths is not None else (default_scope or set(php_files))
-        scope &= set(php_files)
+        binary_files = [
+            {"path": item["path"], "size": int(item.get("size") or 0)}
+            for item in snapshot["files"]
+            if item.get("kind") == "binary"
+        ]
+        syntax = self.syntax_index(snapshot_id)
+        scope = set(allowed_paths) if allowed_paths is not None else set(text_files)
+        scope &= set(text_files)
+        # Precomputed once: an O(files x units) scan inside the loop below is fine for
+        # a demo snapshot and fatal for a whole project.
+        top_level_paths = {
+            unit.get("file_path")
+            for unit in snapshot.get("units") or []
+            if unit.get("kind") == "top_level"
+        }
         file_rows = []
         directories: set[str] = set()
         symbols: list[dict] = []
         includes: list[dict] = []
         calls: list[dict] = []
         profiles: dict[str, dict] = {}
-        available = set(php_files)
+        available = set(text_files)
 
         for path in sorted(scope):
-            record = php_files[path]
+            record = text_files[path]
             index = syntax.get(path, {})
             parent = PurePosixPath(path).parent
             while str(parent) not in {"", "."}:
@@ -732,10 +1063,13 @@ class SourceRepository:
                 "path": path,
                 "line_count": int(record.get("line_count") or 0),
                 "size": int(record.get("size") or 0),
+                "language": record.get("language") or "text",
+                "is_php": bool(record.get("is_php")),
+                "dependency_tree": bool(record.get("dependency_tree")),
                 "parse_errors": list(record.get("parse_errors") or []),
                 # Kept as a source-index fact for callers that use it, but never
                 # interpreted as an execution or routing fact below.
-                "has_top_level": any(unit.get("file_path") == path and unit.get("kind") == "top_level" for unit in snapshot.get("units") or []),
+                "has_top_level": path in top_level_paths,
                 "roles": profile["roles"],
                 "module": _project_module_path(path),
             })
@@ -882,6 +1216,7 @@ class SourceRepository:
             "calls": calls,
             "entrypoints": entrypoints,
             "unresolved_root_candidates": unresolved_root_candidates,
+            "binary_files": binary_files[:MAX_LISTED_PATHS],
             "architecture": {
                 "role_counts": dict(sorted(role_counts.items())),
                 "modules": modules,
@@ -905,10 +1240,15 @@ class SourceRepository:
                 "low_confidence_roots": len(unresolved_root_candidates),
                 "unresolved_includes": unresolved_include_count,
                 "modules": len(modules),
+                "binary_files": len(binary_files),
+                "php_files": sum(1 for row in file_rows if row["is_php"]),
+                "dependency_tree_files": sum(1 for row in file_rows if row["dependency_tree"]),
             },
             "limitations": [
-                "Static PHP parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+                "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+                "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
                 "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+                "Binary files are registered with their size only and cannot be read or searched.",
                 "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding.",
             ],
         }
@@ -1035,6 +1375,17 @@ class SourceRepository:
                 if requests:
                     unresolved.append({
                         "reason": "No high-confidence entry candidate was available; orientation uses low-confidence static roots only.",
+                    })
+            if not requests:
+                # A pure non-PHP project has no entrypoint, no bootstrap file and no
+                # ``top_level`` unit, so both seeds above are empty.  Without this
+                # fallback every worker task would be blocked for missing context and
+                # the whole audit loop would never start.
+                for path in _orientation_leads(project_map, scope)[:4]:
+                    requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 120), "generic_orientation_lead"))
+                if requests:
+                    unresolved.append({
+                        "reason": "The snapshot has no PHP entry or bootstrap candidate; orientation uses deterministic generic leads (manifests, configuration, application code, web roots).",
                     })
 
         # For every selected path, put its static include targets and callers in the

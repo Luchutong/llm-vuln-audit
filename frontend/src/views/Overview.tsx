@@ -1,3 +1,4 @@
+import { scopeFileCount, scopeLabel } from '../types';
 import type { AuditEvent, PlannerTask, RunDetail } from '../types';
 
 const GOAL_LABELS: Record<string, string> = {
@@ -59,7 +60,7 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
         <Stat value={`${metrics.terminal_tasks ?? 0}/${metrics.total_tasks ?? tasks.length}`} label="已结算动态任务" note={`执行中 ${metrics.active_tasks ?? counts.running ?? 0}`} />
         <Stat value={findings.filter((item) => item.validation_state === 'candidate').length} label="证据化发现" note={`待复核 ${metrics.awaiting_verification}`} />
         <Stat value={toolCalls || run.usage.tool_calls} label="只读工具调用" note={`模型响应 ${run.usage.requests}`} />
-        <Stat value={mapStats.files ?? run.scope.length} label="项目图文件" note={`${mapStats.symbols ?? 0} 个符号`} />
+        <Stat value={mapStats.files ?? scopeFileCount(run, projectMap)} label="项目图文件" note={`${mapStats.symbols ?? 0} 个符号`} />
         <Stat value={plannerEvents} label="Planner 轨迹事件" note="可在执行轨迹展开" />
       </div>
 
@@ -75,7 +76,7 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
           <div className="field"><span className="field-label">审计目标</span><span className="small">{run.task_spec?.objective ?? '—'}</span></div>
           <div className="field"><span className="field-label">验收条件</span><span className="small">{run.task_spec?.success_criteria ?? '—'}</span></div>
           <div className="field"><span className="field-label">当前状态</span><span className="small">{goal?.terminal_reason ?? planner?.terminal_reason ?? '尚在收集项目图或 worker 反馈。'}</span></div>
-          <div className="field"><span className="field-label">边界</span><span className="small">{run.scope.length} 个冻结 PHP 文件；动态 include、路由和运行时配置会作为缺失上下文保留。</span></div>
+          <div className="field"><span className="field-label">边界</span><span className="small">{scopeLabel(run, projectMap)}；动态 include、路由和运行时配置会作为缺失上下文保留。</span></div>
         </div>
       </div>
 

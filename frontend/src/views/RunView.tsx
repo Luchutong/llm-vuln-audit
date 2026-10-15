@@ -18,6 +18,7 @@ type TabKey = (typeof TABS)[number]['key'];
 const TERMINAL = new Set(['succeeded', 'completed', 'unreachable', 'inconclusive', 'failed', 'cancelled', 'interrupted']);
 
 const RUN_LABELS: Record<string, string> = {
+  paused: '已暂停',
   completed: '目标已达成', unreachable: '目标不可达', inconclusive: '结果未决',
   failed: '运行失败', cancelled: '已取消', interrupted: '已中断',
 };
@@ -53,9 +54,25 @@ export function RunView({ runId, onBack }: { runId: string; onBack: () => void }
     }
   };
 
+  // Pause and resume are the same call shape as cancel, and differ in what they leave
+  // behind: a pause keeps the task frontier and the round number, a cancel settles the run.
+  const control = async (action: 'pause' | 'resume') => {
+    setBusy(true);
+    try {
+      await post(`/runs/${runId}/${action}`, {});
+      refresh();
+    } catch (exc) {
+      setError(errorText(exc));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!detail) return <div className="empty">{error ?? '载入运行…'}</div>;
   const { run } = detail;
   const live = !TERMINAL.has(run.status);
+  const pausable = run.status === 'pending' || run.status === 'running';
+  const paused = run.status === 'paused';
 
   return (
     <div className="grid">
@@ -66,15 +83,19 @@ export function RunView({ runId, onBack }: { runId: string; onBack: () => void }
               <button className="btn" onClick={onBack} style={{ marginRight: 4 }}>← 审计列表</button>
               <span className="mono" style={{ fontSize: 15 }}>{run.id.slice(0, 10)}</span>
               <span className={`chip chip-${run.status}`}>{RUN_LABELS[run.status] ?? run.status}</span>
-              {live && <span className={`chip ${connected ? 'chip-running' : 'chip-pending'}`}>{connected ? '事件流已连接' : '事件流重连中'}</span>}
+              {pausable && <span className={`chip ${connected ? 'chip-running' : 'chip-pending'}`}>{connected ? '事件流已连接' : '事件流重连中'}</span>}
+              {paused && <span className="chip chip-paused">前沿与回合号已保留，可继续</span>}
             </h1>
             <p>
               {run.snapshot_name} · 项目级 Planner 审计 · 模型 {run.model}
+              {run.model_profile?.base_url && <> · 端点 <span className="mono">{run.model_profile.base_url}</span></>}
               {' · '}每个回合 响应 {run.budgets.responses} / 工具 {run.budgets.tools} / {run.budgets.seconds}s
               {reconnects > 0 && ` · 已重连 ${reconnects} 次`}
             </p>
           </div>
           <div className="row">
+            {pausable && <button className="btn" onClick={() => control('pause')} disabled={busy}>暂停运行</button>}
+            {paused && <button className="btn btn-primary" onClick={() => control('resume')} disabled={busy}>继续运行</button>}
             {live && <button className="btn btn-danger" onClick={cancel} disabled={busy}>取消运行</button>}
             <a className="btn" href={downloadUrl(`/runs/${runId}/report?format=markdown`)}>下载 Markdown</a>
             <a className="btn" href={downloadUrl(`/runs/${runId}/report?format=json`)}>JSON</a>
@@ -125,6 +146,7 @@ function PlannerSummary({ detail }: { detail: RunDetail }) {
         <Fact label="worker 尝试" value={`${goal?.attempts ?? 0}/${goal?.max_total_attempts ?? run.task_spec?.max_total_attempts ?? '—'}`} />
         <Fact label="动态任务" value={`${tasks.length} 项 · 执行中 ${activeWorkers} worker`} />
         <Fact label="任务状态" value={Object.entries(counts).map(([state, count]) => `${state} ${count}`).join(' · ') || '等待首轮规划'} />
+        <Fact label="固定调查" value={pinnedText(detail.investigations)} />
         <Fact label="终止依据" value={goal?.terminal_reason ?? planner?.terminal_reason ?? '—'} />
       </div>
     </div>
@@ -133,4 +155,17 @@ function PlannerSummary({ detail }: { detail: RunDetail }) {
 
 function Fact({ label, value }: { label: string; value: string }) {
   return <div><div className="field-label">{label}</div><div className="small" style={{ overflowWrap: 'anywhere' }}>{value}</div></div>;
+}
+
+/**
+ * Pinned investigations are the run's memory: a repeat of a topic is answered from the pin
+ * instead of re-executed, so the count is how much of the reconnaissance was paid for once.
+ * Superseded rows are still counted — a correction is work that happened.
+ */
+function pinnedText(overview: RunDetail['investigations']): string {
+  if (!overview || !overview.total) return '尚无';
+  const states = Object.entries(overview.by_status ?? {})
+    .map(([status, count]) => `${status} ${count}`)
+    .join(' · ');
+  return `${overview.total} 条 · ${states}`;
 }

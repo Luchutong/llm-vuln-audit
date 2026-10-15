@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, errorText, post } from '../api';
-import type { Config, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
+import type { Budget, Config, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
 
 const EMPTY_TASK_SPEC: TaskSpec = {
   objective: '',
   success_criteria: '',
   max_iterations: 3,
-  max_total_attempts: 24,
-  max_planner_rounds: 8,
+  max_total_attempts: 64,
+  max_planner_rounds: 24,
   max_workers: 2,
   stop_on_achieved: true,
   require_poc: false,
 };
+
+/** How many import-time entries a panel inlines before pointing at the full record. */
+const LISTED_WARNINGS = 12;
+const LISTED_SKIPPED = 20;
+const LISTED_LANGUAGES = 10;
 
 function boundedNumber(value: string, minimum: number, maximum: number) {
   const parsed = Number(value);
@@ -22,8 +27,11 @@ function boundedNumber(value: string, minimum: number, maximum: number) {
 /**
  * The primary, source-agnostic task flow.
  *
- * The user sees only the data that freezes into a goal-driven run: PHP archive, selected
- * source scope, objective / acceptance criteria, and bounded Planner/worker budgets.
+ * There is no scope control: the whole uploaded archive is the audit scope, and what is
+ * worth reading is a judgement the Planner makes from the project map -- not one the
+ * uploader is asked to make before seeing any code. The user only supplies the data that
+ * freezes into a goal-driven run: the archive, the objective / acceptance criteria, and
+ * bounded Planner/worker budgets.
  */
 export function TaskView({
   snapshots,
@@ -39,8 +47,9 @@ export function TaskView({
   const [runs, setRuns] = useState<Run[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [scope, setScope] = useState<string[]>([]);
-  const [budgets, setBudgets] = useState({ responses: 8, tools: 16, seconds: 300 });
+  const [budgets, setBudgets] = useState<Budget>({ responses: 24, tools: 96, seconds: 1800 });
+  /** The server owns the allowance defaults; a second copy here would drift. */
+  const seededBudgets = useRef(false);
   const [task, setTask] = useState<TaskSpec>(EMPTY_TASK_SPEC);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -59,23 +68,20 @@ export function TaskView({
   useEffect(() => {
     if (!selected) {
       setSnapshot(null);
-      setScope([]);
       return;
     }
     api<Snapshot>(`/snapshots/${selected}`)
-      .then((data) => {
-        setSnapshot(data);
-        const defaultPhp = data.files.filter((file) => !file.excluded);
-        // A library-only archive may legitimately place every PHP file below a
-        // dependency directory. Mirror the server's fallback in that case so the
-        // first usable task does not start with an empty, disabled scope selector.
-        const initialScope = defaultPhp.length > 0
-          ? defaultPhp
-          : data.files.filter((file) => file.is_php === true);
-        setScope(initialScope.map((file) => file.path));
-      })
+      .then(setSnapshot)
       .catch((exc) => setError(errorText(exc)));
   }, [selected]);
+
+  useEffect(() => {
+    const defaults = config?.budget_limits?.defaults;
+    // Adopt the server's defaults once, and only until the user touches the fields.
+    if (!defaults || seededBudgets.current) return;
+    seededBudgets.current = true;
+    setBudgets(defaults);
+  }, [config]);
 
   const upload = async (file: File) => {
     setBusy(true);
@@ -84,7 +90,10 @@ export function TaskView({
       const body = new FormData();
       body.append('file', file);
       const created = await api<Snapshot>('/snapshots', { method: 'POST', body });
-      setNotice(`已导入 ${created.name}：${created.files.length} 个文件，${created.units?.length ?? 0} 个索引片段`);
+      const stats = created.stats ?? {};
+      setNotice(
+        `已导入 ${created.name}：${stats.files ?? created.files.length} 个文件（可读文本 ${stats.text_files ?? 0} 个）`,
+      );
       onChanged();
       setSelected(created.id);
     } catch (exc) {
@@ -95,7 +104,7 @@ export function TaskView({
   };
 
   const start = async () => {
-    if (!selected || !scope.length) return;
+    if (!selected) return;
     const taskSpec = {
       ...task,
       objective: task.objective.trim(),
@@ -114,7 +123,6 @@ export function TaskView({
     try {
       const run = await post<Run>('/runs', {
         snapshot_id: selected,
-        scope,
         budgets,
         task: taskSpec,
       });
@@ -128,17 +136,10 @@ export function TaskView({
     }
   };
 
-  const indexed = snapshot?.files ?? [];
-  const included = indexed.filter((file) => !file.excluded);
-  const optionalPhp = indexed.filter((file) => file.excluded && file.is_php === true);
-  const excluded = indexed.filter((file) => file.excluded && file.is_php !== true);
-  const indexedSymbols = useMemo(
-    () => (snapshot?.units ?? []).filter((unit) => scope.includes(unit.file_path)).length,
-    [snapshot, scope],
-  );
-
-  const selectAll = () => setScope([...included, ...optionalPhp].map((file) => file.path));
-  const clearScope = () => setScope([]);
+  const stats = snapshot?.stats ?? {};
+  const languages = Object.entries(stats.languages ?? {});
+  const skipped = snapshot?.skipped_files ?? [];
+  const warnings = snapshot?.warnings ?? [];
 
   return (
     <div className="grid" style={{ gridTemplateColumns: '1fr', gap: 14 }}>
@@ -148,15 +149,15 @@ export function TaskView({
         <div className="error-box">模型未配置完成，请先到「配置」页检查连接状态。</div>
       )}
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(300px, 1fr) minmax(400px, 1.35fr)' }}>
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">1 · PHP 源码压缩包</span>
-            <span className="faint small">{snapshots.length} 个快照</span>
-          </div>
-          <div style={{ padding: '12px 16px' }}>
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">1 · 项目源码压缩包</span>
+          <span className="faint small">{snapshots.length} 个快照</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <div className="grid" style={{ gridTemplateColumns: 'minmax(280px, 1fr) minmax(280px, 1fr)', gap: 12 }}>
             <div className="field">
-              <span className="field-label">导入 PHP 源码 ZIP</span>
+              <span className="field-label">导入项目源码 ZIP</span>
               <input
                 type="file"
                 accept=".zip,application/zip,application/x-zip-compressed"
@@ -168,7 +169,7 @@ export function TaskView({
                 }}
               />
               <span className="field-hint">
-                可导入任意 PHP 项目源码；索引 .php、.php3–.php8、.phps、.inc、.phtml，以及带 PHP 开始标记的无扩展名或框架专用文件。导入会拒绝路径穿越、符号链接与压缩炸弹，快照随后保持不可变。
+                上传完整项目整包即审计范围，没有文件勾选步骤。PHP 用 tree-sitter 建语法索引，其它语言的文本文件按纯文本行索引并可读可搜、可作证据，二进制文件只登记不可读。导入会拒绝路径穿越、符号链接与超限归档；超出容量预算的单个条目会被跳过并记入告警，快照随后保持不可变。
               </span>
             </div>
 
@@ -182,108 +183,71 @@ export function TaskView({
                   </option>
                 ))}
               </select>
+              {snapshot && (
+                <div className="small muted" style={{ marginTop: 6 }}>
+                  <div>归档 SHA256 <span className="mono">{snapshot.archive_sha256.slice(0, 16)}…</span></div>
+                  <div>{snapshot.created_at.slice(0, 19)} · {snapshot.immutable ? '不可变快照' : '可变快照'}</div>
+                </div>
+              )}
             </div>
+          </div>
 
-            {snapshot && (
-              <div className="small muted">
-                <div>归档 SHA256 <span className="mono">{snapshot.archive_sha256.slice(0, 16)}…</span></div>
-                <div>{snapshot.created_at.slice(0, 19)} · {snapshot.immutable ? '不可变快照' : '可变快照'}</div>
-                {snapshot.warnings?.length > 0 && (
-                  <div style={{ marginTop: 6 }}>
-                    导入告警：
-                    <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
-                      {snapshot.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
-                    </ul>
-                  </div>
+          {snapshot && (
+            <div className="grid" style={{ marginTop: 12, gap: 10 }}>
+              <div className="small">
+                文件 {stats.files ?? snapshot.files.length} · 可读文本 {stats.text_files ?? 0} · 二进制 {stats.binary_files ?? 0} · 依赖/生成目录 {stats.dependency_tree_files ?? 0} · PHP 语法索引 {stats.php_files ?? 0}
+                {typeof stats.skipped_count === 'number' && stats.skipped_count > 0 && (
+                  <> · <span style={{ color: 'var(--warn, inherit)' }}>导入时跳过 {stats.skipped_count} 个</span></>
                 )}
               </div>
-            )}
-          </div>
-        </div>
+              <div className="faint small">
+                依赖目录与其它语言都在范围内：是否值得读由 Planner 按目标判断，不由上传者预先决定。
+              </div>
 
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">2 · 源码审计范围</span>
-            {snapshot && (
-              <span className="row">
-                <button className="btn" onClick={selectAll} disabled={included.length + optionalPhp.length === scope.length}>全选 PHP</button>
-                <button className="btn" onClick={clearScope} disabled={!scope.length}>清空</button>
-              </span>
-            )}
-          </div>
-          <div style={{ padding: '12px 16px' }}>
-            {!snapshot ? (
-              <div className="empty">导入或选择一个 PHP 源码快照后，在此确定审计范围。</div>
-            ) : (
-              <>
+              {languages.length > 0 && (
                 <div className="field">
-                  <span className="field-label">默认范围内的文件（{scope.filter((path) => included.some((file) => file.path === path)).length} / {included.length}）</span>
-                  <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7, padding: 8 }}>
-                    {included.map((file) => (
-                      <label key={file.path} className="checkbox" style={{ marginBottom: 3 }}>
-                        <input
-                          type="checkbox"
-                          checked={scope.includes(file.path)}
-                          onChange={(event) =>
-                            setScope((current) =>
-                              event.target.checked ? [...current, file.path] : current.filter((path) => path !== file.path),
-                            )
-                          }
-                        />
-                        <span className="mono small">{file.path}</span>
-                        <span className="faint small">{file.line_count} 行</span>
-                      </label>
+                  <span className="field-label">语言分布</span>
+                  <div className="small faint">
+                    {languages.slice(0, LISTED_LANGUAGES).map(([name, count]) => `${name} ${count}`).join(' · ')}
+                    {languages.length > LISTED_LANGUAGES ? ` · 其余 ${languages.length - LISTED_LANGUAGES} 种见快照记录` : ''}
+                  </div>
+                </div>
+              )}
+
+              {warnings.length > 0 && (
+                <div className="field">
+                  <span className="field-label">导入告警（{warnings.length}）</span>
+                  <ul className="small faint" style={{ margin: 0, paddingLeft: 18 }}>
+                    {warnings.slice(0, LISTED_WARNINGS).map((warning, index) => <li key={index}>{warning}</li>)}
+                  </ul>
+                  {warnings.length > LISTED_WARNINGS && (
+                    <span className="field-hint">其余 {warnings.length - LISTED_WARNINGS} 条见快照记录。</span>
+                  )}
+                </div>
+              )}
+
+              {skipped.length > 0 && (
+                <div className="field">
+                  <span className="field-label">被跳过、不在快照内的条目（{stats.skipped_count ?? skipped.length}）</span>
+                  <div className="small faint mono" style={{ maxHeight: 120, overflowY: 'auto' }}>
+                    {skipped.slice(0, LISTED_SKIPPED).map((item, index) => (
+                      <div key={index}>{item.path} — {item.reason}</div>
                     ))}
                   </div>
-                  <span className="field-hint">
-                    已选择 {scope.length} 个文件，索引包含 {indexedSymbols} 个函数、方法或顶层代码片段。Planner 会以整个项目图建立跨文件任务，而不会把这些片段逐个分发给 agent。
-                  </span>
+                  {skipped.length > LISTED_SKIPPED && (
+                    <span className="field-hint">其余 {skipped.length - LISTED_SKIPPED} 条见快照记录。</span>
+                  )}
                 </div>
-
-                {optionalPhp.length > 0 && (
-                  <div className="field">
-                    <span className="field-label">可选纳入的 PHP 依赖或生成文件（{scope.filter((path) => optionalPhp.some((file) => file.path === path)).length} / {optionalPhp.length}）</span>
-                    <div style={{ maxHeight: 150, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7, padding: 8 }}>
-                      {optionalPhp.map((file) => (
-                        <label key={file.path} className="checkbox" style={{ marginBottom: 3 }}>
-                          <input
-                            type="checkbox"
-                            checked={scope.includes(file.path)}
-                            onChange={(event) =>
-                              setScope((current) =>
-                                event.target.checked ? [...current, file.path] : current.filter((path) => path !== file.path),
-                              )
-                            }
-                          />
-                          <span className="mono small">{file.path}</span>
-                          <span className="faint small">{file.line_count} 行 · {file.exclude_reason ?? '默认排除'}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <span className="field-hint">这些文件默认不进入首次审计以节省预算；勾选后会和其他已选 PHP 文件一起冻结到本次范围。</span>
-                  </div>
-                )}
-
-                {excluded.length > 0 && (
-                  <div className="field">
-                    <span className="field-label">未索引为 PHP 源码的文件（{excluded.length}）</span>
-                    <div className="small faint" style={{ maxHeight: 90, overflowY: 'auto' }}>
-                      {excluded.map((file) => (
-                        <div key={file.path} className="mono">{file.path} — {file.exclude_reason}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-head">
           <div>
-            <div className="panel-title">3 · 目标与执行边界</div>
+            <div className="panel-title">2 · 目标与执行边界</div>
             <div className="faint small">主 Planner 先读取项目图并建立跨文件任务图，再把独立证据方向分派给多个 worker。</div>
           </div>
           <span className="chip">多 worker</span>
@@ -327,22 +291,22 @@ export function TaskView({
               <input
                 type="number"
                 min={1}
-                max={128}
+                max={512}
                 value={task.max_total_attempts}
-                onChange={(event) => setTask((current) => ({ ...current, max_total_attempts: boundedNumber(event.target.value, 1, 128) }))}
+                onChange={(event) => setTask((current) => ({ ...current, max_total_attempts: boundedNumber(event.target.value, 1, 512) }))}
               />
-              <span className="field-hint">1–128 次；所有 worker 共享这个总上限。</span>
+              <span className="field-hint">1–512 次；所有 worker 共享这个总上限。更正重跑会另加一点额度。</span>
             </div>
             <div className="field">
               <span className="field-label">Planner 最大回合</span>
               <input
                 type="number"
                 min={1}
-                max={32}
+                max={128}
                 value={task.max_planner_rounds}
-                onChange={(event) => setTask((current) => ({ ...current, max_planner_rounds: boundedNumber(event.target.value, 1, 32) }))}
+                onChange={(event) => setTask((current) => ({ ...current, max_planner_rounds: boundedNumber(event.target.value, 1, 128) }))}
               />
-              <span className="field-hint">每轮根据项目图和 worker 反馈创建、更新或收束动态任务。</span>
+              <span className="field-hint">1–128 轮；每轮根据项目图、本轮态势和 worker 反馈创建、更新或收束动态任务。</span>
             </div>
             <div className="field">
               <span className="field-label">并发 worker 数</span>
@@ -360,30 +324,33 @@ export function TaskView({
               <input
                 type="number"
                 min={1}
+                max={256}
                 value={budgets.responses}
-                onChange={(event) => setBudgets((current) => ({ ...current, responses: boundedNumber(event.target.value, 1, 128) }))}
+                onChange={(event) => setBudgets((current) => ({ ...current, responses: boundedNumber(event.target.value, 1, 256) }))}
               />
-              <span className="field-hint">用于一次 Planner 或 worker 回合的模型请求预算。</span>
+              <span className="field-hint">1–256 次；用于一次 Planner 或 worker 回合的模型请求预算。想提前停下用「暂停运行」。</span>
             </div>
             <div className="field">
               <span className="field-label">每项工具调用上限</span>
               <input
                 type="number"
                 min={1}
+                max={2048}
                 value={budgets.tools}
-                onChange={(event) => setBudgets((current) => ({ ...current, tools: boundedNumber(event.target.value, 1, 256) }))}
+                onChange={(event) => setBudgets((current) => ({ ...current, tools: boundedNumber(event.target.value, 1, 2048) }))}
               />
-              <span className="field-hint">源码读取、搜索等调用受此上限约束。</span>
+              <span className="field-hint">1–2048 次；源码读取、搜索等调用受此上限约束。</span>
             </div>
             <div className="field">
               <span className="field-label">每项墙钟上限（秒）</span>
               <input
                 type="number"
                 min={1}
+                max={14400}
                 value={budgets.seconds}
-                onChange={(event) => setBudgets((current) => ({ ...current, seconds: boundedNumber(event.target.value, 1, 3600) }))}
+                onChange={(event) => setBudgets((current) => ({ ...current, seconds: boundedNumber(event.target.value, 1, 14400) }))}
               />
-              <span className="field-hint">到时会记录当前状态，不把未完成视作否定结论。</span>
+              <span className="field-hint">1–14400 秒；到时会记录当前状态，不把未完成视作否定结论。</span>
             </div>
           </div>
 
@@ -413,11 +380,11 @@ export function TaskView({
           </div>
 
           <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={start} disabled={busy || !scope.length || (config !== null && !config.configured)}>
-              {busy ? '处理中…' : `启动 Planner 审计（${scope.length} 个文件）`}
+            <button className="btn btn-primary" onClick={start} disabled={busy || !selected || (config !== null && !config.configured)}>
+              {busy ? '处理中…' : '启动 Planner 审计'}
             </button>
             <span className="field-hint" style={{ maxWidth: 720 }}>
-              目标、验收条件、范围、Planner/worker 边界与预算会随运行冻结。完成页保留项目图、任务图、工具调用和证据化依据摘要，供复核执行过程。
+              目标、验收条件、整包快照范围、Planner/worker 边界与预算会随运行冻结。完成页保留项目图、任务图、每回合覆盖统计与固定调查、侦察简报、工具调用和证据化依据摘要，供复核执行过程。运行中可随时暂停并原样继续。
             </span>
           </div>
         </div>

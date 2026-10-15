@@ -397,7 +397,7 @@ def test_goal_task_report_uses_goal_termination_instead_of_fixed_truth_matrix():
         }],
     }
     doc = render_markdown(made)
-    assert "# PHP 源码目标审计报告" in doc
+    assert "# 项目源码目标审计报告" in doc
     assert "运行状态：不可达" in doc
     assert "寻找未经授权的文件读取路径" in doc
     assert "不套用固定 SQL 注入 / XSS / 命令注入真值矩阵" in doc
@@ -451,3 +451,263 @@ def test_goal_task_report_renders_source_review_without_a_fake_execution_table()
     assert "| 时间 | 人工结论 | 复核环境或版本 | 说明 |" in doc
     assert "main@abc123" in doc
     assert "书面人工复核确认或驳回" in doc
+
+
+def test_whole_snapshot_scope_is_described_by_count_and_never_inlined():
+    """A project upload can hold thousands of files, so the report must stay bounded."""
+    task_run = {
+        **RUN,
+        "scope": [],
+        "scope_mode": "snapshot",
+        "task_spec": {
+            "objective": "寻找未经授权的文件读取路径。",
+            "success_criteria": "保存一处带原始行号的可达读取证据。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+            "require_poc": False,
+        },
+    }
+    units = [unit("u1", "src/app.php")]
+    made = {
+        **bundle(units),
+        "run": task_run,
+        "metrics": summarise(task_run, units, [], TRUTHS),
+        "goals": [{"status": "unreachable", "attempts": 1, "max_total_attempts": 8}],
+        # The bounded API projection is what a report export actually receives.
+        "project_map": {"stats": {"files": 4213}},
+    }
+
+    doc = render_markdown(made)
+
+    assert "上传项目整包快照，共 4213 个可读文件" in doc
+    assert "4213 个已冻结源码文件" not in doc
+
+
+def test_historical_explicit_scope_listing_is_capped():
+    """Historical runs keep their explicit scope, but the listing is still bounded."""
+    paths = [f"legacy/{index:03d}.php" for index in range(100)]
+    legacy_run = {**RUN, "scope": paths}
+    units = [unit("u1", "legacy/000.php")]
+    made = {
+        **bundle(units),
+        "run": legacy_run,
+        "metrics": summarise(legacy_run, units, [], TRUTHS),
+    }
+
+    doc = render_markdown(made)
+
+    assert "`legacy/000.php`" in doc
+    assert "`legacy/039.php`" in doc
+    assert "`legacy/040.php`" not in doc
+    assert "其余 60 个文件见 JSON 导出" in doc
+
+
+PLANNER_TASK = {
+    "objective": "追踪请求入口到文件读取的路径。",
+    "success_criteria": "保存一处带原始行号的可达读取证据。",
+    "max_iterations": 2,
+    "max_total_attempts": 8,
+    "max_planner_rounds": 3,
+    "max_workers": 2,
+    "stop_on_achieved": True,
+    "require_poc": False,
+}
+
+
+def planner_bundle(observations, investigations=None):
+    """A bundle shaped like the Planner report export, which is the live layout."""
+    task_run = {**RUN, "scope": [], "scope_mode": "snapshot", "task_spec": PLANNER_TASK}
+    return {
+        "run": task_run,
+        "goal": {"status": "inconclusive", "attempts": 1, "max_total_attempts": 8},
+        "goals": [],
+        "planner": {"session_id": "planner:r", "max_rounds": 3},
+        "project_map": {"stats": {"files": 42}},
+        "plans": [],
+        "tasks": [],
+        "findings": [],
+        "units": [],
+        "attributions": [],
+        "metrics": {"task_coverage": 0},
+        "observations": observations,
+        "investigations": investigations or {},
+    }
+
+
+def coverage_payload(**overrides):
+    """The event `plan_audit_frontier` emits: round on the envelope, numbers nested.
+
+    Kept verbatim in that shape -- a fixture that flattens the numbers into the
+    envelope makes the report render zeros against a payload it would never see.
+    """
+    return {
+        "kind": "planner_coverage_prepared",
+        "round": 2,
+        "payload": {
+            "round": 2,
+            "coverage": {
+                "files_total": 42,
+                "files_read": 5,
+                "files_with_findings": 1,
+                "coverage_ratio": 0.119,
+                "read_paths": ["src/auth.php"],
+                "unread_hot_modules": [
+                    {"module": "src", "unread": 4, "total": 9},
+                    {"module": "templates", "unread": 3, "total": 3},
+                ],
+                "dependency_tree_total": 3,
+                "dependency_tree_read": 0,
+                "notice": "覆盖统计来自已持久化的 worker 读记录与冻结项目图，不是安全结论。",
+                **overrides,
+            },
+        },
+    }
+
+
+def brief_payload():
+    return {
+        "kind": "recon_brief_prepared",
+        "round": 1,
+        "payload": {
+            "round": 1,
+            "question": "这个项目应该从哪里开始读？",
+            "brief": {
+                "summary": "这是一个 PHP 前端控制器项目，数据库访问集中在 src/bootstrap.php。",
+                "layout": [{"path": "src", "role": "application code", "notes": "引导与路由"}],
+                "entry_candidates": [
+                    {"path": "public/index.php", "start_line": 1, "end_line": 3, "why": "前端控制器"},
+                ],
+                "data_stores": [{"path": "src/db.php", "start_line": 1, "end_line": 20, "why": "PDO"}],
+                "security_boundaries": [],
+                "reading_plan": [
+                    {"path": f"src/module{index}.php", "start_line": 1, "end_line": 9, "why": f"第 {index} 步"}
+                    for index in range(8)
+                ],
+                "uncertainties": ["运行时路由未确认"],
+                "files_examined": ["src/bootstrap.php"],
+            },
+        },
+    }
+
+
+def test_planner_report_explains_coverage_and_reconnaissance_without_calling_it_evidence():
+    """The rounds' navigation aids are exportable, but never as findings."""
+    doc = render_markdown(planner_bundle([
+        coverage_payload(),
+        brief_payload(),
+        {"kind": "recon_terminal", "round": 1, "payload": {"round": 1, "reason": "completed", "error": None}},
+        {"kind": "recon_terminal", "round": 3, "payload": {"round": 3, "reason": "internal_error", "error": "RuntimeError: x"}},
+    ]))
+
+    assert "# 项目级白盒审计报告" in doc
+    assert "## 6. 覆盖统计、固定调查与侦察简报" in doc
+    assert "## 7. 可追溯性与后续复核" in doc
+    # The boundary is stated before any number is.
+    assert "它们是导航线索，不是 finding 证据，也不构成安全结论" in doc
+    assert "| 2 | 5/42 | 11.9% | 1 | 0/3 | `src`（4/9）、`templates`（3/3） |" in doc
+    assert "### 侦察简报（第 1 回合）" in doc
+    assert "`public/index.php:1-3`（前端控制器）" in doc
+    assert "`src/bootstrap.php`" in doc
+    # A round that produced a brief is not also reported as a failed one.
+    assert "第 1 回合侦察未产出简报" not in doc
+    assert "第 3 回合侦察未产出简报：`internal_error`" in doc
+
+
+def test_planner_report_bounds_the_reconnaissance_reading_plan():
+    """Eight leads would be eight links in the report; only the first five travel."""
+    doc = render_markdown(planner_bundle([brief_payload()]))
+
+    assert "`src/module4.php:1-9`" in doc
+    assert "`src/module5.php:1-9`" not in doc
+    assert "其余 3 条见事件日志" in doc
+
+
+def test_planner_report_says_when_there_is_nothing_to_report():
+    doc = render_markdown(planner_bundle([]))
+
+    assert "## 6. 覆盖统计、固定调查与侦察简报" in doc
+    assert "本次运行没有覆盖统计或侦察记录。" in doc
+
+
+def pinned(index, topic, *, status="active", revision=1, round_no=1, kind="recon",
+           tool="investigate_project", files_read=None, superseded_by=None, reason=None,
+           created_at=None):
+    """One row of `Store.investigation_overview()['recent']`, payload-free as served."""
+    return {
+        "id": f"inv{index}", "run_id": "r" * 32, "goal_id": "g1", "plan_id": None,
+        "round_no": round_no, "revision": revision, "kind": kind, "tool": tool,
+        "topic": topic, "topic_key": f"k{index}", "args": {}, "payload": None,
+        "payload_bytes": 512, "files_read": files_read or [], "usage": {},
+        "status": status, "reason": reason, "superseded_by": superseded_by,
+        "created_at": created_at or f"2026-01-01T00:0{index}:00+00:00",
+    }
+
+
+def overview(records, *, total=None):
+    by_status: dict[str, int] = {}
+    for record in records:
+        by_status[record["status"]] = by_status.get(record["status"], 0) + 1
+    return {"total": len(records) if total is None else total, "by_status": by_status, "recent": records}
+
+
+def test_planner_report_shows_what_a_run_pinned_and_what_replaced_it():
+    """A corrected investigation leaves two rows; the report prints both.
+
+    Showing only the live row would make "investigated once, never questioned" and
+    "investigated, then re-investigated and the answer changed" read the same, which is
+    exactly what the write-once pin exists to distinguish.
+    """
+    doc = render_markdown(planner_bundle(
+        [coverage_payload()],
+        overview([
+            pinned(1, "项目如何组织入口？", round_no=1, files_read=["public/index.php", "src/a.php"]),
+            pinned(2, "项目如何组织入口？", status="superseded", revision=2, round_no=3,
+                   kind="navigation", tool="list_tree", superseded_by="inv3",
+                   reason="同一话题被重新调查"),
+            pinned(3, "项目如何组织入口？", revision=3, round_no=4, kind="navigation",
+                   tool="list_tree"),
+            pinned(4, "路由在哪注册？", kind="search", tool="search_code", status="retracted",
+                   reason="范围判断有误"),
+        ]),
+    ))
+
+    assert "### 固定调查" in doc
+    # The counts by status are stated before the table, not left to be counted by eye.
+    assert "共 4 条（有效 2；已撤回 1；已被取代 1）。" in doc
+    assert "一次写入，正文此后不再改写" in doc
+    # Topic, kind, tool, round, revision, status, files read and pinned-at all travel.
+    assert "| 项目如何组织入口？ | 侦察简报 | `investigate_project` | 1 | 1 | 有效 | `public/index.php`、`src/a.php` |" in doc
+    assert "| 路由在哪注册？ | 代码检索 | `search_code` | 1 | 1 | 已撤回 | — |" in doc
+    # What replaced what, named by round and revision rather than by opaque id.
+    assert "已被取代：同一话题被重新调查；由第 4 回合的第 3 版「项目如何组织入口？」接替" in doc
+    assert "已撤回：范围判断有误。" in doc
+
+
+def test_planner_report_says_when_the_pinned_list_is_truncated():
+    doc = render_markdown(planner_bundle(
+        [coverage_payload()],
+        overview(
+            [pinned(1, "旧话题", status="superseded", revision=2, superseded_by="not-listed")],
+            total=30,
+        ),
+    ))
+
+    assert "本节只列最近 1 条；其余 29 条见 JSON 导出。" in doc
+    # The replacement is real but outside the bounded list, and the report says so
+    # instead of implying nothing replaced it.
+    assert "接替它的新记录不在本节列出的范围内" in doc
+
+
+def test_planner_report_keeps_the_pinned_section_when_it_is_empty_or_alone():
+    """Two edges of one section: no pins at all, and pins with no coverage table."""
+    with_observations = render_markdown(planner_bundle([coverage_payload()]))
+    assert "### 固定调查" in with_observations
+    assert "本次运行没有固定任何调查记录" in with_observations
+    assert "本次运行没有覆盖统计或侦察记录。" not in with_observations
+
+    pins_only = render_markdown(planner_bundle([], overview([pinned(1, "只有固定调查")])))
+    assert "| 只有固定调查 | 侦察简报 | `investigate_project` | 1 | 1 | 有效 | — |" in pins_only
+    # The section never replaces the chapter's own empty-state line for coverage.
+    assert "本次运行没有覆盖统计或侦察记录。" not in pins_only

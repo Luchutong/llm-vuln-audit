@@ -11,17 +11,19 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from .agent import _parse_evidence, audit_unit, plan_audit_frontier, pursue_planner_task, pursue_task_work
-from .config import Settings
-from .db import Store
+from .config import ModelConfig, Settings
+from .db import WITHDRAWN_FINDING_DISPOSITIONS, Store
 from .events import EventBus
 from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
 from .health import ModelHealth
 from .prompts import system_prompt
 from .source import SourceRepository
-from .runtime import AgentPolicy
+from .runtime import AgentPolicy, allowed_paths_for_run, policy_from_snapshot
 from .schemas import Check
 
 # Two model-level failures in a row mean the endpoint itself is down; grinding
@@ -43,18 +45,25 @@ class AuditWorker:
         repository: SourceRepository,
         bus: EventBus,
         health: ModelHealth,
+        resolve_model_profile: Callable[[dict], ModelConfig | None] | None = None,
     ):
         self.settings = settings
         self.store = store
         self.repository = repository
         self.bus = bus
         self.health = health
+        self._resolve_model_profile = resolve_model_profile
         self._wake = asyncio.Event()
         self._task: asyncio.Task | None = None
         self._current: asyncio.Task | None = None
         self._run_id: str | None = None
         self._stopping = False
         self._cancel_reason = "user_cancelled"
+        # Per-run cooperative pause flags, keyed by run id while that run is executing.
+        # A pause has to be observed from inside the run (between attempts, between
+        # rounds) rather than by cancelling it, so the flag lives beside the task that
+        # reads it; `_loop` clears the entry when the run stops.
+        self._pauses: dict[str, asyncio.Event] = {}
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -88,10 +97,56 @@ class AuditWorker:
             self._current.cancel()
         self.notify()
 
+    def pause(self, run_id: str) -> None:
+        """Ask a running run to stop at its next boundary, keeping its frontier.
+
+        Cooperative by construction: the flag is read between attempts and between
+        rounds, so an attempt already in flight finishes and its result is committed.
+        That is the whole difference from ``cancel``, which interrupts the request and
+        settles the run -- a pause has to leave something worth resuming.  The store
+        owns the status; this only tells the executing run to look at it.
+        """
+        event = self._pauses.get(run_id)
+        if event is not None:
+            event.set()
+        self.notify()
+
     @property
     def status(self) -> dict:
         return {"name": self.settings.worker, "current_run": self._run_id,
                 "busy": self._current is not None, "alive": self._task is not None and not self._task.done()}
+
+    def _model_for_run(self, run: dict) -> ModelConfig:
+        """Resolve the exact public provider identity frozen with a run.
+
+        New records identify a profile and freeze its model/endpoint.  Credential
+        lookup is deliberately separate and happens through that profile id so a
+        restart cannot use whichever profile happens to be selected then.  Historic
+        records have no snapshot and retain their previous current-config fallback.
+        """
+        snapshot = run.get("model_profile")
+        if isinstance(snapshot, dict) and snapshot:
+            profile_id = str(snapshot.get("profile_id") or "").strip()
+            model = str(snapshot.get("model") or "").strip()
+            base_url = str(snapshot.get("base_url") or "").strip().rstrip("/")
+            if profile_id:
+                if not (model and base_url):
+                    raise RuntimeError("Frozen model profile snapshot is incomplete")
+                if self._resolve_model_profile is not None:
+                    config = self._resolve_model_profile(snapshot)
+                    if config is None:
+                        raise RuntimeError(f"Frozen model profile is unavailable: {profile_id}")
+                    return config
+                raise RuntimeError("Frozen model profile resolver is unavailable")
+            if model or base_url:
+                return replace(
+                    self.settings.model,
+                    model=model or self.settings.model.model,
+                    base_url=base_url or self.settings.model.base_url,
+                )
+
+        name = str(run.get("model") or "").strip()
+        return replace(self.settings.model, model=name) if name else self.settings.model
 
     # --- main loop ---------------------------------------------------------
 
@@ -106,6 +161,10 @@ class AuditWorker:
                     pass
                 continue
             self._run_id = run["id"]
+            # A fresh flag per claim: a pause requested against the previous execution of
+            # this run must not arrive already set, which would stop the resumed run at
+            # its first boundary for no reason the user can see.
+            self._pauses[run["id"]] = asyncio.Event()
             self._current = asyncio.create_task(self._execute(run), name=f"run-{run['id']}")
             try:
                 await self._current
@@ -133,6 +192,7 @@ class AuditWorker:
             finally:
                 self._current = None
                 self._run_id = None
+                self._pauses.pop(run["id"], None)
 
     # --- one run -----------------------------------------------------------
 
@@ -144,34 +204,49 @@ class AuditWorker:
 
     async def _execute_legacy(self, run: dict) -> None:
         run_id = run["id"]
+        model_config = self._model_for_run(run)
         if self.health.is_open():
             error = "模型熔断窗口尚未结束；未发起新的模型请求"
             self.store.abandon_pending_units(run_id, error)
             self.store.update_run(run_id, status="failed", finished_at=_now(), error=error)
             self.bus.emit(run_id, None, "run_failed", {"reason": "model_unavailable", "error": error})
             return
-        self.bus.emit(
-            run_id,
-            None,
-            "run_started",
-            {
-                "snapshot_id": run["snapshot_id"],
-                "scope": run["scope"],
-                "prompt_id": run["prompt_id"],
-                "model": run["model"],
-                "budgets": run["budgets"],
-                "total_units": run["total_units"],
-            },
-        )
+        # A resumed run has already announced its beginning (see the Planner path below);
+        # a second `run_started` would read in the timeline as a run that began twice.
+        if not self.store.has_event(run_id, "run_started"):
+            self.bus.emit(
+                run_id,
+                None,
+                "run_started",
+                {
+                    "snapshot_id": run["snapshot_id"],
+                    "scope": run["scope"],
+                    "prompt_id": run["prompt_id"],
+                    "model": run["model"],
+                    "model_profile": run.get("model_profile") or {},
+                    "budgets": run["budgets"],
+                    "total_units": run["total_units"],
+                },
+            )
         consecutive_errors = 0
 
         while True:
             current = self.store.get_run(run_id)
+            if current is not None and current["status"] == "paused":
+                # Parked between units, not cancelled: the remaining queue stays pending
+                # and `resume` returns the run to `pending`, where the same claim picks it
+                # up again.  The unit that was in flight when the pause landed is settled,
+                # which is what "pause at a boundary" has to mean for a durable queue.
+                self.bus.emit(run_id, None, "run_paused", {"reason": "pause requested"})
+                return
+            if current is not None and current["status"] == "pending":
+                # Resumed mid-pass, same as the Planner path above: the queue is durable, so
+                # handing the run back loses nothing and cancelling it would lose everything.
+                return
             if current is None or current["status"] != "running":
                 self.store.abandon_pending_units(run_id, "Run is no longer running")
                 self.bus.emit(run_id, None, "run_cancelled", {"reason": "cancel requested"})
                 return
-
             unit = self.store.next_pending_unit(run_id)
             if unit is None:
                 self.store.update_run(run_id, status="completed", finished_at=_now())
@@ -221,9 +296,9 @@ class AuditWorker:
                 snapshot_name=run["snapshot_name"],
                 unit=unit,
                 prompt_text=system_prompt(run["prompt_text"]),
-                config=self.settings.model,
+                config=model_config,
                 budgets=run["budgets"],
-                policy=AgentPolicy(**run["agent_policy"]) if run.get("agent_policy", {}).get("version") == "whitebox-2" else AgentPolicy(),
+                policy=policy_from_snapshot(run["agent_policy"]) if run.get("agent_policy", {}).get("version") == "whitebox-2" else AgentPolicy(),
                 on_event=record,
             )
 
@@ -308,7 +383,7 @@ class AuditWorker:
 
     def _policy_for_run(self, run: dict) -> AgentPolicy:
         policy = run.get("agent_policy") or {}
-        return AgentPolicy(**policy) if policy.get("version") == "whitebox-2" else AgentPolicy()
+        return policy_from_snapshot(policy) if policy.get("version") == "whitebox-2" else AgentPolicy()
 
     async def _execute_planner_task(self, run: dict) -> None:
         """Run ARTEX-style Planner rounds over a durable, dynamic task frontier.
@@ -318,6 +393,7 @@ class AuditWorker:
         Its evidence-bound summary becomes input for the next serialized Planner round.
         """
         run_id = run["id"]
+        model_config = self._model_for_run(run)
         task_spec = run["task_spec"]
         if self.health.is_open():
             error = "模型熔断窗口尚未结束；未发起新的 Planner 或 worker 请求"
@@ -333,39 +409,68 @@ class AuditWorker:
             raise RuntimeError("Planner run is missing its durable goal, session, or project map")
         policy = self._policy_for_run(run)
         stop = asyncio.Event()
+        # The run's pause flag, set from outside by ``AuditWorker.pause`` and read at the
+        # boundaries -- a slot that has not claimed a task yet, and each pass of the
+        # reconcile loop -- so a pause never cuts an attempt in half.  ``_loop`` registers
+        # a fresh one per claim; the fallback covers a run driven directly (a test, or any
+        # later entry path) so that pausing it is not silently a no-op.
+        pause = self._pauses.setdefault(run_id, asyncio.Event())
         coordinator = asyncio.Lock()
         failure_message: str | None = None
         consecutive_errors = 0
+        # Consecutive rounds that produced no usable decision.  One bad structured output
+        # used to end the whole run; the host now re-plans, then falls back to the durable
+        # frontier, and only then settles the goal.
+        stalled_rounds = 0
+        # The state the last pre-closure review round was run against.  A review that changes
+        # nothing has already had its say, so the host closes instead of reviewing again.
+        reviewed_for: tuple | None = None
+        # Set when a worker produces a conclusion the host would close the run on and
+        # ``stop_on_achieved`` says to stop queued work.  It withholds the directions that
+        # have not started yet -- the run is about to be over, so starting them would spend
+        # attempts on work nobody asked for -- without closing the run, which is what lets
+        # the review round below look at the frontier before the host settles on it.
+        closing = False
+        # How many task proposals and frontier updates the last Planner round committed.
+        # ``continue`` covers both "I looked and the conclusion stands" and "run what is
+        # still on the frontier", and only the decision itself tells the two apart.
+        round_mutations = 0
 
-        self.bus.emit(
-            run_id,
-            None,
-            "run_started",
-            {
-                "snapshot_id": run["snapshot_id"],
-                "scope": run["scope"],
-                "model": run["model"],
-                "budgets": run["budgets"],
-                "mode": "planner_v2",
-                "task": task_spec,
-                "project_map": {"stats": project_map.get("stats"), "entrypoints": project_map.get("entrypoints", [])[:12]},
-            },
-        )
-        self.bus.emit(
-            run_id,
-            None,
-            "planner_session_started",
-            {
-                "goal_id": goal["id"],
-                "session_id": session["session_id"],
-                "objective": goal["objective"],
-                "success_criteria": goal["success_criteria"],
-                "max_planner_rounds": session["max_rounds"],
-                "max_total_attempts": goal["max_total_attempts"],
-                "max_workers": task_spec["max_workers"],
-                "project_map_stats": project_map.get("stats") or {},
-            },
-        )
+        # A run that was paused and resumed re-enters here with its session, its round
+        # number and its frontier exactly as they were.  The two events below describe a
+        # beginning, and this run has already had one; ``run_resumed`` (emitted where the
+        # transition was requested) is the event that belongs to this re-entry.
+        if not self.store.has_event(run_id, "run_started"):
+            self.bus.emit(
+                run_id,
+                None,
+                "run_started",
+                {
+                    "snapshot_id": run["snapshot_id"],
+                    "scope": run["scope"],
+                    "model": run["model"],
+                    "model_profile": run.get("model_profile") or {},
+                    "budgets": run["budgets"],
+                    "mode": "planner_v2",
+                    "task": task_spec,
+                    "project_map": {"stats": project_map.get("stats"), "entrypoints": project_map.get("entrypoints", [])[:12]},
+                },
+            )
+            self.bus.emit(
+                run_id,
+                None,
+                "planner_session_started",
+                {
+                    "goal_id": goal["id"],
+                    "session_id": session["session_id"],
+                    "objective": goal["objective"],
+                    "success_criteria": goal["success_criteria"],
+                    "max_planner_rounds": session["max_rounds"],
+                    "max_total_attempts": goal["max_total_attempts"],
+                    "max_workers": task_spec["max_workers"],
+                    "project_map_stats": project_map.get("stats") or {},
+                },
+            )
 
         async def abort(message: str) -> None:
             nonlocal failure_message
@@ -420,6 +525,8 @@ class AuditWorker:
 
         async def run_planner_round() -> str:
             """Reserve, execute and commit one Planner revision."""
+            nonlocal round_mutations
+            round_mutations = 0
             plan = self.store.begin_planner_round(run_id, session["session_id"])
             if plan is None:
                 return "no_round"
@@ -431,18 +538,34 @@ class AuditWorker:
             def record(event: dict) -> None:
                 kind = event.get("kind", "planner_agent_event")
                 payload = {key: value for key, value in event.items() if key != "kind"}
-                payload.update({"plan_id": plan["id"], "session_id": session["session_id"], "role": "planner"})
+                # Reconnaissance runs inside a Planner round but is its own role, so its
+                # events must not be presented as Planner activity.  An event that names
+                # no role is Planner activity, which is the historical default.
+                payload.update({
+                    "plan_id": plan["id"],
+                    "session_id": session["session_id"],
+                    "role": str(event.get("role") or "planner"),
+                })
                 self.bus.emit(run_id, None, kind, payload)
 
-            context = self.store.list_planner_context(run_id)
+            context = self.store.list_planner_context(run_id, project_map=project_map)
             outcome = await plan_audit_frontier(
                 project_map=project_map,
                 run_context=context,
                 task=task_spec,
                 round_no=int(plan["round_no"]),
-                config=self.settings.model,
+                config=model_config,
                 budgets=run["budgets"],
                 policy=policy,
+                repository=self.repository,
+                snapshot_id=run["snapshot_id"],
+                allowed_paths=allowed_paths_for_run(run),
+                # What this run has already had answered, so a later round reuses an
+                # earlier round's reconnaissance, listings and searches instead of
+                # paying for them again.
+                pins=self.store,
+                run_id=run_id,
+                plan_id=plan["id"],
                 on_event=record,
             )
             failed = await account_model_result(outcome, "Planner")
@@ -460,11 +583,21 @@ class AuditWorker:
                     run_id, plan["id"], goal_state="inconclusive", basis_summary=message,
                     usage=outcome.get("usage"), error=message,
                 )
-                await finish_goal("inconclusive", message)
+                # The round is recorded honestly as a failed draft, but the run does not
+                # end here: the caller decides between a fresh round and the durable
+                # frontier.  Settling the goal from inside a single bad decision threw
+                # away a run whose workers had simply not been dispatched yet.
+                self.bus.emit(run_id, None, "planner_round_failed", {
+                    "plan_id": plan["id"],
+                    "round": plan["round_no"],
+                    "revision": plan["revision"],
+                    "terminal_reason": str(outcome.get("terminal_reason") or "invalid_output"),
+                    "error": message,
+                })
                 return "failed"
             tasks = list(decision.get("tasks") or [])
             updates = list(decision.get("updates") or [])
-            self.store.finish_planner_round(
+            committed = self.store.finish_planner_round(
                 run_id,
                 plan["id"],
                 goal_state=str(decision.get("goal_state") or "continue"),
@@ -474,8 +607,12 @@ class AuditWorker:
                 tasks=tasks,
                 updates=updates,
                 usage=outcome.get("usage"),
+                # A revision extends the attempt allowance instead of spending it; the store
+                # applies this to both the task's own cap and the goal-wide one.
+                reopen_attempts=int(policy.reopen_attempts),
             )
             queue = self.store.task_queue_state(run_id)
+            round_mutations = len(tasks) + len(updates)
             self.bus.emit(run_id, None, "planner_round_committed", {
                 "plan_id": plan["id"],
                 "round": plan["round_no"],
@@ -487,6 +624,46 @@ class AuditWorker:
                 "updates": updates,
                 "queue": queue,
             })
+            # A correction is worth its own event: it is the moment the run decided an earlier
+            # conclusion was wrong, and it is the only place the attempt count and the
+            # revision count can be read side by side.
+            for update in updates:
+                action = str(update.get("action"))
+                if action == "reopen":
+                    task = next(
+                        (item for item in committed if item.get("task_key") == update.get("task_key")), None,
+                    )
+                    self.bus.emit(run_id, task["id"] if task else None, "planner_task_reopened", {
+                        "task_key": update.get("task_key"),
+                        "state": task.get("state") if task else None,
+                        "revisions": int(task.get("revisions") or 0) if task else None,
+                        "attempts": int(task.get("attempts") or 0) if task else None,
+                        "max_attempts": int(task.get("max_attempts") or 0) if task else None,
+                        "reason": str(update.get("rationale_summary") or ""),
+                    })
+                elif action in {"retract", "duplicate"}:
+                    # What was asked for and what was written can differ -- a conclusion a
+                    # human already decided is only contested -- so the event is read back
+                    # off the row instead of being assumed from the action.
+                    finding = self.store.get_finding(str(update.get("finding_key") or ""))
+                    if finding is None:
+                        continue
+                    disposition = str(finding.get("disposition") or "")
+                    self.bus.emit(run_id, finding["unit_id"], {
+                        "retracted": "finding_retracted",
+                        "duplicate": "finding_duplicate",
+                        "contested": "finding_contested",
+                    }.get(disposition, "finding_disposition_changed"), {
+                        "finding_id": finding["id"],
+                        "task_key": update.get("task_key"),
+                        "requested_action": action,
+                        "disposition": disposition,
+                        "reason": finding.get("disposition_reason"),
+                        "by": finding.get("disposition_by"),
+                        "verdict": finding.get("verdict"),
+                        "related_finding_id": finding.get("derived_from_finding_id"),
+                        "validation_state": finding.get("validation_state"),
+                    })
             requested_state = decision.get("goal_state")
             if requested_state in {"met", "unreachable", "inconclusive"}:
                 if requested_state == "inconclusive" and queue["active"]:
@@ -508,9 +685,14 @@ class AuditWorker:
             return "committed"
 
         async def execute_slot(slot: int) -> None:
+            nonlocal closing
             worker_id = f"{self.settings.worker}:{run_id[:8]}:{slot}"
             try:
-                while not stop.is_set():
+                while not stop.is_set() and not pause.is_set():
+                    # Held back by a sibling's conclusion under stop_on_achieved: the run is
+                    # about to close and this direction has not started, so it is not started.
+                    if closing:
+                        return
                     current = self.store.get_run(run_id)
                     current_goal = self.store.get_task_goal(run_id)
                     if current is None or current["status"] != "running" or current_goal is None or current_goal["status"] != "open":
@@ -574,11 +756,11 @@ class AuditWorker:
                         planner_task=planner_task,
                         run_task=task_spec,
                         attempt=attempt,
-                        allowed_paths=set(run.get("scope") or []),
+                        allowed_paths=allowed_paths_for_run(run),
                         dependency_handoffs=dependency_handoffs,
                         peer_trace_search=search_peer_traces,
                         peer_trace_read=get_peer_trace,
-                        config=self.settings.model,
+                        config=model_config,
                         budgets=run["budgets"],
                         policy=policy,
                         on_event=record,
@@ -611,12 +793,9 @@ class AuditWorker:
                     if resolved is None:
                         return
                     for prepared in prepared_findings:
-                        self.store.add_finding(prepared["record"])
-                        self.bus.emit(
-                            run_id,
-                            task_id,
-                            "finding_created" if prepared["candidate"] else "finding_rejected_by_validation",
-                            {**prepared["event"], "task_id": task_id, "task_key": planner_task["task_key"]},
+                        self._record_finding(
+                            run_id, task_id, prepared,
+                            extra={"task_id": task_id, "task_key": planner_task["task_key"]},
                         )
                     state_kind = {
                         "ready": "planner_task_requeued",
@@ -642,12 +821,51 @@ class AuditWorker:
                         return
                     if outcome["outcome"] == "achieved" and any(item["candidate"] for item in prepared_findings):
                         if task_spec.get("stop_on_achieved", True):
-                            await finish_goal("met", (outcome.get("result") or {}).get("summary") or "Worker produced evidence-backed findings.")
-                            return
+                            # Stop queued work; do not close the run here.  A worker producing the
+                            # conclusion the goal asked for used to end the run on the spot, which
+                            # meant the directions dispatched alongside it were cancelled unseen
+                            # and -- because a Planner round only runs when the frontier is quiet --
+                            # the conclusion itself was never shown to the Planner for review.  The
+                            # host now closes from the reconcile loop, after that review.
+                            closing = True
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 await abort(f"Planner worker {slot} failure: {type(exc).__name__}: {str(exc)[:400]}")
+
+        def standing_conclusions() -> list[dict]:
+            """The conclusions this run's goal is satisfied by, counted the way the host counts them.
+
+            The same filter ``Store.finalize_goal`` applies: evidence that survived validation
+            and that no Planner round has taken back.  Rejected citations, a retracted or
+            duplicated conclusion, and a conclusion a human already judged are all things the
+            run must not be closed on.
+            """
+            return [
+                item
+                for item in self.store.list_findings(run_id)
+                if item.get("validation_state") == "candidate"
+                and str(item.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
+            ]
+
+        def conclusion_state() -> tuple:
+            """What a review round would be looking at: the settled frontier and every conclusion.
+
+            Compared before the host closes.  A review that leaves this unchanged already had
+            its chance and did not use it, so the host closes rather than reviewing again --
+            which is what keeps the review costing one round per closure point and not two.
+            """
+            queue_state = self.store.task_queue_state(run_id)
+            return (
+                queue_state["total"],
+                queue_state["terminal"],
+                tuple(
+                    sorted(
+                        (str(item["id"]), int(item["revision"] or 1), str(item["disposition"] or "open"))
+                        for item in self.store.list_findings(run_id)
+                    )
+                ),
+            )
 
         async def run_worker_wave() -> None:
             workers = [
@@ -660,6 +878,26 @@ class AuditWorker:
             current = self.store.get_run(run_id)
             goal = self.store.get_task_goal(run_id)
             session_state = self.store.get_planner_session(run_id)
+            if current is not None and current["status"] == "paused":
+                # A pause is observed here, at the one place every pass goes through, and
+                # it returns without abandoning anything.  Nothing below this point has
+                # run yet: the frontier is exactly as the last committed round left it and
+                # the session keeps its round number, so `resume` continues the run rather
+                # than re-planning it.  Treating this as "no longer running" was the bug
+                # that would have made pause indistinguishable from cancel.
+                self.bus.emit(run_id, None, "run_paused", {
+                    "round": (session_state or {}).get("current_round"),
+                    "reason": "pause requested",
+                })
+                return
+            if current is not None and current["status"] == "pending":
+                # The user resumed before this pass reached its boundary: `resume` returns a
+                # paused run to the claim queue, and the attempt that was in flight is
+                # allowed to finish.  Reading that `pending` as "no longer running" would
+                # abandon the frontier and cancel a run the user had just restarted, so the
+                # pass hands the run back instead -- the claim loop takes it straight away
+                # and continues from the frontier this pass committed.
+                return
             if current is None or current["status"] != "running":
                 self.store.abandon_planner_tasks(run_id, "Run is no longer running")
                 self.bus.emit(run_id, None, "run_cancelled", {"reason": "cancel requested"})
@@ -670,25 +908,49 @@ class AuditWorker:
                 await finish_goal(goal["status"], goal.get("terminal_reason") or "Goal already settled")
                 return
             queue = self.store.task_queue_state(run_id)
-            if queue["ready"] or queue["running"]:
+            # The conclusions the host would close this run on, asked once per pass: they decide
+            # both whether a worker may start another direction and whether the host reviews
+            # before it closes.  The hold is only meaningful while one of them exists.
+            standing = standing_conclusions()
+            if closing and not standing:
+                closing = False
+            if (queue["ready"] or queue["running"]) and not closing:
                 await run_worker_wave()
                 continue
-            # With stop_on_achieved disabled, workers are allowed to finish the
-            # currently dispatched frontier after the first valid finding.  Once that
-            # frontier is terminal, an evidence-backed candidate still satisfies the
-            # host-verifiable completion condition; do not let a later Planner-round
-            # limit incorrectly recast it as "unreachable".
-            if not task_spec.get("stop_on_achieved", True):
-                has_candidate = any(
-                    item.get("validation_state") == "candidate"
-                    for item in self.store.list_findings(run_id)
+            # The run is about to satisfy its own completion condition: no direction is being
+            # worked on and at least one conclusion survived validation and is still standing.
+            # The host's closure is unchanged -- ``finalize_goal`` still checks the same thing --
+            # but it does not get to make it before the Planner has seen the conclusion it is
+            # being closed on.  A Planner round otherwise only ever runs at the moment the run
+            # closes, so without this the corrections a round is allowed to make (reopen a
+            # direction, retract a conclusion, call one a duplicate) would be unreachable for
+            # exactly the conclusions that matter.  Costs one model call per closure point; a
+            # review that changes nothing closes the run on the next pass instead of repeating.
+            if standing and (closing or not queue["active"]):
+                signature = conclusion_state()
+                if (
+                    reviewed_for != signature
+                    and int(session_state["current_round"]) < int(session_state["max_rounds"])
+                ):
+                    reviewed_for = signature
+                    state = await run_planner_round()
+                    if state == "closed" or stop.is_set():
+                        return
+                    # A review that named work -- dispatched a direction, reopened one, even just
+                    # re-proposed something it wants run -- asked for it, so the withheld
+                    # directions are released along with it.  One that changed nothing, or that
+                    # produced nothing usable, has said its piece: the hold stands and the next
+                    # pass closes on the conclusion it declined to correct.
+                    closing = closing and not (state == "committed" and round_mutations)
+                    continue
+                # Either the review already ran against this exact state, or there is no round
+                # left to run one in. A conclusion the host can verify satisfies the goal on its
+                # own; a later Planner-round limit must not recast it as "unreachable".
+                await finish_goal(
+                    "met",
+                    "前沿已结算，并保留至少一条通过源码证据校验、未被撤回的 worker 发现。",
                 )
-                if has_candidate and not queue["active"]:
-                    await finish_goal(
-                        "met",
-                        "已完成当前动态任务前沿，并保留至少一条通过源码证据校验的 worker 发现。",
-                    )
-                    return
+                return
             # A hard shared worker cap is an execution limit, not evidence that the
             # objective is absent. Keep the result reviewable as inconclusive.
             if int(goal["attempts"]) >= int(goal["max_total_attempts"]):
@@ -704,8 +966,67 @@ class AuditWorker:
                 await finish_goal(terminal, reason)
                 return
             state = await run_planner_round()
-            if state in {"closed", "failed"} or stop.is_set():
+            if state == "closed" or stop.is_set():
                 return
+            if state == "committed":
+                stalled_rounds = 0
+                continue
+            if state == "failed":
+                stalled_rounds += 1
+                if stalled_rounds <= int(policy.planner_decision_retries):
+                    # A discarded round is not a frontier mutation: re-plan immediately.
+                    continue
+                if queue["ready"] or queue["running"]:
+                    # Still-dispatchable work exists.  Run it instead of ending the run;
+                    # rounds stay bounded by the session's own round cap.
+                    continue
+                if not any(
+                    item.get("validation_state") == "candidate"
+                    and str(item.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
+                    for item in self.store.list_findings(run_id)
+                ):
+                    await finish_goal(
+                        "inconclusive",
+                        f"Planner 连续 {stalled_rounds} 回合未能产出可验证决策，"
+                        "且前沿已无可执行任务、无通过证据校验的结论",
+                    )
+                    return
+
+    def _record_finding(
+        self,
+        run_id: str,
+        unit_id: str | None,
+        prepared: dict,
+        *,
+        finding_id: str | None = None,
+        extra: dict | None = None,
+    ) -> None:
+        """Persist one prepared finding and report it, including when it replaced an earlier one.
+
+        A finding occupies a stable slot per ``(run, unit, category)``, and re-running that
+        direction writes a new conclusion into the same row: the id survives (so the human
+        verifications bound to it do not become orphans) and so does the reviewer's verdict.
+        That is a change of mind worth its own event, because nothing in the new conclusion
+        says the old one was replaced.  ``finding_id`` is passed by callers whose write
+        already happened inside another transaction; otherwise it is written here.
+        """
+        written: dict | None = None
+        if finding_id is None:
+            written = self.store.add_finding(prepared["record"])
+            finding_id = str(written["finding_id"])
+        payload = {**(prepared.get("event") or {}), "finding_id": finding_id, **(extra or {})}
+        if written is not None and written["action"] == "superseded":
+            self.bus.emit(run_id, unit_id, "finding_superseded", {
+                **payload,
+                "revision": written["revision"],
+                "previous_revision": written["revision"] - 1,
+            })
+        self.bus.emit(
+            run_id,
+            unit_id,
+            "finding_created" if prepared["candidate"] else "finding_rejected_by_validation",
+            payload,
+        )
 
     def _build_planner_findings(self, run: dict, planner_task: dict, outcome: dict) -> list[dict]:
         """Adapt generic finding validation to a task that spans several source files."""
@@ -730,6 +1051,7 @@ class AuditWorker:
         a project-wide negative conclusion.
         """
         run_id = run["id"]
+        model_config = self._model_for_run(run)
         task = run["task_spec"]
         if self.health.is_open():
             error = "模型熔断窗口尚未结束；未发起新的模型请求"
@@ -904,11 +1226,11 @@ class AuditWorker:
                         task=task,
                         attempt=int(work["attempt"]) + 1,
                         focus=work.get("focus") or "",
-                        allowed_paths=set(run.get("scope") or []),
-                        config=self.settings.model,
+                        allowed_paths=allowed_paths_for_run(run),
+                        config=model_config,
                         budgets=run["budgets"],
                         policy=(
-                            AgentPolicy(**run["agent_policy"])
+                            policy_from_snapshot(run["agent_policy"])
                             if run.get("agent_policy", {}).get("version") == "whitebox-2"
                             else AgentPolicy()
                         ),
@@ -957,15 +1279,14 @@ class AuditWorker:
                         # transaction with the goal state. Invalid artifacts remain
                         # reviewable but cannot affect the goal, so they are written
                         # afterwards under their own immutable IDs.
+                        stored_ids = iter(resolved.get("finding_ids") or [])
                         for prepared in prepared_findings:
-                            if not prepared["candidate"]:
-                                self.store.add_finding(prepared["record"])
-                            self.bus.emit(
-                                run_id,
-                                unit["unit_id"],
-                                "finding_created" if prepared["candidate"] else "finding_rejected_by_validation",
-                                prepared["event"],
-                            )
+                            if prepared["candidate"]:
+                                self._record_finding(
+                                    run_id, unit["unit_id"], prepared, finding_id=next(stored_ids, None),
+                                )
+                            else:
+                                self._record_finding(run_id, unit["unit_id"], prepared)
 
                     state_kind = {
                         "open": "task_work_requeued",

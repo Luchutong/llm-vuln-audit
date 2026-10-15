@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from types import SimpleNamespace
 
 from audit import agent, worker as worker_module
@@ -10,7 +11,7 @@ from audit.metrics import comparable_runs
 from audit.runtime import AgentPolicy
 from audit.schemas import Check, UnitAnalysis
 from audit.worker import AuditWorker
-from pydantic_ai.models.function import FunctionModel
+from tests.code_model import ModelFactory, code
 
 
 class Repository:
@@ -62,32 +63,54 @@ def test_cancel_interrupts_a_pending_model_request_and_preserves_checkpoint(tmp_
     store = Store(tmp_path / "audit.db")
     add_run(store, "run1", count=2)
     worker = make_worker(store)
+    started, release = threading.Event(), threading.Event()
+
+    def pending(messages):
+        """A provider call that is still in flight when the cancel arrives.
+
+        The loop runs on a worker thread, which is where a real request waits, so blocking
+        here is what makes "interrupt a pending request" a real claim rather than a claim
+        about an already-answered one.
+        """
+        started.set()
+        release.wait(10)
+        # Whatever this returns is never delivered: the unit is already cancelled by the
+        # time the request it belongs to would have been answered.
+        return code("pass")
+
+    monkeypatch.setattr(agent, "build_code_model", ModelFactory({"explore": [pending]}))
+
     async def exercise():
-        waiting = asyncio.Event()
-        async def model(messages, info):
-            waiting.set()
-            await asyncio.Event().wait()
-        monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(model))
-        await worker.start()
-        await asyncio.wait_for(waiting.wait(), timeout=1)
-        store.request_cancel("run1")
-        worker.cancel("run1")
-        for _ in range(50):
-            if not worker.status["busy"]:
-                break
-            await asyncio.sleep(0.002)
-        assert not worker.status["busy"], "cancel must not wait for the request timeout"
-        assert worker.status["alive"]
-        units = store.list_run_units("run1")
-        assert units[0]["status"] == "incomplete" and units[1]["status"] == "skipped"
-        assert units[0]["seen"]
-        assert units[0]["result"]["phase"] == "explore"
-        assert store.get_run("run1")["status"] == "cancelled"
-        events = store.list_events("run1")
-        assert any(e["kind"] == "tool_call" for e in events)
-        assert any(e["kind"] == "unit_checkpoint" for e in events)
-        assert any(e["kind"] == "run_cancelled" for e in events)
-        await worker.stop()
+        try:
+            await worker.start()
+            for _ in range(500):
+                if started.is_set():
+                    break
+                await asyncio.sleep(0.002)
+            assert started.is_set(), "请求从未发出，取消测的不是在途请求"
+            store.request_cancel("run1")
+            worker.cancel("run1")
+            for _ in range(50):
+                if not worker.status["busy"]:
+                    break
+                await asyncio.sleep(0.002)
+            assert not worker.status["busy"], "cancel must not wait for the request timeout"
+            assert worker.status["alive"]
+            units = store.list_run_units("run1")
+            assert units[0]["status"] == "incomplete" and units[1]["status"] == "skipped"
+            assert units[0]["seen"]
+            assert units[0]["result"]["phase"] == "explore"
+            assert store.get_run("run1")["status"] == "cancelled"
+            events = store.list_events("run1")
+            assert any(e["kind"] == "tool_call" for e in events)
+            assert any(e["kind"] == "unit_checkpoint" for e in events)
+            assert any(e["kind"] == "run_cancelled" for e in events)
+            await worker.stop()
+        finally:
+            # The loop's thread is still inside the scripted step; `asyncio.run` joins the
+            # thread pool on its way out, so it has to be let go before this coroutine ends.
+            release.set()
+
     try:
         asyncio.run(exercise())
     finally:

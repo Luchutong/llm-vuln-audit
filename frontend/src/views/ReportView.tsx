@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, errorText, post } from '../api';
+import { scopeFileCount, scopeLabel } from '../types';
 import type { RunDetail, Truth } from '../types';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -40,6 +41,7 @@ export function ReportView(props: ReportViewProps) {
 
 function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
   const { run, metrics, findings, attributions } = detail;
+  const projectMap = detail.project_map;
   const [truths, setTruths] = useState<Truth[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
@@ -108,7 +110,7 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
         </div>
         <div style={{ padding: '12px 16px' }} className="small">
           <div>快照 <span className="mono">{run.snapshot_id}</span>（{run.snapshot_name}）</div>
-          <div>范围 {run.scope.length} 个文件：<span className="mono">{run.scope.join('、')}</span></div>
+          <div>范围 {scopeLabel(run, projectMap)}</div>
           <div>
             历史 Prompt <span className="mono">{run.prompt_id}</span>
             {' · '}模型 <span className="mono">{run.model}</span> · 预算 <span className="mono">{JSON.stringify(run.budgets)}</span>
@@ -313,6 +315,7 @@ function sourceReferences(detail: RunDetail['findings'][number]) {
 
 function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
   const { run, findings, metrics } = detail;
+  const projectMap = detail.project_map;
   const task = run.task_spec;
   const goal = detail.goal ?? detail.goals?.[0];
   const planner = detail.planner;
@@ -337,7 +340,7 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
             <div className="field"><span className="field-label">规划与执行预算</span><span className="small">Planner {planner?.current_round ?? 0}/{planner?.max_rounds ?? task.max_planner_rounds} 回合 · worker {usedAttempts}/{task.max_total_attempts} 次</span></div>
             <div className="field"><span className="field-label">运行结论</span><span className="small">{goal?.terminal_reason ?? planner?.terminal_reason ?? '尚未收束'}</span></div>
           </div>
-          <div className="small muted">报告覆盖本次冻结的 {run.scope.length} 个 PHP 文件和由项目图派生出的动态跨文件任务。它不按固定漏洞类型评分，也不会把受阻或预算耗尽当作否定结论。</div>
+          <div className="small muted">报告覆盖本次冻结的 {scopeFileCount(run, projectMap)} 个可读文本文件和由项目图派生出的动态跨文件任务。它不按固定漏洞类型评分，也不会把受阻或预算耗尽当作否定结论。</div>
         </div>
       </div>
 
@@ -372,6 +375,7 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
 /** Historical target queue report retained only for old stored runs. */
 function LegacyTargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
   const { run, findings, metrics, units = [] } = detail;
+  const projectMap = detail.project_map;
   const task = run.task_spec;
   const goals = detail.goals ?? [];
   const workItems = detail.work_items ?? [];
@@ -405,7 +409,7 @@ function LegacyTargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
             </div>
             <div className="field">
               <span className="field-label">冻结范围</span>
-              <span className="small">{run.scope.length} 个 PHP 源码文件</span>
+              <span className="small">{scopeLabel(run, projectMap)}</span>
             </div>
             <div className="field">
               <span className="field-label">执行预算</span>
@@ -429,7 +433,7 @@ function LegacyTargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
           <div>模型 <span className="mono">{run.model}</span> · 响应 {run.usage.requests} 次 · 工具调用 {run.usage.tool_calls} 次</div>
           <div>范围：</div>
           <div className="mono faint" style={{ overflowWrap: 'anywhere', maxHeight: 100, overflowY: 'auto' }}>
-            {run.scope.join('\n') || '未记录源码文件'}
+            {(run.scope ?? []).join('\n') || scopeLabel(run, projectMap)}
           </div>
         </div>
       </div>

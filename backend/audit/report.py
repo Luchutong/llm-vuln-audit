@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import VERSION
+from .db import WITHDRAWN_FINDING_DISPOSITIONS
 from .runtime import AgentPolicy
 from .schemas import CATEGORY_LABELS
 
@@ -30,6 +31,240 @@ SETTLEMENT_FAILURE = re.compile(r"收尾阶段 ([a-z_]+) 判定失败")
 # the policy of the new executor. Historical reports remain reproducible.
 SETTLE_CALL_SECONDS = 200.0
 SETTLE_REQUEST_SECONDS = 90.0
+
+# A whole project can be uploaded now, so any per-file listing in the report must be
+# bounded; the JSON export carries the complete list.
+MAX_REPORTED_PATHS = 40
+
+
+def _scope_files(run: dict, project_map: dict) -> int:
+    """Count the frozen scope, preferring the persisted project map.
+
+    A whole-snapshot run freezes no path list at all, so ``run["scope"]`` is only the
+    source of truth for historical records that were created from an explicit selection.
+    """
+    stats = (project_map or {}).get("stats") or {}
+    if isinstance(stats.get("files"), int):
+        return stats["files"]
+    return len(run.get("scope") or [])
+
+
+def _scope_label(run: dict, project_map: dict) -> str:
+    """Describe the frozen scope in one line, for either generation of run record."""
+    if str(run.get("scope_mode") or "explicit") == "snapshot":
+        return f"上传项目整包快照，共 {_scope_files(run, project_map)} 个可读文件（含依赖目录与其它语言的文本文件）"
+    return f"{_scope_files(run, project_map)} 个已冻结源码文件"
+
+
+def _bounded_path_list(paths: list[str], limit: int = MAX_REPORTED_PATHS) -> str:
+    """Inline at most ``limit`` paths; a whole snapshot's file list cannot fit in a report."""
+    shown = "、".join(f"`{path}`" for path in paths[:limit]) or "—"
+    if len(paths) > limit:
+        shown += f"；其余 {len(paths) - limit} 个见 JSON 导出"
+    return shown
+
+
+def _recon_refs(refs: object, limit: int = 5) -> str:
+    """Inline at most ``limit`` reconnaissance references, as path and line range."""
+    items = [item for item in (refs or []) if isinstance(item, dict) and item.get("path")]
+    shown = "；".join(
+        f"`{item['path']}:{item.get('start_line', 1)}-{item.get('end_line', 1)}`"
+        + (f"（{item['why']}）" if item.get("why") else "")
+        for item in items[:limit]
+    )
+    if len(items) > limit:
+        shown += f"；其余 {len(items) - limit} 条见事件日志"
+    return shown or "—"
+
+
+def _recon_areas(areas: object, limit: int = 5) -> str:
+    """Inline at most ``limit`` reconnaissance layout areas, as path and role."""
+    items = [item for item in (areas or []) if isinstance(item, dict) and item.get("path")]
+    shown = "；".join(
+        f"`{item['path']}`" + (f"（{item['role']}）" if item.get("role") else "")
+        for item in items[:limit]
+    )
+    if len(items) > limit:
+        shown += f"；其余 {len(items) - limit} 条见事件日志"
+    return shown or "—"
+
+
+def _md_cell(value: object) -> str:
+    """One table cell: a pipe would end the row, and a newline would end the table."""
+    return str(value if value not in (None, "") else "—").replace("|", "\\|").replace("\n", " ")
+
+
+INVESTIGATION_KIND_LABELS = {
+    "recon": "侦察简报",
+    "navigation": "目录导航",
+    "search": "代码检索",
+}
+
+INVESTIGATION_STATUS_LABELS = {
+    "active": "有效",
+    "superseded": "已被取代",
+    "retracted": "已撤回",
+}
+
+
+def _investigation_block(investigations: dict) -> list[str]:
+    """The pinned investigations, including the rows a later round replaced.
+
+    Same boundary as the coverage table below it: a pinned answer is what the host handed
+    the Planner, not a citation, and it stays out of the findings for the same reason.
+
+    The superseded rows are printed on purpose.  Correcting an investigation leaves two
+    rows behind, and a report that showed only the live one would make "this was
+    investigated once and never questioned" and "this was investigated, then looked at
+    again and changed its answer" read identically -- which is the whole thing the
+    write-once pin exists to prevent.
+    """
+    records = list(investigations.get("recent") or [])
+    total = int(investigations.get("total") or 0)
+    if not records:
+        return [
+            "### 固定调查",
+            "",
+            "本次运行没有固定任何调查记录：Planner 与侦察要么没有发起调查，要么调查都没有产出可复用的答案。",
+            "",
+        ]
+    by_status = investigations.get("by_status") or {}
+    counts = "；".join(
+        f"{INVESTIGATION_STATUS_LABELS.get(str(status), status)} {count}"
+        for status, count in sorted(by_status.items())
+    )
+    doc = [
+        "### 固定调查",
+        "",
+        "Planner 与侦察每完成一次调查，宿主都会把答案固定在库里：一次写入，正文此后不再改写。"
+        "同一个话题再次被问到时直接返回原记录，而不是重新执行一遍；确需更正时先写下新记录，"
+        "旧记录原文保留并标记为「已被取代」。这些记录是规划线索，与上面的覆盖统计一样不是 finding 证据。",
+        "",
+        f"共 {total} 条（{counts or '—'}）。",
+        "",
+        "| 话题 | 类型 | 工具 | 回合 | 版本 | 状态 | 覆盖的文件 | 固定于 |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for record in records:
+        doc.append(
+            f"| {_md_cell(record.get('topic'))} | "
+            f"{INVESTIGATION_KIND_LABELS.get(str(record.get('kind')), _md_cell(record.get('kind')))} | "
+            f"`{_md_cell(record.get('tool'))}` | {_md_cell(record.get('round_no'))} | "
+            f"{_md_cell(record.get('revision'))} | "
+            f"{INVESTIGATION_STATUS_LABELS.get(str(record.get('status')), _md_cell(record.get('status')))} | "
+            f"{_md_cell(_bounded_path_list(list(record.get('files_read') or []), limit=4))} | "
+            f"{_md_cell(record.get('created_at'))} |"
+        )
+    doc.append("")
+    if total > len(records):
+        doc += [f"本节只列最近 {len(records)} 条；其余 {total - len(records)} 条见 JSON 导出。", ""]
+    doc += _superseded_lines(records)
+    return doc
+
+
+def _superseded_lines(records: list[dict]) -> list[str]:
+    """What replaced what, spelled out because the id alone says nothing to a reader."""
+    replaced = [record for record in records if record.get("status") != "active"]
+    if not replaced:
+        return []
+    known = {str(record.get("id")): record for record in records}
+    doc = ["被取代或撤回的调查：", ""]
+    for record in replaced:
+        label = INVESTIGATION_STATUS_LABELS.get(str(record.get("status")), record.get("status"))
+        line = f"- 「{_md_cell(record.get('topic'))}」（第 {record.get('round_no')} 回合，第 {record.get('revision')} 版）{label}"
+        if record.get("reason"):
+            line += f"：{_md_cell(record.get('reason'))}"
+        successor = known.get(str(record.get("superseded_by") or ""))
+        if successor is not None:
+            line += (
+                f"；由第 {successor.get('round_no')} 回合的第 {successor.get('revision')} 版"
+                f"「{_md_cell(successor.get('topic'))}」接替"
+            )
+        elif record.get("superseded_by"):
+            line += "；接替它的新记录不在本节列出的范围内"
+        doc.append(line + "。")
+    doc.append("")
+    return doc
+
+
+def _observation_block(observations: list[dict], investigations: dict | None = None) -> list[str]:
+    """Render the host-computed navigation aids the Planner rounds were handed.
+
+    Reading coverage and reconnaissance leads explain why a round dispatched what it
+    did and why it eventually converged, so the report carries them.  The boundary is
+    stated before the first number: neither is a source-backed finding, and a brief is
+    a lead the workers still had to read for themselves.
+    """
+    investigations = investigations or {}
+    doc = [
+        "以下内容由宿主在每回合计算并记录，用于解释 Planner 的派发与收束判断；它们是导航线索，不是 finding 证据，也不构成安全结论。",
+        "",
+    ]
+    if not observations and not investigations.get("recent"):
+        return doc + ["本次运行没有覆盖统计或侦察记录。", ""]
+
+    coverage = [item["payload"] for item in observations if item["kind"] == "planner_coverage_prepared"]
+    if coverage:
+        doc += [
+            "### 读取覆盖",
+            "",
+            "| 回合 | 已读文本文件 | 覆盖率 | 含 finding 的文件 | 依赖树已读 | 未读的一线模块（前 3） |",
+            "|---|---|---|---|---|---|",
+        ]
+        for payload in coverage:
+            # The round stamps the envelope; the numbers the host computed are nested one
+            # level down under `coverage`, which is the shape `plan_audit_frontier` emits.
+            numbers = payload.get("coverage") or {}
+            unread = [
+                f"`{item.get('module')}`（{item.get('unread')}/{item.get('total')}）"
+                for item in (numbers.get("unread_hot_modules") or [])[:3]
+                if isinstance(item, dict)
+            ]
+            doc.append(
+                f"| {payload.get('round', '—')} | "
+                f"{numbers.get('files_read', 0)}/{numbers.get('files_total', 0)} | "
+                f"{float(numbers.get('coverage_ratio') or 0) * 100:.1f}% | {numbers.get('files_with_findings', 0)} | "
+                f"{numbers.get('dependency_tree_read', 0)}/{numbers.get('dependency_tree_total', 0)} | "
+                f"{'、'.join(unread) or '—'} |"
+            )
+        doc.append("")
+
+    doc += _investigation_block(investigations)
+
+    brief_rounds = {
+        item["payload"].get("round") for item in observations if item["kind"] == "recon_brief_prepared"
+    }
+    for item in observations:
+        payload = item["payload"]
+        round_no = payload.get("round", "—")
+        if item["kind"] == "recon_brief_prepared":
+            brief = payload.get("brief") or {}
+            doc += [
+                "",
+                f"### 侦察简报（第 {round_no} 回合）",
+                "",
+                f"- 问题：{_cell(payload.get('question'))}",
+                f"- 概要：{_cell(brief.get('summary'))}",
+                f"- 布局：{_recon_areas(brief.get('layout'))}",
+                f"- 入口候选：{_recon_refs(brief.get('entry_candidates'))}",
+                f"- 数据存储：{_recon_refs(brief.get('data_stores'))}",
+                f"- 安全边界：{_recon_refs(brief.get('security_boundaries'))}",
+                f"- 首批阅读目标：{_recon_refs(brief.get('reading_plan'))}",
+                f"- 实际读过的文件：{_bounded_path_list(list(brief.get('files_examined') or []), limit=10)}",
+                f"- 未决问题：{'；'.join(str(text) for text in (brief.get('uncertainties') or [])[:4]) or '—'}",
+                "",
+            ]
+        elif item["kind"] == "recon_skipped":
+            doc.append(f"- 第 {round_no} 回合未进行侦察：`{payload.get('reason') or '—'}`。")
+        elif item["kind"] == "recon_terminal" and (
+            payload.get("reason") != "completed" or round_no not in brief_rounds
+        ):
+            doc.append(
+                f"- 第 {round_no} 回合侦察未产出简报：`{payload.get('reason') or '—'}`"
+                f"（{_cell(payload.get('error'))}）。该回合的规划只依据项目图与前序摘要。"
+            )
+    doc.append("")
+    return doc
 
 
 def _cell(value) -> object:
@@ -59,6 +294,128 @@ def _validation_text(finding: dict) -> str:
     return "未通过——" + ("；".join(problems) or "无可用引用")
 
 
+# Standing is a third axis, beside the evidence check (did the citations hold up) and the
+# human verdict (does it reproduce).  A conclusion can be a well-evidenced candidate that the
+# Planner later took back, and a reviewer's verdict on it is not the Planner's to erase --
+# which is why ``contested`` is not a withdrawal.  None of these states deletes anything: the
+# row, its evidence, its archived revisions and its verification records all stay in the
+# report, because "this run changed its mind" is itself a fact about the run.
+DISPOSITION_LABELS = {
+    "retracted": "已被 Planner 撤回",
+    "duplicate": "被 Planner 判定为与另一条结论重复",
+    "superseded": "已被后续结论取代",
+    "contested": "Planner 存疑（人工结论为终局，本条结论继续有效）",
+}
+DISPOSITION_BY_LABELS = {"planner": "Planner", "human": "人工"}
+# An archived revision is a pointer back to what the run used to claim, not a second copy of
+# the report; one paragraph per version is enough to see that the story changed.
+ARCHIVED_SUMMARY_CHARS = 400
+
+
+def _is_withdrawn(finding: dict) -> bool:
+    return str(finding.get("disposition") or "open") in WITHDRAWN_FINDING_DISPOSITIONS
+
+
+def _split_by_standing(findings: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split conclusions into the ones that still stand and the ones taken back.
+
+    A withdrawn conclusion is listed separately rather than dropped: it stops counting as
+    something the run found, but a reader still needs to see it, both because the human
+    verdict it carries may outlive the withdrawal and because a run whose conclusions were
+    quietly removed between rounds looks identical to a run that never had them.
+    """
+    return (
+        [item for item in findings if not _is_withdrawn(item)],
+        [item for item in findings if _is_withdrawn(item)],
+    )
+
+
+def _disposition_text(finding: dict) -> str:
+    """How this conclusion's standing or its content changed; empty if neither did."""
+    disposition = str(finding.get("disposition") or "open")
+    revision = int(finding.get("revision") or 1)
+    if disposition == "open" and revision <= 1:
+        return ""
+    parts: list[str] = []
+    if disposition != "open":
+        parts.append(DISPOSITION_LABELS.get(disposition, disposition))
+        by = DISPOSITION_BY_LABELS.get(str(finding.get("disposition_by") or ""))
+        if by:
+            parts.append(f"由 {by} 标注")
+        if finding.get("disposition_reason"):
+            # The reason is a sentence a model or a person wrote, so it arrives with its own
+            # full stop; joining it into a semicolon-separated line would double the mark.
+            parts.append(f"理由：{str(finding['disposition_reason']).rstrip('。.')}")
+        source = str(finding.get("derived_from_finding_id") or "")
+        if source:
+            parts.append(f"{'重复于' if disposition == 'duplicate' else '关联'} `{source[:8]}`")
+    if revision > 1:
+        parts.append(f"当前为第 {revision} 版，前 {revision - 1} 版的内容存档于下方")
+    return "；".join(parts)
+
+
+def _clip(text: str, limit: int = ARCHIVED_SUMMARY_CHARS) -> str:
+    collapsed = " ".join(str(text or "").split())
+    return collapsed if len(collapsed) <= limit else collapsed[:limit] + "……"
+
+
+def _archived_revision_lines(finding: dict) -> list[str]:
+    """Show what earlier versions of this same conclusion claimed.
+
+    Re-running a direction reuses its slot instead of replacing the row, so the earlier text
+    is archived rather than lost.  Without it, a conclusion that changed its story between
+    rounds -- quietly downgraded, narrowed to what the citations support, or withdrawn and
+    then re-asserted -- would read exactly like one that always said this.
+    """
+    archived = finding.get("superseded_summary") or []
+    if not isinstance(archived, list) or not archived:
+        return []
+    lines = ["**此前版本**", ""]
+    for item in archived:
+        if not isinstance(item, dict):
+            continue
+        label = f"第 {item.get('revision', '—')} 版"
+        was = DISPOSITION_LABELS.get(str(item.get("disposition") or ""))
+        header = f"- {label}（{item.get('replaced_at') or '—'} 被取代）"
+        lines.append(f"{header}：{item.get('title') or '—'}")
+        lines.append(f"  - 当时的证据行号：{_evidence_text(item.get('evidence') or [])}")
+        lines.append(
+            "  - 当时的证据校验：" + ("通过" if item.get("validation_state") == "candidate" else "未通过")
+        )
+        if was:
+            lines.append(
+                f"  - 当时的处置：{was}（理由：{item.get('disposition_reason') or '—'}）"
+            )
+        if item.get("summary"):
+            lines.append(f"  - 当时的判断依据：{_clip(item['summary'])}")
+    lines.append("")
+    return lines
+
+
+def _standing_bullet(finding: dict) -> list[str]:
+    """The 「结论状态」 bullet, or nothing when the conclusion is untouched."""
+    text = _disposition_text(finding)
+    return [f"- 结论状态：{text}"] if text else []
+
+
+WITHDRAWN_HEADING = "### 已被 Planner 撤回 / 判为重复 / 存疑的结论（保留记录，不计入结论）"
+WITHDRAWN_LEAD = (
+    "下面这些结论的行、证据、存档版本与复核记录都保留着，只是不再计入本次运行的结论："
+    "Planner 更正方向时把它们撤回了、判定为与另一条重复，或对已经人工裁决的结论表示存疑。"
+    "把它们从报告里删掉，会让「本次没有发现」和「本次把发现撤回了」看起来一模一样。"
+)
+
+
+def _withdrawn_section(withdrawn: list[dict]) -> list[str]:
+    """The third partition, rendered where a run can actually produce one."""
+    if not withdrawn:
+        return []
+    doc = [WITHDRAWN_HEADING, "", WITHDRAWN_LEAD, ""]
+    for index, finding in enumerate(withdrawn, 1):
+        doc.extend(_finding_block(finding, index))
+    return doc
+
+
 def _finding_block(finding: dict, index: int) -> list[str]:
     if str(finding.get("category") or "").startswith("task_goal") or finding.get("finding_kind"):
         return _task_finding_block(finding, index)
@@ -76,12 +433,14 @@ def _finding_block(finding: dict, index: int) -> list[str]:
         f"- 缺失信息：{'；'.join(finding['missing_context']) or '—'}",
         f"- 后端校验：{_validation_text(finding)}",
         f"- 人工结论：{finding.get('verdict') or '未裁决'}",
+        *_standing_bullet(finding),
         "",
         "**判断依据**",
         "",
         finding["summary"] or "—",
         "",
     ]
+    lines += _archived_revision_lines(finding)
     poc = finding.get("poc") or {}
     if poc:
         lines += [
@@ -131,6 +490,7 @@ def _task_finding_block(finding: dict, index: int) -> list[str]:
         f"- 证据行号：{_evidence_text(finding.get('evidence') or [])}",
         f"- 证据校验：{_validation_text(finding)}",
         f"- 人工结论：{finding.get('verdict') or '未裁决'}",
+        *_standing_bullet(finding),
     ]
     if finding.get("severity") and finding.get("severity") not in {"unknown", "informational"}:
         lines.append(f"- 风险等级：{finding['severity']}")
@@ -144,6 +504,7 @@ def _task_finding_block(finding: dict, index: int) -> list[str]:
     )
     lines.extend(f"- {label}：{value}" for label, value in optional if value)
     lines += ["", "**审计结论与依据**", "", finding.get("summary") or "—", ""]
+    lines += _archived_revision_lines(finding)
     poc = finding.get("poc") or {}
     if poc:
         lines += [
@@ -334,8 +695,11 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
     goals = bundle.get("goals") or []
     work_items = bundle.get("work_items") or []
     goal = goals[0] if goals else {}
-    candidates = [item for item in findings if item.get("validation_state") == "candidate"]
-    rejected = [item for item in findings if item.get("validation_state") != "candidate"]
+    # Standing is partitioned out first, so no withdrawn conclusion can be counted as
+    # something this run found, whatever its evidence check said.
+    standing, withdrawn = _split_by_standing(findings)
+    candidates = [item for item in standing if item.get("validation_state") == "candidate"]
+    rejected = [item for item in standing if item.get("validation_state") != "candidate"]
     state_counts: dict[str, int] = {}
     for item in work_items:
         state = str(item.get("state") or "unknown")
@@ -355,13 +719,13 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
         else "本任务允许源码事实、配置、架构或边界结论不附带 POC；若发现是漏洞，仍可附带 POC 供人工验证。"
     )
     doc: list[str] = [
-        "# PHP 源码目标审计报告",
+        "# 项目源码目标审计报告",
         "",
         f"- 运行 ID：`{run['id']}`",
         f"- 源码快照：{run['snapshot_name']}（`{run['snapshot_id']}`）",
         f"- 运行状态：{goal_status}（`{run.get('status')}`）",
         f"- 模型：`{run['model']}`",
-        f"- 范围：{len(run.get('scope') or [])} 个已冻结源码文件",
+        f"- 范围：{_scope_label(run, bundle.get('project_map') or {})}",
         f"- 预算：每项 {run['budgets'].get('responses')} 次模型响应 / {run['budgets'].get('tools')} 次工具调用 / {run['budgets'].get('seconds')} 秒",
         f"- 生成时间：{bundle.get('generated_at') or datetime.now(timezone.utc).isoformat()}",
         "",
@@ -379,11 +743,17 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
         f"- 达成后停止：{'是' if task.get('stop_on_achieved') else '否'}",
         f"- POC 策略：{poc_rule}",
         "",
-        "范围内文件：" + ("、".join(f"`{path}`" for path in run.get("scope") or []) or "—"),
+        # A whole-snapshot run freezes no path list at all, so the label is the only
+        # accurate description; a historical explicit-scope run still lists its files.
+        "范围内文件：" + (
+            _bounded_path_list(list(run.get("scope") or []))
+            or _scope_label(run, bundle.get("project_map") or {})
+        ),
         "",
         "## 2. 执行方法与可追溯性",
         "",
-        "任务先将所选 PHP 源码建立不可变快照和语法索引，再由目标任务协调器把工作单元排入持久化队列。"
+        "任务先将上传项目的源码建立不可变快照。PHP 文件另有 tree-sitter 语法索引，"
+        "其它语言按纯文本行索引；再由目标任务协调器把工作单元排入持久化队列。"
         "队列按目标文本中出现的文件路径和代码标识进行稳定排序，不使用固定三类漏洞的危险 API 优先级。",
         "",
         "worker 仅使用 `read_source`、`search_code`、`get_context` 三个只读工具，并受冻结范围约束。"
@@ -395,7 +765,7 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
         "",
         "```mermaid",
         "flowchart LR",
-        "  A[上传 PHP ZIP] --> B[不可变快照与语法索引]",
+        "  A[上传项目源码 ZIP] --> B[不可变快照与索引]",
         "  B --> C[目标排序与持久化工作队列]",
         "  C --> D[并发源码 worker]",
         "  D --> E[工具轨迹与审计依据摘要]",
@@ -419,19 +789,27 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
         )
     if not work_items:
         doc.append("| — | — | — | 尚未创建 |")
+    withdrawn_note = (
+        f"另有 {len(withdrawn)} 条结论已被 Planner 撤回、判为重复或存疑，"
+        "单列于本节末尾，不计入上面的数字；"
+        if withdrawn
+        else ""
+    )
     doc += [
         "",
         "## 4. 审计结果与源码证据",
         "",
         f"已通过证据校验的目标发现：{len(candidates)} 条；未通过证据校验的记录：{len(rejected)} 条；"
+        f"{withdrawn_note}"
         f"审计覆盖：{metrics.get('audit_coverage', 0)}。",
         "",
     ]
-    if findings:
-        for index, finding in enumerate(findings, 1):
+    if standing:
+        for index, finding in enumerate(standing, 1):
             doc.extend(_finding_block(finding, index))
-    else:
+    elif not withdrawn:
         doc += ["本次没有保存目标发现。请结合第 3 节的工作项状态和执行轨迹判断这是不可达、未决还是尚未开始。", ""]
+    doc += _withdrawn_section(withdrawn)
     doc += [
         "## 5. 结论限制与后续动作",
         "",
@@ -460,8 +838,11 @@ def _render_task_markdown(bundle: dict) -> str:
     tasks = bundle.get("tasks") or []
     findings = bundle.get("findings") or []
     metrics = bundle.get("metrics") or {}
-    candidates = [item for item in findings if item.get("validation_state") == "candidate"]
-    invalid = [item for item in findings if item.get("validation_state") != "candidate"]
+    # A conclusion the Planner took back stops counting as something this run found, but it
+    # is still listed: the withdrawal is part of the run's record, not a reason to hide it.
+    standing, withdrawn = _split_by_standing(findings)
+    candidates = [item for item in standing if item.get("validation_state") == "candidate"]
+    invalid = [item for item in standing if item.get("validation_state") != "candidate"]
     counts: dict[str, int] = {}
     for item in tasks:
         state = str(item.get("state") or "unknown")
@@ -493,13 +874,13 @@ def _render_task_markdown(bundle: dict) -> str:
     poc_rule = "达成发现必须包含可人工复核的 POC。" if task.get("require_poc") else "源码事实、边界与架构结论可不附带 POC；漏洞发现仍可提供 POC 供人工验证。"
     map_stats = project_map.get("stats") or {}
     doc: list[str] = [
-        "# PHP 项目级白盒审计报告",
+        "# 项目级白盒审计报告",
         "",
         f"- 运行 ID：`{run['id']}`",
         f"- 源码快照：{run['snapshot_name']}（`{run['snapshot_id']}`）",
         f"- 状态：{state_label}（`{run.get('status')}`）",
         f"- 模型：`{run['model']}`",
-        f"- 冻结范围：{len(run.get('scope') or [])} 个 PHP 源码文件",
+        f"- 冻结范围：{_scope_label(run, project_map)}",
         f"- 预算：每个 Planner/worker 回合最多 {run['budgets'].get('responses')} 次模型响应、{run['budgets'].get('tools')} 次工具调用、{run['budgets'].get('seconds')} 秒",
         f"- 生成时间：{bundle.get('generated_at') or datetime.now(timezone.utc).isoformat()}",
         "",
@@ -521,7 +902,7 @@ def _render_task_markdown(bundle: dict) -> str:
         "",
         "```mermaid",
         "flowchart LR",
-        "  A[PHP ZIP] --> B[不可变快照与项目图]",
+        "  A[项目源码 ZIP] --> B[不可变快照与项目图]",
         "  B --> C[主 Planner: 目标/项目图/反馈]",
         "  C --> D[动态跨文件任务图]",
         "  D --> E[并发 worker: 只读源码工具]",
@@ -530,7 +911,7 @@ def _render_task_markdown(bundle: dict) -> str:
         "  F --> G[目标收束与报告]",
         "```",
         "",
-        "主 Planner 只使用项目图和已持久化的 worker 摘要来决定下一批跨文件方向；worker 仍必须通过 `read_source`、`search_code`、`get_context` 读取原始源码，才能形成可引用发现。依赖完成后的摘要会交接给后续任务，worker 也可检索其他 worker 的受限工具轨迹作为线索；二者都不是证据，不能替代本任务实际读取的源码行号。规划依据和 worker 审计依据均为简短、可复核摘要；不保存或展示隐藏思维链。",
+        "主 Planner 只使用项目图和已持久化的 worker 摘要来决定下一批跨文件方向；worker 仍必须通过 `read_source`、`search_code` 等只读工具读取原始源码行，才能形成可引用发现。依赖完成后的摘要会交接给后续任务，worker 也可检索其他 worker 的受限工具轨迹作为线索；二者都不是证据，不能替代本任务实际读取的源码行号。规划依据和 worker 审计依据均为简短、可复核摘要；不保存或展示隐藏思维链。",
         "",
         "## 3. Planner 回合",
         "",
@@ -570,20 +951,31 @@ def _render_task_markdown(bundle: dict) -> str:
                 doc.append(f"> `{item.get('task_key', '—')}` 第 {attempt.get('attempt', '—')} 次依据摘要：{rationale}")
     if not tasks:
         doc.append("| — | — | — | — | — | 尚无任务 |")
+    withdrawn_note = (
+        f"已被 Planner 撤回、判为重复或存疑的结论：{len(withdrawn)}（单列于本节末尾，不计入上面两项）；"
+        if withdrawn
+        else ""
+    )
     doc += [
         "",
         "## 5. 发现与源码证据",
         "",
-        f"证据校验通过的发现：{len(candidates)}；校验未通过的记录：{len(invalid)}；动态任务前沿结算进度：{metrics.get('task_coverage', 0)}。",
+        f"证据校验通过的发现：{len(candidates)}；校验未通过的记录：{len(invalid)}；"
+        f"{withdrawn_note}动态任务前沿结算进度：{metrics.get('task_coverage', 0)}。",
         "",
     ]
-    if findings:
-        for index, finding in enumerate(findings, 1):
+    if standing:
+        for index, finding in enumerate(standing, 1):
             doc.extend(_finding_block(finding, index))
-    else:
+    elif not withdrawn:
         doc += ["尚无已保存的源码发现。请结合 Planner 回合、任务状态与缺失上下文判断当前结果。", ""]
+    doc += _withdrawn_section(withdrawn)
+    doc += ["## 6. 覆盖统计、固定调查与侦察简报", ""]
+    doc.extend(
+        _observation_block(bundle.get("observations") or [], bundle.get("investigations") or {})
+    )
     doc += [
-        "## 6. 可追溯性与后续复核",
+        "## 7. 可追溯性与后续复核",
         "",
         "每轮 Planner 决策、任务创建/更新、依赖交接、worker 领取、工具调用、返回摘要、已读源码范围和尝试结果都先写入 SQLite 事件日志，再通过 SSE 推送。工作台的执行轨迹可按 Planner、worker、任务和尝试展开查看。",
         "",
@@ -652,8 +1044,14 @@ def render_markdown(bundle: dict) -> str:
         ]
     )
 
-    candidates = [f for f in findings if f["validation_state"] == "candidate"]
-    discarded = [f for f in findings if f["validation_state"] != "candidate"]
+    # Dispositions are written only by a Planner round, so this report -- the historical
+    # fixed-checklist layout, which a Planner-led run never reaches -- has an empty third
+    # partition by construction. It is split out anyway, and rendered if it ever is not,
+    # because the alternative on the day it stops being empty is a conclusion silently
+    # disappearing from a report that still counts the run as finished.
+    standing, withdrawn = _split_by_standing(findings)
+    candidates = [f for f in standing if f["validation_state"] == "candidate"]
+    discarded = [f for f in standing if f["validation_state"] != "candidate"]
     # Candidates that kept at least one citation but had others thrown out: the count is
     # the honest measure of how often the model points at code it has not actually read.
     partially_cited = [f for f in candidates if f.get("validation_errors")]
@@ -693,11 +1091,14 @@ def render_markdown(bundle: dict) -> str:
         mode_chain,
         "",
         f"- 待审计代码来源：{snapshot.get('source', run.get('snapshot_id'))}，归档哈希 `{snapshot.get('archive_sha256', '—')}`。",
-        f"- 审计范围（运行开始后冻结，共 {len(run.get('scope') or [])} 个文件）：",
+        f"- 审计范围（运行开始后冻结，共 {_scope_files(run, bundle.get('project_map') or {})} 个文件）：",
         "",
     ]
-    for path in run.get("scope") or []:
+    frozen_scope = list(run.get("scope") or [])
+    for path in frozen_scope[:MAX_REPORTED_PATHS]:
         doc.append(f"  - `{path}`")
+    if len(frozen_scope) > MAX_REPORTED_PATHS:
+        doc.append(f"  - 其余 {len(frozen_scope) - MAX_REPORTED_PATHS} 个文件见 JSON 导出")
     if task:
         doc += [
             "",
@@ -1100,6 +1501,10 @@ def render_markdown(bundle: dict) -> str:
             if task else "本次运行未产生候选漏洞，因而也没有被剔除的候选。",
             "",
         ]
+    # Unnumbered on purpose: a withdrawn conclusion only exists on a Planner-led run, which
+    # is rendered by the task layouts above, so this block has no place in this chapter's
+    # outline and would misnumber 6.5–6.7 as a chapter section for a run that has no Planner.
+    doc += _withdrawn_section(withdrawn)
     # Always emitted, even with nothing to attribute: an omitted section renumbers 6.6 and 6.7
     # and reads as if the chapter were missing from the outline rather than empty. Silence here
     # also hides the two very different reasons the table can be empty — no mistakes, or nobody

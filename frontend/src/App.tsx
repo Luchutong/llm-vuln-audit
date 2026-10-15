@@ -92,8 +92,8 @@ export default function App() {
         ) : page === 'tasks' ? (
           <>
             <div className="page-head">
-              <h1>PHP 源码目标审计</h1>
-              <p>上传 PHP 源码 ZIP，设定目标与验收条件，启动多 worker 审计并查看证据化结果。</p>
+              <h1>项目源码目标审计</h1>
+              <p>上传完整项目 ZIP 即审计范围，设定目标与验收条件，由 Planner 借项目图与内置侦察子 agent 建立任务图，多 worker 审计并查看证据化结果。</p>
             </div>
             <TaskView
               snapshots={snapshots}
@@ -106,7 +106,7 @@ export default function App() {
           <>
             <div className="page-head">
               <h1>配置</h1>
-              <p>模型连接状态、健康熔断与默认预算。</p>
+              <p>选择并保存可用模型列表，查看连接状态、健康熔断与默认预算。</p>
             </div>
             <SettingsView config={config} onChanged={load} />
           </>

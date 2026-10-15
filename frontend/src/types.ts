@@ -1,4 +1,7 @@
 export type Category = 'sqli' | 'xss_r' | 'command_injection';
+export type RunStatus =
+  | 'pending' | 'running' | 'paused'
+  | 'completed' | 'unreachable' | 'inconclusive' | 'failed' | 'cancelled' | 'interrupted';
 export interface TaskSpec {
   objective: string;
   success_criteria: string;
@@ -71,22 +74,36 @@ export interface PlannerState {
 export interface ProjectMap {
   snapshot_id: string;
   scope: string[];
-  files: unknown[];
-  directories: unknown[];
-  symbols: unknown[];
-  includes: unknown[];
-  calls: unknown[];
-  entrypoints: unknown[];
+  /**
+   * The full map is served by `GET /api/runs/{id}/project-map`. `GET /api/runs/{id}`
+   * carries a bounded projection instead, so a whole-snapshot audit does not turn every
+   * poll into megabytes of JSON — which is why the arrays below may be absent.
+   */
+  files?: unknown[];
+  directories?: unknown[];
+  symbols?: unknown[];
+  includes?: unknown[];
+  calls?: unknown[];
+  entrypoints?: unknown[];
   unresolved_root_candidates?: unknown[];
+  binary_files?: { path: string; size: number; readable: false }[];
   architecture?: {
     role_counts?: Record<string, number>;
     include_graph?: Record<string, number>;
-    modules?: unknown[];
+    /**
+     * Module rows name the *directory* they cover, not a file. The key is `directory`
+     * rather than `path` precisely because a `path` elsewhere in this type is always a
+     * file — one plan cited a module row as a source ref and sent a worker to read a
+     * directory.
+     */
+    modules?: { directory: string; role?: string; files?: number }[];
     bootstrap_files?: unknown[];
   };
-  parse_errors: unknown[];
+  parse_errors?: unknown[];
   stats: Record<string, number>;
   limitations: string[];
+  scope_mode?: string;
+  scope_files?: number;
 }
 export interface PlanVersion {
   id: string;
@@ -185,7 +202,21 @@ export interface TaskWorkItem {
 }
 export interface Budget { responses: number; tools: number; seconds: number }
 export interface Usage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number }
-export interface FileRecord { path: string; sha256: string; size: number; line_count: number; is_php?: boolean; excluded: boolean; exclude_reason?: string; parse_errors?: unknown[] }
+export interface FileRecord {
+  path: string;
+  sha256: string;
+  size: number;
+  line_count: number;
+  /** `text` files can be read and cited; `binary` files are registered but unreadable. */
+  kind?: 'text' | 'binary';
+  language?: string;
+  /** Dependency or generated directory. Navigation metadata only — not an exclusion. */
+  dependency_tree?: boolean;
+  is_php?: boolean;
+  excluded: boolean;
+  exclude_reason?: string;
+  parse_errors?: unknown[];
+}
 export interface Evidence { snapshot_id: string; path: string; start_line: number; end_line: number }
 export interface UnitUsage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number }
 export interface UnitResult {
@@ -227,9 +258,39 @@ export interface SnapshotSummary {
   unit_count: number;
   warning_count: number;
 }
-export interface Snapshot { id: string; name: string; created_at: string; archive_sha256: string; source: string; files: FileRecord[]; units?: AuditUnit[]; warnings: string[]; immutable: boolean }
+/**
+ * Import-time counters. Unlike `ProjectMap.stats` these are not all numeric: `languages`
+ * is a distribution, so a bare `Record<string, number>` would be a lie.
+ */
+export interface SnapshotStats {
+  files?: number;
+  text_files?: number;
+  binary_files?: number;
+  php_files?: number;
+  dependency_tree_files?: number;
+  /** Language name → file count, most common first. */
+  languages?: Record<string, number>;
+  skipped_count?: number;
+  excluded_count?: number;
+}
+
+export interface Snapshot {
+  id: string; name: string; created_at: string; archive_sha256: string; source: string;
+  schema_version?: number;
+  files: FileRecord[];
+  units?: AuditUnit[];
+  warnings: string[];
+  /** First 200 entries only; the count lives in `stats.skipped_count`. */
+  skipped_files?: { path: string; reason: string }[];
+  /** First 200 entries only; the count lives in `stats.excluded_count`. */
+  excluded_files?: string[];
+  stats?: SnapshotStats;
+  immutable: boolean;
+}
 export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string }
-export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope: string[]; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; budgets: Budget; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: string; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number }
+/** Public provider identity frozen with a run. It deliberately has no credential. */
+export interface ModelProfileSnapshot { profile_id: string; model: string; base_url: string }
+export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number }
 export interface POC { filename: string; language: string; script: string; instructions: string; normal_input: string; attack_input: string; expected_result: string }
 export type Verdict = 'confirmed' | 'rejected' | 'uncertain';
 export type Conclusion = 'candidate' | 'no_candidate' | 'insufficient_context';
@@ -242,7 +303,41 @@ export interface Finding {
   unit_start_line: number;
   unit_end_line: number;
   validation_state: 'candidate' | 'invalid_evidence';
-  validation_errors: string[]; id: string; run_id: string; unit_id?: string; task_id?: string; task_key?: string; fingerprint: string; category: string; finding_kind?: string; title: string; severity: string; summary: string; evidence: Evidence[]; input_source: string; propagation: string; dangerous_operation: string; protection: string; preconditions: string[]; missing_context: string[]; poc: POC | null; remediation: string; verdict?: Verdict; verifications: Verification[] }
+  validation_errors: string[]; id: string; run_id: string; unit_id?: string; task_id?: string; task_key?: string; fingerprint: string; category: string; finding_kind?: string; title: string; severity: string; summary: string; evidence: Evidence[]; input_source: string; propagation: string; dangerous_operation: string; protection: string; preconditions: string[]; missing_context: string[]; poc: POC | null; remediation: string; verdict?: Verdict; verifications: Verification[];
+  /**
+   * Disposition is a third axis, independent of the evidence check and the human verdict:
+   * whether the run still claims this conclusion. A withdrawn conclusion stays in the
+   * response and in the report — the row, its evidence and its verifications are never
+   * deleted, because "this run changed its mind" is itself part of the record.
+   */
+  disposition: FindingDisposition;
+  disposition_reason?: string | null;
+  disposition_by?: 'planner' | 'human' | string | null;
+  disposition_at?: string | null;
+  /** How many conclusions this slot has held. Above 1, earlier text is in `superseded_summary`. */
+  revision: number;
+  /** What the earlier revisions of this same slot claimed. Oldest first; capped by the server. */
+  superseded_summary: ArchivedRevision[];
+  /** The finding this one grew out of, when a correction was recorded as a derivation. */
+  derived_from_finding_id?: string | null;
+}
+
+export type FindingDisposition = 'open' | 'superseded' | 'retracted' | 'duplicate' | 'contested';
+
+/** One earlier occupant of a finding slot, archived when a re-run reused it. */
+export interface ArchivedRevision {
+  revision: number;
+  title: string;
+  severity: string;
+  summary: string;
+  evidence: Evidence[];
+  validation_state: string;
+  validation_errors: string[];
+  disposition?: FindingDisposition | null;
+  disposition_reason?: string | null;
+  disposition_by?: string | null;
+  replaced_at?: string | null;
+}
 export interface UnresolvedSample {
   file_path: string;
   category: Category;
@@ -285,6 +380,14 @@ export interface RunDetail {
   project_map?: ProjectMap | null;
   plans?: PlanVersion[];
   tasks?: PlannerTask[];
+  /** Per-round navigation aids (reading coverage, reconnaissance briefs). Not evidence. */
+  observations?: PlannerObservation[];
+  /**
+   * What this run has already had answered, and what it declined to re-ask. Payload-free:
+   * the answer itself is fetched one topic at a time, so a run response cannot grow with
+   * research the caller did not ask for.
+   */
+  investigations?: InvestigationOverview;
   findings: Finding[];
   metrics: Metrics;
   attributions: Attribution[];
@@ -294,6 +397,111 @@ export interface RunDetail {
   goals?: Goal[];
   work_items?: TaskWorkItem[];
 }
+
+/**
+ * Host-computed, per-round navigation aids. Coverage says how much of the snapshot has
+ * been read; a reconnaissance brief says where a Planner looked first. Neither is a
+ * finding, and neither can be cited as evidence.
+ */
+export interface PlannerCoverage {
+  files_total: number;
+  files_read: number;
+  files_with_findings: number;
+  coverage_ratio: number;
+  read_paths: string[];
+  unread_hot_modules: { module: string; unread: number; total: number }[];
+  dependency_tree_total: number;
+  dependency_tree_read: number;
+  notice: string;
+}
+
+export interface ReconRef { path: string; start_line: number; end_line: number; why?: string }
+export interface ReconBrief {
+  summary: string;
+  layout: { path: string; role?: string; notes?: string }[];
+  entry_candidates: ReconRef[];
+  data_stores: ReconRef[];
+  security_boundaries: ReconRef[];
+  reading_plan: ReconRef[];
+  uncertainties: string[];
+  files_examined?: string[];
+  notice?: string;
+}
+
+export interface PlannerObservation {
+  kind: 'planner_coverage_prepared' | 'recon_brief_prepared' | 'recon_terminal' | 'recon_skipped' | string;
+  round?: number | null;
+  payload: {
+    round?: number;
+    coverage?: PlannerCoverage;
+    question?: string;
+    brief?: ReconBrief;
+    reason?: string;
+    error?: string | null;
+    files_examined?: string[];
+  };
+}
+/**
+ * A pinned investigation: an answer the host wrote down once so a later round can reuse
+ * it instead of paying for the same research again.
+ *
+ * Only the disposition columns ever change. The topic, the arguments and the payload are
+ * written once and never rewritten, which is what makes "this was investigated in round 2
+ * and superseded in round 4" a readable fact rather than a silent overwrite.
+ */
+export interface Investigation {
+  id: string;
+  run_id: string;
+  goal_id?: string | null;
+  plan_id?: string | null;
+  round_no: number;
+  revision: number;
+  kind: 'recon' | 'navigation' | 'search' | 'read' | string;
+  tool: string;
+  topic: string;
+  topic_key: string;
+  args: Record<string, unknown>;
+  /** Absent from list projections by design; fetch it per topic. */
+  payload?: unknown;
+  payload_bytes: number;
+  files_read: string[];
+  usage?: Usage | null;
+  status: 'active' | 'superseded' | 'retracted' | string;
+  reason?: string | null;
+  superseded_by?: string | null;
+  created_at: string;
+}
+
+export interface InvestigationOverview {
+  total: number;
+  by_status: Record<string, number>;
+  /** Most recent first, capped by the server; the rest live behind the per-topic fetch. */
+  recent: Investigation[];
+  notice: string;
+}
+
+/**
+ * One code action from a phase's loop: the model writes Python, the host runs it in a
+ * restricted interpreter, and the code inside may call the read-only tools. The code is
+ * an action rather than hidden reasoning, so it is persisted and shown the way a tool
+ * call is; what the model wrote outside the code fences is never sent.
+ */
+export interface AgentCode {
+  phase: string;
+  step: number;
+  /** The executed code, cut to the server's per-action byte budget when `truncated`. */
+  code: string;
+  /** Size before the cut, so a shortened block is never mistaken for the whole script. */
+  code_bytes: number;
+  truncated: boolean;
+  /** What the step printed, already cut to the interpreter's output budget. */
+  logs?: string | null;
+  /** True when this step ended the phase by handing over its terminal answer. */
+  is_final?: boolean;
+  /** The interpreter's own error text when the step failed. */
+  error?: string | null;
+}
+
 export interface AuditEvent {
   id: number;
   run_id: string;
@@ -309,6 +517,69 @@ export interface AuditEvent {
   unit_id?: string;
 }
 export interface Source { snapshot_id: string; path: string; sha256: string; lines: {number: number; text: string}[] }
-export interface Config { model: string; base_url?: string; configured: boolean; budgets: Budget; worker: string; version: string }
+export interface ModelHealthSnapshot {
+  status: string;
+  fails: number;
+  trips: number;
+  cooldown_seconds: number;
+  last_error?: string | null;
+  last_at?: number | null;
+}
+
+/**
+ * A complete provider connection, rather than merely a model identifier.
+ *
+ * The API key is deliberately absent: the server only returns whether a key is
+ * configured, and encrypts a browser-submitted key before it reaches SQLite.
+ */
+export interface ModelProfile {
+  id: string;
+  label: string;
+  model: string;
+  base_url: string;
+  credential_source: 'stored' | 'environment' | string;
+  api_key_configured: boolean;
+  ordinal?: number;
+  created_at?: string;
+  updated_at?: string;
+  selected?: boolean;
+}
+
+export interface Config {
+  model: string;
+  base_url?: string;
+  configured: boolean;
+  thinking?: string;
+  missing?: string[];
+  selected_profile_id: string | null;
+  model_profiles: ModelProfile[];
+  budgets: Budget;
+  /** The defaults the server applies when a caller names none; the ceiling is not sent. */
+  budget_limits?: { defaults: Budget };
+  worker: Record<string, unknown>;
+  model_health?: ModelHealthSnapshot;
+  version: string;
+}
 export interface Experiment { comparable: boolean; reasons: string[]; notes?: string[]; runs: {run: Run; metrics: Metrics}[]; prompt_diffs: unknown[] }
 export interface Truth { file_path: string; category: Category; vulnerable: boolean; independently_verified: boolean; verification_basis: string; evidence: unknown[] }
+
+/**
+ * How a run's scope is described in the UI.
+ *
+ * A Planner run freezes the whole uploaded snapshot and stores no path list at all, so
+ * anything that reads `run.scope` directly reports zero files for exactly the runs that
+ * cover the most. Both views go through here instead.
+ */
+export function scopeFileCount(run: Run, projectMap?: ProjectMap | null): number {
+  const frozen = projectMap?.stats?.files;
+  if (typeof frozen === 'number') return frozen;
+  if (typeof projectMap?.scope_files === 'number') return projectMap.scope_files;
+  return run.scope?.length ?? 0;
+}
+
+export function scopeLabel(run: Run, projectMap?: ProjectMap | null): string {
+  if ((run.scope_mode ?? 'explicit') === 'snapshot') {
+    return `上传项目整包快照，共 ${scopeFileCount(run, projectMap)} 个可读文件（含依赖目录与其它语言的文本文件）`;
+  }
+  return `${scopeFileCount(run, projectMap)} 个已冻结源码文件`;
+}

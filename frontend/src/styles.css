@@ -102,6 +102,9 @@ code, pre, .mono {
 .chip-failed, .chip-incomplete, .chip-interrupted, .chip-invalid_evidence { background: #fbeeee; border-color: #eec9c9; color: var(--danger); }
 .chip-succeeded, .chip-completed { background: #eaf6ef; border-color: #c3e3d1; color: var(--ok); }
 .chip-cancelled, .chip-pending, .chip-skipped { background: var(--surface-sunken); }
+/* Paused is neither done nor gone: the run still holds its frontier, so it reads as a
+   live state that happens to be waiting, not as a terminal one. */
+.chip-paused { background: #f4f1fb; border-color: #ddd4f2; color: #5b46a8; }
 .chip-met, .chip-done { background: #eaf6ef; border-color: #c3e3d1; color: var(--ok); }
 .chip-open { background: var(--surface-sunken); }
 .chip-unreachable, .chip-inconclusive, .chip-exhausted, .chip-blocked { background: #fdf6e8; border-color: #f0dfb8; color: var(--warn); }

@@ -1,9 +1,13 @@
 import { useMemo, useState } from 'react';
-import type { AuditEvent, RunDetail } from '../types';
+import type { CSSProperties } from 'react';
+import type { AgentCode, AuditEvent, PlannerCoverage, ReconBrief, RunDetail } from '../types';
 
 const LABELS: Record<string, string> = {
   run_started: '运行开始',
   run_finished: '运行结束',
+  run_pause_requested: '暂停请求',
+  run_paused: '运行已暂停（保留前沿）',
+  run_resumed: '运行已继续',
   run_failed: '运行失败',
   run_cancelled: '运行取消',
   run_interrupted: '运行中断',
@@ -12,6 +16,11 @@ const LABELS: Record<string, string> = {
   unit_incomplete: '单元未完成',
   finding_created: '候选发现',
   finding_rejected_by_validation: '证据校验不通过',
+  finding_superseded: '结论被重跑的结论取代',
+  finding_retracted: '结论被 Planner 撤回',
+  finding_duplicate: '结论被 Planner 判为重复',
+  finding_contested: 'Planner 对人工结论存疑',
+  finding_disposition_changed: '结论处置变更',
   verification_recorded: '人工结论记录',
   model_error: '模型错误',
   model_retry: '模型重试',
@@ -19,6 +28,7 @@ const LABELS: Record<string, string> = {
   settled: '收尾判定',
   run_completed: '队列结束',
   agent_phase: '审计阶段',
+  agent_code: '模型代码动作',
   tool_call: '工具调用',
   tool_result: '工具结果',
   model_request: '模型请求',
@@ -49,13 +59,28 @@ const LABELS: Record<string, string> = {
   planner_round_committed: 'Planner 回合已提交',
   planner_assessment: 'Planner 调度依据摘要',
   planner_overview_prepared: 'Planner 项目结构概览已准备',
+  planner_coverage_prepared: 'Planner 覆盖统计已准备',
+  planner_situational_prepared: '本轮态势已准备（前沿 / 已结算 / 已有结论）',
+  planner_decision_sanitized: 'Planner 决策字段已清洗（未报废整轮）',
+  planner_round_failed: 'Planner 回合未产出可用决策',
+  planner_investigation_pinned: '调查结果已固定',
+  planner_investigation_reused: '复用已固定的调查（未重跑）',
+  planner_investigation_superseded: '固定调查被新一轮取代',
+  recon_started: '侦察子 agent 开始',
+  recon_phase: '侦察阶段',
+  recon_brief_prepared: '侦察简报已准备',
+  recon_terminal: '侦察终止原因',
+  recon_skipped: '侦察被跳过',
   planner_exploration_stopped: 'Planner 索引探索停止',
+  planner_tools_withdrawn: 'Planner 工具已收回（确认额度用尽，强制提交决策）',
   planner_agent_terminal: 'Planner 回合终止原因',
   planner_terminal_deferred: 'Planner 终态建议暂缓',
   planner_context_prepared: '多文件上下文已准备',
   planner_dependency_handoff_prepared: '依赖任务交接已准备',
   planner_task_started: '动态任务开始',
   planner_task_requeued: '动态任务重试',
+  planner_task_reopened: '动态任务重新打开（更正已有结论）',
+  planner_task_settled: '动态任务结算',
   planner_task_completed: '动态任务完成',
   planner_task_exhausted: '动态任务方向耗尽',
   planner_task_blocked: '动态任务受阻',
@@ -123,6 +148,7 @@ const PAYLOAD_LABELS: Record<string, string> = {
   goal_status: '目标状态',
   stop_on_achieved: '达成后停止',
   terminal_reason: '终止原因',
+  corrections: '纠正重试次数',
   mode: '运行模式',
   role: '角色',
   plan_id: '计划版本 ID',
@@ -146,13 +172,48 @@ const PAYLOAD_LABELS: Record<string, string> = {
   limitations: '静态分析限制',
   acceptance_criteria: '任务验收条件',
   objective: '任务目标',
+  coverage: '覆盖统计（宿主计算，不是证据）',
+  question: '侦察问题',
+  brief: '项目简报（导航线索，不是证据）',
+  files_examined: '本次读过的文件',
+  reads: '已读源码范围',
+  seconds_budget: '侦察墙钟预算(秒)',
+  responses_budget: '侦察响应预算',
+  tools_budget: '侦察工具预算',
+  layout: '目录布局',
+  entry_candidates: '入口候选',
+  data_stores: '数据存储',
+  security_boundaries: '安全边界',
+  reading_plan: '首批阅读目标',
+  uncertainties: '不确定项',
+  topic: '调查话题',
+  topic_key: '调查话题标识',
+  investigation_id: '固定调查 ID',
+  superseded_by: '接替它的记录 ID',
+  pinned_round: '固定于第几回合',
+  revision: '版本号',
+  files_read: '覆盖的文件',
+  frontier: '前沿任务',
+  settled: '已结算任务',
+  finding_ids: '已有结论',
+  omitted: '被截断的条目',
+  counts: '计数',
+  field: '被清洗字段',
+  before: '清洗前',
+  after: '清洗后',
+  requested_action: '请求的动作',
+  disposition: '结论处置',
+  by: '标注者',
+  related_finding_id: '关联结论 ID',
+  revisions: '累计更正次数',
+  task_reopens: '运行内更正次数',
 };
 
 type EventGroup = 'all' | 'tools' | 'decisions' | 'workers' | 'system';
 
 const GROUP_LABELS: Record<EventGroup, string> = {
   all: '全部轨迹',
-  tools: '工具调用与结果',
+  tools: '代码动作、工具调用与结果',
   decisions: '审计依据与结论',
   workers: 'worker 与工作项',
   system: '运行与系统事件',
@@ -170,9 +231,11 @@ function payloadOf(event: AuditEvent): Record<string, unknown> {
 }
 
 function groupFor(kind: string): Exclude<EventGroup, 'all'> {
-  if (kind === 'tool_call' || kind === 'tool_result') return 'tools';
-  if (kind === 'task_assessment' || kind === 'planner_assessment' || kind === 'task_goal_met' || kind === 'goal_unreachable' || kind === 'goal_inconclusive' || kind === 'finding_created' || kind === 'finding_rejected_by_validation' || kind === 'settled' || kind === 'unit_completed' || kind === 'unit_incomplete') return 'decisions';
-  if (kind.startsWith('task_work_') || kind.startsWith('planner_task_') || kind.startsWith('planner_round_') || kind.startsWith('planner_session_') || kind === 'planner_context_prepared' || kind === 'planner_dependency_handoff_prepared' || kind === 'planner_terminal_deferred' || kind === 'planner_overview_prepared' || kind === 'planner_exploration_stopped' || kind === 'task_agent_terminal' || kind === 'planner_agent_terminal' || kind === 'task_coordinator_started' || kind === 'task_planner_started' || kind === 'task_plan_created') return 'workers';
+  // A code action is what produces the tool calls in the first place: the model writes one
+  // script that may call several tools, so it belongs in the same group rather than apart.
+  if (kind === 'tool_call' || kind === 'tool_result' || kind === 'agent_code') return 'tools';
+  if (kind === 'task_assessment' || kind === 'planner_assessment' || kind === 'task_goal_met' || kind === 'goal_unreachable' || kind === 'goal_inconclusive' || kind === 'finding_created' || kind === 'finding_rejected_by_validation' || kind.startsWith('finding_') || kind === 'settled' || kind === 'unit_completed' || kind === 'unit_incomplete') return 'decisions';
+  if (kind.startsWith('task_work_') || kind.startsWith('planner_task_') || kind.startsWith('planner_round_') || kind.startsWith('planner_session_') || kind === 'planner_context_prepared' || kind === 'planner_dependency_handoff_prepared' || kind === 'planner_terminal_deferred' || kind === 'planner_overview_prepared' || kind === 'planner_coverage_prepared' || kind.startsWith('recon_') || kind === 'planner_exploration_stopped' || kind === 'planner_tools_withdrawn' || kind === 'task_agent_terminal' || kind === 'planner_agent_terminal' || kind === 'task_coordinator_started' || kind === 'task_planner_started' || kind === 'task_plan_created') return 'workers';
   return 'system';
 }
 
@@ -210,6 +273,46 @@ function Value({ name, value }: { name: string; value: unknown }) {
       </div>
     );
   }
+  // Both of these are host-bounded navigation aids rendered in every round, so they get
+  // a readable form rather than a truncated JSON blob.
+  if (name === 'coverage' && value && typeof value === 'object' && !Array.isArray(value)) {
+    const coverage = value as PlannerCoverage;
+    const unread = coverage.unread_hot_modules ?? [];
+    return (
+      <div>
+        <span className="faint">{label(name)}：</span>
+        <span className="small">
+          已读 {coverage.files_read}/{coverage.files_total} 个可读文本文件（{Math.round((coverage.coverage_ratio ?? 0) * 100)}%）
+          · 含 finding 的文件 {coverage.files_with_findings}
+          · 依赖树 {coverage.dependency_tree_read}/{coverage.dependency_tree_total}
+        </span>
+        {unread.length > 0 && (
+          <div className="small faint">
+            未读最多的一线模块：{unread.slice(0, 5).map((item) => `${item.module}（${item.unread}/${item.total}）`).join('、')}
+          </div>
+        )}
+        <div className="faint small">{coverage.notice}</div>
+      </div>
+    );
+  }
+  if (name === 'brief' && value && typeof value === 'object' && !Array.isArray(value)) {
+    const brief = value as ReconBrief;
+    const refs = (list?: { path: string; start_line: number; end_line: number }[]) =>
+      (list ?? []).slice(0, 4).map((item) => `${item.path}:${item.start_line}-${item.end_line}`).join('、');
+    return (
+      <div>
+        <span className="faint">{label(name)}：</span>
+        <span className="small">{brief.summary}</span>
+        {brief.entry_candidates?.length > 0 && <div className="small faint">入口候选：{refs(brief.entry_candidates)}</div>}
+        {brief.reading_plan?.length > 0 && <div className="small faint">首批阅读目标：{refs(brief.reading_plan)}</div>}
+        {brief.layout?.length > 0 && (
+          <div className="small faint">布局：{brief.layout.slice(0, 6).map((area) => `${area.path}（${area.role ?? '未标注'}）`).join('、')}</div>
+        )}
+        {brief.uncertainties?.length > 0 && <div className="small faint">不确定项：{brief.uncertainties.slice(0, 4).join('；')}</div>}
+        <div className="faint small">{brief.notice ?? '导航线索，不是 finding 证据；引用其中任何路径仍须 worker 读取原始源码行。'}</div>
+      </div>
+    );
+  }
   if (typeof value === 'object') {
     const text = JSON.stringify(value);
     return (
@@ -230,8 +333,57 @@ function Value({ name, value }: { name: string; value: unknown }) {
   );
 }
 
+/**
+ * One code action, shown the way a tool call is: in full, on demand.
+ *
+ * The host cuts a long script to its own byte budget before storing it, so a shortened
+ * block says so — a silently truncated script would read as everything the model wrote.
+ * A long block starts collapsed; the logs are the observation the model itself read, so
+ * they are shown as they came, not re-summarised here.
+ */
+function CodeAction({ payload }: { payload: AgentCode | Record<string, unknown> }) {
+  const action = payload as Partial<AgentCode>;
+  const code = String(action.code ?? '');
+  const logs = typeof action.logs === 'string' ? action.logs : '';
+  const bytes = Number(action.code_bytes ?? 0);
+  const long = code.split('\n').length > 12 || code.length > 600;
+  const [open, setOpen] = useState(!long);
+  const block: CSSProperties = {
+    margin: 0, padding: 8, background: 'var(--surface-sunken)', border: '1px solid var(--line-soft)',
+    borderRadius: 6, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  };
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div className="between" style={{ alignItems: 'flex-start', marginBottom: 4 }}>
+        <span className="faint small">
+          代码动作 · {String(action.phase ?? '')} 第 {String(action.step ?? '')} 步
+          {bytes > 0 ? ` · ${bytes} 字节` : ''}
+          {action.is_final ? ' · 以终局结束本阶段' : ''}
+          {action.truncated ? ` · 已截断，此处只有前 ${code.length} 个字符` : ''}
+        </span>
+        {long && (
+          <button className="btn" style={{ padding: '1px 7px', fontSize: 12 }} onClick={() => setOpen(!open)}>
+            {open ? '收起' : '展开'}
+          </button>
+        )}
+      </div>
+      {open ? <pre className="mono small" style={block}>{code}</pre> : (
+        <div className="mono small faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {code.split('\n')[0]}
+        </div>
+      )}
+      {logs && <pre className="mono small" style={{ ...block, marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>{logs}</pre>}
+      {action.error ? <div className="mono small" style={{ marginTop: 4, color: 'var(--danger)' }}>{String(action.error)}</div> : null}
+    </div>
+  );
+}
+
 function EventPayload({ event }: { event: AuditEvent }) {
-  const entries = Object.entries(payloadOf(event));
+  const payload = payloadOf(event);
+  // A code action's two large fields are code and its output: rendered as blocks of their
+  // own rather than as two more truncated JSON strings.
+  if (event.kind === 'agent_code') return <div className="tl-detail"><CodeAction payload={payload} /></div>;
+  const entries = Object.entries(payload);
   if (!entries.length) return <div className="faint small">此事件没有附加数据。</div>;
   return <div className="tl-detail">{entries.map(([key, value]) => <Value key={key} name={key} value={value} />)}</div>;
 }
@@ -279,7 +431,10 @@ function toolSpans(events: AuditEvent[]): ToolSpan[] {
  * below are what make the result reviewable.
  */
 function ExecutionTrace({ events, unitName }: { events: AuditEvent[]; unitName: Record<string, string> }) {
-  const toolEvents = events.filter((event) => groupFor(event.kind) === 'tools');
+  // Counted per kind rather than per group: a code action and the tool calls it makes
+  // share the group, and adding one number over the other would read as "tool calls".
+  const codeEvents = events.filter((event) => event.kind === 'agent_code');
+  const toolEvents = events.filter((event) => event.kind === 'tool_call' || event.kind === 'tool_result');
   const spans = toolSpans(events);
   const assessments = events.filter((event) => event.kind === 'task_assessment' || event.kind === 'planner_assessment');
   const recentTools = spans.slice(-20).reverse();
@@ -292,7 +447,7 @@ function ExecutionTrace({ events, unitName }: { events: AuditEvent[]; unitName: 
           <div className="panel-title">可展开执行轨迹</div>
           <div className="faint small">工具调用、返回摘要、worker 决策和证据范围均来自已持久化事件。</div>
         </div>
-        <span className="faint small">工具 {toolEvents.length} · 依据摘要 {assessments.length}</span>
+        <span className="faint small">代码动作 {codeEvents.length} · 工具 {toolEvents.length} · 依据摘要 {assessments.length}</span>
       </div>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
         <details style={{ border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', padding: '8px 10px' }}>
@@ -491,10 +646,55 @@ function Inline({ event, payload }: { event: AuditEvent; payload: Record<string,
     return <span className="small mono">{String(payload.tool ?? '')} · {kind === 'tool_call'
       ? JSON.stringify(payload.args ?? {}) : `${String(payload.status ?? '')} · 新增 ${String(payload.new_lines ?? 0)} 行`}</span>;
   }
+  if (kind === 'agent_code') {
+    const first = String(payload.code ?? '').split('\n')[0];
+    return <span className="small mono">
+      {String(payload.phase ?? '')} 第 {String(payload.step ?? '')} 步 · {first.length > 100 ? `${first.slice(0, 100)}…` : first}
+      {payload.is_final ? <span className="faint"> · 终局</span> : null}
+      {payload.truncated ? <span className="faint"> · 已截断</span> : null}
+      {payload.error ? <span className="faint"> · 报错</span> : null}
+    </span>;
+  }
   if (kind === 'task_assessment' || kind === 'planner_assessment') {
     return <span className="small">
       {String(payload.outcome ?? payload.goal_state ?? '调度')} · {String(payload.summary ?? payload.basis_summary ?? '')}
       {payload.rationale || payload.reasoning || payload.basis_summary ? <span className="faint"> · 已记录依据摘要</span> : null}
+    </span>;
+  }
+  if (kind.startsWith('recon_')) {
+    if (kind === 'recon_phase') return <span className="small">{String(payload.phase ?? '')}{payload.round != null ? ` · 第 ${String(payload.round)} 回合` : ''}</span>;
+    if (kind === 'recon_brief_prepared') {
+      const brief = payload.brief as ReconBrief | undefined;
+      const examined = payload.files_examined as string[] | undefined;
+      return <span className="small">
+        第 {String(payload.round ?? '')} 回合 · {String(payload.question ?? '')}
+        <span className="faint"> · 入口候选 {brief?.entry_candidates?.length ?? 0} · 阅读目标 {brief?.reading_plan?.length ?? 0}{examined ? ` · 读过 ${examined.length} 个文件` : ''}</span>
+      </span>;
+    }
+    if (kind === 'recon_terminal') {
+      return <span className="small">{String(payload.reason ?? '')}
+        {payload.elapsed_seconds != null ? ` · ${String(payload.elapsed_seconds)}s` : ''}
+        {payload.error ? <span className="faint"> · {String(payload.error).slice(0, 160)}</span> : null}</span>;
+    }
+    if (kind === 'recon_skipped') return <span className="small">{String(payload.reason ?? '')} · {String(payload.question ?? '')}</span>;
+    return <span className="small">
+      第 {String(payload.round ?? '')} 回合 · {String(payload.question ?? '')}
+      {payload.seconds_budget != null ? ` · 预算 ${String(payload.seconds_budget)}s / ${String(payload.responses_budget)} 响应 / ${String(payload.tools_budget)} 工具` : ''}
+    </span>;
+  }
+  if (kind === 'planner_coverage_prepared') {
+    const coverage = payload.coverage as PlannerCoverage | undefined;
+    return <span className="small">
+      第 {String(payload.round ?? '')} 回合 · 已读 {coverage?.files_read ?? 0}/{coverage?.files_total ?? 0} 个可读文本文件
+      {coverage?.unread_hot_modules?.length ? <span className="faint"> · 未读最多 {coverage.unread_hot_modules[0].module}</span> : null}
+    </span>;
+  }
+  if (kind === 'model_retry') {
+    // Only one correction is allowed per round, so a reviewer needs the reason the
+    // host refused the previous structured output, not just the fact that it did.
+    return <span className="small">
+      {String(payload.phase ?? '')} · 第 {String(payload.corrections ?? 1)} 次纠正
+      {payload.reason ? <span className="faint"> · {String(payload.reason).slice(0, 200)}</span> : null}
     </span>;
   }
   if (kind === 'agent_phase' || kind === 'agent_terminal' || kind === 'task_agent_terminal' || kind === 'exploration_stopped' || kind === 'planner_exploration_stopped') {

@@ -2,6 +2,7 @@ import hashlib
 import io
 from pathlib import Path
 import stat
+import time
 import zipfile
 
 import pytest
@@ -41,7 +42,7 @@ def test_import_rejects_path_collisions(repository, files):
         repository.import_zip(make_zip(files), "project.zip")
 
 
-def test_import_rejects_symlinks_and_bombs(repository, monkeypatch):
+def test_import_rejects_symlinks_and_special_entries(repository):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
         info = zipfile.ZipInfo("link.php")
@@ -50,10 +51,29 @@ def test_import_rejects_symlinks_and_bombs(repository, monkeypatch):
         archive.writestr(info, "../../secret")
     with pytest.raises(ValueError, match="symbolic"):
         repository.import_zip(stream.getvalue(), "link.zip")
+
+
+def test_capacity_limits_skip_one_entry_instead_of_rejecting_the_project(repository, monkeypatch):
+    """A whole project is the upload unit: one bad entry must not fail the import."""
     monkeypatch.setattr(source, "MAX_COMPRESSION_RATIO", 3)
-    with pytest.raises(ValueError, match="compression ratio"):
-        repository.import_zip(make_zip([("bomb.php", "a" * 100_000)]), "bomb.zip")
-    monkeypatch.setattr(source, "MAX_COMPRESSION_RATIO", 1000)
+    snapshot = repository.import_zip(make_zip([("bomb.php", "a" * 100_000), ("ok.php", "<?php echo 1;")]), "bomb.zip")
+    assert [(item["path"], item["reason"]) for item in snapshot["skipped_files"]] == [("bomb.php", "compression_ratio")]
+    assert [item["path"] for item in snapshot["files"]] == ["ok.php"]
+    assert snapshot["stats"]["skipped_count"] == 1
+    assert any("skipped at import" in warning for warning in snapshot["warnings"])
+
+    monkeypatch.setattr(source, "MAX_FILE_BYTES", 6)
+    snapshot = repository.import_zip(make_zip([("big.php", "<?php echo 1;"), ("small.php", "<?php")]), "big.zip")
+    assert [(item["path"], item["reason"]) for item in snapshot["skipped_files"]] == [("big.php", "file_too_large")]
+    assert [item["path"] for item in snapshot["files"]] == ["small.php"]
+
+    monkeypatch.setattr(source, "MAX_ENTRIES", 1)
+    snapshot = repository.import_zip(make_zip([("a.php", "<?php"), ("b.php", "<?php")]), "many.zip")
+    # Budgets are applied in path order, so which entries a ZIP loses is reproducible.
+    assert [(item["path"], item["reason"]) for item in snapshot["skipped_files"]] == [("b.php", "entry_limit")]
+
+
+def test_cumulative_extraction_limit_still_rejects_the_whole_archive(repository, monkeypatch):
     monkeypatch.setattr(source, "MAX_EXTRACTED_BYTES", 9)
     with pytest.raises(ValueError, match="extraction limit"):
         repository.import_zip(make_zip([("a.php", "12345"), ("b.php", "12345")]), "large.zip")
@@ -253,6 +273,35 @@ def test_import_detects_a_late_php_tag_in_framework_or_extensionless_source(repo
     }
 
 
+def test_php_tag_sniffing_stops_at_a_known_other_language(repository):
+    """A Python or Markdown file that quotes PHP is not a PHP file.
+
+    Whole-snapshot uploads make this load-bearing: ``db.py`` embeds PHP samples in its
+    prompts, and treating it as PHP indexed hundreds of bogus units and reported
+    tree-sitter ERROR nodes on it as its own parse errors.
+    """
+    snapshot = repository.import_zip(make_zip([
+        ("backend/audit/agent.py", "PROMPT = '''<?php echo 1;'''\n\ndef run():\n    return PROMPT\n"),
+        ("docs/design.md", "# 设计\n\n示例：\n\n```php\n<?php echo 'hi';\n```\n"),
+        ("config/routes.json", '{"sample": "<?php echo 1;"}\n'),
+        ("deploy/Dockerfile", "FROM php:8\n"),
+        # Still sniffed: the suffix tables say nothing about these names.
+        ("modules/access.module", "<?php\nfunction check_access() { return true; }\n"),
+        ("bin/worker", "#!/usr/bin/env php\n<?php\necho 'ok';\n"),
+    ]), "sniff.zip")
+    files = {item["path"]: item for item in snapshot["files"]}
+
+    for path in ("backend/audit/agent.py", "docs/design.md", "config/routes.json", "deploy/Dockerfile"):
+        assert files[path]["is_php"] is False, path
+        assert files[path]["parse_errors"] == [], path
+    assert {unit["file_path"] for unit in snapshot["units"]} == {"modules/access.module", "bin/worker"}
+    assert snapshot["stats"]["php_files"] == 2
+    # The quoted text is still readable and searchable -- only the PHP interpretation
+    # is refused.
+    assert files["backend/audit/agent.py"]["kind"] == "text"
+    assert repository.read_source(snapshot["id"], "backend/audit/agent.py", 1, 1)["lines"]
+
+
 def test_dvwa_project_map_limits_entries_to_high_confidence_request_paths(repository):
     """A real PHP application must not turn every executable file into an entry."""
     archive = Path(__file__).resolve().parents[2] / "demo" / "dvwa-source.zip"
@@ -274,17 +323,27 @@ def test_dvwa_project_map_limits_entries_to_high_confidence_request_paths(reposi
     assert project_map["architecture"]["role_counts"]
 
 
-def test_default_project_map_omits_excluded_dependency_tree_but_explicit_scope_keeps_it(repository):
+def test_project_map_covers_the_whole_snapshot_by_default(repository):
+    """Uploading a project puts every readable file in scope; no scope picker exists."""
     snapshot = repository.import_zip(make_zip([
         ("public/index.php", "<?php echo 'ok';"),
+        ("public/app.js", "fetch('/api');"),
         ("vendor/package/helper.php", "<?php function helper() { return true; }"),
     ]), "scope-map.zip")
 
-    default_map = repository.build_project_map(snapshot["id"])
-    explicit_map = repository.build_project_map(snapshot["id"], {"vendor/package/helper.php"})
+    whole = repository.build_project_map(snapshot["id"])
+    assert whole["scope"] == ["public/app.js", "public/index.php", "vendor/package/helper.php"]
+    rows = {row["path"]: row for row in whole["files"]}
+    assert rows["public/app.js"]["language"] == "javascript"
+    assert rows["public/app.js"]["is_php"] is False
+    assert rows["public/app.js"]["roles"]
+    assert rows["vendor/package/helper.php"]["dependency_tree"] is True
+    assert rows["public/index.php"]["dependency_tree"] is False
+    assert whole["stats"]["php_files"] == 2
+    assert whole["stats"]["dependency_tree_files"] == 1
 
-    assert default_map["scope"] == ["public/index.php"]
-    assert explicit_map["scope"] == ["vendor/package/helper.php"]
+    narrowed = repository.build_project_map(snapshot["id"], {"vendor/package/helper.php"})
+    assert narrowed["scope"] == ["vendor/package/helper.php"]
 
 
 def test_context_and_search_respect_a_task_frozen_scope(repository):
@@ -328,3 +387,158 @@ def test_literal_search_range_limits_and_integrity(repository):
     path.write_text("tampered")
     with pytest.raises(ValueError, match="integrity"):
         repository.read_source(snapshot["id"], "app.php")
+
+
+def test_non_php_text_files_are_indexed_searchable_and_readable(repository):
+    """A whole web project is a source tree, not only its PHP files."""
+    snapshot = repository.import_zip(make_zip([
+        ("app.py", "from flask import Flask\napp = Flask(__name__)\n"),
+        ("static/js/app.js", "fetch('/api/todos');\n"),
+        ("config/settings.yaml", "database: sqlite:///local.db\n"),
+        ("docs/README.md", "# Todo\n"),
+        (".env.example", "FLASK_DEBUG=1\n"),
+    ]), "web.zip")
+    files = {item["path"]: item for item in snapshot["files"]}
+    assert files["app.py"]["kind"] == "text" and files["app.py"]["language"] == "python"
+    assert files["static/js/app.js"]["language"] == "javascript"
+    assert files["config/settings.yaml"]["language"] == "yaml"
+    assert files[".env.example"]["language"] == "config"
+    assert all(item["is_php"] is False for item in snapshot["files"])
+    # No PHP means no units and no syntax index; the files are still first-class.
+    assert snapshot["units"] == []
+    assert snapshot["stats"]["text_files"] == 5 and snapshot["stats"]["php_files"] == 0
+    assert repository.read_source(snapshot["id"], "app.py")["lines"][0]["text"] == "from flask import Flask"
+    assert [item["path"] for item in repository.search_code(snapshot["id"], "sqlite")["matches"]] == ["config/settings.yaml"]
+    project_map = repository.build_project_map(snapshot["id"])
+    assert [(row["path"], row["language"]) for row in project_map["files"]] == [
+        (".env.example", "config"),
+        ("app.py", "python"),
+        ("config/settings.yaml", "yaml"),
+        ("docs/README.md", "markdown"),
+        ("static/js/app.js", "javascript"),
+    ]
+
+
+def test_binary_files_are_registered_but_never_decoded(repository):
+    snapshot = repository.import_zip(make_zip([
+        ("assets/logo.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"),
+        ("src/app.php", "<?php echo 1;"),
+    ]), "assets.zip")
+    files = {item["path"]: item for item in snapshot["files"]}
+    assert files["assets/logo.png"]["kind"] == "binary"
+    assert files["assets/logo.png"]["language"] == "binary"
+    assert files["assets/logo.png"]["excluded"] is True
+    assert snapshot["stats"]["binary_files"] == 1
+    # A binary entry is never display-decoded, so it must not produce an encoding
+    # warning -- that warning belongs to text files the UI would render as mojibake.
+    assert "encoding_warning" not in files["assets/logo.png"]
+    assert not any("logo.png" in warning for warning in snapshot["warnings"])
+    with pytest.raises(ValueError, match="[Bb]inary"):
+        repository.read_source(snapshot["id"], "assets/logo.png")
+    assert repository.search_code(snapshot["id"], "PNG")["matches"] == []
+    # Navigation keeps the binary out of the map the Planner selects paths from.
+    project_map = repository.build_project_map(snapshot["id"])
+    assert [row["path"] for row in project_map["files"]] == ["src/app.php"]
+    assert [row["path"] for row in project_map["binary_files"]] == ["assets/logo.png"]
+
+
+def test_dependency_tree_files_are_navigable_but_skipped_by_default_search(repository):
+    snapshot = repository.import_zip(make_zip([
+        ("index.php", "<?php require 'vendor/lib/util.php';"),
+        ("vendor/lib/util.php", "<?php function util_marker() {}"),
+        ("node_modules/left-pad/index.js", "module.exports = util_marker;\n"),
+    ]), "dep.zip")
+    assert repository.search_code(snapshot["id"], "util_marker")["matches"] == []
+    widened = repository.search_code(snapshot["id"], "util_marker", include_dependencies=True)
+    assert [item["path"] for item in widened["matches"]] == ["node_modules/left-pad/index.js", "vendor/lib/util.php"]
+    explicit = repository.search_code(snapshot["id"], "util_marker", path="vendor/lib/util.php")
+    assert [item["path"] for item in explicit["matches"]] == ["vendor/lib/util.php"]
+    # Reading is never gated on the dependency tree.
+    assert repository.read_source(snapshot["id"], "vendor/lib/util.php")["lines"]
+
+
+def test_search_accepts_a_directory_and_narrows_to_that_subtree(repository):
+    """A directory used to raise, so "search under this tree" had no way to be asked."""
+    snapshot = repository.import_zip(make_zip([
+        ("src/app.php", "<?php\nmarker\n"),
+        ("src/lib/helper.php", "<?php\nmarker\n"),
+        ("tests/test_app.php", "<?php\nmarker\n"),
+        ("vendor/lib/util.php", "<?php\nmarker\n"),
+    ]), "dirtree.zip")
+    narrowed = repository.search_code(snapshot["id"], "marker", path="src")
+    assert [item["path"] for item in narrowed["matches"]] == ["src/app.php", "src/lib/helper.php"]
+    assert repository.search_code(snapshot["id"], "marker", path="src/")["matches"] == narrowed["matches"]
+    # The dependency tree stays out of a directory sweep unless it is asked for,
+    # exactly as it does for a whole-project search.
+    assert repository.search_code(snapshot["id"], "marker", path="vendor")["matches"] == []
+    widened = repository.search_code(snapshot["id"], "marker", path="vendor", include_dependencies=True)
+    assert [item["path"] for item in widened["matches"]] == ["vendor/lib/util.php"]
+    # Writing the project root as "." or "" searches everything rather than failing.
+    whole = repository.search_code(snapshot["id"], "marker")
+    for root in (".", "", "  ", "/"):
+        assert repository.search_code(snapshot["id"], "marker", path=root)["matches"] == whole["matches"]
+    # A path that names neither a file nor a directory is still an error.
+    with pytest.raises(FileNotFoundError):
+        repository.search_code(snapshot["id"], "marker", path="nope")
+    # Directory narrowing is not an escape hatch: a traversal is refused as before.
+    with pytest.raises(ValueError):
+        repository.search_code(snapshot["id"], "marker", path="../src")
+
+
+def test_search_reports_when_the_scan_limit_is_reached(repository, monkeypatch):
+    monkeypatch.setattr(source, "MAX_SEARCH_FILES", 1)
+    snapshot = repository.import_zip(make_zip([("a.php", "<?php\nmarker\n"), ("b.php", "<?php\nmarker\n")]), "scan.zip")
+    result = repository.search_code(snapshot["id"], "marker")
+    assert result["scanned_files"] == 1
+    assert result["scan_truncated"] is True and result["truncated"] is True
+    assert [item["path"] for item in result["matches"]] == ["a.php"]
+
+
+def test_context_bundle_falls_back_when_no_php_entrypoint_exists(repository):
+    """Without this fallback every worker task on a non-PHP project would be blocked."""
+    snapshot = repository.import_zip(make_zip([
+        ("config/settings.yaml", "debug: true\n"),
+        ("docs/notes.md", "# notes\n"),
+        ("src/handlers.py", "def list_todos(): pass\n"),
+        ("static/css/site.css", "body { margin: 0 }\n"),
+        ("vendor/lib/util.js", "module.exports = {};\n"),
+    ]), "pure.zip")
+    bundle = repository.build_context_bundle(snapshot["id"], {"objective": "了解项目结构"})
+    assert [item["reason"] for item in bundle["excerpts"]] == ["generic_orientation_lead"] * 4
+    assert [item["path"] for item in bundle["excerpts"]] == [
+        "config/settings.yaml", "src/handlers.py", "docs/notes.md", "static/css/site.css",
+    ]
+    assert any("no PHP entry" in item.get("reason", "") for item in bundle["unresolved_dependencies"])
+    # Same snapshot, same leads: orientation must not depend on dictionary luck.
+    again = repository.build_context_bundle(snapshot["id"], {"objective": "了解项目结构"})
+    assert [item["path"] for item in again["excerpts"]] == [item["path"] for item in bundle["excerpts"]]
+
+
+def test_snapshot_index_is_parsed_once_across_many_tool_calls(repository, monkeypatch):
+    snapshot = repository.import_zip(make_zip([("app.php", "<?php\necho 1;\necho 2;\n")]), "cache.zip")
+    calls = {"count": 0}
+    real_loads = source.json.loads
+
+    def counting_loads(*args, **kwargs):
+        calls["count"] += 1
+        return real_loads(*args, **kwargs)
+
+    fresh = SourceRepository(repository.storage)
+    monkeypatch.setattr(source.json, "loads", counting_loads)
+    for _ in range(50):
+        fresh.read_source(snapshot["id"], "app.php")
+    assert calls["count"] == 1, "the published index must be parsed once, not per tool call"
+
+
+def test_project_map_scales_linearly_over_a_large_snapshot(repository):
+    files = [
+        (f"src/module{index // 50}/file{index}.php", "<?php\nfunction f%d() { return %d; }\n" % (index, index))
+        for index in range(2000)
+    ]
+    snapshot = repository.import_zip(make_zip(files), "large.zip")
+    start = time.perf_counter()
+    project_map = repository.build_project_map(snapshot["id"])
+    elapsed = time.perf_counter() - start
+    assert project_map["stats"]["files"] == 2000
+    assert project_map["stats"]["entrypoints"] == 0
+    assert elapsed < 2.0, f"project map took {elapsed:.2f}s; has_top_level likely regressed to O(files x units)"

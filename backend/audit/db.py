@@ -5,13 +5,18 @@ a monotonic id, which is the cursor the SSE endpoint resumes from.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit, urlunsplit
+
+from .evidence import seen_ranges
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -37,6 +42,9 @@ CREATE TABLE IF NOT EXISTS runs (
     prompt_label TEXT NOT NULL,
     prompt_text TEXT NOT NULL,
     model TEXT NOT NULL,
+    -- A run records the selected provider identity, never its credential.  The
+    -- profile can later be deleted without erasing this audit trail.
+    model_profile TEXT NOT NULL DEFAULT '{}',
     budgets TEXT NOT NULL,
     agent_policy TEXT,
     task_spec TEXT,
@@ -232,6 +240,38 @@ CREATE TABLE IF NOT EXISTS planner_task_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_planner_task_attempts_task ON planner_task_attempts(task_id, attempt);
 
+-- What the Planner has already had answered: reconnaissance briefs, directory listings,
+-- search hits.  A row is written once and its content columns are never updated (see
+-- ``Store.set_investigation_status``): the round prompt tells the Planner "you already
+-- asked this in round N" and replays the answer verbatim, so re-asking costs nothing and
+-- cannot drift from what was really observed.
+CREATE TABLE IF NOT EXISTS planner_investigations (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL DEFAULT '',
+    plan_id TEXT,
+    round_no INTEGER NOT NULL DEFAULT 0,
+    revision INTEGER NOT NULL DEFAULT 1,
+    kind TEXT NOT NULL DEFAULT 'recon',
+    tool TEXT NOT NULL DEFAULT '',
+    topic TEXT NOT NULL,
+    topic_key TEXT NOT NULL,
+    args TEXT NOT NULL DEFAULT '{}',
+    payload TEXT NOT NULL DEFAULT '{}',
+    payload_bytes INTEGER NOT NULL DEFAULT 0,
+    files_read TEXT NOT NULL DEFAULT '[]',
+    usage TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'active',
+    reason TEXT,
+    superseded_by TEXT,
+    created_at TEXT NOT NULL
+);
+-- One active record per topic, exactly like ARTEX's single-active-retest index: a
+-- re-ask that is not a revision reuses the row, and a revision must supersede first.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inv_active
+    ON planner_investigations(run_id, topic_key) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_planner_investigations_run ON planner_investigations(run_id, created_at);
+
 CREATE TABLE IF NOT EXISTS findings (
     id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -336,6 +376,28 @@ CREATE TABLE IF NOT EXISTS model_health (
     last_error TEXT NOT NULL DEFAULT '',
     last_at REAL NOT NULL DEFAULT 0
 );
+
+-- API key ciphertext is encrypted before it reaches this table.  The Fernet key
+-- is stored separately in the local data directory and never in SQLite or an API
+-- response.  Environment-backed profiles retain an empty ciphertext.
+CREATE TABLE IF NOT EXISTS model_profiles (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    model TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key_secret TEXT NOT NULL DEFAULT '',
+    credential_source TEXT NOT NULL DEFAULT 'stored',
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_model_profiles_ordinal ON model_profiles(ordinal, created_at);
+
+CREATE TABLE IF NOT EXISTS model_selection (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    selected_profile_id TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 RUN_TERMINAL = ("completed", "unreachable", "inconclusive", "cancelled", "interrupted", "failed")
@@ -382,6 +444,143 @@ def _dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+# Coverage feedback is a bounded navigation aid for the Planner, not a second project
+# map: it must fit in every round's prompt and answer exactly one question -- which
+# goal-relevant areas has nobody read yet.
+MAX_COVERAGE_PATHS = 40
+MAX_COVERAGE_MODULES = 12
+MAX_COVERAGE_ATTEMPTS = 200
+# Findings carry their citations as one flat string (``path:start-end; path:line``),
+# so the path half is parsed rather than read from a structured field. Only the path
+# matters here and an unrecognised one is harmless: the caller intersects with the
+# frozen file set.
+_COVERAGE_CITATION = re.compile(r"(?P<path>[\w./\\-]+)[ \t]*[:：][ \t]*\d")
+# ``seen_ranges`` merges a worker's reads; ``exact=True`` means the unit itself is not
+# counted, so the placeholder unit below is never read.
+_COVERAGE_UNIT = {"file_path": "", "start_line": 0, "end_line": 0}
+
+# A pinned investigation is what the run already knows.  ``status`` is the only thing
+# about it that may still move, and only between these values.
+INVESTIGATION_STATUSES = ("active", "superseded", "retracted")
+MAX_INVESTIGATION_TOPIC = 500
+# How many pinned records a round prompt may carry.  The prompt names the rest by count:
+# the full text stays one ``get_investigation`` call away.
+MAX_PROMPT_INVESTIGATIONS = 12
+
+# The declared file set of one Planner task, carried into the Planner's context as a
+# bounded set.  It is what the duplicate guard compares proposals against; the refs
+# themselves stay in ``context_spec``.
+MAX_TASK_FILES = 24
+
+# Task states a Planner ``reopen`` update may act on: the direction has stopped producing
+# evidence and has a conclusion worth correcting.  A task that is still pending or ready has
+# nothing to correct yet, and a running one is owned by a worker.
+REOPENABLE_TASK_STATES = ("completed", "blocked", "exhausted", "cancelled", "skipped")
+
+# The third axis of a finding, orthogonal to ``validation_state`` (is the evidence sound?)
+# and ``verdict`` (did a human reproduce it?): is this conclusion still standing?  Nothing
+# is ever deleted -- a withdrawn conclusion keeps its row, its verifications and its text,
+# so "this was concluded and later withdrawn" stays readable.
+FINDING_DISPOSITIONS = ("open", "superseded", "retracted", "duplicate", "contested")
+# Dispositions under which a conclusion no longer stands: it keeps its row, its text and
+# its verifications, and it still appears in the report, but it is not evidence a run may
+# close on.  ``contested`` is deliberately not one of them: a contest records the Planner
+# disagreeing with a verdict a human already recorded, and a human verdict is terminal, so
+# the conclusion stays standing until the human revisits it.
+WITHDRAWN_FINDING_DISPOSITIONS = ("retracted", "duplicate", "superseded")
+# SQL form of the same predicate, so the one place that filters in a query cannot drift
+# from the one place that filters in Python.  The values are internal literals.
+_WITHDRAWN_SQL = "(" + ", ".join(f"'{item}'" for item in WITHDRAWN_FINDING_DISPOSITIONS) + ")"
+# A human verdict is terminal.  The Planner may still disagree, but only visibly.
+HUMAN_DECIDED_VERDICTS = ("confirmed", "rejected")
+# How many earlier revisions of one finding slot are kept verbatim in
+# ``superseded_summary``.  Older ones are dropped from the snapshot, not from history: the
+# attempt rows in ``planner_task_attempts`` are the durable record.
+MAX_SUPERSEDED_SUMMARIES = 4
+#
+# Where this stops, deliberately.  The reference model (ARTEX) carries a global asset graph
+# -- anchors, spawns, derived_from/yields/proves/covers edges and a per-asset ownership tree
+# -- plus a ``prove_goal`` closure that lets its planner mark a goal done.  None of that is
+# here: our scope is the whole frozen snapshot rather than a graph of assets, so lineage is
+# one column (``derived_from_finding_id``) and closure stays with the host in
+# ``finalize_goal``, which is the boundary that keeps a worker's "I found nothing" from
+# becoming a project-wide negative.  The one thing borrowed around that boundary is timing,
+# not authority: the host runs a Planner round *before* it closes on a standing conclusion
+# (see ``_execute_planner_task``), so the conclusion a run ends on is one the Planner was
+# shown and could still withdraw.  ``finalize_goal`` itself is unchanged -- it still decides,
+# and it still refuses a goal met with nothing standing behind it.  Retests are not a
+# cross-table session either: the ``verifications`` table plus these columns already separate
+# "what a reviewer reproduced" from "what the run still claims", without new conversation
+# infrastructure.
+
+# Events the report reads back to explain what the Planner was told: per-round reading
+# coverage, and the reconnaissance brief (or the reason there is none).
+PLANNER_OBSERVATION_KINDS = (
+    "planner_coverage_prepared",
+    "recon_brief_prepared",
+    "recon_terminal",
+    "recon_skipped",
+)
+
+
+def _cited_paths(findings: Any) -> set[str]:
+    """Extract the cited paths from a persisted ``findings`` array."""
+    if not isinstance(findings, list):
+        return set()
+    found: set[str] = set()
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        text = finding.get("evidence")
+        if not isinstance(text, str):
+            continue
+        for match in _COVERAGE_CITATION.finditer(text.replace("`", "")):
+            path = match.group("path").replace("\\", "/")
+            while path.startswith("./"):
+                path = path[2:]
+            if path:
+                found.add(path)
+    return found
+
+
+def _public_base_url(value: object) -> str:
+    """Return the non-secret, display-safe part of a provider endpoint."""
+    raw = str(value or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    # URL user-info and query strings can contain credentials.  A run snapshot
+    # must remain safe to return from the normal run APIs and report exporters.
+    netloc = parsed.netloc.rsplit("@", 1)[-1]
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+
+def _model_profile_snapshot(value: object) -> dict:
+    """Keep only the public identity needed to reproduce a run's provider.
+
+    This is intentionally also used on reads.  It protects the API if an old
+    local database was hand-edited or a pre-release build wrote extra fields
+    into the JSON column.
+    """
+    if not isinstance(value, dict):
+        return {}
+    profile_id = str(value.get("profile_id") or value.get("id") or "").strip()
+    model = str(value.get("model") or "").strip()
+    base_url = _public_base_url(value.get("base_url"))
+    if not (profile_id or model or base_url):
+        return {}
+    return {
+        "profile_id": profile_id,
+        "model": model,
+        "base_url": base_url,
+    }
+
+
 class Store:
     def __init__(self, path: Path | str):
         self.path = str(path)
@@ -395,11 +594,40 @@ class Store:
     # Additive migrations so a database written by an earlier build keeps working.
     _ADDED_COLUMNS = {
         "run_units": {"unit_json": "TEXT NOT NULL DEFAULT '{}'"},
-        "runs": {"agent_policy": "TEXT", "task_spec": "TEXT"},
+        "runs": {
+            "agent_policy": "TEXT",
+            "task_spec": "TEXT",
+            "model_profile": "TEXT NOT NULL DEFAULT '{}'",
+            # "snapshot" means the whole immutable snapshot is in scope and the run
+            # stores no explicit file list.  Older rows default to "explicit" so their
+            # frozen scope keeps its original meaning.
+            "scope_mode": "TEXT NOT NULL DEFAULT 'explicit'",
+        },
         "task_goals": {
             "max_total_attempts": f"INTEGER NOT NULL DEFAULT {DEFAULT_TASK_MAX_TOTAL_ATTEMPTS}"
         },
-        "findings": {"finding_kind": "TEXT NOT NULL DEFAULT ''"},
+        "findings": {
+            "finding_kind": "TEXT NOT NULL DEFAULT ''",
+            # A finding occupies one slot per (run, unit, category), and a re-run of that
+            # slot keeps the row: ``revision`` counts how many conclusions that slot has
+            # held, ``superseded_summary`` keeps what the earlier ones said, and
+            # ``derived_from_finding_id`` records which finding a later one grew out of.
+            # Rewriting the row in place would change its ``id``, orphaning the human
+            # ``verifications`` that reference it -- which is exactly what used to happen.
+            "revision": "INTEGER NOT NULL DEFAULT 1",
+            "superseded_summary": "TEXT",
+            "derived_from_finding_id": "TEXT",
+            "disposition": "TEXT NOT NULL DEFAULT 'open'",
+            "disposition_reason": "TEXT",
+            "disposition_by": "TEXT",
+            "disposition_at": "TEXT",
+        },
+        # How many times a settled direction has been re-opened for correction, per task and
+        # per run.  Counted in the database rather than read back out of events: the counters
+        # are what the host enforces its reopen budget with.  ``planner_sessions.current_revision``
+        # is a different counter -- it numbers plans, not corrections.
+        "planner_tasks": {"revisions": "INTEGER NOT NULL DEFAULT 0"},
+        "planner_sessions": {"task_reopens": "INTEGER NOT NULL DEFAULT 0"},
     }
 
     def _migrate(self) -> None:
@@ -465,17 +693,19 @@ class Store:
             self._db.execute("BEGIN")
             try:
                 self._db.execute(
-                    "INSERT INTO runs (id, snapshot_id, snapshot_name, scope, prompt_id, prompt_label,"
-                    " prompt_text, model, budgets, status, created_at, agent_policy, task_spec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO runs (id, snapshot_id, snapshot_name, scope, scope_mode, prompt_id, prompt_label,"
+                    " prompt_text, model, model_profile, budgets, status, created_at, agent_policy, task_spec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         run["id"],
                         run["snapshot_id"],
                         run["snapshot_name"],
                         _dumps(run["scope"]),
+                        str(run.get("scope_mode") or "explicit"),
                         run["prompt_id"],
                         run["prompt_label"],
                         run["prompt_text"],
                         run["model"],
+                        _dumps(_model_profile_snapshot(run.get("model_profile"))),
                         _dumps(run["budgets"]),
                         "pending",
                         run["created_at"],
@@ -531,8 +761,10 @@ class Store:
     def _run_dict(self, row: sqlite3.Row) -> dict:
         run = dict(row)
         run["scope"] = _loads(run.get("scope"), [])
+        run["scope_mode"] = str(run.get("scope_mode") or "explicit")
         run["budgets"] = _loads(run.get("budgets"), {})
         run["agent_policy"] = _loads(run.get("agent_policy"), {"version": "legacy"})
+        run["model_profile"] = _model_profile_snapshot(_loads(run.get("model_profile"), {}))
         task_spec = _loads(run.get("task_spec"), None)
         # Task runs created before the total-cap field was introduced still have a
         # durable goal row migrated with this default. Reflect the same frozen value
@@ -623,7 +855,10 @@ class Store:
                     self._db.execute("COMMIT")
                     return None
                 self._db.execute(
-                    "UPDATE runs SET status = 'running', started_at = ? WHERE id = ?",
+                    # ``started_at`` records when the run first began, not when the worker
+                    # last picked it up: a resumed run keeps the original, so "how long has
+                    # this been going" survives a pause rather than restarting at zero.
+                    "UPDATE runs SET status = 'running', started_at = COALESCE(started_at, ?) WHERE id = ?",
                     (now(), row["id"]),
                 )
                 self._db.execute("COMMIT")
@@ -633,25 +868,88 @@ class Store:
         return self.get_run(row["id"])
 
     def request_cancel(self, run_id: str) -> None:
-        # Running runs are stopped by the worker; pending runs never start.
+        # Running runs are stopped by the worker; pending and paused runs never start.
+        # A paused run is cancellable on purpose: pausing is how a user parks work to look
+        # at it, and having to resume it first in order to throw it away would be a trap.
         self._write(
-            "UPDATE runs SET status = 'cancelled', finished_at = ? WHERE id = ? AND status IN ('pending','running')",
+            "UPDATE runs SET status = 'cancelled', finished_at = ?"
+            " WHERE id = ? AND status IN ('pending','running','paused')",
             (now(), run_id),
         )
+
+    def request_pause(self, run_id: str) -> None:
+        """Park a run at its next boundary without giving up its frontier.
+
+        One-way on purpose.  ``paused`` is not a state a worker may leave by noticing
+        that the flag it was set with has gone away: a run parked here keeps every
+        planner task, every attempt and its current round, and only an explicit
+        ``resume_run`` puts it back in the queue.  ``finished_at`` is left untouched --
+        the run has not finished, so a report that says otherwise would be wrong.
+        """
+        self._write(
+            "UPDATE runs SET status = 'paused' WHERE id = ? AND status IN ('pending','running')",
+            (run_id,),
+        )
+
+    def resume_run(self, run_id: str) -> bool:
+        """Return a paused run to the queue its worker claims from, or report why not.
+
+        ``claim_next_run`` only ever claims ``pending``, so resuming is exactly this one
+        transition: the frontier, the Planner session and its round number were never
+        touched, and the next claim continues from them instead of re-planning.  A run
+        whose goal or session has since settled is not resumable -- continuing it would
+        restart work under a settled goal.
+        """
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                run = self._db.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+                if run is None or run["status"] != "paused":
+                    self._db.execute("ROLLBACK")
+                    return False
+                goal = self._db.execute(
+                    "SELECT status FROM task_goals WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if goal is not None and goal["status"] != "open":
+                    self._db.execute("ROLLBACK")
+                    return False
+                self._db.execute("UPDATE runs SET status = 'pending' WHERE id = ?", (run_id,))
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+        return True
 
     def interrupt_stale_runs(self) -> int:
         """Repair work left unresolved by a process that stopped between writes."""
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
-                stale = [row["id"] for row in self._db.execute("SELECT id FROM runs WHERE status = 'running'")]
+                stale = [
+                    (row["id"], row["status"])
+                    for row in self._db.execute(
+                        "SELECT id, status FROM runs WHERE status IN ('running','paused')"
+                    )
+                ]
                 if stale:
-                    marks = ",".join("?" for _ in stale)
+                    stale_ids = [run_id for run_id, _ in stale]
+                    marks = ",".join("?" for _ in stale_ids)
                     self._db.execute(
                         f"UPDATE runs SET status = 'interrupted', finished_at = ?,"
                         f" error = 'Server restarted while this run was in flight'"
-                        f" WHERE id IN ({marks})",
-                        (now(), *stale),
+                        f" WHERE id IN ({marks}) AND status = 'running'",
+                        (now(), *stale_ids),
+                    )
+                    # A paused run is interrupted too, and for the same reason: the pause
+                    # flag lives in the worker's memory, so nothing on this server will
+                    # ever resume it.  It is a different sentence for the reader, though --
+                    # "in flight" would be a lie about a run that had deliberately stopped,
+                    # and its frontier is intact rather than half-executed.
+                    self._db.execute(
+                        f"UPDATE runs SET status = 'interrupted', finished_at = ?,"
+                        f" error = 'Server restarted while this run was paused'"
+                        f" WHERE id IN ({marks}) AND status = 'paused'",
+                        (now(), *stale_ids),
                     )
                     # Whatever was still queued will never run: the worker that owned the queue
                     # is gone. Leaving it `pending` would keep it listed as "about to start" in a
@@ -660,7 +958,7 @@ class Store:
                     self._db.execute(
                         f"UPDATE run_units SET status = 'skipped', error = 'Run interrupted before this unit started',"
                         f" finished_at = ? WHERE run_id IN ({marks}) AND status = 'pending'",
-                        (now(), *stale),
+                        (now(), *stale_ids),
                     )
                 # Sweep every unit still marked running, not only those of the runs just
                 # interrupted: a run cancelled and then hard-killed leaves the same orphan, and
@@ -727,7 +1025,7 @@ class Store:
             except Exception:
                 self._db.execute("ROLLBACK")
                 raise
-            return len(stale)
+            return len(stale_ids) if stale else 0
 
     # --- run units ---------------------------------------------------------
 
@@ -1081,8 +1379,8 @@ class Store:
                     stored_error = stored_error or "目标已满足，执行中的工作项停止"
 
                 for finding_record in finding_records:
-                    self._insert_finding(finding_record)
-                    finding_ids.append(str(finding_record["id"]))
+                    written = self._insert_finding(finding_record)
+                    finding_ids.append(str(written["finding_id"]))
 
                 self._db.execute(
                     "UPDATE task_work_items SET state = ?, attempt = ?, focus = ?, claimed_by = ?, claimed_at = ?,"
@@ -1377,23 +1675,325 @@ class Store:
             )
         ]
 
-    def list_planner_context(self, run_id: str) -> dict:
+    def planner_coverage(self, run_id: str, project_map: dict | None = None) -> dict:
+        """Host-computed reading coverage of the frozen snapshot.
+
+        Each round the Planner has to decide between dispatching more evidence
+        directions and converging.  That decision needs one fact the durable task
+        summaries do not carry: which parts of the project nobody has read yet.  The
+        answer is derived here from the host's own records -- the persisted worker
+        ``seen`` ledgers and the frozen project map -- never from model prose, and it
+        stays bounded so it can be attached to every round.
+
+        Dependency trees are counted separately instead of being folded into the module
+        ranking: ``vendor``/``node_modules`` would otherwise dominate the "unread
+        module" list while saying nothing about this project's own code.
+
+        ``project_map`` may be passed by a caller that already has the frozen map in
+        hand; it is a multi-megabyte structure on a real project and re-reading it here
+        would double the per-round cost of a round that already loaded it.
+        """
+        if project_map is None:
+            project_map = self.get_project_map(run_id) or {}
+        known = {
+            row["path"]: row
+            for row in (project_map.get("files") or [])
+            if isinstance(row, dict) and isinstance(row.get("path"), str)
+        }
+        rows = self._rows(
+            "SELECT seen, result FROM planner_task_attempts WHERE run_id = ? ORDER BY id DESC LIMIT ?",
+            (run_id, MAX_COVERAGE_ATTEMPTS),
+        )
+        reads: list[dict] = []
+        cited: set[str] = set()
+        for row in rows:
+            seen = _loads(row["seen"], [])
+            if isinstance(seen, list):
+                reads.extend(item for item in seen if isinstance(item, dict))
+            result = _loads(row["result"], {})
+            if isinstance(result, dict):
+                cited.update(_cited_paths(result.get("findings")))
+
+        read_paths = {path for path, _, _ in seen_ranges(_COVERAGE_UNIT, reads, exact=True)}
+        read_paths &= set(known)
+        dependency_paths = {path for path, row in known.items() if row.get("dependency_tree")}
+
+        modules: dict[str, dict] = {}
+        for path, row in known.items():
+            if row.get("dependency_tree"):
+                continue
+            module = str(row.get("module") or ".")
+            bucket = modules.setdefault(module, {"total": 0, "unread": 0})
+            bucket["total"] += 1
+            if path not in read_paths:
+                bucket["unread"] += 1
+        unread_hot_modules = [
+            {"module": module, "unread": bucket["unread"], "total": bucket["total"]}
+            for module, bucket in modules.items()
+            if bucket["unread"]
+        ]
+        unread_hot_modules.sort(key=lambda item: (-item["unread"], -item["total"], item["module"]))
+
+        stats = project_map.get("stats") or {}
+        total = int(stats.get("files") or len(known) or 0)
+        return {
+            "files_total": total,
+            "files_read": len(read_paths),
+            "files_with_findings": len(cited & set(known)),
+            "coverage_ratio": round(len(read_paths) / total, 4) if total else 0.0,
+            "read_paths": sorted(read_paths)[:MAX_COVERAGE_PATHS],
+            "unread_hot_modules": unread_hot_modules[:MAX_COVERAGE_MODULES],
+            "dependency_tree_total": len(dependency_paths),
+            "dependency_tree_read": len(read_paths & dependency_paths),
+            "notice": (
+                "覆盖统计来自已持久化的 worker 读记录与冻结项目图，不是安全结论，也不能作为 finding 证据；"
+                f"read_paths 最多列 {MAX_COVERAGE_PATHS} 条，unread_hot_modules 最多列 {MAX_COVERAGE_MODULES} 个，"
+                f"最近 {MAX_COVERAGE_ATTEMPTS} 次尝试之外的读记录未计入。"
+            ),
+        }
+
+    def list_planner_observations(self, run_id: str, *, limit: int = 60) -> list[dict]:
+        """The Planner's host-computed per-round observations, oldest first.
+
+        Coverage and reconnaissance are round-scoped observations, so they live in the
+        event log -- already the durable, ordered record of a run -- rather than in
+        tables of their own.  Selecting them back by kind keeps the report to one
+        bounded query instead of paging through every event of a long run.
+        """
+        placeholders = ",".join("?" * len(PLANNER_OBSERVATION_KINDS))
+        rows = self._rows(
+            f"SELECT kind, payload FROM events WHERE run_id = ? AND kind IN ({placeholders})"
+            " ORDER BY id DESC LIMIT ?",
+            (run_id, *PLANNER_OBSERVATION_KINDS, limit),
+        )
+        observations = []
+        for row in reversed(rows):
+            payload = _loads(row["payload"], {})
+            observations.append({
+                "kind": row["kind"],
+                "round": payload.get("round") if isinstance(payload, dict) else None,
+                "payload": payload,
+            })
+        return observations
+
+    # --- pinned investigations -------------------------------------------------------
+    # The Planner asks the same question more than once -- across rounds it has no memory
+    # of having asked it at all.  These rows are that memory: written once, replayed
+    # verbatim, and never rewritten.  Only their disposition may still change.
+
+    @staticmethod
+    def investigation_topic_key(topic: str) -> str:
+        """Content key for "the same question, asked again".
+
+        Normalized, because a round asks its question in freshly generated prose: the
+        reuse decision has to survive whitespace and case, not word-for-word repetition.
+        """
+        normalized = " ".join(str(topic or "").split()).casefold()[:MAX_INVESTIGATION_TOPIC]
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
+
+    def _investigation_dict(self, row: sqlite3.Row, *, include_payload: bool) -> dict:
+        return {
+            "id": row["id"],
+            "run_id": row["run_id"],
+            "goal_id": row["goal_id"],
+            "plan_id": row["plan_id"],
+            "round_no": row["round_no"],
+            "revision": row["revision"],
+            "kind": row["kind"],
+            "tool": row["tool"],
+            "topic": row["topic"],
+            "topic_key": row["topic_key"],
+            "args": _loads(row["args"], {}),
+            # The payload is the answer.  It stays out of listings so a prompt or a
+            # run API response cannot grow with research the caller did not ask for.
+            "payload": _loads(row["payload"], {}) if include_payload else None,
+            "payload_bytes": row["payload_bytes"],
+            "files_read": _loads(row["files_read"], []),
+            "usage": _loads(row["usage"], {}),
+            "status": row["status"],
+            "reason": row["reason"],
+            "superseded_by": row["superseded_by"],
+            "created_at": row["created_at"],
+        }
+
+    def record_investigation(self, record: dict) -> dict:
+        """Insert one pinned investigation.  Write-once.
+
+        A blind INSERT, deliberately: replacing the row would change its id, and every
+        later reader of "what this run already knows" -- the round prompt, the report --
+        would then be reading a record that no longer matches what happened.  Two active
+        records for one topic are impossible (``uq_inv_active``), so a genuine revision
+        has to supersede the old row first; that is what turns "this was revised" into a
+        recorded fact instead of a silent overwrite.
+        """
+        payload = record.get("payload")
+        rendered = payload if isinstance(payload, str) else _dumps(payload if payload is not None else {})
+        investigation_id = str(record.get("id") or uuid.uuid4().hex)
+        self._write(
+            "INSERT INTO planner_investigations (id, run_id, goal_id, plan_id, round_no, revision,"
+            " kind, tool, topic, topic_key, args, payload, payload_bytes, files_read, usage, status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?)",
+            (
+                investigation_id,
+                str(record.get("run_id") or ""),
+                str(record.get("goal_id") or ""),
+                record.get("plan_id"),
+                int(record.get("round_no") or 0),
+                int(record.get("revision") or 1),
+                str(record.get("kind") or "recon"),
+                str(record.get("tool") or ""),
+                str(record.get("topic") or "")[:MAX_INVESTIGATION_TOPIC],
+                str(record.get("topic_key") or self.investigation_topic_key(str(record.get("topic") or ""))),
+                _dumps(record.get("args") or {}),
+                rendered,
+                len(rendered.encode("utf-8")),
+                _dumps(record.get("files_read") or []),
+                _dumps(record.get("usage") or {}),
+                str(record.get("created_at") or now()),
+            ),
+        )
+        return self.get_investigation(investigation_id) or {}
+
+    def get_investigation(self, investigation_id: str, *, include_payload: bool = True) -> dict | None:
+        row = self._row("SELECT * FROM planner_investigations WHERE id = ?", (investigation_id,))
+        return self._investigation_dict(row, include_payload=include_payload) if row else None
+
+    def current_investigation(self, run_id: str, topic_key: str) -> dict | None:
+        """The active record for one topic, payload included: this is the reuse hit."""
+        row = self._row(
+            "SELECT * FROM planner_investigations WHERE run_id = ? AND topic_key = ? AND status = 'active'",
+            (run_id, topic_key),
+        )
+        return self._investigation_dict(row, include_payload=True) if row else None
+
+    def set_investigation_status(
+        self, investigation_id: str, status: str, *, reason: str | None = None,
+        superseded_by: str | None = None,
+    ) -> None:
+        """The only update path, and it touches disposition columns alone.
+
+        A pinned record is what the run already knows; the single thing that may still
+        change is whether it stands.  Keeping the write surface this narrow is what makes
+        "the answer was replayed, not regenerated" checkable instead of conventional.
+        """
+        if status not in INVESTIGATION_STATUSES:
+            raise ValueError(f"unknown investigation status: {status!r}")
+        self._write(
+            "UPDATE planner_investigations SET status = ?, reason = ?, superseded_by = ? WHERE id = ?",
+            (status, (reason or None), superseded_by, investigation_id),
+        )
+
+    def list_investigations(
+        self, run_id: str, *, limit: int | None = None, include_payload: bool = False,
+        status: str | None = None,
+    ) -> list[dict]:
+        """Pinned records oldest first; ``limit`` keeps the most recent ones."""
+        where = "run_id = ?"
+        params: list[Any] = [run_id]
+        if status:
+            where += " AND status = ?"
+            params.append(status)
+        if limit:
+            rows = self._rows(
+                f"SELECT * FROM planner_investigations WHERE {where} ORDER BY created_at DESC, id DESC LIMIT ?",
+                (*params, int(limit)),
+            )
+            rows = list(reversed(rows))
+        else:
+            rows = self._rows(f"SELECT * FROM planner_investigations WHERE {where} ORDER BY created_at, id", params)
+        return [self._investigation_dict(row, include_payload=include_payload) for row in rows]
+
+    def investigation_overview(self, run_id: str, *, limit: int = MAX_PROMPT_INVESTIGATIONS) -> dict:
+        """Bounded, payload-free view of what the run has already pinned."""
+        by_status = {
+            row["status"]: int(row["total"])
+            for row in self._rows(
+                "SELECT status, COUNT(*) AS total FROM planner_investigations WHERE run_id = ? GROUP BY status",
+                (run_id,),
+            )
+        }
+        return {
+            "total": sum(by_status.values()),
+            "by_status": by_status,
+            "recent": self.list_investigations(run_id, limit=limit, include_payload=False),
+            "notice": (
+                "这些调查的结果已经固定在库里；同一个话题再问会直接返回原记录，不会重新执行。"
+                "这里只列最近若干条且不含正文，需要全文时用 get_investigation。"
+            ),
+        }
+
+    def list_planner_findings(self, run_id: str, *, limit: int = 200) -> list[dict]:
+        """Compact view of every persisted conclusion in this run.
+
+        The Planner's main job after the first round is to not repeat the run, and it is
+        memoryless between rounds: without this list it re-dispatches directions whose
+        findings are already in the database.  Citations are summarised to their paths --
+        the finding's own evidence text stays the authoritative record.
+        """
+        rows = self._rows(
+            "SELECT id, unit_id, category, finding_kind, title, severity, summary, evidence,"
+            " validation_state, verdict, disposition, disposition_reason, revision,"
+            " derived_from_finding_id, created_at FROM findings WHERE run_id = ?"
+            " ORDER BY created_at, id LIMIT ?",
+            (run_id, int(limit)),
+        )
+        return [
+            {
+                "id": row["id"],
+                "unit_id": row["unit_id"],
+                "category": row["category"],
+                "finding_kind": row["finding_kind"],
+                "title": row["title"],
+                "severity": row["severity"],
+                "summary": row["summary"],
+                "validation_state": row["validation_state"],
+                "verdict": row["verdict"],
+                # The third axis travels with the other two, and so does how many times this
+                # slot changed its mind: a round that sees revision 2 knows a correction
+                # already happened here and does not need to ask for a third.
+                "disposition": row["disposition"],
+                "disposition_reason": row["disposition_reason"],
+                "revision": int(row["revision"] or 1),
+                "derived_from_finding_id": row["derived_from_finding_id"],
+                "paths": sorted(_cited_paths([{"evidence": row["evidence"]}]))[:6],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def list_planner_context(self, run_id: str, *, project_map: dict | None = None) -> dict:
         """Return the compact, durable state a new Planner round may inspect."""
         goal = self.get_task_goal(run_id)
         tasks = self.list_tasks(run_id, include_attempts=False)
         compact_tasks = []
         for task in tasks:
             result = task.get("result") or {}
+            spec = task.get("context_spec") if isinstance(task.get("context_spec"), dict) else {}
+            # The paths this direction asked for, as a set rather than as refs: it is what a
+            # later round's "am I proposing the same thing again?" question is asked against,
+            # and a settled task's refs are otherwise not carried into the Planner's context.
+            declared = [
+                str(ref.get("path") or "")
+                for ref in (spec.get("source_refs") or [])
+                if isinstance(ref, dict)
+            ]
+            declared += [str(path or "") for path in (spec.get("scope_paths") or [])]
             compact_tasks.append({
                 "task_key": task["task_key"],
+                # Findings are stored against the task's durable id, and a round that wants
+                # to withdraw one has to name the task it belongs to; both sides need this
+                # to be able to say "this conclusion came from that direction".
+                "id": task["id"],
                 "title": task["title"],
                 "objective": task["objective"],
                 "state": task["state"],
                 "priority": task["priority"],
                 "attempts": task["attempts"],
                 "max_attempts": task["max_attempts"],
+                "revisions": int(task.get("revisions") or 0),
                 "dependencies": task["dependencies"],
                 "context_spec": task["context_spec"],
+                "files": sorted({path for path in declared if path})[:MAX_TASK_FILES],
                 "summary": result.get("summary") if isinstance(result, dict) else "",
                 "basis_summary": result.get("reasoning") if isinstance(result, dict) else "",
                 "missing_context": result.get("missing_context", []) if isinstance(result, dict) else [],
@@ -1402,9 +2002,17 @@ class Store:
         return {
             "goal": goal,
             "planner": self.get_planner_session(run_id),
-            "project_map": self.get_project_map(run_id),
+            # The frozen project map is passed to the Planner separately each round;
+            # echoing it here would deserialize a whole-project structure for nothing.
             "tasks": compact_tasks,
             "plans": self.list_plans(run_id)[-4:],
+            # Kept out of ``project_map`` on purpose: this is a bounded, host-computed
+            # view of what has been read, not another copy of the whole map.
+            "coverage": self.planner_coverage(run_id, project_map),
+            # What the round must not redo: conclusions already in the database, and
+            # questions already answered (see ``planner_investigations``).
+            "findings": self.list_planner_findings(run_id),
+            "investigations": self.investigation_overview(run_id),
         }
 
     @staticmethod
@@ -1677,6 +2285,7 @@ class Store:
         updates: list[dict] | None = None,
         usage: dict | None = None,
         error: str | None = None,
+        reopen_attempts: int = 1,
     ) -> list[dict]:
         """Commit a Planner decision and its validated frontier mutation atomically."""
         tasks = list(tasks or [])
@@ -1780,7 +2389,15 @@ class Store:
                     task_key = str(update.get("task_key") or "")
                     action = str(update.get("action") or "")
                     row = existing.get(task_key)
-                    if row is None or row["state"] == "running":
+                    if row is None:
+                        continue
+                    # A disposition update moves a conclusion's standing and touches no task
+                    # state at all, so a direction that happens to be running right now can
+                    # still have a conclusion from an earlier attempt withdrawn.
+                    if action in {"retract", "duplicate"}:
+                        self._apply_finding_disposition_tx(run_id, str(row["id"]), update, stamp)
+                        continue
+                    if row["state"] == "running":
                         continue
                     if action == "cancel" and row["state"] in {"pending", "ready", "deferred"}:
                         self._db.execute(
@@ -1797,6 +2414,32 @@ class Store:
                         self._db.execute(
                             "UPDATE planner_tasks SET priority = ?, updated_at = ? WHERE id = ?",
                             (priority, stamp, row["id"]),
+                        )
+                    elif action == "reopen" and row["state"] in REOPENABLE_TASK_STATES:
+                        # Re-opening a settled direction so it is investigated again.  The
+                        # earlier attempts stay exactly where they are: the attempt sequence
+                        # is this design's record of how a conclusion was reached and
+                        # replaced, and a correction that overwrote it would destroy the
+                        # evidence that the correction happened at all.  Only the durable
+                        # state moves, and the attempt allowance is *extended* -- a revision
+                        # is not a retry, so it must not be paid for out of the retry budget.
+                        self._db.execute(
+                            "UPDATE planner_tasks SET state = 'pending', revisions = revisions + 1,"
+                            " error = NULL, finished_at = NULL, max_attempts = max_attempts + ?,"
+                            " updated_at = ? WHERE id = ?",
+                            (int(reopen_attempts), stamp, row["id"]),
+                        )
+                        # The shared goal budget is what `claim_ready_task` exhausts every
+                        # pending task against, so a revision that did not extend it would be
+                        # re-opened and killed in the same breath.
+                        self._db.execute(
+                            "UPDATE task_goals SET max_total_attempts = COALESCE(max_total_attempts, 0) + ?,"
+                            " updated_at = ? WHERE id = ?",
+                            (int(reopen_attempts), stamp, goal_id),
+                        )
+                        self._db.execute(
+                            "UPDATE planner_sessions SET task_reopens = COALESCE(task_reopens, 0) + 1 WHERE run_id = ?",
+                            (run_id,),
                         )
                 self._refresh_planner_task_states_tx(run_id, goal_id, stamp)
                 self._db.execute(
@@ -1988,8 +2631,14 @@ class Store:
                     raise ValueError("Planner run has no goal/session")
                 queue = self.task_queue_state(run_id)
                 if state == "met":
+                    # "Standing" means valid evidence that nobody has withdrawn.  A finding
+                    # the Planner retracted, replaced or marked as a duplicate is still in
+                    # the database -- and still in the report -- but it is not something to
+                    # close a run on.
                     candidate = self._db.execute(
-                        "SELECT 1 FROM findings WHERE run_id = ? AND validation_state = 'candidate' LIMIT 1", (run_id,)
+                        "SELECT 1 FROM findings WHERE run_id = ? AND validation_state = 'candidate'"
+                        f" AND disposition NOT IN {_WITHDRAWN_SQL} LIMIT 1",
+                        (run_id,),
                     ).fetchone()
                     if candidate is None:
                         raise ValueError("Planner cannot mark a goal met without a validated source finding")
@@ -2052,19 +2701,95 @@ class Store:
 
     # --- findings ----------------------------------------------------------
 
-    def _insert_finding(self, finding: dict) -> None:
-        """Insert a finding while the caller owns ``_lock`` and maybe a transaction."""
+    def _insert_finding(self, finding: dict) -> dict:
+        """Write one conclusion into its slot.
+
+        Returns ``{"action": "created"|"superseded", "finding_id": ..., "revision": n}``.
+        The stored id is returned rather than assumed: on the replacement path the row
+        keeps the id it already had, so the caller's freshly generated one names nothing.
+
+        A finding owns exactly one slot per ``(run_id, unit_id, category)``.  Re-running
+        that direction produces the same slot again, and the row is *reused* rather than
+        replaced: its ``id`` survives (so the human ``verifications`` bound to it are not
+        orphaned), its ``verdict`` survives (a reviewer's decision is not the audit's to
+        discard), and what it used to say is snapshotted into ``superseded_summary``
+        before the new text lands.  Deleting and re-inserting the row would silently lose
+        all three, which is what ``INSERT OR REPLACE`` did.
+
+        Called with ``_lock`` held and possibly inside a transaction.
+        """
+        existing = self._db.execute(
+            "SELECT id, title, severity, summary, evidence, validation_state, validation_errors,"
+            " disposition, disposition_reason, disposition_by, revision, superseded_summary, created_at"
+            " FROM findings WHERE run_id = ? AND unit_id = ? AND category = ?",
+            (finding["run_id"], finding["unit_id"], finding["category"]),
+        ).fetchone()
+        if existing is None:
+            self._db.execute(
+                "INSERT INTO findings (id, run_id, unit_id, fingerprint, category, finding_kind, title, severity,"
+                " summary, evidence, input_source, propagation, dangerous_operation, protection, preconditions,"
+                " missing_context, poc, remediation, validation_state, validation_errors, verdict, created_at,"
+                " revision, disposition, derived_from_finding_id)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    finding["id"],
+                    finding["run_id"],
+                    finding["unit_id"],
+                    finding["fingerprint"],
+                    finding["category"],
+                    finding.get("finding_kind", ""),
+                    finding["title"],
+                    finding["severity"],
+                    finding["summary"],
+                    _dumps(finding["evidence"]),
+                    finding["input_source"],
+                    finding["propagation"],
+                    finding["dangerous_operation"],
+                    finding["protection"],
+                    _dumps(finding["preconditions"]),
+                    _dumps(finding["missing_context"]),
+                    _dumps(finding["poc"]),
+                    finding["remediation"],
+                    finding.get("validation_state", "candidate"),
+                    _dumps(finding.get("validation_errors", [])),
+                    finding.get("verdict"),
+                    finding["created_at"],
+                    1,
+                    "open",
+                    finding.get("derived_from_finding_id"),
+                ),
+            )
+            return {"action": "created", "finding_id": str(finding["id"]), "revision": 1}
+        previous = _loads(existing["superseded_summary"], [])
+        if not isinstance(previous, list):
+            previous = []
+        # The revision this one replaces, kept whole enough to explain a change of mind:
+        # what it claimed, whether the evidence held up, and any disposition the Planner
+        # or a reviewer had given it.  A new conclusion re-opens the slot, because the
+        # disposition describes the content that was just replaced -- the fact that it was
+        # once withdrawn lives on in here rather than as a stale flag on live text.
+        previous.append({
+            "revision": int(existing["revision"] or 1),
+            "title": existing["title"],
+            "severity": existing["severity"],
+            "summary": existing["summary"],
+            "evidence": _loads(existing["evidence"], []),
+            "validation_state": existing["validation_state"],
+            "validation_errors": _loads(existing["validation_errors"], []),
+            "disposition": existing["disposition"],
+            "disposition_reason": existing["disposition_reason"],
+            "disposition_by": existing["disposition_by"],
+            "replaced_at": now(),
+        })
         self._db.execute(
-            "INSERT OR REPLACE INTO findings (id, run_id, unit_id, fingerprint, category, finding_kind, title, severity,"
-            " summary, evidence, input_source, propagation, dangerous_operation, protection, preconditions,"
-            " missing_context, poc, remediation, validation_state, validation_errors, verdict, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "UPDATE findings SET fingerprint = ?, finding_kind = ?, title = ?, severity = ?, summary = ?,"
+            " evidence = ?, input_source = ?, propagation = ?, dangerous_operation = ?, protection = ?,"
+            " preconditions = ?, missing_context = ?, poc = ?, remediation = ?, validation_state = ?,"
+            " validation_errors = ?, revision = revision + 1, superseded_summary = ?, disposition = 'open',"
+            " disposition_reason = NULL, disposition_by = NULL, disposition_at = NULL,"
+            " derived_from_finding_id = COALESCE(?, derived_from_finding_id) WHERE id = ?",
             (
-                finding["id"],
-                finding["run_id"],
-                finding["unit_id"],
                 finding["fingerprint"],
-                finding["category"],
                 finding.get("finding_kind", ""),
                 finding["title"],
                 finding["severity"],
@@ -2080,18 +2805,101 @@ class Store:
                 finding["remediation"],
                 finding.get("validation_state", "candidate"),
                 _dumps(finding.get("validation_errors", [])),
-                finding.get("verdict"),
-                finding["created_at"],
+                _dumps(previous[-MAX_SUPERSEDED_SUMMARIES:]),
+                finding.get("derived_from_finding_id"),
+                existing["id"],
             ),
         )
+        return {
+            "action": "superseded",
+            "finding_id": str(existing["id"]),
+            "revision": int(existing["revision"] or 1) + 1,
+        }
 
-    def add_finding(self, finding: dict) -> None:
+    def _apply_finding_disposition_tx(self, run_id: str, task_id: str, update: dict, stamp: str) -> None:
+        """Move one finding's disposition inside the round's transaction.
+
+        Only the disposition columns move: the conclusion's text, its evidence and its
+        review history are left exactly as they are, so a withdrawal is recorded rather
+        than erased.  The row stays in the database and in the report.
+
+        A verdict a human recorded is terminal, so ``retract`` and ``duplicate`` cannot
+        take such a conclusion out of the run: the same intent is written as a contest
+        instead, and the finding keeps standing as evidence the goal can close on.  That
+        rule lives here rather than in the model-facing validator so that every caller --
+        including a maintenance import -- gets it.
+        """
+        key = str(update.get("finding_key") or "")
+        row = self._db.execute(
+            "SELECT id, unit_id, verdict FROM findings WHERE id = ? AND run_id = ?", (key, run_id)
+        ).fetchone()
+        if row is None or str(row["unit_id"]) != str(task_id):
+            # A finding of another direction is not this update's to move.  The validator
+            # refuses this before it reaches the store; the check is repeated because the
+            # store is also called outside the model path.
+            return
+        wanted = "duplicate" if str(update.get("action")) == "duplicate" else "retracted"
+        contested = str(row["verdict"] or "") in HUMAN_DECIDED_VERDICTS
+        disposition = "contested" if contested else wanted
+        related = str(update.get("related_finding_key") or "")
+        # Lineage is only recorded when it points at a conclusion that exists: a dangling
+        # "derived from" would be worse than none at all.
+        if contested or not related:
+            source = None
+        elif self._db.execute(
+            "SELECT 1 FROM findings WHERE id = ? AND run_id = ?", (related, run_id)
+        ).fetchone():
+            source = related
+        else:
+            source = None
+        self._db.execute(
+            "UPDATE findings SET disposition = ?, disposition_reason = ?, disposition_by = 'planner',"
+            " disposition_at = ?, derived_from_finding_id = COALESCE(?, derived_from_finding_id)"
+            " WHERE id = ?",
+            (disposition, str(update.get("rationale_summary") or ""), stamp, source, key),
+        )
+
+    def set_finding_disposition(
+        self,
+        finding_id: str,
+        disposition: str,
+        reason: str,
+        *,
+        by: str = "planner",
+        derived_from_finding_id: str | None = None,
+    ) -> dict | None:
+        """Move a conclusion's disposition without touching a byte of its content.
+
+        Only the disposition columns move -- the same column-level setter shape ARTEX uses
+        for findings.  A withdrawn conclusion keeps its row, its text and its verifications,
+        so the withdrawal is recorded rather than erased.  A disposition a human already
+        decided through a verification is handled by the caller, not here.
+        """
+        if disposition not in FINDING_DISPOSITIONS:
+            raise ValueError(f"unsupported finding disposition: {disposition}")
         with self._lock:
-            self._insert_finding(finding)
+            row = self._db.execute("SELECT id FROM findings WHERE id = ?", (finding_id,)).fetchone()
+            if row is None:
+                return None
+            self._db.execute(
+                "UPDATE findings SET disposition = ?, disposition_reason = ?, disposition_by = ?,"
+                " disposition_at = ?, derived_from_finding_id = COALESCE(?, derived_from_finding_id)"
+                " WHERE id = ?",
+                (disposition, reason, by, now(), derived_from_finding_id, finding_id),
+            )
+        return self.get_finding(finding_id)
+
+    def add_finding(self, finding: dict) -> dict:
+        """Persist one conclusion into its slot.
+
+        Returns ``{"action", "finding_id", "revision"}``; see ``_insert_finding``.
+        """
+        with self._lock:
+            return self._insert_finding(finding)
 
     def _finding_dict(self, row: sqlite3.Row) -> dict:
         finding = dict(row)
-        for name in ("evidence", "preconditions", "missing_context", "validation_errors"):
+        for name in ("evidence", "preconditions", "missing_context", "validation_errors", "superseded_summary"):
             finding[name] = _loads(finding.get(name), [])
         finding["poc"] = _loads(finding.get("poc"), None)
         finding["verifications"] = self.list_verifications(finding["id"])
@@ -2245,6 +3053,16 @@ class Store:
         row = self._row("SELECT COUNT(*) AS total FROM events WHERE run_id = ? AND id > ?", (run_id, after))
         return int(row["total"] or 0) if row else 0
 
+    def has_event(self, run_id: str, kind: str) -> bool:
+        """Whether this run has already emitted an event of this kind.
+
+        The host uses this to tell a run's *first* execution from a resumed one.  The
+        setup events describe a beginning -- a resumed run has already had one, and a
+        second ``run_started`` would read in the timeline as a run that began twice.
+        """
+        row = self._row("SELECT 1 AS present FROM events WHERE run_id = ? AND kind = ? LIMIT 1", (run_id, kind))
+        return row is not None
+
     # --- prompts -----------------------------------------------------------
 
     def upsert_builtin_prompt(self, prompt: dict) -> None:
@@ -2364,6 +3182,154 @@ class Store:
             dict(row)
             for row in self._rows("SELECT * FROM attributions WHERE run_id = ? ORDER BY created_at", (run_id,))
         ]
+
+    # --- saved model profiles ---------------------------------------------
+
+    @staticmethod
+    def _profile_dict(row: sqlite3.Row, *, include_secret: bool = False) -> dict:
+        profile = dict(row)
+        profile["api_key_configured"] = bool(profile.get("api_key_secret"))
+        if not include_secret:
+            # Environment variables are allowed to retain a compatibility URL in
+            # process memory, but profiles are returned to a browser.  Sanitize
+            # every public row so an old local database cannot disclose user-info
+            # or query-string credentials through the catalogue endpoint.
+            profile["base_url"] = _public_base_url(profile.get("base_url"))
+            profile.pop("api_key_secret", None)
+        return profile
+
+    def list_model_profiles(self) -> list[dict]:
+        rows = self._rows("SELECT * FROM model_profiles ORDER BY ordinal, created_at, id")
+        return [self._profile_dict(row) for row in rows]
+
+    def get_model_profile(self, profile_id: str, *, include_secret: bool = False) -> dict | None:
+        row = self._row("SELECT * FROM model_profiles WHERE id = ?", (profile_id,))
+        return self._profile_dict(row, include_secret=include_secret) if row is not None else None
+
+    def selected_model_profile(self, *, include_secret: bool = False) -> dict | None:
+        row = self._row(
+            "SELECT profile.* FROM model_selection AS selection "
+            "JOIN model_profiles AS profile ON profile.id = selection.selected_profile_id "
+            "WHERE selection.id = 1",
+        )
+        return self._profile_dict(row, include_secret=include_secret) if row is not None else None
+
+    def select_model_profile(self, profile_id: str) -> dict:
+        profile = self.get_model_profile(profile_id, include_secret=True)
+        if profile is None:
+            raise ValueError("model profile does not exist")
+        self._write(
+            "INSERT INTO model_selection (id, selected_profile_id, updated_at) VALUES (1,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET selected_profile_id=excluded.selected_profile_id, updated_at=excluded.updated_at",
+            (profile_id, now()),
+        )
+        return profile
+
+    def create_model_profile(
+        self,
+        *,
+        label: str,
+        model: str,
+        base_url: str,
+        api_key_secret: str = "",
+        credential_source: str = "stored",
+    ) -> dict:
+        profile_id = uuid.uuid4().hex
+        stamp = now()
+        ordinal_row = self._row("SELECT COALESCE(MAX(ordinal), -1) + 1 AS ordinal FROM model_profiles")
+        ordinal = int(ordinal_row["ordinal"] or 0) if ordinal_row else 0
+        self._write(
+            "INSERT INTO model_profiles (id, label, model, base_url, api_key_secret, credential_source, ordinal, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (profile_id, label, model, base_url, api_key_secret, credential_source, ordinal, stamp, stamp),
+        )
+        profile = self.get_model_profile(profile_id, include_secret=True)
+        if profile is None:  # pragma: no cover - SQLite insert above is atomic
+            raise RuntimeError("model profile was not persisted")
+        return profile
+
+    def update_model_profile(
+        self,
+        profile_id: str,
+        *,
+        label: str,
+        model: str,
+        base_url: str,
+        api_key_secret: str | None = None,
+        credential_source: str | None = None,
+    ) -> dict:
+        current = self.get_model_profile(profile_id, include_secret=True)
+        if current is None:
+            raise ValueError("model profile does not exist")
+        secret = current["api_key_secret"] if api_key_secret is None else api_key_secret
+        source = current["credential_source"] if credential_source is None else credential_source
+        self._write(
+            "UPDATE model_profiles SET label = ?, model = ?, base_url = ?, api_key_secret = ?, credential_source = ?, "
+            "updated_at = ? WHERE id = ?",
+            (label, model, base_url, secret, source, now(), profile_id),
+        )
+        updated = self.get_model_profile(profile_id, include_secret=True)
+        if updated is None:  # pragma: no cover - guarded above
+            raise RuntimeError("model profile disappeared during update")
+        return updated
+
+    def delete_model_profile(self, profile_id: str) -> bool:
+        with self._lock:
+            cursor = self._db.execute("DELETE FROM model_profiles WHERE id = ?", (profile_id,))
+        return bool(cursor.rowcount)
+
+    def ensure_environment_model_profile(self, model: str, base_url: str) -> dict | None:
+        """Seed or refresh the non-secret profile backed by ``LLM_*`` variables."""
+        default_model = str(model or "").strip()
+        # Never persist credentials embedded in a legacy environment endpoint.
+        # Services keeps the original environment URL only in memory for clients
+        # that require a compatibility query parameter.
+        default_base_url = _public_base_url(base_url)
+        environment = self._row(
+            "SELECT * FROM model_profiles WHERE credential_source = 'environment' ORDER BY created_at LIMIT 1"
+        )
+        if default_model:
+            label = f"环境变量 · {default_model}"
+            if environment is None:
+                profile = self.create_model_profile(
+                    label=label,
+                    model=default_model,
+                    base_url=default_base_url,
+                    credential_source="environment",
+                )
+            else:
+                profile = self.update_model_profile(
+                    environment["id"], label=label, model=default_model, base_url=default_base_url,
+                    credential_source="environment",
+                )
+        elif environment is not None:
+            # Normalize any pre-profile database row even when the environment
+            # configuration was later removed.
+            profile = self.update_model_profile(
+                environment["id"],
+                label=environment["label"],
+                model=environment["model"],
+                base_url=_public_base_url(environment["base_url"]),
+                credential_source="environment",
+            )
+        else:
+            profile = None
+
+        selected = self.selected_model_profile(include_secret=True)
+        if selected is None:
+            choices = self.list_model_profiles()
+            if profile is not None:
+                selected = self.select_model_profile(profile["id"])
+            elif choices:
+                selected = self.select_model_profile(choices[0]["id"])
+        return selected
+
+    def active_run_count(self) -> int:
+        # A paused run counts as active: it holds an unfinished frontier and will be
+        # continued, so treating it as idle would let a model-profile switch land under
+        # work that is about to resume.
+        row = self._row("SELECT COUNT(*) AS total FROM runs WHERE status IN ('pending','running','paused')")
+        return int(row["total"] or 0) if row else 0
 
     # --- model health ------------------------------------------------------
 

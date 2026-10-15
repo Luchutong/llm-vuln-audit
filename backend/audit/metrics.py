@@ -9,6 +9,7 @@ Two rules shape everything here:
 """
 from __future__ import annotations
 
+from .db import WITHDRAWN_FINDING_DISPOSITIONS
 from .schemas import CATEGORIES
 
 INCOMPLETE_STATUSES = ("incomplete", "failed", "skipped")
@@ -32,8 +33,20 @@ def summarise(
     incomplete = [unit for unit in units if unit["status"] in INCOMPLETE_STATUSES]
     pending = [unit for unit in units if unit["status"] in ("pending", "running")]
 
-    candidates = [f for f in findings if f.get("validation_state") == "candidate"]
-    discarded = [f for f in findings if f.get("validation_state") != "candidate"]
+    # A withdrawn conclusion is not a candidate: the Planner retracted it, replaced it or
+    # called it a duplicate of another one.  It is still counted, in its own bucket, because
+    # "how often did this run take something back" is a fact about the run, not noise --
+    # what it must not do is inflate the count of things the run claims to have found.
+    withdrawn = [
+        f for f in findings
+        if str(f.get("disposition") or "open") in WITHDRAWN_FINDING_DISPOSITIONS
+    ]
+    standing = [
+        f for f in findings
+        if str(f.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
+    ]
+    candidates = [f for f in standing if f.get("validation_state") == "candidate"]
+    discarded = [f for f in standing if f.get("validation_state") != "candidate"]
 
     verified = [f for f in candidates if f.get("verifications")]
     confirmed = [f for f in candidates if f.get("verdict") == "confirmed"]
@@ -49,6 +62,7 @@ def summarise(
     metrics = {
         "candidates": len(distinct),
         "candidate_findings": len(candidates),
+        "withdrawn_findings": len(withdrawn),
         "discarded_candidates": len(discarded),
         "confirmed": len(confirmed),
         "rejected": len(rejected),

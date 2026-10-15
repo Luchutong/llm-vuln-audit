@@ -13,6 +13,7 @@ dependencies = [
   "pydantic>=2.9,<3",
   "pydantic-ai-slim[openai]>=0.0.20",
   "openai>=1.0,<3",
+  "cryptography>=43,<46",
   # tree-sitter-php 0.23.x is built against the 0.23 runtime. Pairing it with the
   # 0.26 runtime corrupts the heap: the cyclic GC then frees native tree-sitter
   # objects that are still referenced and the process dies in an unrelated
@@ -21,6 +22,7 @@ dependencies = [
   "tree-sitter-php>=0.23,<0.24",
   "python-multipart>=0.0.9",
   "httpx>=0.27,<1",
+  "smolagents==1.26.0",
 ]
 
 [project.optional-dependencies]

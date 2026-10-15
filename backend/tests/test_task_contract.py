@@ -13,7 +13,13 @@ from pydantic_ai import ModelRetry
 from audit.agent import _validate_planner_decision
 from audit.db import Store
 from audit.events import EventBus
-from audit.schemas import CreateRunRequest, GoalAssessment, PlannerDecision, TaskFinding
+from audit.schemas import (
+    CreateRunRequest,
+    GoalAssessment,
+    PlannerDecision,
+    PlannerSourceRef,
+    TaskFinding,
+)
 from audit.source import SourceRepository
 
 
@@ -100,7 +106,6 @@ def test_goal_assessment_keeps_multiple_independently_cited_results():
 
 def test_run_request_has_one_public_planner_mode():
     request = CreateRunRequest(snapshot_id="snapshot-1", task=TASK)
-    assert request.scope == []
     assert request.task.require_poc is False
     assert request.task.max_planner_rounds == 4
 
@@ -108,6 +113,11 @@ def test_run_request_has_one_public_planner_mode():
         CreateRunRequest(snapshot_id="snapshot-1")
     with pytest.raises(ValidationError, match="prompt_id"):
         CreateRunRequest(snapshot_id="snapshot-1", task=TASK, prompt_id="P0")
+    # The whole snapshot is the scope now, so selecting files is no longer a request
+    # field at all; a stale client must fail loudly instead of appearing to work.
+    with pytest.raises(ValidationError, match="scope"):
+        CreateRunRequest(snapshot_id="snapshot-1", task=TASK, scope=["src/app.php"])
+    assert not hasattr(request, "scope")
 
 
 def test_planner_decision_uses_task_keys_and_multi_file_reading_instructions():
@@ -133,6 +143,74 @@ def test_planner_decision_uses_task_keys_and_multi_file_reading_instructions():
             basis_summary="项目图需要两个方向。",
             tasks=[planner_task(), planner_task()],
         )
+
+
+def test_an_over_long_window_or_one_past_the_end_is_clamped_not_rejected():
+    """An over-ask is cut down to size; only the frozen map and the task graph are hard.
+
+    A window may sit anywhere inside a long file — `end_line <= 400` used to make
+    everything below line 400 unaddressable.  What is bounded is the window's length,
+    and a window running past the file's real line count is clamped to its end rather
+    than costing the round (two such rejections used to end an entire run).
+    """
+    decision = PlannerDecision(
+        goal_state="continue",
+        basis_summary="长文件的下半部分同样是可读范围。",
+        tasks=[planner_task(source_refs=[
+            {"path": "src/app.php", "start_line": 1180, "end_line": 1260, "reason": "writer"},
+            {"path": "src/app.php", "start_line": 300, "end_line": 900, "reason": "audit"},
+        ])],
+    )
+    notes: list[dict] = []
+    _validate_planner_decision(
+        decision,
+        {"files": [{"path": "src/app.php", "line_count": 900}]},
+        [],
+        on_sanitize=notes.append,
+    )
+
+    refs = decision.tasks[0].source_refs
+    assert (refs[0].start_line, refs[0].end_line) == (900, 900)
+    assert (refs[1].start_line, refs[1].end_line) == (300, 699)
+    assert [note["field"] for note in notes] == ["source_refs", "source_refs"]
+
+    # The payload guard is far above any usable reading window, and still refuses.
+    with pytest.raises(ValidationError, match="4000 lines"):
+        PlannerSourceRef(path="src/app.php", start_line=1, end_line=4001)
+
+
+def test_over_long_hint_lists_are_trimmed_instead_of_costed_against_the_round():
+    """One extra hint used to fail validation and, with one correction allowed, the run.
+
+    The hints only tell a worker where to look and the context builder slices them
+    anyway, so they are deduplicated and trimmed.  `scope_paths` and `dependencies`
+    stay strict: dropping one of those silently would change what a worker may read
+    or how the task graph is ordered.
+    """
+    hints = [f"hint-{index}" for index in range(20)]
+    decision = PlannerDecision(
+        goal_state="continue",
+        basis_summary="覆盖两个方向的读取计划。",
+        tasks=[planner_task(query_hints=hints + ["hint-0"])],
+    )
+    assert len(decision.tasks[0].query_hints) == 12
+    assert decision.tasks[0].query_hints[:2] == ["hint-0", "hint-1"]
+
+    symbols = PlannerDecision(
+        goal_state="continue",
+        basis_summary="覆盖两个方向的读取计划。",
+        tasks=[planner_task(target_symbols=[f"sym{index}" for index in range(40)])],
+    )
+    assert len(symbols.tasks[0].target_symbols) == 24
+
+    for field, value in (("scope_paths", [f"p{index}.php" for index in range(30)]),
+                         ("dependencies", [f"task-{index}" for index in range(20)])):
+        with pytest.raises(ValidationError):
+            PlannerDecision(
+                goal_state="continue",
+                basis_summary="覆盖两个方向的读取计划。",
+                tasks=[planner_task(**{field: value})],
+            )
 
 
 def test_host_rejects_planner_references_or_dependencies_outside_the_frozen_map():
@@ -170,8 +248,8 @@ def test_host_rejects_planner_references_or_dependencies_outside_the_frozen_map(
         _validate_planner_decision(cyclic, project_map, [])
 
 
-def test_explicit_vendor_scope_is_frozen_into_the_project_map(tmp_path):
-    """Default exclusions are convenience only; an explicit PHP selection remains legal."""
+def test_whole_snapshot_scope_is_frozen_including_dependency_trees(tmp_path):
+    """There is no scope picker: uploading a project puts every readable file in scope."""
     from audit.app import create_run
 
     store = Store(tmp_path / "audit.db")
@@ -196,12 +274,14 @@ def test_explicit_vendor_scope_is_frozen_into_the_project_map(tmp_path):
 
         created = asyncio.run(create_run(
             request,
-            CreateRunRequest(snapshot_id=snapshot["id"], scope=["vendor/library.php"], task=TASK),
+            CreateRunRequest(snapshot_id=snapshot["id"], task=TASK),
         ))
 
-        assert created["scope"] == ["vendor/library.php"]
+        assert created["scope"] == []
+        assert created["scope_mode"] == "snapshot"
         project_map = store.get_project_map(created["id"])
-        assert project_map is not None and project_map["scope"] == ["vendor/library.php"]
+        assert project_map is not None
+        assert project_map["scope"] == ["assets/readme.txt", "src/app.php", "vendor/library.php"]
         assert store.list_run_units(created["id"]) == []
     finally:
         store.close()

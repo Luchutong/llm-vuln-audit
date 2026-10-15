@@ -1,21 +1,32 @@
-"""Server-side model configuration and run budgets.
+"""Server-side model configuration, saved credentials and run budgets.
 
-Credentials come from the environment only; they are never stored in the database
-and never returned by an endpoint. ``LLM_*`` names are shared with the sibling
-harness-generation project so one local ``.env`` can drive both.
+The initial profile is read from ``LLM_*`` environment variables.  Additional
+provider profiles may be entered locally; their API keys are encrypted before
+SQLite persistence and are never returned by an endpoint. ``LLM_*`` names are
+shared with the sibling harness-generation project so one local ``.env`` can
+still drive the default profile.
 """
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+from cryptography.fernet import Fernet, InvalidToken
 
 VERSION = "0.1.0"
 WORKER_NAME = "audit-worker-1"
 
-DEFAULT_BUDGETS = {"responses": 8, "tools": 16, "seconds": 300}
+# The allowance a run gets when the caller names none.  Deliberately loose: a Planner
+# round that runs out of responses before it reaches a structured decision produces no
+# task at all, which costs a whole run rather than a few calls, and the way to stop a
+# run early is ``pause``/``cancel`` rather than a budget that expires mid-decision.
+# ``MAX_BUDGETS`` is the ceiling a caller may ask for, not a recommendation.
+DEFAULT_BUDGETS = {"responses": 24, "tools": 96, "seconds": 1800}
 MIN_BUDGETS = {"responses": 1, "tools": 0, "seconds": 30}
-MAX_BUDGETS = {"responses": 64, "tools": 256, "seconds": 3600}
+MAX_BUDGETS = {"responses": 256, "tools": 2048, "seconds": 14400}
 
 _MODEL_KEYS = ("LLM_MODEL", "AUDIT_MODEL")
 _BASE_KEYS = ("LLM_BASE_URL", "AUDIT_BASE_URL")
@@ -23,6 +34,8 @@ _KEY_KEYS = ("LLM_API_KEY", "AUDIT_API_KEY", "OPENAI_API_KEY")
 _THINKING_KEYS = ("LLM_THINKING", "AUDIT_THINKING")
 
 _TRUTHY = {"1", "true", "yes", "on"}
+_URL_USERINFO = re.compile(r"(?i)(https?://)[^/\s@]*@")
+_URL_QUERY_FRAGMENT = re.compile(r"(?i)(https?://[^\s?#]+)(?:\?[^\s#]*)?(?:#[^\s]*)?")
 
 
 def _first(environ: dict[str, str], names: tuple[str, ...], default: str = "") -> str:
@@ -86,10 +99,28 @@ class ModelConfig:
     def label(self) -> str:
         return self.model or "unconfigured"
 
-    def masked_key(self) -> str:
-        if not self.api_key:
+    def public_base_url(self) -> str:
+        """Render an endpoint without accidental URL user-info or query secrets."""
+        try:
+            parsed = urlsplit(self.base_url)
+        except ValueError:
             return ""
-        return f"{self.api_key[:6]}****" if len(self.api_key) > 6 else "****"
+        netloc = parsed.netloc.rsplit("@", 1)[-1]
+        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+    def redact(self, value: object) -> str:
+        """Remove configured credentials before errors enter durable state or a response."""
+        text = str(value)
+        if self.api_key:
+            text = text.replace(self.api_key, "[redacted]")
+        # Environment variables predate the profile URL validator and might still
+        # contain user-info.  Libraries frequently echo their endpoint in network
+        # exceptions, so remove user-info from any http(s) URL before persisting it
+        # as a health error or returning it to the browser.
+        if self.base_url:
+            text = text.replace(self.base_url, self.public_base_url())
+        text = _URL_USERINFO.sub(r"\1", text)
+        return _URL_QUERY_FRAGMENT.sub(r"\1", text)
 
     def extra_body(self) -> dict:
         # The Ark plan endpoint and DeepSeek both accept this toggle; sending it
@@ -108,13 +139,69 @@ class ModelConfig:
 
     def public(self) -> dict:
         return {
-            "model": self.label,
-            "base_url": self.base_url,
+            # ``label`` is useful for human-facing run records, but API consumers
+            # need the actual selected identifier so they can edit a saved model
+            # catalogue without treating "unconfigured" as a real model name.
+            "model": self.model,
+            "base_url": self.public_base_url(),
             "configured": self.configured,
             "thinking": self.thinking,
-            "api_key_hint": self.masked_key(),
             "missing": self.missing(),
         }
+
+
+class CredentialVault:
+    """Encrypt UI-saved provider keys with a machine-local Fernet key.
+
+    The key lives alongside the local SQLite data with owner-only permissions, not
+    in the database or a browser response.  This protects against accidentally
+    sharing ``audit.db`` while keeping a single-user local workbench usable without
+    adding another mandatory environment variable.  Operators can still use the
+    original environment-backed profile when they do not want a key persisted.
+    """
+
+    def __init__(self, data_dir: Path):
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.path = data_dir / ".model-config.key"
+        self._cipher = Fernet(self._load_or_create_key())
+
+    def _load_or_create_key(self) -> bytes:
+        try:
+            key = self.path.read_bytes().strip()
+        except FileNotFoundError:
+            key = Fernet.generate_key()
+            try:
+                descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                key = self.path.read_bytes().strip()
+            else:
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(key)
+        try:
+            # A pre-existing key can come from an older umask. Tighten it when
+            # the platform supports POSIX permissions; this is harmless on the
+            # local Docker and Linux workflows the project documents.
+            os.chmod(self.path, 0o600)
+        except OSError:
+            pass
+        try:
+            # Constructing a Fernet instance validates the key before a saved
+            # credential can be accepted or decrypted.
+            Fernet(key)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("本地模型凭据密钥无效；请恢复 data/.model-config.key 的备份") from exc
+        return key
+
+    def encrypt(self, value: str) -> str:
+        return self._cipher.encrypt(value.encode("utf-8")).decode("ascii") if value else ""
+
+    def decrypt(self, value: str) -> str:
+        if not value:
+            return ""
+        try:
+            return self._cipher.decrypt(value.encode("ascii")).decode("utf-8")
+        except (InvalidToken, UnicodeError) as exc:
+            raise RuntimeError("无法解密已保存的模型凭据；请重新录入该模型的 API Key") from exc
 
 
 def clamp_budgets(raw: object) -> dict:

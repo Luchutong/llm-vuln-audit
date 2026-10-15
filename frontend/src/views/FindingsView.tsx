@@ -49,6 +49,24 @@ const VERDICT_LABELS: Record<string, string> = {
   uncertain: '无法确定',
 };
 
+/**
+ * Disposition is the third axis, beside "did the citations hold up" and "does it
+ * reproduce": whether the run still stands behind this conclusion. Nothing here is ever
+ * deleted — a withdrawn conclusion keeps its row, its evidence and its human verdict,
+ * because "this run changed its mind" is itself part of the record.
+ */
+const DISPOSITION_LABELS: Record<string, string> = {
+  retracted: '已被 Planner 撤回',
+  duplicate: '被 Planner 判为重复',
+  superseded: '已被后续结论取代',
+  contested: 'Planner 对人工结论存疑',
+};
+
+function dispositionLabel(finding: Finding): string | null {
+  const disposition = finding.disposition ?? 'open';
+  return disposition === 'open' ? null : DISPOSITION_LABELS[disposition] ?? disposition;
+}
+
 const SOURCE_CONTEXT_LINES = 4;
 const MAX_SOURCE_WINDOW_LINES = 400;
 const MAX_EVIDENCE_LINES_PER_WINDOW = MAX_SOURCE_WINDOW_LINES - SOURCE_CONTEXT_LINES * 2;
@@ -162,6 +180,8 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
                 </span>
                 <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>
                 {finding.verdict && <span className={`chip chip-${finding.verdict}`}>{verdictLabel(finding, finding.verdict)}</span>}
+                {dispositionLabel(finding) && <span className="chip chip-paused">{dispositionLabel(finding)}</span>}
+                {finding.revision > 1 && <span className="chip">第 {finding.revision} 版</span>}
               </div>
               <div className="small" style={{ fontWeight: 500 }}>{categoryLabel(finding.category)}</div>
               {findingKindLabel(finding) && <div className="faint small">{findingKindLabel(finding)}</div>}
@@ -195,6 +215,8 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
             <span className={`chip chip-${finding.validation_state}`}>
               {finding.validation_state === 'candidate' ? '证据校验通过' : '证据校验不通过'}
             </span>
+            {dispositionLabel(finding) && <span className="chip chip-paused">{dispositionLabel(finding)}</span>}
+            {finding.revision > 1 && <span className="chip">第 {finding.revision} 版</span>}
           </div>
         </div>
 
@@ -341,6 +363,61 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
           </div>
         ))}
         <VerificationForm finding={finding} onRecorded={onChanged} />
+      </div>
+
+      <Lineage finding={finding} />
+    </div>
+  );
+}
+
+/**
+ * Where this conclusion came from and what happened to it.
+ *
+ * A re-run of the same direction reuses the slot rather than replacing the row, so the
+ * earlier text is archived here instead of lost. Without this panel, a conclusion that
+ * changed its story between rounds — narrowed to what the citations support, withdrawn
+ * and then re-asserted — would read exactly like one that always said this.
+ */
+function Lineage({ finding }: { finding: Finding }) {
+  const disposition = dispositionLabel(finding);
+  const archived = finding.superseded_summary ?? [];
+  if (!disposition && finding.revision <= 1 && !archived.length) return null;
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <div>
+          <div className="panel-title">结论沿革</div>
+          <div className="faint small">本条结论是第 {finding.revision} 版；此前内容与处置变更都保留在这里。</div>
+        </div>
+        {disposition && <span className="chip chip-paused">{disposition}</span>}
+      </div>
+      <div style={{ padding: '12px 16px' }}>
+        {disposition && (
+          <>
+            <Chain label="处置理由" value={finding.disposition_reason ?? ''} />
+            <Chain label="标注者" value={finding.disposition_by === 'human' ? '人工' : finding.disposition_by === 'planner' ? 'Planner' : ''} />
+            <Chain
+              label={finding.disposition === 'duplicate' ? '重复于' : '派生自'}
+              value={finding.derived_from_finding_id ? finding.derived_from_finding_id.slice(0, 8) : ''}
+            />
+          </>
+        )}
+        {archived.map((revision) => (
+          <div key={revision.revision} style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 8, marginTop: 8 }}>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <span className="chip">第 {revision.revision} 版</span>
+              {revision.disposition && revision.disposition !== 'open' && (
+                <span className="chip chip-paused">{DISPOSITION_LABELS[revision.disposition] ?? revision.disposition}</span>
+              )}
+              <span className="faint small">{revision.replaced_at?.slice(0, 19)} 被取代</span>
+            </div>
+            <div className="small" style={{ marginTop: 5 }}>{revision.title}</div>
+            {revision.summary && <div className="small muted">{revision.summary}</div>}
+            <div className="mono faint" style={{ fontSize: 11.5, marginTop: 4 }}>
+              {revision.evidence.map((item) => `${item.path}:${item.start_line}-${item.end_line}`).join('、') || '（无行号引用）'}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -204,6 +204,78 @@ def test_context_cross_file_includes_methods_callers_and_missing_dependencies(re
         repository.get_context(snapshot["id"], {"id": "forged"})
 
 
+def test_import_indexes_php_tags_without_a_standard_suffix(repository):
+    """Framework modules and extensionless PHP entrypoints are real project code.
+
+    The target workflow accepts arbitrary PHP project ZIPs, so suffix matching alone
+    must not silently drop a Drupal-style module or a command entrypoint that carries a
+    PHP opening tag.
+    """
+    snapshot = repository.import_zip(make_zip([
+        ("modules/access.module", "<?php\nfunction check_access() { return true; }\n"),
+        ("bin/worker", "#!/usr/bin/env php\n<?php\necho 'ok';\n"),
+        ("legacy/handler.php6", "<?php\nfunction legacy_handler() { return true; }\n"),
+        ("modules/short-tag.module", "<? echo 'short tag';\n"),
+        ("docs/notes.txt", "not PHP source"),
+    ]), "mixed.zip")
+    files = {item["path"]: item for item in snapshot["files"]}
+    assert files["modules/access.module"]["is_php"] is True
+    assert files["modules/access.module"]["excluded"] is False
+    assert files["bin/worker"]["is_php"] is True
+    assert files["bin/worker"]["excluded"] is False
+    assert files["legacy/handler.php6"]["is_php"] is True
+    assert files["legacy/handler.php6"]["excluded"] is False
+    assert files["modules/short-tag.module"]["is_php"] is True
+    assert files["modules/short-tag.module"]["excluded"] is False
+    assert files["docs/notes.txt"]["is_php"] is False
+    assert files["docs/notes.txt"]["excluded"] is True
+    assert {unit["file_path"] for unit in snapshot["units"]} >= {
+        "modules/access.module", "bin/worker", "legacy/handler.php6",
+        "modules/short-tag.module",
+    }
+
+
+def test_import_detects_a_late_php_tag_in_framework_or_extensionless_source(repository):
+    """A PHP block can follow a large template/banner in a nonstandard filename."""
+    prefix = b" " * 8_193
+    snapshot = repository.import_zip(make_zip([
+        ("modules/late.module", prefix + b"<?php\nfunction late_module() { return true; }\n"),
+        ("bin/late-worker", prefix + b"<?= 'worker';\n"),
+    ]), "late-tag.zip")
+    files = {item["path"]: item for item in snapshot["files"]}
+    assert files["modules/late.module"]["is_php"] is True
+    assert files["modules/late.module"]["excluded"] is False
+    assert files["bin/late-worker"]["is_php"] is True
+    assert files["bin/late-worker"]["excluded"] is False
+    assert {unit["file_path"] for unit in snapshot["units"]} >= {
+        "modules/late.module", "bin/late-worker",
+    }
+
+
+def test_context_and_search_respect_a_task_frozen_scope(repository):
+    """Task tools cannot silently escape the source files frozen into the run."""
+    snapshot = repository.import_zip(make_zip([
+        ("src/index.php", "<?php require __DIR__ . '/unit.php'; run($_GET['q']);"),
+        ("src/unit.php", "<?php\ninclude __DIR__ . '/../vendor/helper.inc';\nclass Service {\n public function do_it($x) { return help($x); }\n}\nfunction run($x) { return help($x); }\n"),
+        ("vendor/helper.inc", "<?php\nfunction help($x) { return htmlspecialchars($x); }\n"),
+    ]), "scoped.zip")
+    unit = next(item for item in snapshot["units"] if item["symbol"] == "Service::do_it")
+    allowed = {"src/unit.php"}
+
+    context = repository.get_context(snapshot["id"], unit, allowed_paths=allowed)
+    assert context["excerpts"]
+    assert {item["path"] for item in context["excerpts"]} == allowed
+    assert any(
+        item["reason"] == "Related source is outside this task's frozen scope"
+        for item in context["unresolved_dependencies"]
+    )
+
+    matches = repository.search_code(snapshot["id"], "help", allowed_paths=allowed)["matches"]
+    assert matches and {item["path"] for item in matches} == allowed
+    with pytest.raises(ValueError, match="frozen scope"):
+        repository.search_code(snapshot["id"], "help", path="vendor/helper.inc", allowed_paths=allowed)
+
+
 def test_literal_search_range_limits_and_integrity(repository):
     snapshot = repository.import_zip(make_zip([("app.php", "<?php\n// literal [a-z].*\necho $_GET['a'];\necho $_GET['b'];\n")]), "search.zip")
     matches = repository.search_code(snapshot["id"], "[a-z].*")["matches"]

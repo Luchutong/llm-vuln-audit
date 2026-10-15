@@ -154,7 +154,6 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
           </div>
           <div style={{ padding: '12px 16px' }} className="small">
             <div>审计应用 <span className="mono">127.0.0.1:8899</span></div>
-            <div>演示靶机 DVWA <span className="mono">127.0.0.1:4280</span></div>
             <div>版本 <span className="mono">{config.version}</span></div>
             <div>Worker：<span className="mono">{JSON.stringify(config.worker)}</span></div>
           </div>

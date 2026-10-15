@@ -7,10 +7,30 @@ const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
   xss_r: '反射型 XSS',
   command_injection: '命令注入',
+  task_goal: '目标发现',
 };
 
 function categoryLabel(category: string | null | undefined) {
-  return CATEGORY_LABELS[category ?? ''] ?? (category ? `自定义目标：${category}` : '未标注类别');
+  if (category?.startsWith('task_goal')) return '目标发现';
+  return CATEGORY_LABELS[category ?? ''] ?? (category ? `任务类别：${category}` : '未标注类别');
+}
+
+function findingKindLabel(finding: Finding): string | null {
+  if (!finding.finding_kind) return null;
+  return `类型：${finding.finding_kind}`;
+}
+
+function isGenericSourceFinding(finding: Finding): boolean {
+  return (finding.category.startsWith('task_goal') || Boolean(finding.finding_kind)) && !finding.poc;
+}
+
+function verdictLabel(finding: Finding, verdict: string | null | undefined): string {
+  if (isGenericSourceFinding(finding)) {
+    if (verdict === 'confirmed') return '确认结论';
+    if (verdict === 'rejected') return '驳回结论';
+    return '待定';
+  }
+  return VERDICT_LABELS[verdict ?? ''] ?? '未确定';
 }
 
 const EXECUTION_LABELS: Record<string, string> = {
@@ -100,11 +120,9 @@ function auditUnitLocation(finding: Pick<Finding, 'file_path' | 'unit_start_line
 /**
  * Findings and the human verification gate.
  *
- * A candidate here is a claim, not a result. The gate exists so a claim only becomes a
- * confirmed vulnerability once a person has actually run the proof of concept against the
- * matching target and recorded what happened — including when it did not work, which is
- * recorded as `not_triggered` and stays out of the statistics rather than counting as a
- * false positive.
+ * A candidate here is a claim, not a final result. POC-bearing vulnerability candidates
+ * need a reproducible execution record; a source fact such as a boundary or configuration
+ * origin is instead accepted or rejected through a documented human code review.
  */
 export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDetail; snapshotId: string; onChanged: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -139,9 +157,10 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
                   {finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}
                 </span>
                 <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>
-                {finding.verdict && <span className={`chip chip-${finding.verdict}`}>{VERDICT_LABELS[finding.verdict]}</span>}
+                {finding.verdict && <span className={`chip chip-${finding.verdict}`}>{verdictLabel(finding, finding.verdict)}</span>}
               </div>
               <div className="small" style={{ fontWeight: 500 }}>{categoryLabel(finding.category)}</div>
+              {findingKindLabel(finding) && <div className="faint small">{findingKindLabel(finding)}</div>}
               <div className="mono faint" style={{ fontSize: 11.5 }}>
                 {auditUnitLocation(finding)}
               </div>
@@ -158,13 +177,14 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
 function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; snapshotId: string; onChanged: () => void }) {
   const poc = finding.poc;
   const evidenceGroups = groupEvidence(finding.evidence);
+  const genericSourceFinding = isGenericSourceFinding(finding);
   return (
     <div className="grid">
       <div className="panel">
         <div className="panel-head">
           <div>
             <div className="panel-title">{categoryLabel(finding.category)} · {finding.title}</div>
-            <div className="mono faint small">{auditUnitLocation(finding)}</div>
+            <div className="mono faint small">{auditUnitLocation(finding)}{finding.finding_kind ? ` · ${finding.finding_kind}` : ''}</div>
           </div>
           <div className="row">
             <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>
@@ -188,14 +208,29 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
         )}
 
         <div style={{ padding: '12px 16px' }}>
-          <Chain label="输入来源" value={finding.input_source} />
-          <Chain label="传播路径" value={finding.propagation} />
-          <Chain label="危险操作" value={finding.dangerous_operation} />
-          <Chain label="防护判断" value={finding.protection || '无'} />
-          <Chain label="触发前提" value={finding.preconditions.join('；') || '无'} />
-          <Chain label="缺失上下文" value={finding.missing_context.join('；') || '无'} />
-          <Chain label="分析依据" value={finding.summary} />
-          <Chain label="修复建议" value={finding.remediation} />
+          {genericSourceFinding ? (
+            <>
+              <Chain label="审计依据" value={finding.summary} />
+              <Chain label="相关输入" value={finding.input_source} />
+              <Chain label="数据或控制流" value={finding.propagation} />
+              <Chain label="敏感操作" value={finding.dangerous_operation} />
+              <Chain label="边界或防护" value={finding.protection} />
+              <Chain label="前置条件" value={finding.preconditions.join('；')} />
+              <Chain label="缺失上下文" value={finding.missing_context.join('；')} />
+              <Chain label="建议" value={finding.remediation} />
+            </>
+          ) : (
+            <>
+              <Chain label="输入来源" value={finding.input_source} />
+              <Chain label="传播路径" value={finding.propagation} />
+              <Chain label="危险操作" value={finding.dangerous_operation} />
+              <Chain label="防护判断" value={finding.protection || '无'} />
+              <Chain label="触发前提" value={finding.preconditions.join('；') || '无'} />
+              <Chain label="缺失上下文" value={finding.missing_context.join('；') || '无'} />
+              <Chain label="分析依据" value={finding.summary} />
+              <Chain label="修复建议" value={finding.remediation} />
+            </>
+          )}
         </div>
       </div>
 
@@ -266,17 +301,23 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
 
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">人工验证</span>
+          <span className="panel-title">{genericSourceFinding ? '人工复核' : '人工验证'}</span>
           <span className="faint small">{finding.verifications.length} 条记录</span>
         </div>
         {finding.verifications.map((record, index) => (
           <div key={record.id ?? index} style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-soft)' }}>
             <div className="row" style={{ flexWrap: 'wrap' }}>
-              <span className={`chip chip-${record.verdict}`}>{VERDICT_LABELS[record.verdict]}</span>
-              <span className="chip">{EXECUTION_LABELS[record.execution_status] ?? record.execution_status}</span>
-              {record.browser_execution && <span className="chip">含浏览器执行证据</span>}
+              <span className={`chip chip-${record.verdict}`}>{verdictLabel(finding, record.verdict)}</span>
+              {!genericSourceFinding && <span className="chip">{EXECUTION_LABELS[record.execution_status] ?? record.execution_status}</span>}
+              {!genericSourceFinding && record.browser_execution && <span className="chip">含浏览器执行证据</span>}
               <span className="faint small">{record.created_at?.slice(0, 19)}</span>
             </div>
+            {record.target_version && (
+              <div className="small muted" style={{ marginTop: 6 }}>
+                {genericSourceFinding ? '复核环境或版本' : '目标版本'}：{record.target_version}
+              </div>
+            )}
+            {!genericSourceFinding && record.command && <div className="small muted">执行命令：<span className="mono">{record.command}</span></div>}
             {record.attack_observation && <div className="small" style={{ marginTop: 6 }}>攻击观测：{record.attack_observation}</div>}
             {record.normal_observation && <div className="small muted">对照观测：{record.normal_observation}</div>}
             {record.modification_notes && <div className="small muted">改动说明：{record.modification_notes}</div>}
@@ -343,6 +384,7 @@ function VerificationForm({ finding, onRecorded }: { finding: Finding; onRecorde
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const genericSourceFinding = isGenericSourceFinding(finding);
 
   useEffect(() => {
     setForm(blankForm(finding));
@@ -372,76 +414,90 @@ function VerificationForm({ finding, onRecorded }: { finding: Finding; onRecorde
 
   return (
     <div style={{ padding: '12px 16px' }}>
-      <div className="field-label" style={{ marginBottom: 8 }}>记录一次验证</div>
+      <div className="field-label" style={{ marginBottom: 8 }}>
+        {genericSourceFinding ? '记录一次复核' : '记录一次验证'}
+      </div>
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+      <div className="grid" style={{ gridTemplateColumns: genericSourceFinding ? '1fr 1fr' : '1fr 1fr 1fr' }}>
         <div className="field">
           <span className="field-label">人工结论</span>
           <select value={form.verdict} onChange={(event) => set('verdict', event.target.value as FormState['verdict'])}>
-            <option value="uncertain">无法确定</option>
-            <option value="confirmed">确认漏洞</option>
-            <option value="rejected">排除（误报）</option>
+            <option value="uncertain">{genericSourceFinding ? '待定' : '无法确定'}</option>
+            {(!genericSourceFinding || finding.validation_state === 'candidate') && (
+              <option value="confirmed">{genericSourceFinding ? '确认结论' : '确认漏洞'}</option>
+            )}
+            <option value="rejected">{genericSourceFinding ? '驳回结论' : '排除（误报）'}</option>
           </select>
         </div>
+        {!genericSourceFinding && (
+          <div className="field">
+            <span className="field-label">执行状态</span>
+            <select value={form.execution_status} onChange={(event) => set('execution_status', event.target.value)}>
+              {Object.entries(EXECUTION_LABELS).map(([value, text]) => (
+                <option key={value} value={value}>{text}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="field">
-          <span className="field-label">执行状态</span>
-          <select value={form.execution_status} onChange={(event) => set('execution_status', event.target.value)}>
-            {Object.entries(EXECUTION_LABELS).map(([value, text]) => (
-              <option key={value} value={value}>{text}</option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <span className="field-label">目标版本</span>
-          <input type="text" value={form.target_version} placeholder="例如 DVWA 2.5 / commit a96943d" onChange={(event) => set('target_version', event.target.value)} />
-        </div>
-      </div>
-
-      <div className="field">
-        <span className="field-label">执行命令</span>
-        <input type="text" className="mono" value={form.command} placeholder="php poc.php http://127.0.0.1:4280" onChange={(event) => set('command', event.target.value)} />
-      </div>
-
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <div className="field">
-          <span className="field-label">正常输入的实际观测（确认或排除时必填）</span>
-          <textarea rows={2} value={form.normal_observation} onChange={(event) => set('normal_observation', event.target.value)} />
-        </div>
-        <div className="field">
-          <span className="field-label">攻击输入的实际观测（确认或排除时必填）</span>
-          <textarea rows={2} value={form.attack_observation} onChange={(event) => set('attack_observation', event.target.value)} />
+          <span className="field-label">{genericSourceFinding ? '复核环境或版本（可选）' : '目标版本'}</span>
+          <input type="text" value={form.target_version} placeholder={genericSourceFinding ? '例如 commit ID、分支或复核环境' : '例如 版本号 / commit ID / 构建标识'} onChange={(event) => set('target_version', event.target.value)} />
         </div>
       </div>
 
-      <div className="field">
-        <span className="field-label">对脚本做的适配改动与原因</span>
-        <textarea rows={2} value={form.modification_notes} onChange={(event) => set('modification_notes', event.target.value)} />
-      </div>
+      {!genericSourceFinding && (
+        <>
+          <div className="field">
+            <span className="field-label">执行命令</span>
+            <input type="text" className="mono" value={form.command} placeholder="例如 php poc.php http://target.example" onChange={(event) => set('command', event.target.value)} />
+          </div>
+
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field">
+              <span className="field-label">正常输入的实际观测（确认或排除时必填）</span>
+              <textarea rows={2} value={form.normal_observation} onChange={(event) => set('normal_observation', event.target.value)} />
+            </div>
+            <div className="field">
+              <span className="field-label">攻击输入的实际观测（确认或排除时必填）</span>
+              <textarea rows={2} value={form.attack_observation} onChange={(event) => set('attack_observation', event.target.value)} />
+            </div>
+          </div>
+
+          <div className="field">
+            <span className="field-label">对脚本做的适配改动与原因</span>
+            <textarea rows={2} value={form.modification_notes} onChange={(event) => set('modification_notes', event.target.value)} />
+          </div>
+
+          <div className="field">
+            <span className="field-label">实际运行的脚本（可与下发脚本不同）</span>
+            <textarea rows={4} className="mono" value={form.modified_script} onChange={(event) => set('modified_script', event.target.value)} />
+          </div>
+        </>
+      )}
 
       <div className="field">
-        <span className="field-label">实际运行的脚本（可与下发脚本不同）</span>
-        <textarea rows={4} className="mono" value={form.modified_script} onChange={(event) => set('modified_script', event.target.value)} />
-      </div>
-
-      <div className="field">
-        <span className="field-label">证据附件（日志 / 截图）</span>
+        <span className="field-label">{genericSourceFinding ? '复核附件（可选）' : '证据附件（日志 / 截图）'}</span>
         <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
         <span className="field-hint">
-          {finding.category === 'xss_r'
+          {genericSourceFinding
+            ? '可附代码评审记录、截图或其他能帮助复核结论的材料。'
+            : finding.category === 'xss_r'
             ? '反射型 XSS 确认必须勾选浏览器执行证据并上传日志或截图。'
             : '确认漏洞需上传日志、截图或其他可复核证据；执行失败的输出也建议保留。'}
         </span>
       </div>
 
-      <div className="field">
-        <label className="checkbox">
-          <input type="checkbox" checked={form.browser_execution} onChange={(event) => set('browser_execution', event.target.checked)} />
-          已在真实浏览器中执行（XSS 必需）
-        </label>
-      </div>
+      {!genericSourceFinding && (
+        <div className="field">
+          <label className="checkbox">
+            <input type="checkbox" checked={form.browser_execution} onChange={(event) => set('browser_execution', event.target.checked)} />
+            已在真实浏览器中执行（XSS 必需）
+          </label>
+        </div>
+      )}
 
       <div className="field">
-        <span className="field-label">备注</span>
+        <span className="field-label">{genericSourceFinding ? '人工复核说明（确认或驳回时必填）' : '备注'}</span>
         <textarea rows={2} value={form.notes} onChange={(event) => set('notes', event.target.value)} />
       </div>
 
@@ -450,10 +506,12 @@ function VerificationForm({ finding, onRecorded }: { finding: Finding; onRecorde
 
       <div className="row">
         <button className="btn btn-primary" onClick={submit} disabled={busy}>
-          {busy ? '提交中…' : '提交验证记录'}
+          {busy ? '提交中…' : genericSourceFinding ? '提交复核记录' : '提交验证记录'}
         </button>
         <span className="field-hint">
-          确认或排除都需要成功执行、目标版本、命令和正常/攻击观测；确认还必须上传证据附件。
+          {genericSourceFinding
+            ? '确认或驳回需要填写源码复核说明；可附代码评审记录、截图或其他证据。'
+            : '确认或排除都需要成功执行、目标版本、命令和正常/攻击观测；确认还必须上传证据附件。'}
         </span>
       </div>
     </div>

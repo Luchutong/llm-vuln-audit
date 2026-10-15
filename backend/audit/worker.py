@@ -348,6 +348,26 @@ class AuditWorker:
                 "max_workers": task["max_workers"],
             },
         )
+        planned = self.store.list_task_work_items(run_id)
+        self.bus.emit(
+            run_id,
+            None,
+            "task_plan_created",
+            {
+                "goal_id": goal["id"],
+                "strategy": "目标文本中的代码标识与路径优先，随后按稳定源码顺序处理",
+                "work_items": len(planned),
+                "scope_files": len(run.get("scope") or []),
+                "first_items": [
+                    {
+                        "work_id": item["id"],
+                        "summary": item["summary"],
+                        "priority": item["priority"],
+                    }
+                    for item in planned[:8]
+                ],
+            },
+        )
 
         stop = asyncio.Event()
         coordinator = asyncio.Lock()
@@ -444,7 +464,14 @@ class AuditWorker:
                     def record(event: dict) -> None:
                         kind = event.get("kind", "task_agent_event")
                         payload = {key: value for key, value in event.items() if key != "kind"}
-                        payload.update({"work_id": work["id"], "worker_id": worker_id})
+                        payload.update({
+                            "work_id": work["id"],
+                            "worker_id": worker_id,
+                            # The same work item may be retried.  Attaching the durable
+                            # attempt number to every tool/model event makes an expanded
+                            # trace unambiguous even when workers interleave.
+                            "attempt": int(work["attempt"]) + 1,
+                        })
                         self.bus.emit(run_id, unit["unit_id"], kind, payload)
 
                     outcome = await pursue_task_work(
@@ -455,6 +482,7 @@ class AuditWorker:
                         task=task,
                         attempt=int(work["attempt"]) + 1,
                         focus=work.get("focus") or "",
+                        allowed_paths=set(run.get("scope") or []),
                         config=self.settings.model,
                         budgets=run["budgets"],
                         policy=(
@@ -468,10 +496,10 @@ class AuditWorker:
                     # The agent validates its own citations against the exact source
                     # ledger.  Persisting repeats the validation with snapshot bounds;
                     # a rejected artifact cannot satisfy the task objective.
-                    prepared_finding = None
+                    prepared_findings: list[dict] = []
                     if outcome["outcome"] == "achieved":
-                        prepared_finding = self._build_goal_finding(run, unit, outcome)
-                        if not prepared_finding or not prepared_finding["candidate"]:
+                        prepared_findings = self._build_goal_findings(run, unit, outcome)
+                        if not any(item["candidate"] for item in prepared_findings):
                             message = "目标发现未通过持久化证据校验，不能满足任务验收条件"
                             outcome = {
                                 **outcome,
@@ -482,6 +510,7 @@ class AuditWorker:
                                     "outcome": "blocked",
                                     "terminal_reason": "evidence_rejected",
                                     "finding": None,
+                                    "findings": [],
                                     "missing_context": [message],
                                 },
                             }
@@ -493,7 +522,7 @@ class AuditWorker:
                         usage=outcome["usage"],
                         seen=outcome["seen"],
                         error=outcome.get("error"),
-                        finding=(prepared_finding or {}).get("record") if prepared_finding and prepared_finding["candidate"] else None,
+                        findings=[item["record"] for item in prepared_findings if item["candidate"]],
                         stop_on_achieved=bool(task["stop_on_achieved"]),
                         goal_reason=outcome["result"].get("summary") or None,
                     )
@@ -501,19 +530,20 @@ class AuditWorker:
                         # Cancellation/failure may have already released this lease.
                         return
 
-                    if prepared_finding is not None:
+                    if prepared_findings:
                         # Candidate findings were inserted in resolve_task_work's
-                        # transaction with the goal state. An invalid artifact is still
-                        # useful for review, but cannot affect the goal and can be
-                        # written after the work settles.
-                        if not prepared_finding["candidate"]:
-                            self.store.add_finding(prepared_finding["record"])
-                        self.bus.emit(
-                            run_id,
-                            unit["unit_id"],
-                            "finding_created" if prepared_finding["candidate"] else "finding_rejected_by_validation",
-                            prepared_finding["event"],
-                        )
+                        # transaction with the goal state. Invalid artifacts remain
+                        # reviewable but cannot affect the goal, so they are written
+                        # afterwards under their own immutable IDs.
+                        for prepared in prepared_findings:
+                            if not prepared["candidate"]:
+                                self.store.add_finding(prepared["record"])
+                            self.bus.emit(
+                                run_id,
+                                unit["unit_id"],
+                                "finding_created" if prepared["candidate"] else "finding_rejected_by_validation",
+                                prepared["event"],
+                            )
 
                     state_kind = {
                         "open": "task_work_requeued",
@@ -543,7 +573,7 @@ class AuditWorker:
                         await abort(failed)
                         return
 
-                    if outcome["outcome"] == "achieved" and prepared_finding:
+                    if outcome["outcome"] == "achieved" and prepared_findings:
                         if resolved.get("goal_met"):
                             self.bus.emit(
                                 run_id,
@@ -553,6 +583,7 @@ class AuditWorker:
                                     "goal_id": resolved["goal_id"],
                                     "work_id": work["id"],
                                     "finding_id": resolved.get("finding_id"),
+                                    "finding_ids": resolved.get("finding_ids", []),
                                     "stop_on_achieved": task["stop_on_achieved"],
                                 },
                             )
@@ -623,60 +654,83 @@ class AuditWorker:
             },
         )
 
-    def _build_goal_finding(self, run: dict, unit: dict, outcome: dict) -> dict | None:
-        """Validate a custom-task finding before its atomic queue settlement."""
-        payload = (outcome.get("result") or {}).get("finding")
-        if not isinstance(payload, dict):
-            return None
+    def _build_goal_findings(self, run: dict, unit: dict, outcome: dict) -> list[dict]:
+        """Validate generic task results before their atomic queue settlement.
+
+        A target task may establish more than one independently cited source fact from
+        one unit.  Those records share the work-item transaction but get separate
+        identities, evidence validation states and event rows.  The first single-result
+        case keeps the historical ``task_goal`` category for compatibility.
+        """
+        result = outcome.get("result") or {}
+        payloads = result.get("findings")
+        if not isinstance(payloads, list):
+            legacy = result.get("finding")
+            payloads = [legacy] if isinstance(legacy, dict) else []
+        payloads = [payload for payload in payloads if isinstance(payload, dict)]
+        if not payloads:
+            return []
         snapshot = self.repository.get_snapshot(run["snapshot_id"])
         file_lines = {item["path"]: item["line_count"] for item in snapshot["files"]}
-        cited = _parse_evidence(str(payload.get("evidence") or ""))
-        evidence, problems = validate_evidence(
-            cited,
-            file_lines,
-            seen_ranges(unit, outcome.get("seen") or [], exact=outcome.get("seen_exact", False)),
-        )
-        candidate = bool(evidence)
-        finding_id = uuid.uuid4().hex
-        raw_preconditions = str(payload.get("preconditions") or "").strip()
-        finding = {
-            "id": finding_id,
-            "run_id": run["id"],
-            "unit_id": unit["unit_id"],
-            "fingerprint": fingerprint(
-                "task_goal", unit["file_path"], unit["symbol"], str(payload.get("dangerous_operation") or "")
-            ),
-            "category": "task_goal",
-            "title": str(payload.get("title") or "自定义目标发现"),
-            "severity": str(payload.get("severity") or "unknown"),
-            "summary": str(payload.get("summary") or ""),
-            "evidence": evidence,
-            "input_source": str(payload.get("input_source") or ""),
-            "propagation": str(payload.get("propagation") or ""),
-            "dangerous_operation": str(payload.get("dangerous_operation") or ""),
-            "protection": str(payload.get("protection") or ""),
-            "preconditions": [raw_preconditions] if raw_preconditions else [],
-            "missing_context": list((outcome.get("result") or {}).get("missing_context") or []),
-            "poc": payload.get("poc"),
-            "remediation": str(payload.get("remediation") or ""),
-            "validation_state": "candidate" if candidate else "invalid_evidence",
-            "validation_errors": problems,
-            "verdict": None,
-            "created_at": _now(),
-        }
-        return {
-            "record": finding,
-            "candidate": candidate,
-            "event": {
-                "finding_id": finding_id,
-                "category": "task_goal",
-                "title": finding["title"],
-                "severity": finding["severity"],
-                "validation_errors": problems,
+        ranges = seen_ranges(unit, outcome.get("seen") or [], exact=outcome.get("seen_exact", False))
+        prepared: list[dict] = []
+        for index, payload in enumerate(payloads, 1):
+            cited = _parse_evidence(
+                str(payload.get("evidence") or ""),
+                known_paths=file_lines,
+            )
+            evidence, problems = validate_evidence(cited, file_lines, ranges)
+            candidate = bool(evidence)
+            finding_id = uuid.uuid4().hex
+            raw_preconditions = str(payload.get("preconditions") or "").strip()
+            kind = str(payload.get("kind") or "source_observation").strip() or "source_observation"
+            title = str(payload.get("title") or "目标相关源码发现")
+            # The legacy table has a (run, unit, category) uniqueness constraint.  A
+            # single task result retains ``task_goal``; additional results get stable
+            # per-item category slots while their user-facing type lives in finding_kind.
+            category = "task_goal" if len(payloads) == 1 else f"task_goal:{index}"
+            finding = {
+                "id": finding_id,
+                "run_id": run["id"],
+                "unit_id": unit["unit_id"],
+                "fingerprint": fingerprint(
+                    "task_goal", unit["file_path"], unit["symbol"],
+                    f"{kind}|{title}|{payload.get('evidence') or ''}",
+                ),
+                "category": category,
+                "finding_kind": kind,
+                "title": title,
+                "severity": str(payload.get("severity") or "informational"),
+                "summary": str(payload.get("summary") or ""),
                 "evidence": evidence,
-                "cited": cited,
-            },
-        }
+                "input_source": str(payload.get("input_source") or ""),
+                "propagation": str(payload.get("propagation") or ""),
+                "dangerous_operation": str(payload.get("dangerous_operation") or ""),
+                "protection": str(payload.get("protection") or ""),
+                "preconditions": [raw_preconditions] if raw_preconditions else [],
+                "missing_context": list(result.get("missing_context") or []),
+                "poc": payload.get("poc"),
+                "remediation": str(payload.get("remediation") or ""),
+                "validation_state": "candidate" if candidate else "invalid_evidence",
+                "validation_errors": problems,
+                "verdict": None,
+                "created_at": _now(),
+            }
+            prepared.append({
+                "record": finding,
+                "candidate": candidate,
+                "event": {
+                    "finding_id": finding_id,
+                    "category": category,
+                    "finding_kind": kind,
+                    "title": title,
+                    "severity": finding["severity"],
+                    "validation_errors": problems,
+                    "evidence": evidence,
+                    "cited": cited,
+                },
+            })
+        return prepared
 
     def _store_findings(self, run: dict, unit: dict, outcome: dict) -> list[dict]:
         """Validate and persist candidates, returning a short event summary."""

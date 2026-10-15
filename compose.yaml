@@ -1,13 +1,9 @@
 name: vuln-audit
 
-# Two things run here: the audit application, and a target it can be validated against.
-#
-# The target is DVWA built from `demo/dvwa`, which is checked out at commit
-# a96943dc1f52f390ee5df72144660636c4b7dd06. `demo/dvwa-source.zip` is byte-identical to that
-# tree (verified: every one of its 227 entries hashes the same), and it is the archive the
-# audit snapshots are imported from — mounted read-only at /demo so the demo always audits
-# the exact source the container is serving. That is what lets a confirmed finding be
-# reproduced against the running target instead of "a" DVWA from somewhere else.
+# The default stack is the generic source-audit application.  It accepts any PHP source
+# archive through the UI/API; no demo target or project-specific archive is mounted into
+# the application container.  The optional DVWA stack stays available behind the `demo`
+# profile for course demonstrations and manual POC verification.
 
 services:
   app:
@@ -27,8 +23,6 @@ services:
       LLM_THINKING: ${LLM_THINKING:-disabled}
     volumes:
       - audit-data:/app/data
-      # The same archive DVWA is serving from, for the demo import step.
-      - ./demo/dvwa-source.zip:/demo/dvwa-source.zip:ro
     extra_hosts:
       # Lets the audit container reach a model endpoint published on the host.
       - "host.docker.internal:host-gateway"
@@ -36,6 +30,7 @@ services:
     init: true
 
   dvwa:
+    profiles: ["demo"]
     build:
       context: ./demo/dvwa
       dockerfile: Dockerfile
@@ -60,6 +55,7 @@ services:
     restart: unless-stopped
 
   db:
+    profiles: ["demo"]
     image: docker.io/library/mariadb:10
     environment:
       MYSQL_ROOT_PASSWORD: ${DVWA_DB_PASSWORD:-vulnerables}

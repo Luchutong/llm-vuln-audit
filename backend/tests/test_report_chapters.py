@@ -397,13 +397,57 @@ def test_goal_task_report_uses_goal_termination_instead_of_fixed_truth_matrix():
         }],
     }
     doc = render_markdown(made)
-    assert "运行模式：自定义目标任务" in doc
+    assert "# PHP 源码目标审计报告" in doc
+    assert "运行状态：不可达" in doc
     assert "寻找未经授权的文件读取路径" in doc
     assert "不套用固定 SQL 注入 / XSS / 命令注入真值矩阵" in doc
-    assert "TP、FP、FN、TN、Precision、Recall 或 F1" in doc
-    assert "### 4.2 目标任务与执行约束模块" in doc
-    assert "目标模式不复用固定 SQL 注入 / XSS / 命令注入 Prompt" in doc
-    assert "Prompt 版本：P0" not in doc
+    assert "目标文本中出现的文件路径和代码标识进行稳定排序" in doc
+    assert "模型的隐藏思维链" in doc
+    assert "DVWA" not in doc
     assert "目标任务协调器" in doc
-    assert "任务总尝试上限为 8 次并由所有 worker 共享" in doc
+    assert "任务总尝试上限：8 次并由所有 worker 共享" in doc
     assert "缺少 POC 的 achieved 输出会被要求纠正，不能达成目标" in doc
+
+
+def test_goal_task_report_renders_source_review_without_a_fake_execution_table():
+    task_run = {
+        **RUN,
+        "status": "completed",
+        "task_spec": {
+            "objective": "梳理认证状态读取边界。",
+            "success_criteria": "保存一条带原始行号的认证边界结论。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+            "require_poc": False,
+        },
+    }
+    source_fact = finding(
+        category="task_goal",
+        finding_kind="security_boundary",
+        title="认证状态读取边界",
+        poc=None,
+        verifications=[{
+            "id": "review-1",
+            "created_at": "2026-01-01T00:05:00+00:00",
+            "execution_status": "not_run",
+            "verdict": "confirmed",
+            "target_version": "main@abc123",
+            "notes": "人工检查了引用源码行，认证边界结论成立。",
+        }],
+    )
+    made = {
+        **bundle([unit("u1", "vuln.php")]),
+        "run": task_run,
+        "findings": [source_fact],
+        "metrics": summarise(task_run, [unit("u1", "vuln.php")], [source_fact], TRUTHS),
+        "goals": [{"status": "met", "attempts": 1, "max_total_attempts": 8}],
+    }
+
+    doc = render_markdown(made)
+
+    assert "**人工复核记录**" in doc
+    assert "| 时间 | 人工结论 | 复核环境或版本 | 说明 |" in doc
+    assert "main@abc123" in doc
+    assert "书面人工复核确认或驳回" in doc

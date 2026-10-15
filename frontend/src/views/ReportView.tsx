@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, errorText, post } from '../api';
-import type { RunDetail, Snapshot, Truth } from '../types';
+import type { RunDetail, Truth } from '../types';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
@@ -14,23 +14,26 @@ const ATTRIBUTION_LABELS: Record<string, string> = {
   unresolved: '未决（无法判定）',
 };
 
-/**
- * Report tab: the run's account of itself, plus the two things a reader needs in order to
- * trust it — a truth set to measure against, and an attribution for every way the audit
- * was wrong. Both are recorded per snapshot and per run, not per session, so the numbers
- * stay reproducible after a restart.
- */
-export function ReportView({
-  runId,
-  detail,
-  onChanged,
-}: {
+interface ReportViewProps {
   runId: string;
   detail: RunDetail;
   onChanged: () => void;
-}) {
+}
+
+/**
+ * The normal workspace produces target tasks. Historical prompt experiments retain their
+ * original report below so old records remain readable, while target tasks get a report
+ * based on their frozen goal, queue history, and source evidence instead of a truth matrix.
+ */
+export function ReportView(props: ReportViewProps) {
+  if (props.detail.run.task_spec) {
+    return <TargetReportView detail={props.detail} />;
+  }
+  return <LegacyReportView {...props} />;
+}
+
+function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
   const { run, metrics, findings, attributions } = detail;
-  const isGoalTask = Boolean(run.task_spec);
   const [truths, setTruths] = useState<Truth[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
@@ -101,9 +104,7 @@ export function ReportView({
           <div>快照 <span className="mono">{run.snapshot_id}</span>（{run.snapshot_name}）</div>
           <div>范围 {run.scope.length} 个文件：<span className="mono">{run.scope.join('、')}</span></div>
           <div>
-            {run.task_spec
-              ? '目标任务执行器'
-              : <>Prompt <span className="mono">{run.prompt_id}</span></>}
+            历史 Prompt <span className="mono">{run.prompt_id}</span>
             {' · '}模型 <span className="mono">{run.model}</span> · 预算 <span className="mono">{JSON.stringify(run.budgets)}</span>
           </div>
           <div>Truth 状态：<span className={`chip ${metrics.truth_status === 'has_truth_set' ? 'chip-confirmed' : 'chip-pending'}`}>{metrics.truth_status}</span></div>
@@ -147,17 +148,11 @@ export function ReportView({
             </table>
           ) : (
             <div className="small muted" style={{ marginBottom: 12 }}>
-              {isGoalTask
-                ? '目标任务不使用固定三类漏洞真值集；请依据目标、工作项历史和证据链复核结果。'
-                : '还没有真实样本。没有它，召回率与漏报数不可计算。'}
+              还没有真实样本。没有它，召回率与漏报数不可计算。
             </div>
           )}
 
-          {isGoalTask ? (
-            <div className="small muted">
-              这份快照的固定类别真值集不会参与本次目标任务的统计，因此这里不提供录入入口。
-            </div>
-          ) : <div className="grid" style={{ gridTemplateColumns: '2fr 1fr auto auto 3fr auto', alignItems: 'end' }}>
+          <div className="grid" style={{ gridTemplateColumns: '2fr 1fr auto auto 3fr auto', alignItems: 'end' }}>
             <div className="field">
               <span className="field-label">文件路径</span>
               <input type="text" className="mono" value={draft.file_path} placeholder="vulnerabilities/sqli/source/low.php" onChange={(event) => setDraft({ ...draft, file_path: event.target.value })} />
@@ -184,17 +179,17 @@ export function ReportView({
             </div>
             <div className="field">
               <span className="field-label">核验依据</span>
-              <input type="text" value={draft.verification_basis} placeholder="例如：人工执行 POC 复现，见 DVWA low 分支" onChange={(event) => setDraft({ ...draft, verification_basis: event.target.value })} />
+              <input type="text" value={draft.verification_basis} placeholder="例如：独立复现记录、代码评审编号或测试报告" onChange={(event) => setDraft({ ...draft, verification_basis: event.target.value })} />
             </div>
             <button className="btn btn-primary" onClick={addTruth} disabled={!draft.file_path}>录入样本</button>
-          </div>}
+          </div>
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">{isGoalTask ? '目标任务复盘' : '失败归因'}</span>
-          <span className="faint small">{isGoalTask ? '以目标、工作项轮次和证据链复核终态' : '每条误报 / 漏报都要能指到提示词里的哪一条'}</span>
+          <span className="panel-title">失败归因</span>
+          <span className="faint small">每条误报 / 漏报都要能指到提示词里的哪一条</span>
         </div>
         <div style={{ padding: '12px 16px' }}>
           {attributions.length > 0 && (
@@ -222,11 +217,7 @@ export function ReportView({
             </table>
           )}
 
-          {isGoalTask ? (
-            <div className="small muted">
-              自定义目标任务不使用固定三类漏洞的误报/漏报归因表；请在目标工作项、事件时间线和人工验证记录中复盘。
-            </div>
-          ) : <div className="grid" style={{ gridTemplateColumns: '1.2fr 1.2fr 1fr 2fr 1.5fr 1.5fr auto', alignItems: 'end' }}>
+          <div className="grid" style={{ gridTemplateColumns: '1.2fr 1.2fr 1fr 2fr 1.5fr 1.5fr auto', alignItems: 'end' }}>
             <div className="field">
               <span className="field-label">类型</span>
               <select value={attribution.kind} onChange={(event) => setAttribution({ ...attribution, kind: event.target.value })}>
@@ -263,7 +254,7 @@ export function ReportView({
               </select>
             </div>
             <button className="btn btn-primary" onClick={addAttribution} disabled={!attribution.file_path}>记录</button>
-          </div>}
+          </div>
         </div>
       </div>
 
@@ -274,9 +265,235 @@ export function ReportView({
         <div style={{ padding: '12px 16px' }}>
           <div className="small">
             <div>证据不通过的候选：<strong>{invalid.length}</strong> 条，不计入可信发现。</div>
-            <div>人工排除的发现：<strong>{rejected.length}</strong> 条，{isGoalTask ? '保留人工结论供复盘。' : '计入假阳性并需要归因。'}</div>
+            <div>人工排除的发现：<strong>{rejected.length}</strong> 条，计入假阳性并需要归因。</div>
             <div>人工确认的候选：<strong>{confirmed.length}</strong> 条。</div>
             <div>未完成单元：<strong>{metrics.incomplete_units}</strong> 个，单独列出，不作为阴性结果。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const TARGET_RUN_STATUS_LABELS: Record<string, string> = {
+  completed: '目标已达成',
+  unreachable: '目标不可达',
+  inconclusive: '目标未决',
+  failed: '运行失败',
+  cancelled: '运行已取消',
+  interrupted: '运行已中断',
+};
+
+const TARGET_WORK_STATE_LABELS: Record<string, string> = {
+  open: '排队中',
+  running: '执行中',
+  done: '已完成',
+  exhausted: '轮次耗尽',
+  blocked: '受阻',
+  skipped: '已跳过',
+};
+
+const TARGET_GOAL_STATUS_LABELS: Record<string, string> = {
+  open: '待达成',
+  met: '已达成',
+  unreachable: '不可达',
+  inconclusive: '未决',
+};
+
+function sourceReferences(detail: RunDetail['findings'][number]) {
+  if (detail.evidence.length === 0) return '无可核验源码引用';
+  return detail.evidence.map((reference) => `${reference.path}:${reference.start_line}-${reference.end_line}`).join('、');
+}
+
+/**
+ * A target report is an account of one bounded source task, not an experiment scorecard.
+ * It deliberately makes the scope and stopping conditions visible so a reader can judge
+ * what the result establishes and what it does not.
+ */
+function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
+  const { run, findings, metrics, units } = detail;
+  const task = run.task_spec;
+  const goals = detail.goals ?? [];
+  const workItems = detail.work_items ?? [];
+  const unitById = new Map(units.map((unit) => [unit.id, unit]));
+  const validFindings = findings.filter((finding) => finding.validation_state === 'candidate');
+  const invalidFindings = findings.filter((finding) => finding.validation_state !== 'candidate');
+  const confirmedFindings = findings.filter((finding) => finding.verdict === 'confirmed');
+  const rejectedFindings = findings.filter((finding) => finding.verdict === 'rejected');
+  const finished = workItems.filter((item) => ['done', 'exhausted', 'blocked', 'skipped'].includes(item.state));
+  const pending = workItems.filter((item) => !['done', 'exhausted', 'blocked', 'skipped'].includes(item.state));
+  const usedAttempts = workItems.reduce((total, item) => total + item.attempt, 0);
+
+  if (!task) return null;
+
+  return (
+    <div className="grid">
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">目标审计报告</span>
+          <span className={`chip chip-${run.status}`}>{TARGET_RUN_STATUS_LABELS[run.status] ?? run.status}</span>
+        </div>
+        <div style={{ padding: '12px 16px' }} className="grid">
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))' }}>
+            <div className="field">
+              <span className="field-label">目标</span>
+              <span className="small">{task.objective}</span>
+            </div>
+            <div className="field">
+              <span className="field-label">验收条件</span>
+              <span className="small">{task.success_criteria}</span>
+            </div>
+            <div className="field">
+              <span className="field-label">冻结范围</span>
+              <span className="small">{run.scope.length} 个 PHP 源码文件</span>
+            </div>
+            <div className="field">
+              <span className="field-label">执行预算</span>
+              <span className="small">每项 {task.max_iterations} 轮 · 总计 {usedAttempts}/{task.max_total_attempts} 次 · 最多 {task.max_workers} 个 worker</span>
+            </div>
+          </div>
+          <div className="small muted">
+            此报告仅说明本次冻结源码范围、目标与预算内的审计结果。它不使用固定漏洞类别、真值集或混淆矩阵，
+            也不会把预算耗尽解释为项目不存在其他风险。
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">可复现信息</span>
+          <span className="faint small">运行参数与源码范围随任务固定</span>
+        </div>
+        <div style={{ padding: '12px 16px' }} className="small grid">
+          <div>快照 <span className="mono">{run.snapshot_id}</span>（{run.snapshot_name}）</div>
+          <div>模型 <span className="mono">{run.model}</span> · 响应 {run.usage.requests} 次 · 工具调用 {run.usage.tool_calls} 次</div>
+          <div>范围：</div>
+          <div className="mono faint" style={{ overflowWrap: 'anywhere', maxHeight: 100, overflowY: 'auto' }}>
+            {run.scope.join('\n') || '未记录源码文件'}
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">目标终态</span>
+          <span className="faint small">依据协调器记录的工作项结论和验收条件</span>
+        </div>
+        {goals.length === 0 ? (
+          <div className="empty">协调器尚未写入目标状态。</div>
+        ) : (
+          <div>
+            {goals.map((goal) => (
+              <div key={goal.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-soft)' }}>
+                <div className="row" style={{ flexWrap: 'wrap' }}>
+                  <span className={`chip chip-${goal.status}`}>{TARGET_GOAL_STATUS_LABELS[goal.status] ?? goal.status}</span>
+                  <span className="small">尝试 {goal.attempts}/{goal.max_total_attempts} 次</span>
+                </div>
+                <div className="small" style={{ marginTop: 4 }}>{goal.objective}</div>
+                {goal.terminal_reason && <div className="faint small" style={{ marginTop: 3 }}>{goal.terminal_reason}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">证据化结果</span>
+          <span className="faint small">{validFindings.length} 条引用校验通过 · {invalidFindings.length} 条不计入可信结果</span>
+        </div>
+        {findings.length === 0 ? (
+          <div className="empty">没有生成满足验收条件的发现。</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
+                  <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>结论</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>类型</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>源码证据</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>验证</th>
+                </tr>
+              </thead>
+              <tbody>
+                {findings.map((finding) => (
+                  <tr key={finding.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                    <td style={{ padding: '8px 14px', minWidth: 220 }}>
+                      <div className="small" style={{ fontWeight: 500 }}>{finding.title}</div>
+                      <div className="faint small" style={{ marginTop: 3 }}>{finding.summary}</div>
+                    </td>
+                    <td style={{ padding: '8px 10px', minWidth: 120 }}>
+                      <div className="small">{finding.finding_kind || '源码观察'}</div>
+                      <div className="faint small">{finding.severity || '未分级'}</div>
+                    </td>
+                    <td className="mono small" style={{ padding: '8px 10px', minWidth: 220 }}>{sourceReferences(finding)}</td>
+                    <td style={{ padding: '8px 10px', minWidth: 110 }}>
+                      <span className={`chip chip-${finding.validation_state}`}>
+                        {finding.validation_state === 'candidate' ? '引用通过' : '引用不通过'}
+                      </span>
+                      {finding.verdict && <div className="faint small" style={{ marginTop: 3 }}>{finding.verdict}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">工作项完成情况</span>
+          <span className="faint small">已结算 {finished.length}/{workItems.length} · 仍在处理 {pending.length}</span>
+        </div>
+        {workItems.length === 0 ? (
+          <div className="empty">工作队列尚未建立。</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
+                  <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>范围</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>状态</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>轮次</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>最近结论</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workItems.map((item) => {
+                  const unit = unitById.get(item.unit_id);
+                  return (
+                    <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                      <td style={{ padding: '8px 14px', minWidth: 220 }}>
+                        <div className="mono small">{unit ? `${unit.file_path}:${unit.start_line}-${unit.end_line}` : item.unit_id}</div>
+                        <div className="faint small">{item.summary}</div>
+                      </td>
+                      <td style={{ padding: '8px 10px' }}><span className={`chip chip-${item.state}`}>{TARGET_WORK_STATE_LABELS[item.state] ?? item.state}</span></td>
+                      <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{item.attempt}/{item.max_attempts}</td>
+                      <td style={{ padding: '8px 10px', minWidth: 220 }}>
+                        <div className="small">{item.error || item.result?.summary || '—'}</div>
+                        {item.result?.terminal_reason && <div className="faint small">{item.result.terminal_reason}</div>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">人工复核清单</span>
+          <span className="faint small">在“发现与复核”中记录结论和附件</span>
+        </div>
+        <div style={{ padding: '12px 16px' }} className="small">
+          <div>待人工复核：<strong>{metrics.awaiting_verification}</strong> 条。</div>
+          <div>确认结论：<strong>{confirmedFindings.length}</strong> 条；驳回结论：<strong>{rejectedFindings.length}</strong> 条。</div>
+          <div>证据引用不通过：<strong>{invalidFindings.length}</strong> 条，已从可信结果中排除。</div>
+          <div style={{ marginTop: 7 }} className="muted">
+            “执行轨迹”保留工具调用、worker 状态和模型提供的可审计依据摘要；不显示或导出模型内部思维链。
           </div>
         </div>
       </div>

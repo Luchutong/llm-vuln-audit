@@ -326,6 +326,42 @@ def test_evidence_parser_keeps_parent_traversal_for_the_snapshot_validator():
     assert agent._parse_evidence("../a.php:3-3") == [{"path": "../a.php", "start_line": 3, "end_line": 3}]
 
 
+def test_goal_evidence_parser_uses_the_frozen_paths_without_extension_assumptions():
+    """Goal citations use actual snapshot paths, including framework/CLI names."""
+    refs = agent._parse_evidence(
+        "modules/access.module:2-3；bin/worker:4；src/my file.php:5-6；legacy/handler.php6:7-8",
+        known_paths={
+            "modules/access.module",
+            "bin/worker",
+            "src/my file.php",
+            "legacy/handler.php6",
+        },
+    )
+
+    assert refs == [
+        {"path": "modules/access.module", "start_line": 2, "end_line": 3},
+        {"path": "bin/worker", "start_line": 4, "end_line": 4},
+        {"path": "src/my file.php", "start_line": 5, "end_line": 6},
+        {"path": "legacy/handler.php6", "start_line": 7, "end_line": 8},
+    ]
+
+
+def test_goal_evidence_parser_retains_unknown_citations_for_validation():
+    """One valid source range must not silently erase a fabricated neighbour."""
+    refs = agent._parse_evidence(
+        "a.php:2-2; ghost.module:4-4",
+        known_paths={"a.php"},
+    )
+    verified, problems = validate_evidence(
+        refs,
+        {"a.php": 3},
+        [("a.php", 1, 3)],
+    )
+
+    assert verified == [{"path": "a.php", "start_line": 2, "end_line": 2}]
+    assert any("ghost.module" in problem for problem in problems)
+
+
 def test_invalid_citation_is_corrected_against_exact_displayed_lines(monkeypatch):
     calls = 0
     def provider(messages, info):
@@ -371,6 +407,7 @@ def test_cancellation_propagates_and_emits_a_terminal_checkpoint(monkeypatch):
 
 def test_goal_executor_returns_achieved_only_with_exact_source_evidence(monkeypatch):
     received = []
+    events = []
 
     def provider(messages, info):
         received.append(str(messages))
@@ -420,11 +457,24 @@ def test_goal_executor_returns_achieved_only_with_exact_source_evidence(monkeypa
         config=CONFIG,
         budgets={"responses": 8, "tools": 16, "seconds": 2},
         policy=AgentPolicy(request_seconds=0.5),
+        on_event=events.append,
     ))
 
     assert result["outcome"] == "achieved", result
     assert result["result"]["finding"]["evidence"] == "a.php:3-3"
     assert any("寻找请求参数未经编码输出的可达路径" in message for message in received)
+    assessment = next(event for event in events if event["kind"] == "task_assessment")
+    assert assessment["outcome"] == "achieved"
+    assert assessment["rationale"] == "当前单元把请求参数直接写入响应，满足给定目标。"
+    assert assessment["evidence"]["summary"] == "a.php:3-3"
+    assert assessment["evidence"]["references"] == [{"path": "a.php", "start_line": 3, "end_line": 3}]
+    assert assessment["evidence"]["findings"][0]["title"] == "未编码的请求参数输出"
+    assert assessment["evidence"]["reviewed_ranges"]
+    calls = [event for event in events if event["kind"] == "tool_call"]
+    results = [event for event in events if event["kind"] == "tool_result"]
+    assert calls and results
+    assert {event["call_id"] for event in calls} == {event["call_id"] for event in results}
+    assert all(event["span_id"] and event["duration_ms"] >= 0 for event in results)
 
 
 def test_goal_executor_requeues_model_failure_instead_of_calling_it_missing_context(monkeypatch):
@@ -561,3 +611,57 @@ def test_goal_executor_allows_a_source_fact_goal_without_poc_when_explicitly_dis
     assert result["outcome"] == "achieved", result
     assert result["result"]["finding"]["poc"] is None
     assert calls == 1
+
+
+def test_goal_executor_persists_host_observed_scope_limits_with_the_assessment(monkeypatch):
+    """Out-of-scope dependency notes are durable even if the model omits them."""
+    class ScopeLimitedRepository(Repository):
+        def get_context(self, snapshot_id, unit):
+            return {
+                "excerpts": [],
+                "unresolved_dependencies": [
+                    {"reason": "Related source is outside this task's frozen scope", "path": "vendor/helper.inc"},
+                ],
+            }
+
+    def provider(messages, info):
+        return output(info, {
+            "outcome": "achieved",
+            "summary": "已确认当前函数读取请求参数并输出。",
+            "reasoning": "结论仅来自当前单元中已显示的请求参数与输出语句。",
+            "next_focus": "",
+            "missing_context": [],
+            "finding": {
+                "title": "请求参数输出位置",
+                "summary": "当前函数将请求参数传给输出语句。",
+                "evidence": "a.php:3-3",
+            },
+        })
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    events: list[dict] = []
+    result = asyncio.run(agent.pursue_task_work(
+        repository=ScopeLimitedRepository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        unit=UNIT,
+        task={
+            "objective": "确认当前函数中的请求参数输出边界。",
+            "success_criteria": "保存一条带源码行号的输出位置结论。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+            "require_poc": False,
+        },
+        attempt=1,
+        config=CONFIG,
+        budgets={"responses": 8, "tools": 16, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+        on_event=events.append,
+    ))
+
+    assert result["outcome"] == "achieved", result
+    assert any("无法解析的依赖" in note for note in result["result"]["missing_context"])
+    assessment = next(event for event in events if event["kind"] == "task_assessment")
+    assert assessment["missing_context"] == result["result"]["missing_context"]

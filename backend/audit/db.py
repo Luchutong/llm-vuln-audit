@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS findings (
     unit_id TEXT NOT NULL,
     fingerprint TEXT NOT NULL,
     category TEXT NOT NULL,
+    finding_kind TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL,
     severity TEXT NOT NULL,
     summary TEXT NOT NULL,
@@ -287,6 +288,7 @@ class Store:
         "task_goals": {
             "max_total_attempts": f"INTEGER NOT NULL DEFAULT {DEFAULT_TASK_MAX_TOTAL_ATTEMPTS}"
         },
+        "findings": {"finding_kind": "TEXT NOT NULL DEFAULT ''"},
     }
 
     def _migrate(self) -> None:
@@ -409,7 +411,11 @@ class Store:
                                 unit["id"],
                                 index,
                                 f"分析 {unit['file_path']}:{unit['start_line']}-{unit['end_line']}（{unit['symbol']}）",
-                                int(unit["priority"]),
+                                # ``units`` was already deterministically planned by
+                                # the target executor.  Preserve that plan here rather
+                                # than reintroducing the legacy SQL/XSS/command sink
+                                # score when workers claim concurrent work.
+                                len(units) - index,
                                 int(task["max_iterations"]),
                                 created_at,
                             )
@@ -836,6 +842,7 @@ class Store:
         seen: list | None,
         error: str | None = None,
         finding: dict | None = None,
+        findings: list[dict] | None = None,
         stop_on_achieved: bool = True,
         goal_reason: str | None = None,
     ) -> dict | None:
@@ -848,11 +855,12 @@ class Store:
         """
         if outcome not in {"achieved", "continue", "no_evidence", "blocked"}:
             raise ValueError(f"unsupported task outcome: {outcome}")
-        if outcome == "achieved" and finding is None:
+        finding_records = list(findings or ([] if finding is None else [finding]))
+        if outcome == "achieved" and not finding_records:
             raise ValueError("achieved task work requires a validated finding")
 
         goal_met = False
-        finding_id: str | None = None
+        finding_ids: list[str] = []
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
@@ -919,9 +927,9 @@ class Store:
                     unit_status = "skipped"
                     stored_error = stored_error or "目标已满足，执行中的工作项停止"
 
-                if finding is not None:
-                    self._insert_finding(finding)
-                    finding_id = str(finding["id"])
+                for finding_record in finding_records:
+                    self._insert_finding(finding_record)
+                    finding_ids.append(str(finding_record["id"]))
 
                 self._db.execute(
                     "UPDATE task_work_items SET state = ?, attempt = ?, focus = ?, claimed_by = ?, claimed_at = ?,"
@@ -1014,7 +1022,8 @@ class Store:
         resolved = self.get_task_work_item(work_id)
         if resolved is not None:
             resolved["goal_met"] = goal_met
-            resolved["finding_id"] = finding_id
+            resolved["finding_id"] = finding_ids[0] if finding_ids else None
+            resolved["finding_ids"] = finding_ids
         return resolved
 
     def settle_task_goal_if_idle(self, run_id: str) -> dict | None:
@@ -1109,16 +1118,17 @@ class Store:
     def _insert_finding(self, finding: dict) -> None:
         """Insert a finding while the caller owns ``_lock`` and maybe a transaction."""
         self._db.execute(
-            "INSERT OR REPLACE INTO findings (id, run_id, unit_id, fingerprint, category, title, severity,"
+            "INSERT OR REPLACE INTO findings (id, run_id, unit_id, fingerprint, category, finding_kind, title, severity,"
             " summary, evidence, input_source, propagation, dangerous_operation, protection, preconditions,"
             " missing_context, poc, remediation, validation_state, validation_errors, verdict, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 finding["id"],
                 finding["run_id"],
                 finding["unit_id"],
                 finding["fingerprint"],
                 finding["category"],
+                finding.get("finding_kind", ""),
                 finding["title"],
                 finding["severity"],
                 finding["summary"],

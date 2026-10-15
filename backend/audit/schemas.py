@@ -233,8 +233,8 @@ class TaskSpec(BaseModel):
     max_workers: int = Field(default=2, ge=1, le=4, description="Concurrent source-analysis workers for this run")
     stop_on_achieved: bool = Field(default=True, description="Stop queued work once an evidence-backed result reaches the goal")
     require_poc: bool = Field(
-        default=True,
-        description="Require an achieved finding to include a manually reviewable proof of concept",
+        default=False,
+        description="Require achieved results to include manually reviewable POCs; normally off for source facts and non-exploit tasks",
     )
 
     @field_validator("objective", "success_criteria")
@@ -243,33 +243,58 @@ class TaskSpec(BaseModel):
         return _meaningful_text(value, info.field_name)
 
 
-class GoalFinding(BaseModel):
-    """Evidence-backed finding emitted only when a goal executor reaches its target.
+class TaskFinding(BaseModel):
+    """A source-backed result for a user-defined task.
 
-    A goal can also ask for non-exploit source facts, so the TaskSpec decides whether a
-    POC is required. When it is required, the same immutable artifact flows into the
-    existing manual-verification path.
+    Unlike the fixed vulnerability checklist, a task may establish an architectural
+    fact, map a data flow, identify a security boundary, or report a vulnerability.
+    The common contract is therefore deliberately small: a concrete conclusion and
+    source citations.  Vulnerability-oriented fields remain available when they add
+    meaning, but they are never required for a general source-analysis task.
     """
 
-    title: str = Field(min_length=3, max_length=240)
-    severity: Severity
-    summary: str = Field(min_length=8, max_length=4000)
-    evidence: str = Field(min_length=3, max_length=2000, description="Snapshot citations as path:start-end")
-    input_source: str = Field(min_length=1, max_length=1200)
-    propagation: str = Field(min_length=1, max_length=1800)
-    dangerous_operation: str = Field(min_length=1, max_length=1200)
-    protection: str = Field(min_length=1, max_length=1200)
-    preconditions: str = Field(min_length=1, max_length=1600)
-    poc: PocSpec | None = Field(default=None, description="Runnable POC when the target is a vulnerability")
-    remediation: str = Field(min_length=3, max_length=2400)
-
-    @field_validator(
-        "title", "summary", "evidence", "input_source", "propagation", "dangerous_operation",
-        "protection", "preconditions", "remediation",
+    title: str = Field(min_length=3, max_length=240, description="Short, concrete result title")
+    kind: str = Field(
+        default="source_observation",
+        min_length=3,
+        max_length=120,
+        description="Result type such as source_observation, data_flow, security_boundary, or vulnerability",
     )
+    severity: Severity | None = Field(
+        default=None,
+        description="Impact level when the result is a vulnerability or risk; omit for neutral source facts",
+    )
+    summary: str = Field(
+        min_length=8,
+        max_length=4000,
+        description="Evidence-bound explanation of what the cited source establishes",
+    )
+    evidence: str = Field(
+        min_length=3,
+        max_length=2000,
+        description="Snapshot citations as path:start-end, separated by semicolons",
+    )
+    input_source: str = Field(default="", max_length=1200, description="Optional attacker or data input source")
+    propagation: str = Field(default="", max_length=1800, description="Optional relevant data or control-flow path")
+    dangerous_operation: str = Field(default="", max_length=1200, description="Optional risk sink or sensitive operation")
+    protection: str = Field(default="", max_length=1200, description="Optional relevant protection or boundary")
+    preconditions: str = Field(default="", max_length=1600, description="Optional runtime assumptions or entry conditions")
+    poc: PocSpec | None = Field(default=None, description="Optional manually reviewable POC for a vulnerability result")
+    remediation: str = Field(default="", max_length=2400, description="Optional remediation when an actionable issue exists")
+
+    @field_validator("title", "kind", "summary", "evidence")
     @classmethod
     def _concrete_finding_text(cls, value: str, info) -> str:
         return _meaningful_text(value, info.field_name)
+
+
+class GoalFinding(TaskFinding):
+    """Compatibility name for the original single goal-task finding payload.
+
+    New integrations should use :class:`TaskFinding`.  Keeping this subclass lets
+    callers importing the older name continue to construct and validate results while
+    the task executor adopts a plural ``findings`` payload.
+    """
 
 
 class GoalAssessment(BaseModel):
@@ -282,16 +307,35 @@ class GoalAssessment(BaseModel):
 
     outcome: TaskOutcome
     summary: str = Field(min_length=3, max_length=4000)
-    reasoning: str = Field(min_length=3, max_length=4000)
+    reasoning: str = Field(
+        min_length=3,
+        max_length=4000,
+        description="Concise auditable rationale tied to displayed source evidence; do not provide private chain-of-thought",
+    )
     next_focus: str = Field(default="", max_length=1600)
     missing_context: list[str] = Field(default_factory=list)
-    finding: GoalFinding | None = None
+    # ``finding`` was the original single-result field.  Keep it for existing
+    # clients and normalise it into ``findings`` below.  One work item can now
+    # surface several independently cited results, which matters for broad source
+    # goals such as mapping all authentication boundaries in a function.
+    finding: TaskFinding | None = None
+    findings: list[TaskFinding] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _outcome_has_the_required_payload(self) -> "GoalAssessment":
-        if self.outcome == "achieved" and self.finding is None:
+        normalised = list(self.findings)
+        if self.finding is not None and not any(
+            item.model_dump() == self.finding.model_dump() for item in normalised
+        ):
+            normalised.insert(0, self.finding)
+        self.findings = normalised
+        # Older worker/agent integrations still read ``finding``.  Expose the first
+        # result there while making the full collection authoritative for new code.
+        self.finding = normalised[0] if normalised else None
+
+        if self.outcome == "achieved" and not normalised:
             raise ValueError("achieved requires an evidence-backed finding")
-        if self.outcome != "achieved" and self.finding is not None:
+        if self.outcome != "achieved" and normalised:
             raise ValueError("only achieved may attach a finding")
         if self.outcome == "continue":
             _meaningful_text(self.next_focus, "next_focus")
@@ -303,7 +347,10 @@ class GoalAssessment(BaseModel):
 
 class CreateRunRequest(BaseModel):
     snapshot_id: str
-    scope: list[str] = Field(min_length=1, description="Exact file paths frozen into this run")
+    scope: list[str] = Field(
+        default_factory=list,
+        description="Exact file paths frozen into this run; omit only for a goal task to select all indexable PHP files",
+    )
     prompt_id: str | None = Field(
         default=None,
         description="Fixed-audit prompt version; omitted for a goal-driven task",
@@ -322,6 +369,8 @@ class CreateRunRequest(BaseModel):
             raise ValueError("prompt_id is required when task is omitted")
         if self.task is not None and self.prompt_id is not None:
             raise ValueError("prompt_id must be omitted when task is provided")
+        if self.task is None and not self.scope:
+            raise ValueError("scope is required when task is omitted")
         return self
 
 

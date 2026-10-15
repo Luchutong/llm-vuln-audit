@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -44,6 +45,48 @@ def _iso() -> str:
 def _safe_name(value: str) -> str:
     cleaned = Path(value.replace("\\", "/")).name.strip()[:120]
     return "".join(ch for ch in cleaned if ch.isprintable() and ch not in '/\\:*?"<>|') or "upload.bin"
+
+
+def _task_terms(task: dict) -> tuple[str, ...]:
+    """Extract code-shaped terms from a target without applying a vulnerability checklist."""
+    text = "\n".join(
+        str(task.get(name) or "") for name in ("objective", "success_criteria")
+    ).lower()
+    terms = re.findall(r"[$a-z_][a-z0-9_./:-]{1,}", text)
+    ignored = {"the", "and", "for", "from", "with", "into", "that", "this", "php", "source", "code"}
+    return tuple(dict.fromkeys(term for term in terms if term not in ignored and len(term) >= 2))[:32]
+
+
+def _order_task_units(units: list[dict], task: dict) -> list[dict]:
+    """Order every selected unit by target relevance, then stable source position.
+
+    Goal tasks intentionally do not inherit the legacy SQL/XSS/command sink priority.
+    This lightweight deterministic planner only ranks user-mentioned identifiers and
+    paths; it never filters units or makes a security conclusion.
+    """
+    terms = _task_terms(task)
+
+    def relevance(unit: dict) -> int:
+        if not terms:
+            return 0
+        haystack = " ".join(
+            [
+                str(unit.get("file_path") or ""),
+                str(unit.get("symbol") or ""),
+                *[str(line.get("text") or "") for line in unit.get("cleaned_lines") or []],
+            ]
+        ).lower()
+        return sum(haystack.count(term) for term in terms)
+
+    return sorted(
+        units,
+        key=lambda unit: (
+            -relevance(unit),
+            str(unit.get("file_path") or ""),
+            int(unit.get("start_byte") or 0),
+            str(unit.get("id") or ""),
+        ),
+    )
 
 
 def _required_verification_fields(record: VerificationRecord) -> list[str]:
@@ -245,18 +288,46 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         if prompt is None:
             raise HTTPException(status_code=400, detail="Prompt version does not exist")
 
-    available = {item["path"] for item in snapshot["files"] if not item["excluded"]}
-    requested = list(dict.fromkeys(payload.scope))
+    # A dependency or generated directory is omitted from the *default* scope so a
+    # first pass does not burn its budget on third-party code.  It is still immutable
+    # PHP source in the snapshot, however, and an explicit target task may need to
+    # audit it.  Keep that opt-in path available instead of treating a directory name
+    # as a hard language or trust boundary.  Older snapshots did not carry ``is_php``;
+    # their historical non-excluded set remains the safe compatibility fallback.
+    available = {
+        item["path"]
+        for item in snapshot["files"]
+        if bool(item.get("is_php", not item.get("excluded", False)))
+    }
+    default_scope = {
+        item["path"]
+        for item in snapshot["files"]
+        if not item["excluded"] and item["path"] in available
+    }
+    # A target task is useful before a reviewer knows the project layout.  Omitting the
+    # optional scope therefore means every default PHP source; an explicit scope can
+    # additionally include a default-excluded PHP dependency and remains frozen for
+    # focused reviews and reproducible reruns.
+    # If every PHP file happened to live in a normally excluded directory (for
+    # example, a library-only archive), falling back to the available PHP set is more
+    # useful than creating an empty task that the user cannot begin to inspect.
+    implicit_scope = default_scope or available
+    requested = list(dict.fromkeys(payload.scope or sorted(implicit_scope)))
     unknown = [path for path in requested if path not in available]
     if unknown:
-        raise HTTPException(status_code=400, detail=f"Scope contains files outside the snapshot: {unknown[:5]}")
+        raise HTTPException(status_code=400, detail=f"Scope contains non-PHP files or paths outside the snapshot: {unknown[:5]}")
 
     scope = set(requested)
     units = [unit for unit in snapshot["units"] if unit["file_path"] in scope]
     if not units:
         raise HTTPException(status_code=400, detail="The selected scope contains no audit units")
-    # Freeze order: priority only ranks, it never filters.
-    units.sort(key=lambda unit: (-unit["priority"], unit["file_path"], unit["start_byte"]))
+    # Legacy experiment runs retain their fixed vulnerability-oriented ordering.  Target
+    # tasks instead start with code identifiers or paths named in the user's objective,
+    # then work through the rest of the frozen scope in a stable order.
+    if payload.task is not None:
+        units = _order_task_units(units, payload.task.model_dump())
+    else:
+        units.sort(key=lambda unit: (-unit["priority"], unit["file_path"], unit["start_byte"]))
 
     budgets = clamp_budgets(payload.budgets)
     run_id = uuid.uuid4().hex
@@ -430,19 +501,39 @@ async def add_verification(
     verdict = verification.verdict
     execution_status = verification.execution_status
     has_upload = any(upload is not None and bool((upload.filename or "").strip()) for upload in files)
+    # A target task may return a neutral source fact (for example, an authentication
+    # boundary or configuration origin) with no POC. Requiring a fake attack command
+    # and control experiment to accept that review would reintroduce the legacy
+    # vulnerability template into a generic result. POC-bearing findings keep the
+    # stronger reproducibility gate below.
+    generic_source_review = (
+        (str(finding.get("category") or "").startswith("task_goal") or bool(finding.get("finding_kind")))
+        and not bool((finding.get("poc") or {}).get("script"))
+    )
 
     # A confirmation claims that the vulnerability was reproduced, so it needs a
     # successful run, both sides of the control experiment, enough environment detail
     # to reproduce it, and an attachment. An exclusion also needs a successful run and
     # observations; a failed POC is an uncertain result, never an automatic false positive.
-    if verdict in ("confirmed", "rejected"):
+    if generic_source_review and verdict == "confirmed" and finding.get("validation_state") != "candidate":
+        raise HTTPException(
+            status_code=400,
+            detail="证据校验未通过的通用源码结论不能确认；请先补充可核验的源码引用或记录为驳回/待定",
+        )
+    if generic_source_review and verdict in ("confirmed", "rejected"):
+        if not verification.notes.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="通用源码结论的确认或排除需要填写人工复核说明",
+            )
+    elif verdict in ("confirmed", "rejected"):
         if execution_status != "success":
             label = "确认" if verdict == "confirmed" else "排除"
             raise HTTPException(status_code=400, detail=f"执行未成功时不能{label}；请改用 uncertain 或补充决定性观测")
         missing = _required_verification_fields(verification)
         if missing:
             raise HTTPException(status_code=400, detail=f"{verdict} 需要填写：{'、'.join(missing)}")
-    if verdict == "confirmed" and not has_upload:
+    if verdict == "confirmed" and not generic_source_review and not has_upload:
         raise HTTPException(status_code=400, detail="确认为漏洞时必须上传日志、截图或其他可复核证据")
     if finding["category"] == "xss_r" and verdict == "confirmed" and not verification.browser_execution:
         raise HTTPException(status_code=400, detail="反射型 XSS 确认需要浏览器执行证据")
@@ -466,7 +557,7 @@ async def add_verification(
         for path in written:
             path.unlink(missing_ok=True)
         raise
-    if verdict == "confirmed" and not saved:
+    if verdict == "confirmed" and not generic_source_review and not saved:
         raise HTTPException(status_code=400, detail="确认证据附件不能为空")
 
     entry = {

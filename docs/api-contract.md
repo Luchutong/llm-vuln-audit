@@ -1,23 +1,120 @@
-# Shared implementation contract
-All API endpoints use /api, JSON unless specified. Errors: {detail: string}. IDs strings. Dates ISO UTC.
+# API 契约
 
-GET /config -> {model, base_url, configured, budgets:{responses:8,tools:16,seconds:300}, agent_policy, worker, version}; POST /config/check -> {ok,message} (real minimal model request, no secrets returned).
-POST /snapshots multipart file ZIP -> snapshot. GET /snapshots -> snapshot[]. GET /snapshots/{id} -> snapshot (files & units).
-Snapshot {id,name,created_at,archive_sha256,source,files:[{path,sha256,size,line_count,excluded,exclude_reason,parse_errors}],units:[{id,file_path,start_line,end_line,symbol,kind,priority,slice_index,slice_count,cleaned_lines,omissions,slice_rule}],warnings:[],immutable:true}
-GET /snapshots/{id}/source?path=&start=1&end=200 -> {snapshot_id,path,sha256,lines:[{number,text}]}
-POST /runs {snapshot_id,scope:[file paths],prompt_id?,budgets?:{responses,tools,seconds},task?:TaskSpec} -> run. Omit `task` for the frozen three-category audit and provide `prompt_id`; include `task` for a goal-driven source task, where `prompt_id` is omitted and the server records the dedicated `goal-task` executor. Frozen exact files. GET /runs -> run[]. GET /runs/{id} -> {run,units,goals,work_items,findings,metrics,attributions}.
-TaskSpec {objective,success_criteria,max_iterations:1..8,max_total_attempts:1..128,max_workers:1..4,stop_on_achieved,require_poc=true}. `max_iterations` is the maximum number of passes for one durable work item. `max_total_attempts` is a task-wide cap shared by all workers; in-flight leases reserve capacity, so concurrent workers cannot exceed it. `max_workers` bounds concurrent task executors within one run. With `require_poc=true`, an `achieved` finding without a complete POC is rejected for output correction and cannot satisfy the goal. The source-unit work queue and TaskSpec are both frozen at creation.
-Run {id,snapshot_id,snapshot_name,scope,prompt_id,prompt_label,prompt_text,model,budgets,agent_policy,task_spec?:TaskSpec,status:pending|running|completed|unreachable|inconclusive|cancelled|interrupted|failed,created_at,started_at,finished_at,error,usage:{requests,tool_calls,input_tokens,output_tokens},total_units,completed_units}. Goal-task runs store `prompt_id=goal-task`, `prompt_label=目标任务执行器` and empty `prompt_text`; their actual bounded instruction is derived from the frozen TaskSpec rather than a P0/P1/P2 prompt.
-AuditUnit is snapshot unit plus {run_id,status,result,error,usage,seen:[{path,start_line,end_line}],checklist:[sqli,xss_r,command_injection]}. status: pending|running|completed|incomplete|failed|skipped. result.conclusions[category] = candidate|no_candidate|insufficient_context; result.verdicts keeps every settled pre-POC category payload and result.poc_status records not_required|pending|completed|incomplete, so a POC failure does not erase the candidate's evidence chain. A unit that ran out of exploration budget can still be `completed` when its tool-free verdict completed, and carries result.exploration_incomplete = timeout|budget|error. `incomplete`/`failed`/`skipped`/`pending` are unfinished observations, never negatives; an `insufficient_context` conclusion is set aside the same way, and a budget-truncated unit is reported as such (report 6.1) rather than silently scored or silently dropped.
-POST /runs/{id}/cancel -> run. GET /runs/{id}/events?after=0 SSE durable IDs, event:audit, data:{id,run_id,unit_id,kind,payload,created_at}. Respect Last-Event-ID. GET /runs/{id}/event-log?after=0 JSON events[].
-Goal {id,run_id,objective,success_criteria,max_iterations,max_total_attempts,status:open|met|unreachable|inconclusive,attempts,reached_by?,terminal_reason?,created_at,updated_at}. `attempts` is the cumulative count across all workers and is bounded by `max_total_attempts`; the task-wide cap is distinct from the per-item limit. When that cap is reserved, unclaimed work is recorded as `skipped`; a row waiting to retry a model/timeout/budget/output failure becomes `blocked` instead, so the coordinator produces `unreachable` only if no row is blocked. TaskWorkItem {id,run_id,goal_id,unit_id,summary,focus,priority,state:open|running|done|exhausted|blocked|skipped,attempt,max_attempts,claimed_by?,claimed_at?,result?,error?,attempt_history:TaskWorkAttempt[]}. TaskWorkAttempt stores {work_id,run_id,goal_id,attempt,worker_id,outcome,state,result,usage,seen,error,created_at} append-only. An achieved goal finding has the same evidence/provenance fields as `Finding` and may carry an optional `poc`; vulnerability targets are instructed to produce that POC without executing it.
+所有 HTTP API 使用 `/api` 前缀，响应为 JSON（文件上传、下载和 SSE 除外）。错误响应形如 `{ "detail": "..." }`；时间均为 ISO 8601 UTC；ID 为字符串。
 
-Goal-task coordination: workers atomically lease `open` work items, persist each pass, and only the coordinator decides `unreachable` after all planned items drain without an evidence-backed `achieved`. An `achieved` result, its validated finding, the work-item settlement, goal transition and optional skipping of untouched work are one SQLite transaction. A genuine `continue` requeues the same work item with its next focus until its per-item limit, then changes it to `exhausted`; source/context blocks become `blocked`. Provider, timeout, budget and structured-output failures preserve their terminal reason and use bounded requeue; if those retries exhaust, the work item becomes `blocked` and the goal is `inconclusive`, never `unreachable`.
-Finding {id,run_id,unit_id,fingerprint,category,title,severity,summary,evidence:[{snapshot_id,path,start_line,end_line}],input_source,propagation,dangerous_operation,protection,preconditions:[],missing_context:[],poc:{filename,language,script,instructions,normal_input,attack_input,expected_result},remediation,verdict:confirmed|rejected|uncertain,verifications:[]}.
-GET /findings/{id}/poc -> downloadable original script text, unchanged from the stored POC. POST /findings/{id}/verifications multipart record JSON string + files repeated uploads. Record {execution_status:success|syntax_error|connection_failed|environment_mismatch|not_triggered|not_run|other_error,verdict:confirmed|rejected|uncertain,modified_script,modification_notes,target_version,command,expected_result,normal_observation,attack_observation,browser_execution:boolean,notes}; save original script always. Confirmed and rejected records require execution_status=success plus target version, command, and normal/attack observations. Confirmed records also require an attachment; XSS confirmation additionally requires browser_execution. Failed execution is uncertain, never an automatic rejection.
-GET /prompts -> PromptVersion[]. POST /prompts {label,text,reason,issues:[],parent_id?} -> PromptVersion {id,label,text,reason,issues,parent_id,created_at}. Initial P0/P1/P2 predefined full four-section texts, custom versions append only.
-GET /runs/{id}/report?format=markdown|json|zip download. The bundle is the run detail plus {snapshot,snapshot_detail,truths,prompts,rounds,generated_at,version}, so every number in the Markdown can be recomputed from the JSON. `rounds` = {comparable,reasons:[],notes:[],runs:[{run,metrics}]}, one row per prompt version sharing this run's snapshot (newest run of each version; a re-run must not appear as an extra round). zip = report.md + result.json + evidence/ (model POC scripts as poc_<finding-id>_<filename>, human verification attachments as <verification-id>-<ordinal>-<filename>).
-GET /experiments?run_ids=a,b,c -> {comparable,reasons:[],notes:[],runs:[{run,metrics}],prompt_diffs:[]}. `reasons` block a comparison (snapshot/scope/model/budgets/task definition differ); `notes` are caveats that do not block it but change how the numbers read — differing completed-unit counts, a run that did not finish normally.
-POST /snapshots/{id}/truths {samples:[{file_path,category,vulnerable,independently_verified,verification_basis,evidence:[]}]} -> truth set. Kept out of Agent input. GET /snapshots/{id}/truths -> list.
-POST /runs/{id}/attributions {file_path,category,kind:false_positive|false_negative|unresolved,cause,check_item,finding_id?} -> record.
-Metrics: candidates,confirmed,rejected,uncertain,audit_coverage,verification_coverage,total_units,completed_units,incomplete_units,truth_status,evaluation:{TP,FP,FN,TN,precision,recall,f1,unresolved,eligible,total_samples}|null. Ordinary projects cannot compute recall FN TN. Known truth unresolved/failed samples excluded and listed, duplicate candidates count once per sample. Extras outside subset excluded. Goal-task runs return `truth_status=goal_task_not_comparable` and `evaluation=null`: the fixed three-category truth matrix must not be applied to a custom objective.
+## 主流程
+
+### 上传不可变源码快照
+
+`POST /snapshots` 使用 `multipart/form-data`，字段名为 `file`，接受 PHP 项目 ZIP。服务保存原始归档、文件哈希和原始行号，并建立 tree-sitter PHP 索引。
+
+支持 `.php`、`.php3`–`.php8`、`.phps`、`.inc`、`.phtml`，也识别含 `<?php` 或 `<?=` 标记的无扩展名和框架专用源码文件。默认将 `vendor`、构建产物和其他非 PHP 文件标记为排除项；ZIP 路径穿越、符号链接、加密条目、压缩炸弹和超限内容会被拒绝。
+
+- `GET /snapshots` → 摘要列表。
+- `GET /snapshots/{id}` → 完整 `Snapshot`。
+- `GET /snapshots/{id}/source?path=&start=1&end=200` → 原始源码行。
+
+`Snapshot`：
+
+```text
+{id,name,created_at,archive_sha256,source,immutable:true,
+ files:[{path,sha256,size,line_count,is_php,excluded,exclude_reason,parse_errors}],
+ units:[{id,file_path,start_line,end_line,symbol,kind,priority,slice_index,slice_count,...}],
+ warnings:[]}
+```
+
+### 创建目标审计
+
+`POST /runs`：
+
+```json
+{
+  "snapshot_id": "...",
+  "scope": ["src/auth.php", "public/index.php"],
+  "budgets": {"responses": 8, "tools": 16, "seconds": 300},
+  "task": {
+    "objective": "确认未认证管理路由及其源码证据",
+    "success_criteria": "每条结论给出原始行号、路由和中间件判断；否则说明未决原因",
+    "max_iterations": 3,
+    "max_total_attempts": 24,
+    "max_workers": 2,
+    "stop_on_achieved": true,
+    "require_poc": false
+  }
+}
+```
+
+`scope` 在目标任务中可省略，服务会冻结所有默认项目 PHP 文件；前端默认显式发送该范围。`vendor`、构建产物等目录中的 PHP 源码默认不选，但可在 `scope` 中显式加入；非 PHP 文件不能加入范围。目标任务不能携带 `prompt_id`。`scope`、任务文本、预算和队列顺序都在创建时冻结。目标文本中出现的文件路径和代码标识会影响工作项顺序，固定 SQL/XSS/命令执行优先级不会进入目标任务。
+
+`TaskSpec`：
+
+```text
+{objective,success_criteria,max_iterations:1..8,max_total_attempts:1..128,
+ max_workers:1..4,stop_on_achieved,require_poc}
+```
+
+`require_poc=false` 适用于源码事实、架构、配置和边界审计。设为 `true` 时，每条 `achieved` 发现都必须带可人工复核的 POC；服务不会执行 POC。
+
+旧的固定 Prompt 审计仍可通过 `{snapshot_id,scope,prompt_id}` 创建，用于读取历史实验记录；默认工作台不展示该入口。
+
+- `GET /runs` → 运行摘要。
+- `GET /runs/{id}` → `{run,units,goals,work_items,findings,metrics,attributions}`。
+- `POST /runs/{id}/cancel` → 取消待运行或运行中任务。
+
+目标任务的 `Run.status` 可能是 `pending`、`running`、`completed`、`unreachable`、`inconclusive`、`cancelled`、`interrupted` 或 `failed`。`unreachable` 只在所有工作项正常结束或耗尽次数、且无受阻项时产生；缺失源码、模型/预算失败、取消和中断不会被转换为“不可达”。
+
+## 多 worker 队列与结果
+
+`Goal` 保存一个运行的目标状态。`TaskWorkItem` 保存一个冻结源码单元的工作状态，`TaskWorkAttempt` 追加保存每一轮：
+
+```text
+Goal {id,run_id,objective,success_criteria,status,attempts,max_iterations,max_total_attempts,...}
+TaskWorkItem {id,goal_id,unit_id,summary,focus,priority,state,attempt,max_attempts,
+              claimed_by,result,error,attempt_history:TaskWorkAttempt[]}
+TaskWorkAttempt {work_id,attempt,worker_id,outcome,state,result,usage,seen,error,created_at}
+```
+
+worker 通过原子租约领取工作项。`achieved`、已验证的发现、工作项结算和目标状态在一个 SQLite 事务中提交。`continue` 只会重试同一工作项；`blocked` 会使最终状态成为 `inconclusive`。每次工具调用都受运行冻结的 `scope` 限制，不能读取范围外文件。
+
+目标发现使用通用结构，不强制伪造漏洞链：
+
+```text
+TaskFinding {title,kind="source_observation",summary,evidence,
+ severity?,input_source?,propagation?,dangerous_operation?,protection?,
+ preconditions?,poc?,remediation?}
+```
+
+`kind` 可为 `source_observation`、`data_flow`、`security_boundary`、`vulnerability` 或任务定义的其他短名称。同一工作项可提交多条独立引用的发现；每条引用都要在快照内且已被该 worker 实际读取。
+
+## 执行轨迹
+
+`GET /runs/{id}/events?after=0` 是持久化 SSE。服务先将事件写入 SQLite，再推送；客户端应使用 `Last-Event-ID` 或 `after` 续传并以事件 ID 去重。`GET /runs/{id}/event-log?after=0` 返回 JSON 回放。
+
+目标任务事件包括：
+
+```text
+task_coordinator_started, task_plan_created,
+task_work_started, task_work_requeued, task_work_completed,
+tool_call, tool_result, task_assessment,
+task_goal_met, goal_unreachable, goal_inconclusive
+```
+
+所有 worker 工具事件带 `work_id`、`worker_id`、`attempt`。`tool_call` 和 `tool_result` 使用同一 `call_id` / `span_id` 配对，结果携带状态、受限预览、已读范围、用量和 `duration_ms`。`task_assessment` 包含 `outcome`、`summary`、`rationale`、`next_focus`、`missing_context` 和经解析的源码引用。
+
+`rationale` 是模型生成的、可审计的简短依据摘要，必须关联展示过的源码事实；不是模型内部思维链。系统不会保存或返回 provider thinking delta、隐藏推理或 API 密钥。
+
+## 发现、人工复核与导出
+
+- `GET /findings/{id}` → 发现及人工复核记录。
+- `GET /findings/{id}/poc` → 原样下载已存 POC；没有 POC 时返回 404。
+- `POST /findings/{id}/verifications` → `multipart/form-data`，字段 `record`（JSON）和可选 `files`。带 POC 的漏洞发现确认或排除需要成功执行、环境、命令和对照观测；确认还需要附件。没有 POC 的通用源码发现可用人工复核说明确认或排除，无需伪造攻击执行记录；证据校验未通过的源码结论不能被确认。
+- `GET /runs/{id}/report?format=markdown|json|zip` → 审计报告、原始结果或证据包。
+
+自定义目标任务的统计 `truth_status=goal_task_not_comparable`、`evaluation=null`，不会套用固定三类漏洞的 TP/FP/FN/TN 或 Recall 矩阵。
+
+## 配置
+
+- `GET /config` → 不含密钥的模型与预算状态。
+- `POST /config/check` → 发送最小真实模型请求以确认连接。
+
+模型密钥仅由服务端环境变量读取，不下发浏览器、不写入快照、事件、报告或证据包。

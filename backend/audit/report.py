@@ -60,6 +60,8 @@ def _validation_text(finding: dict) -> str:
 
 
 def _finding_block(finding: dict, index: int) -> list[str]:
+    if str(finding.get("category") or "").startswith("task_goal") or finding.get("finding_kind"):
+        return _task_finding_block(finding, index)
     label = CATEGORY_LABELS.get(finding["category"], finding["category"])
     lines = [
         f"#### {index}. [{label}] {finding['title']}",
@@ -117,6 +119,68 @@ def _finding_block(finding: dict, index: int) -> list[str]:
             details = verification_details(finding, record)
             if details:
                 lines += [f"第 {index} 条验证记录的补充说明：", ""] + details + [""]
+    return lines
+
+
+def _task_finding_block(finding: dict, index: int) -> list[str]:
+    """Render a generic task result without inventing an attack-chain template."""
+    kind = finding.get("finding_kind") or "source_observation"
+    lines = [
+        f"#### {index}. [目标发现 / {kind}] {finding['title']}",
+        "",
+        f"- 证据行号：{_evidence_text(finding.get('evidence') or [])}",
+        f"- 证据校验：{_validation_text(finding)}",
+        f"- 人工结论：{finding.get('verdict') or '未裁决'}",
+    ]
+    if finding.get("severity") and finding.get("severity") not in {"unknown", "informational"}:
+        lines.append(f"- 风险等级：{finding['severity']}")
+    optional = (
+        ("相关输入", finding.get("input_source")),
+        ("数据或控制流", finding.get("propagation")),
+        ("敏感操作", finding.get("dangerous_operation")),
+        ("边界或防护", finding.get("protection")),
+        ("前置条件", "；".join(finding.get("preconditions") or [])),
+        ("缺失信息", "；".join(finding.get("missing_context") or [])),
+    )
+    lines.extend(f"- {label}：{value}" for label, value in optional if value)
+    lines += ["", "**审计结论与依据**", "", finding.get("summary") or "—", ""]
+    poc = finding.get("poc") or {}
+    if poc:
+        lines += [
+            "**POC（待人工授权环境验证）**",
+            "",
+            f"- 文件名：`{poc.get('filename', '—')}`",
+            f"- 原始脚本：`evidence/{original_poc_name(finding, poc)}`",
+            f"- 运行说明：{poc.get('instructions', '—')}",
+            "",
+        ]
+    if finding.get("remediation"):
+        lines += ["**建议**", "", finding["remediation"], ""]
+    if finding.get("verifications"):
+        if poc:
+            lines += ["**POC 验证记录**", "", "| 时间 | 执行状态 | 人工结论 | 目标版本 | 说明 |", "|---|---|---|---|---|"]
+            for record in finding["verifications"]:
+                lines.append(
+                    "| {created} | {status} | {verdict} | {version} | {notes} |".format(
+                        created=record.get("created_at") or "—",
+                        status=record.get("execution_status") or "—",
+                        verdict=record.get("verdict") or "—",
+                        version=(record.get("target_version") or "—").replace("|", "\\|"),
+                        notes=(record.get("notes") or record.get("attack_observation") or "—").replace("|", "\\|"),
+                    )
+                )
+        else:
+            lines += ["**人工复核记录**", "", "| 时间 | 人工结论 | 复核环境或版本 | 说明 |", "|---|---|---|---|"]
+            for record in finding["verifications"]:
+                lines.append(
+                    "| {created} | {verdict} | {version} | {notes} |".format(
+                        created=record.get("created_at") or "—",
+                        verdict=record.get("verdict") or "—",
+                        version=(record.get("target_version") or "—").replace("|", "\\|"),
+                        notes=(record.get("notes") or "—").replace("|", "\\|"),
+                    )
+                )
+        lines.append("")
     return lines
 
 
@@ -256,8 +320,139 @@ def _prompt_rounds(bundle: dict) -> list[str]:
     return lines
 
 
+def _render_task_markdown(bundle: dict) -> str:
+    """Export a goal run as a general source-audit report.
+
+    The legacy report is intentionally retained below for historical P0/P1/P2 records.
+    A target task is a different product flow: it must not describe an uploaded project
+    as DVWA or force every result through SQL/XSS/command-injection terminology.
+    """
+    run = bundle["run"]
+    task = run.get("task_spec") or {}
+    metrics = bundle["metrics"]
+    findings = bundle.get("findings") or []
+    goals = bundle.get("goals") or []
+    work_items = bundle.get("work_items") or []
+    goal = goals[0] if goals else {}
+    candidates = [item for item in findings if item.get("validation_state") == "candidate"]
+    rejected = [item for item in findings if item.get("validation_state") != "candidate"]
+    state_counts: dict[str, int] = {}
+    for item in work_items:
+        state = str(item.get("state") or "unknown")
+        state_counts[state] = state_counts.get(state, 0) + 1
+    terminal_labels = {
+        "completed": "已达成",
+        "unreachable": "不可达",
+        "inconclusive": "未决",
+        "cancelled": "已取消",
+        "interrupted": "已中断",
+        "failed": "失败",
+    }
+    goal_status = terminal_labels.get(run.get("status"), str(run.get("status") or "—"))
+    poc_rule = (
+        "达成结果要求附带可人工复核的 POC；缺少 POC 的 achieved 输出会被要求纠正，不能达成目标。"
+        if task.get("require_poc")
+        else "本任务允许源码事实、配置、架构或边界结论不附带 POC；若发现是漏洞，仍可附带 POC 供人工验证。"
+    )
+    doc: list[str] = [
+        "# PHP 源码目标审计报告",
+        "",
+        f"- 运行 ID：`{run['id']}`",
+        f"- 源码快照：{run['snapshot_name']}（`{run['snapshot_id']}`）",
+        f"- 运行状态：{goal_status}（`{run.get('status')}`）",
+        f"- 模型：`{run['model']}`",
+        f"- 范围：{len(run.get('scope') or [])} 个已冻结源码文件",
+        f"- 预算：每项 {run['budgets'].get('responses')} 次模型响应 / {run['budgets'].get('tools')} 次工具调用 / {run['budgets'].get('seconds')} 秒",
+        f"- 生成时间：{bundle.get('generated_at') or datetime.now(timezone.utc).isoformat()}",
+        "",
+        "---",
+        "",
+        "## 1. 任务概述与边界",
+        "",
+        "本次为自定义目标任务。它不套用固定 SQL 注入 / XSS / 命令注入真值矩阵，也不把未完成的工作项解释为否定结论。",
+        "",
+        f"- 目标：{task.get('objective', '—')}",
+        f"- 验收条件：{task.get('success_criteria', '—')}",
+        f"- 每项最大轮次：{task.get('max_iterations', '—')} 次",
+        f"- 任务总尝试上限：{task.get('max_total_attempts', '—')} 次并由所有 worker 共享",
+        f"- 并发 worker 上限：{task.get('max_workers', '—')} 个",
+        f"- 达成后停止：{'是' if task.get('stop_on_achieved') else '否'}",
+        f"- POC 策略：{poc_rule}",
+        "",
+        "范围内文件：" + ("、".join(f"`{path}`" for path in run.get("scope") or []) or "—"),
+        "",
+        "## 2. 执行方法与可追溯性",
+        "",
+        "任务先将所选 PHP 源码建立不可变快照和语法索引，再由目标任务协调器把工作单元排入持久化队列。"
+        "队列按目标文本中出现的文件路径和代码标识进行稳定排序，不使用固定三类漏洞的危险 API 优先级。",
+        "",
+        "worker 仅使用 `read_source`、`search_code`、`get_context` 三个只读工具，并受冻结范围约束。"
+        "每次工具调用、结果状态、已读源码范围、worker、尝试轮次和用量都会先持久化，再通过 SSE 推送。",
+        "",
+        "模型输出的 reasoning 是简短、证据化的审计依据摘要，不保存或展示模型的隐藏思维链、供应商 thinking 内容或完整提示词。",
+        "",
+        "## 3. 目标协调与 worker 执行",
+        "",
+        "```mermaid",
+        "flowchart LR",
+        "  A[上传 PHP ZIP] --> B[不可变快照与语法索引]",
+        "  B --> C[目标排序与持久化工作队列]",
+        "  C --> D[并发源码 worker]",
+        "  D --> E[工具轨迹与审计依据摘要]",
+        "  E --> F[证据校验与目标收束]",
+        "  F --> G[结果与证据包]",
+        "```",
+        "",
+        f"协调器目标状态：`{goal.get('status', '—')}`；累计尝试：{goal.get('attempts', 0)}/{goal.get('max_total_attempts', task.get('max_total_attempts', '—'))}；终止原因：{goal.get('terminal_reason') or '—'}。",
+        "",
+        "工作项状态：" + ("；".join(f"{name} {count}" for name, count in sorted(state_counts.items())) or "尚未建立"),
+        "",
+        "| 工作项 | 状态 | 轮次 | 最近结论 |",
+        "|---|---|---|---|",
+    ]
+    for item in work_items:
+        result = item.get("result") or {}
+        doc.append(
+            f"| {str(item.get('summary') or item.get('id') or '—').replace('|', '\\|')} | "
+            f"{item.get('state', '—')} | {item.get('attempt', 0)}/{item.get('max_attempts', '—')} | "
+            f"{str(result.get('summary') or item.get('error') or '—').replace('|', '\\|')} |"
+        )
+    if not work_items:
+        doc.append("| — | — | — | 尚未创建 |")
+    doc += [
+        "",
+        "## 4. 审计结果与源码证据",
+        "",
+        f"已通过证据校验的目标发现：{len(candidates)} 条；未通过证据校验的记录：{len(rejected)} 条；"
+        f"审计覆盖：{metrics.get('audit_coverage', 0)}。",
+        "",
+    ]
+    if findings:
+        for index, finding in enumerate(findings, 1):
+            doc.extend(_finding_block(finding, index))
+    else:
+        doc += ["本次没有保存目标发现。请结合第 3 节的工作项状态和执行轨迹判断这是不可达、未决还是尚未开始。", ""]
+    doc += [
+        "## 5. 结论限制与后续动作",
+        "",
+        "`unreachable` 仅表示所有已规划工作项在冻结范围内正常完成或耗尽次数，且没有上下文、模型或预算受阻项时仍未满足验收条件。"
+        "运行时配置、动态 include、外部服务、超时、取消和中断都会保留为 `inconclusive`、`cancelled` 或 `interrupted`，不构成不存在的结论。",
+        "",
+        "源码切片和静态上下文不是完整调用图。对需要运行时验证的结果，应在授权环境中记录环境版本、对照输入、观测和附件；没有 POC 的源码结论通过书面人工复核确认或驳回。POC 只作为待验证工件，不会被本系统执行。",
+        "",
+        "## 6. 导出与复核",
+        "",
+        "本报告、`result.json` 与证据包共同包含冻结配置、工作项尝试历史、发现、人工复核记录和可复算统计。"
+        "打开工作台的“执行轨迹”页可按源码单元、worker 和轮次展开工具调用及模型生成的审计依据摘要。",
+        "",
+    ]
+    return "\n".join(doc)
+
+
 def render_markdown(bundle: dict) -> str:
     run = bundle["run"]
+    if run.get("task_spec"):
+        return _render_task_markdown(bundle)
     metrics = bundle["metrics"]
     units = bundle["units"]
     findings = bundle["findings"]
@@ -295,7 +490,7 @@ def render_markdown(bundle: dict) -> str:
             "    A[代码预处理<br/>不可变快照/语法索引/审计单元] --> B[目标任务协调器<br/>目标/验收条件/持久化队列]",
             "    B --> C[并发源码 worker<br/>三个只读工具/结构化工作项结果]",
             "    C --> D[证据校验与目标收束<br/>达成/不可达/未决]",
-            "    D --> E[人工验证与导出<br/>POC/报告/尝试历史]",
+            "    D --> E[人工复核或 POC 验证与导出<br/>报告/尝试历史]",
         ]
         if task
         else [

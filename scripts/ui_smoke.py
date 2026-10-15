@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Load every tab against a live run and report what the console said.
+"""Load the workspace or a run's detail tabs and report what the console said.
 
 Type-checking proves the components compile; it does not prove they survive the payload the
-API actually sends. This walks the four tabs with real data and fails on any console error
+API actually sends. This walks the default workspace or run-detail tabs with real data and fails on any console error
 or on an element that never appeared — the earlier TaskView crash (`file_count` read off a
 list DTO) only showed up here.
 
@@ -17,7 +17,8 @@ CHROME = os.environ.get("CHROME_BIN")
 base = sys.argv[1].rstrip("/")
 run_id = sys.argv[2] if len(sys.argv) > 2 else None
 
-TABS = ["概览", "审计过程", "发现与验证", "实验报告", "Prompt 与实验", "配置"]
+WORKSPACE_TABS = ["源码审计", "配置"]
+RUN_TABS = ["结果概览", "执行轨迹", "发现与复核", "结果报告"]
 
 
 def main() -> int:
@@ -34,14 +35,17 @@ def main() -> int:
         page.wait_for_timeout(1500)
 
         if run_id:
-            # The four run tabs live inside RunView, reached by opening a run rather than
+            # The run-detail tabs live inside RunView, reached by opening a run rather than
             # from the sidebar. The run is route state (`#run/<id>`), so deep-link it.
             page.goto(f"{base}/#run/{run_id}", wait_until="networkidle")
             page.wait_for_timeout(2500)
             heading = page.inner_text("body")[:120].replace("\n", " ")
             print("run view:", heading)
+            tabs = RUN_TABS
+        else:
+            tabs = WORKSPACE_TABS
 
-        for tab in TABS:
+        for tab in tabs:
             errors.clear()
             try:
                 page.get_by_role("button", name=tab).first.click(timeout=5000)

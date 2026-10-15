@@ -36,7 +36,10 @@ MAX_SLICE_BYTES = 16 * 1024
 SLICE_OVERLAP_LINES = 24
 MAX_READ_LINES = 400
 MAX_READ_BYTES = 64 * 1024
-PHP_EXTENSIONS = {".php", ".inc", ".phtml"}
+# PHP projects in the wild still use versioned suffixes and PHP source includes.  The
+# importer remains deliberately language-specific (the task is PHP source analysis), but
+# it is not tied to a particular framework or demo layout.
+PHP_EXTENSIONS = {".php", ".php3", ".php4", ".php5", ".php6", ".php7", ".php8", ".phps", ".inc", ".phtml"}
 EXCLUDED_DIRECTORIES = {"vendor", "node_modules", "bower_components", "cache", "caches", "dist", "build", "coverage", "generated", ".git", ".hg", ".svn"}
 SECURITY_COMMENT = re.compile(r"security|saniti|escap|validat|auth|csrf|inject|xss|sql|command|taint|input|password|whitelist|blacklist|用户|安全|漏洞|过滤|转义|验证|权限|密码", re.I)
 PRIORITY_HINT = re.compile(r"\$_(?:GET|POST|REQUEST|COOKIE|FILES|SERVER)|\b(?:mysqli_query|mysql_query|query|exec|system|shell_exec|passthru|echo|print)\b", re.I)
@@ -45,6 +48,10 @@ CLASS_TYPES = {"class_declaration", "interface_declaration", "trait_declaration"
 STRING_TYPES = {"string", "encapsed_string", "heredoc", "nowdoc", "text"}
 INCLUDE_TYPES = {"include_expression", "include_once_expression", "require_expression", "require_once_expression"}
 CALL_TYPES = {"function_call_expression", "member_call_expression", "scoped_call_expression", "nullsafe_member_call_expression"}
+# A suffixless/framework file needs an actual PHP opening tag before it is indexed.
+# Support the standard long and echo forms plus the whitespace-delimited short form;
+# deliberately exclude XML processing instructions such as ``<?xml``.
+PHP_OPEN_TAG = re.compile(rb"<\?(?:php\b|=|(?=[\t\r\n ]))", re.I)
 
 
 def _sha(data: bytes) -> str:
@@ -89,6 +96,19 @@ def _position(start: int, end: int, offsets: list[int]) -> dict:
 
 def _decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
+
+
+def _looks_like_php(content: bytes) -> bool:
+    """Recognise PHP source files that use framework-specific or no suffix.
+
+    File extensions remain a fast path, but projects such as Drupal commonly use
+    `.module` / `.install` and CLI entrypoints can have no extension. PHP may begin
+    after a long template or banner, so scan the whole bounded archive entry instead
+    of only a prefix. Requiring an opening tag keeps arbitrary uploaded assets from
+    being indexed as code while letting those valid PHP sources enter the same
+    immutable snapshot workflow.
+    """
+    return PHP_OPEN_TAG.search(content) is not None
 
 
 class SourceRepository:
@@ -172,7 +192,10 @@ class SourceRepository:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(content)
                     reason = next((part for part in PurePosixPath(name).parts[:-1] if part.casefold() in EXCLUDED_DIRECTORIES), None)
-                    is_php = PurePosixPath(name).suffix.casefold() in PHP_EXTENSIONS
+                    is_php = (
+                        PurePosixPath(name).suffix.casefold() in PHP_EXTENSIONS
+                        or _looks_like_php(content)
+                    )
                     record = {"path": name, "sha256": _sha(content), "size": len(content), "line_count": len(_lines(content)), "excluded": bool(reason) or not is_php, "exclude_reason": f"Default dependency/generated directory: {reason}" if reason else (None if is_php else "Not a PHP source file"), "is_php": is_php, "parse_errors": []}
                     try:
                         content.decode("utf-8")
@@ -379,20 +402,38 @@ class SourceRepository:
         actual_end = result[-1]["number"] if result else start
         return {"snapshot_id": snapshot_id, "path": path, "sha256": record["sha256"], "lines": result, "start_line": start, "end_line": actual_end, "truncated": actual_end < min(end, len(original)), "next_start": actual_end + 1 if actual_end < min(end, len(original)) else None}
 
-    def search_code(self, snapshot_id: str, query: str, path: str | None = None, limit: int = 40) -> dict:
+    def search_code(
+        self,
+        snapshot_id: str,
+        query: str,
+        path: str | None = None,
+        limit: int = 40,
+        *,
+        allowed_paths: set[str] | None = None,
+    ) -> dict:
         if not isinstance(query, str) or not query or len(query) > 200 or "\n" in query or "\r" in query:
             raise ValueError("Search query must be a nonempty literal of at most 200 characters")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
             raise ValueError("Search limit must be between 1 and 100")
         snapshot = self.get_snapshot(snapshot_id)
+        allowed = set(allowed_paths) if allowed_paths is not None else None
+        if allowed is not None:
+            known = {item["path"] for item in snapshot["files"]}
+            unknown_allowed = allowed - known
+            if unknown_allowed:
+                raise ValueError("Source access policy contains files outside the snapshot")
         if path is not None:
             path = _path(path)
             if not any(item["path"] == path for item in snapshot["files"]):
                 raise FileNotFoundError("Source file does not exist in snapshot")
+            if allowed is not None and path not in allowed:
+                raise ValueError("Source path is outside this task's frozen scope")
         matches, size, truncated = [], 0, False
         directory = self._directory(snapshot_id) / "sources"
         for file in snapshot["files"]:
             if path is not None and file["path"] != path:
+                continue
+            if allowed is not None and file["path"] not in allowed:
                 continue
             if path is None and not file["is_php"]:
                 continue
@@ -445,13 +486,22 @@ class SourceRepository:
                     return normalized
         return None
 
-    def get_context(self, snapshot_id: str, unit: dict) -> dict:
+    def get_context(
+        self,
+        snapshot_id: str,
+        unit: dict,
+        *,
+        allowed_paths: set[str] | None = None,
+    ) -> dict:
         snapshot = self.get_snapshot(snapshot_id)
         owned = next((item for item in snapshot["units"] if item["id"] == unit.get("id")), None)
         if owned is None:
             raise ValueError("Audit unit does not belong to snapshot")
         syntax = json.loads((self._directory(snapshot_id) / "syntax.json").read_text("utf-8"))
         path = owned["file_path"]
+        allowed_scope = set(allowed_paths) if allowed_paths is not None else None
+        if allowed_scope is not None and path not in allowed_scope:
+            raise ValueError("Audit unit is outside this task's frozen scope")
         current = syntax[path]
         available = {item["path"] for item in snapshot["files"]}
         requests, unresolved = [], []
@@ -488,6 +538,13 @@ class SourceRepository:
             if key in seen:
                 continue
             seen.add(key)
+            if allowed_scope is not None and context_path not in allowed_scope:
+                unresolved.append({
+                    "path": context_path,
+                    "line": start,
+                    "reason": "Related source is outside this task's frozen scope",
+                })
+                continue
             if len(excerpts) >= 12 or used >= 32 * 1024:
                 unresolved.append({"path": context_path, "line": start, "reason": "Context tool output budget reached; use read_source"})
                 continue
@@ -496,19 +553,19 @@ class SourceRepository:
             except ValueError as exc:
                 unresolved.append({"path": context_path, "line": start, "reason": str(exc)})
                 continue
-            allowed, counted = [], 0
+            excerpt_lines, counted = [], 0
             for line in excerpt["lines"]:
                 line_size = len(line["text"].encode()) + 1
                 if used + counted + line_size > 32 * 1024:
                     break
-                allowed.append(line)
+                excerpt_lines.append(line)
                 counted += line_size
-            if len(allowed) != len(excerpt["lines"]):
+            if len(excerpt_lines) != len(excerpt["lines"]):
                 excerpt["truncated"] = True
-                unresolved.append({"path": context_path, "line": allowed[-1]["number"] + 1 if allowed else start, "reason": "Context excerpt truncated; use read_source"})
-            if allowed:
-                excerpt["lines"] = allowed
-                excerpt["end_line"] = allowed[-1]["number"]
+                unresolved.append({"path": context_path, "line": excerpt_lines[-1]["number"] + 1 if excerpt_lines else start, "reason": "Context excerpt truncated; use read_source"})
+            if excerpt_lines:
+                excerpt["lines"] = excerpt_lines
+                excerpt["end_line"] = excerpt_lines[-1]["number"]
                 excerpt["reason"] = reason
                 excerpts.append(excerpt)
                 used += counted

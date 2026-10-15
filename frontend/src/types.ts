@@ -13,7 +13,8 @@ export type TaskWorkItemState = 'open' | 'running' | 'done' | 'exhausted' | 'blo
 export type TaskOutcome = 'achieved' | 'continue' | 'no_evidence' | 'blocked';
 export interface GoalFinding {
   title: string;
-  severity: string;
+  kind?: string;
+  severity?: string | null;
   summary: string;
   evidence: string;
   input_source: string;
@@ -21,6 +22,7 @@ export interface GoalFinding {
   dangerous_operation: string;
   protection: string;
   preconditions: string;
+  poc?: POC | null;
   remediation: string;
 }
 export interface GoalAssessment {
@@ -30,6 +32,7 @@ export interface GoalAssessment {
   next_focus?: string;
   missing_context?: string[];
   finding?: GoalFinding | null;
+  findings?: GoalFinding[];
   attempt?: number;
   terminal_reason?: string;
   retry_exhausted?: boolean;
@@ -83,7 +86,7 @@ export interface TaskWorkItem {
 }
 export interface Budget { responses: number; tools: number; seconds: number }
 export interface Usage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number }
-export interface FileRecord { path: string; sha256: string; size: number; line_count: number; excluded: boolean; exclude_reason?: string; parse_errors?: unknown[] }
+export interface FileRecord { path: string; sha256: string; size: number; line_count: number; is_php?: boolean; excluded: boolean; exclude_reason?: string; parse_errors?: unknown[] }
 export interface Evidence { snapshot_id: string; path: string; start_line: number; end_line: number }
 export interface UnitUsage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number }
 export interface UnitResult {
@@ -140,7 +143,7 @@ export interface Finding {
   unit_start_line: number;
   unit_end_line: number;
   validation_state: 'candidate' | 'invalid_evidence';
-  validation_errors: string[]; id: string; run_id: string; unit_id: string; fingerprint: string; category: string; title: string; severity: string; summary: string; evidence: Evidence[]; input_source: string; propagation: string; dangerous_operation: string; protection: string; preconditions: string[]; missing_context: string[]; poc: POC | null; remediation: string; verdict?: Verdict; verifications: Verification[] }
+  validation_errors: string[]; id: string; run_id: string; unit_id: string; fingerprint: string; category: string; finding_kind?: string; title: string; severity: string; summary: string; evidence: Evidence[]; input_source: string; propagation: string; dangerous_operation: string; protection: string; preconditions: string[]; missing_context: string[]; poc: POC | null; remediation: string; verdict?: Verdict; verifications: Verification[] }
 export interface UnresolvedSample {
   file_path: string;
   category: Category;

@@ -133,6 +133,87 @@ def test_rejection_and_xss_confirmation_cannot_bypass_the_reproducibility_gate(s
     assert not state.store.records
 
 
+def test_generic_source_review_can_be_confirmed_without_a_poc_execution_or_attachment(state):
+    """A neutral goal result is reviewed as source evidence, not a fake exploit run."""
+    state.store.finding.update({
+        "category": "task_goal:1",
+        "finding_kind": "security_boundary",
+        "validation_state": "candidate",
+        "poc": None,
+    })
+    result = asyncio.run(app_module.add_verification(
+        object(),
+        "finding-1",
+        record(
+            execution_status="not_run",
+            target_version="",
+            command="",
+            normal_observation="",
+            attack_observation="",
+            modified_script="",
+            notes="人工检查了引用的源码行，结论与认证边界实现一致。",
+        ),
+        [],
+    ))
+
+    assert result is state.store.finding
+    assert state.store.verdict == "confirmed"
+    assert state.store.records[0]["execution_status"] == "not_run"
+    assert state.store.records[0]["files"] == []
+
+
+def test_generic_source_review_requires_a_written_review_reason(state):
+    state.store.finding.update({
+        "category": "task_goal:1",
+        "finding_kind": "source_observation",
+        "validation_state": "candidate",
+        "poc": None,
+    })
+    with pytest.raises(HTTPException, match="人工复核说明") as raised:
+        asyncio.run(app_module.add_verification(
+            object(),
+            "finding-1",
+            record(
+                execution_status="not_run",
+                target_version="",
+                command="",
+                normal_observation="",
+                attack_observation="",
+                modified_script="",
+                notes="",
+            ),
+            [],
+        ))
+    assert raised.value.status_code == 400
+    assert not state.store.records
+
+
+def test_invalid_generic_source_evidence_cannot_be_confirmed(state):
+    state.store.finding.update({
+        "category": "task_goal:1",
+        "finding_kind": "source_observation",
+        "validation_state": "invalid_evidence",
+        "poc": None,
+    })
+    with pytest.raises(HTTPException, match="证据校验未通过") as raised:
+        asyncio.run(app_module.add_verification(
+            object(),
+            "finding-1",
+            record(
+                execution_status="not_run",
+                target_version="",
+                command="",
+                normal_observation="",
+                attack_observation="",
+                modified_script="",
+                notes="这条记录没有可核验的源码引用。",
+            ),
+            [],
+        ))
+    assert raised.value.status_code == 400
+    assert not state.store.records
+
+
 def test_multipart_record_must_be_an_object_before_any_file_is_saved(state):
     with pytest.raises(HTTPException) as raised:
         asyncio.run(app_module.add_verification(object(), "finding-1", "[]", [upload("proof.txt")]))

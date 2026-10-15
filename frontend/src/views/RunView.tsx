@@ -8,10 +8,10 @@ import { Overview } from './Overview';
 import { ReportView } from './ReportView';
 
 const TABS = [
-  { key: 'overview', label: '概览' },
-  { key: 'process', label: '审计过程' },
-  { key: 'findings', label: '发现与验证' },
-  { key: 'report', label: '实验报告' },
+  { key: 'overview', label: '结果概览' },
+  { key: 'process', label: '执行轨迹' },
+  { key: 'findings', label: '发现与复核' },
+  { key: 'report', label: '结果报告' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -42,6 +42,13 @@ const TASK_TERMINAL: Record<string, { label: string; explanation: string }> = {
   cancelled: { label: '已取消', explanation: '运行被取消，尚未完成的工作项不会被视为不可达。' },
   interrupted: { label: '已中断', explanation: '服务或运行过程被中断，尚未完成的工作项保留当前状态。' },
 };
+
+function taskFindings(item: TaskWorkItem) {
+  const findings = item.result?.findings ?? [];
+  return findings.length > 0
+    ? findings
+    : item.result?.finding ? [item.result.finding] : [];
+}
 
 /**
  * One run, four tabs.
@@ -107,7 +114,7 @@ export function RunView({ runId, onBack }: { runId: string; onBack: () => void }
               )}
             </h1>
             <p>
-              {run.snapshot_name} · {run.task_spec ? '目标任务执行器' : `Prompt ${run.prompt_id}（${run.prompt_label}）`} · 模型 {run.model}
+              {run.snapshot_name} · {run.task_spec ? '目标驱动多 worker 审计' : '历史审计记录'} · 模型 {run.model}
               {' · '}预算 响应 {run.budgets.responses} / 工具 {run.budgets.tools} / {run.budgets.seconds}s
               {reconnects > 0 && ` · 已重连 ${reconnects} 次`}
             </p>
@@ -137,9 +144,9 @@ export function RunView({ runId, onBack }: { runId: string; onBack: () => void }
       {tab === 'process' && (
         <div className="panel">
           <div className="panel-head">
-            <span className="panel-title">事件时间线</span>
+            <span className="panel-title">执行轨迹</span>
             <span className="faint small">
-              SQLite 为准，SSE 只做推送；工具调用记录按事件保留
+              SQLite 事件为准，SSE 只做推送；可展开查看工具调用、worker 状态和证据化依据摘要
             </span>
           </div>
           <Timeline events={events} detail={detail} />
@@ -178,7 +185,7 @@ function GoalTaskSummary({
     <div className="panel">
       <div className="panel-head">
         <div>
-          <div className="panel-title">目标任务</div>
+          <div className="panel-title">目标审计</div>
           <div className="faint small">目标、工作项和每次尝试均随本次运行冻结</div>
         </div>
         {terminal
@@ -242,11 +249,11 @@ function GoalTaskSummary({
                     <div className="small" style={{ marginTop: 4 }}>{item.summary || item.focus}</div>
                     {item.focus && item.focus !== item.summary && <div className="faint small" style={{ marginTop: 2 }}>关注点：{item.focus}</div>}
                     {item.result?.summary && <div className="faint small" style={{ marginTop: 2 }}>{item.result.summary}</div>}
-                    {item.result?.finding && (
-                      <div className="small" style={{ marginTop: 3 }}>
-                        达成证据：{item.result.finding.title} · {item.result.finding.evidence}
+                    {taskFindings(item).map((finding, index) => (
+                      <div className="small" style={{ marginTop: 3 }} key={`${finding.title}-${index}`}>
+                        达成证据{index > 0 ? ` ${index + 1}` : ''}：{finding.title} · {finding.evidence}
                       </div>
-                    )}
+                    ))}
                     {item.error && <div className="small" style={{ marginTop: 2, color: 'var(--danger)' }}>{item.error}</div>}
                   </div>
                 ))}

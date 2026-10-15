@@ -27,7 +27,13 @@ interface ReportViewProps {
  */
 export function ReportView(props: ReportViewProps) {
   if (props.detail.run.task_spec) {
-    return <TargetReportView detail={props.detail} />;
+    // Planner runs carry a durable session/task graph.  Old goal-queue records
+    // remain readable with their historical report instead of being rendered as
+    // if they had Planner revisions and dynamic tasks.
+    if (props.detail.planner || props.detail.tasks !== undefined) {
+      return <TargetReportView detail={props.detail} />;
+    }
+    return <LegacyTargetReportView detail={props.detail} />;
   }
   return <LegacyReportView {...props} />;
 }
@@ -305,13 +311,67 @@ function sourceReferences(detail: RunDetail['findings'][number]) {
   return detail.evidence.map((reference) => `${reference.path}:${reference.start_line}-${reference.end_line}`).join('、');
 }
 
-/**
- * A target report is an account of one bounded source task, not an experiment scorecard.
- * It deliberately makes the scope and stopping conditions visible so a reader can judge
- * what the result establishes and what it does not.
- */
 function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
-  const { run, findings, metrics, units } = detail;
+  const { run, findings, metrics } = detail;
+  const task = run.task_spec;
+  const goal = detail.goal ?? detail.goals?.[0];
+  const planner = detail.planner;
+  const plans = detail.plans ?? [];
+  const tasks = detail.tasks ?? [];
+  const validFindings = findings.filter((finding) => finding.validation_state === 'candidate');
+  const invalidFindings = findings.filter((finding) => finding.validation_state !== 'candidate');
+  const usedAttempts = tasks.reduce((total, item) => total + item.attempts, 0);
+  if (!task) return null;
+
+  return (
+    <div className="grid">
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">项目级审计报告</span>
+          <span className={`chip chip-${run.status}`}>{TARGET_RUN_STATUS_LABELS[run.status] ?? run.status}</span>
+        </div>
+        <div style={{ padding: '12px 16px' }} className="grid">
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <div className="field"><span className="field-label">目标</span><span className="small">{task.objective}</span></div>
+            <div className="field"><span className="field-label">验收条件</span><span className="small">{task.success_criteria}</span></div>
+            <div className="field"><span className="field-label">规划与执行预算</span><span className="small">Planner {planner?.current_round ?? 0}/{planner?.max_rounds ?? task.max_planner_rounds} 回合 · worker {usedAttempts}/{task.max_total_attempts} 次</span></div>
+            <div className="field"><span className="field-label">运行结论</span><span className="small">{goal?.terminal_reason ?? planner?.terminal_reason ?? '尚未收束'}</span></div>
+          </div>
+          <div className="small muted">报告覆盖本次冻结的 {run.scope.length} 个 PHP 文件和由项目图派生出的动态跨文件任务。它不按固定漏洞类型评分，也不会把受阻或预算耗尽当作否定结论。</div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-head"><span className="panel-title">Planner 版本记录</span><span className="faint small">项目图依据与 worker 反馈驱动后续调度</span></div>
+        {plans.length === 0 ? <div className="empty">尚无 Planner 回合。</div> : (
+          <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}><th style={{ textAlign: 'left', padding: '8px 14px' }}>回合</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>依据摘要</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>下一步</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>任务</th></tr></thead>
+            <tbody>{plans.map((plan) => <tr key={plan.id} style={{ borderTop: '1px solid var(--line-soft)' }}><td style={{ padding: '8px 14px' }}>#{plan.round_no}</td><td className="small" style={{ padding: '8px 10px' }}>{plan.basis_summary || '—'}</td><td className="small" style={{ padding: '8px 10px' }}>{plan.next_action || '—'}</td><td style={{ padding: '8px 10px' }}>{plan.task_snapshot.length}</td></tr>)}</tbody>
+          </table></div>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head"><span className="panel-title">动态任务与尝试</span><span className="faint small">已结算 {metrics.terminal_tasks ?? 0}/{metrics.total_tasks ?? tasks.length}</span></div>
+        {tasks.length === 0 ? <div className="empty">尚未创建动态任务。</div> : (
+          <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}><th style={{ textAlign: 'left', padding: '8px 14px' }}>任务</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>状态</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>尝试</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>结果摘要</th></tr></thead>
+            <tbody>{tasks.map((item) => <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}><td style={{ padding: '8px 14px' }}><div className="small">{item.title}</div><div className="mono faint small">{item.task_key}</div></td><td style={{ padding: '8px 10px' }}><span className={`chip chip-${item.state}`}>{item.state}</span></td><td style={{ padding: '8px 10px' }}>{item.attempts}/{item.max_attempts}</td><td className="small" style={{ padding: '8px 10px' }}>{item.result?.summary ?? item.error ?? '—'}</td></tr>)}</tbody>
+          </table></div>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head"><span className="panel-title">证据化结果</span><span className="faint small">{validFindings.length} 条引用通过 · {invalidFindings.length} 条保留为无效记录</span></div>
+        {findings.length === 0 ? <div className="empty">尚无发现。</div> : <div style={{ padding: '12px 16px' }} className="grid">{findings.map((finding) => <div key={finding.id} style={{ borderBottom: '1px solid var(--line-soft)', paddingBottom: 9 }}><div className="row"><span className={`chip chip-${finding.validation_state}`}>{finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}</span><strong className="small">{finding.title}</strong></div><div className="small" style={{ marginTop: 5 }}>{finding.summary}</div><div className="mono faint small" style={{ marginTop: 4 }}>{sourceReferences(finding)}</div></div>)}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Historical target queue report retained only for old stored runs. */
+function LegacyTargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
+  const { run, findings, metrics, units = [] } = detail;
   const task = run.task_spec;
   const goals = detail.goals ?? [];
   const workItems = detail.work_items ?? [];

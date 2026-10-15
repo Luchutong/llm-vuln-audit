@@ -320,7 +320,7 @@ def _prompt_rounds(bundle: dict) -> list[str]:
     return lines
 
 
-def _render_task_markdown(bundle: dict) -> str:
+def _render_legacy_task_markdown(bundle: dict) -> str:
     """Export a goal run as a general source-audit report.
 
     The legacy report is intentionally retained below for historical P0/P1/P2 records.
@@ -449,10 +449,156 @@ def _render_task_markdown(bundle: dict) -> str:
     return "\n".join(doc)
 
 
+def _render_task_markdown(bundle: dict) -> str:
+    """Render the Planner-led audit report without reviving the old file queue."""
+    run = bundle["run"]
+    task = run.get("task_spec") or {}
+    goal = bundle.get("goal") or next(iter(bundle.get("goals") or []), {})
+    planner = bundle.get("planner") or {}
+    project_map = bundle.get("project_map") or {}
+    plans = bundle.get("plans") or []
+    tasks = bundle.get("tasks") or []
+    findings = bundle.get("findings") or []
+    metrics = bundle.get("metrics") or {}
+    candidates = [item for item in findings if item.get("validation_state") == "candidate"]
+    invalid = [item for item in findings if item.get("validation_state") != "candidate"]
+    counts: dict[str, int] = {}
+    for item in tasks:
+        state = str(item.get("state") or "unknown")
+        counts[state] = counts.get(state, 0) + 1
+
+    def cell(value: object) -> str:
+        return str(value or "—").replace("|", "\\|").replace("\n", " ")
+
+    def task_source(item: dict) -> str:
+        context = item.get("context_spec") or {}
+        refs = context.get("source_refs") if isinstance(context, dict) else []
+        rendered = []
+        for ref in refs or []:
+            if isinstance(ref, dict) and ref.get("path"):
+                rendered.append(f"`{ref['path']}:{ref.get('start_line', 1)}-{ref.get('end_line', 1)}`")
+        symbols = context.get("target_symbols") if isinstance(context, dict) else []
+        if symbols:
+            rendered.append("符号：" + "、".join(f"`{name}`" for name in symbols[:4]))
+        return "；".join(rendered) or "由项目图和 worker 工具补读确定"
+
+    terminal_labels = {
+        "completed": "已达成", "unreachable": "不可达", "inconclusive": "未决",
+        "cancelled": "已取消", "interrupted": "已中断", "failed": "失败", "running": "执行中", "pending": "等待执行",
+    }
+    state_label = terminal_labels.get(str(run.get("status")), str(run.get("status") or "—"))
+    poc_rule = "达成发现必须包含可人工复核的 POC。" if task.get("require_poc") else "源码事实、边界与架构结论可不附带 POC；漏洞发现仍可提供 POC 供人工验证。"
+    map_stats = project_map.get("stats") or {}
+    doc: list[str] = [
+        "# PHP 项目级白盒审计报告",
+        "",
+        f"- 运行 ID：`{run['id']}`",
+        f"- 源码快照：{run['snapshot_name']}（`{run['snapshot_id']}`）",
+        f"- 状态：{state_label}（`{run.get('status')}`）",
+        f"- 模型：`{run['model']}`",
+        f"- 冻结范围：{len(run.get('scope') or [])} 个 PHP 源码文件",
+        f"- 预算：每个 Planner/worker 回合最多 {run['budgets'].get('responses')} 次模型响应、{run['budgets'].get('tools')} 次工具调用、{run['budgets'].get('seconds')} 秒",
+        f"- 生成时间：{bundle.get('generated_at') or datetime.now(timezone.utc).isoformat()}",
+        "",
+        "## 1. 目标与判定边界",
+        "",
+        f"- 审计目标：{task.get('objective', '—')}",
+        f"- 验收条件：{task.get('success_criteria', '—')}",
+        f"- 每个动态任务最大尝试：{task.get('max_iterations', '—')} 次",
+        f"- 所有 worker 共享尝试上限：{task.get('max_total_attempts', '—')} 次",
+        f"- Planner 回合上限：{task.get('max_planner_rounds', planner.get('max_rounds', '—'))} 次；并发 worker 上限：{task.get('max_workers', '—')} 个",
+        f"- 达成后停止：{'是' if task.get('stop_on_achieved', True) else '否'}；POC 策略：{poc_rule}",
+        f"- 目标状态：`{goal.get('status', '—')}`；累计 worker 尝试：{goal.get('attempts', 0)}/{goal.get('max_total_attempts', task.get('max_total_attempts', '—'))}；终止依据：{goal.get('terminal_reason') or '—'}",
+        "",
+        "`unreachable` 只表示已经由 Planner 列入前沿的证据方向全部结算、没有受阻上下文，且仍未满足验收条件。共享尝试或 Planner 回合耗尽、动态依赖、运行时配置缺失、取消和模型故障都保留为未决或中断，不构成否定结论。",
+        "",
+        "## 2. 项目图与执行模型",
+        "",
+        f"项目图冻结时记录：{map_stats.get('files', 0)} 个文件、{map_stats.get('symbols', 0)} 个符号、{map_stats.get('includes', 0)} 条静态 include 关系、{map_stats.get('calls', 0)} 个调用点、{map_stats.get('entrypoints', 0)} 个入口候选。",
+        "",
+        "```mermaid",
+        "flowchart LR",
+        "  A[PHP ZIP] --> B[不可变快照与项目图]",
+        "  B --> C[主 Planner: 目标/项目图/反馈]",
+        "  C --> D[动态跨文件任务图]",
+        "  D --> E[并发 worker: 只读源码工具]",
+        "  E --> F[证据校验与反馈]",
+        "  F --> C",
+        "  F --> G[目标收束与报告]",
+        "```",
+        "",
+        "主 Planner 只使用项目图和已持久化的 worker 摘要来决定下一批跨文件方向；worker 仍必须通过 `read_source`、`search_code`、`get_context` 读取原始源码，才能形成可引用发现。依赖完成后的摘要会交接给后续任务，worker 也可检索其他 worker 的受限工具轨迹作为线索；二者都不是证据，不能替代本任务实际读取的源码行号。规划依据和 worker 审计依据均为简短、可复核摘要；不保存或展示隐藏思维链。",
+        "",
+        "## 3. Planner 回合",
+        "",
+        "| 回合 | 版本 | 状态 | 建立依据摘要 | 下一步 | 任务数 |",
+        "|---|---|---|---|---|---|",
+    ]
+    for plan in plans:
+        snapshot = plan.get("task_snapshot") or []
+        doc.append(
+            f"| {plan.get('round_no', '—')} | {plan.get('revision', '—')} | {cell(plan.get('status'))} | "
+            f"{cell(plan.get('basis_summary'))} | {cell(plan.get('next_action'))} | {len(snapshot)} |"
+        )
+    if not plans:
+        doc.append("| — | — | 尚未开始 | — | — | 0 |")
+    doc += [
+        "",
+        "## 4. 动态任务图与 worker 反馈",
+        "",
+        "任务状态：" + ("；".join(f"{name} {count}" for name, count in sorted(counts.items())) or "尚未建立"),
+        "",
+        "| 任务 | 状态 | 尝试 | 依赖 | 初始跨文件上下文 | 最近结果 |",
+        "|---|---|---|---|---|---|",
+    ]
+    for item in tasks:
+        result = item.get("result") or {}
+        dependencies = "、".join(item.get("dependencies") or []) or "—"
+        doc.append(
+            f"| {cell(item.get('title') or item.get('task_key'))}（`{item.get('task_key', '—')}`） | "
+            f"{cell(item.get('state'))} | {item.get('attempts', 0)}/{item.get('max_attempts', '—')} | "
+            f"{cell(dependencies)} | {cell(task_source(item))} | {cell(result.get('summary') or item.get('error'))} |"
+        )
+        history = item.get("attempt_history") or []
+        for attempt in history:
+            attempt_result = attempt.get("result") or {}
+            rationale = attempt_result.get("reasoning") or ""
+            if rationale:
+                doc.append(f"> `{item.get('task_key', '—')}` 第 {attempt.get('attempt', '—')} 次依据摘要：{rationale}")
+    if not tasks:
+        doc.append("| — | — | — | — | — | 尚无任务 |")
+    doc += [
+        "",
+        "## 5. 发现与源码证据",
+        "",
+        f"证据校验通过的发现：{len(candidates)}；校验未通过的记录：{len(invalid)}；动态任务前沿结算进度：{metrics.get('task_coverage', 0)}。",
+        "",
+    ]
+    if findings:
+        for index, finding in enumerate(findings, 1):
+            doc.extend(_finding_block(finding, index))
+    else:
+        doc += ["尚无已保存的源码发现。请结合 Planner 回合、任务状态与缺失上下文判断当前结果。", ""]
+    doc += [
+        "## 6. 可追溯性与后续复核",
+        "",
+        "每轮 Planner 决策、任务创建/更新、依赖交接、worker 领取、工具调用、返回摘要、已读源码范围和尝试结果都先写入 SQLite 事件日志，再通过 SSE 推送。工作台的执行轨迹可按 Planner、worker、任务和尝试展开查看。",
+        "",
+        "POC 只作为待人工授权环境验证的工件；系统不会执行它。对运行时依赖、动态路由、反射、动态 include 或外部服务产生的缺失信息，应结合人工验证记录补充，而不是将其解释为不存在。",
+        "",
+    ]
+    return "\n".join(doc)
+
+
 def render_markdown(bundle: dict) -> str:
     run = bundle["run"]
+    # Planner v2 runs carry a durable session and dynamic task graph.  Older goal
+    # records predate those tables and remain exportable through their historical
+    # report layout, rather than being misleadingly rendered as if they had a Planner.
     if run.get("task_spec"):
-        return _render_task_markdown(bundle)
+        if bundle.get("planner") is not None or "tasks" in bundle:
+            return _render_task_markdown(bundle)
+        return _render_legacy_task_markdown(bundle)
     metrics = bundle["metrics"]
     units = bundle["units"]
     findings = bundle["findings"]

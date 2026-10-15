@@ -1,8 +1,10 @@
-"""The single background audit worker.
+"""The background audit coordinator.
 
-One run at a time, one unit at a time. The queue was frozen when the run was created,
-so the worker only ever picks the next pending unit; it never adds scope. Cancellation
-is observed between units and in-flight work is cancelled outright.
+Runs are serialized for durable SQLite ownership.  A Planner-led run freezes a project
+map, then one Planner revises a cross-file task frontier while bounded worker slots
+claim ready tasks concurrently.  Historical unit-queue runs remain readable.  The
+coordinator never expands the frozen source scope, and cancellation interrupts both
+planning and in-flight worker passes.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import contextlib
 import uuid
 from datetime import datetime, timezone
 
-from .agent import _parse_evidence, audit_unit, pursue_task_work
+from .agent import _parse_evidence, audit_unit, plan_audit_frontier, pursue_planner_task, pursue_task_work
 from .config import Settings
 from .db import Store
 from .events import EventBus
@@ -111,13 +113,19 @@ class AuditWorker:
                 status = "interrupted" if self._stopping else "cancelled"
                 self.store.update_run(run["id"], status=status, finished_at=_now(), error=self._cancel_reason)
                 self.store.abandon_pending_units(run["id"], self._cancel_reason)
-                self.store.abandon_task_work(run["id"], self._cancel_reason)
+                if self.store.get_planner_session(run["id"]) is not None:
+                    self.store.abandon_planner_tasks(run["id"], self._cancel_reason)
+                else:
+                    self.store.abandon_task_work(run["id"], self._cancel_reason)
                 self.bus.emit(run["id"], None, f"run_{status}", {"reason": self._cancel_reason})
                 if self._stopping:
                     raise
             except Exception as exc:  # a worker crash must not strand a run
                 self.store.abandon_pending_units(run["id"], f"Worker failure: {type(exc).__name__}")
-                self.store.abandon_task_work(run["id"], f"Worker failure: {type(exc).__name__}")
+                if self.store.get_planner_session(run["id"]) is not None:
+                    self.store.abandon_planner_tasks(run["id"], f"Worker failure: {type(exc).__name__}")
+                else:
+                    self.store.abandon_task_work(run["id"], f"Worker failure: {type(exc).__name__}")
                 self.store.update_run(
                     run["id"], status="failed", finished_at=_now(), error=f"{type(exc).__name__}: {exc}"[:600]
                 )
@@ -130,7 +138,7 @@ class AuditWorker:
 
     async def _execute(self, run: dict) -> None:
         if run.get("task_spec"):
-            await self._execute_goal_task(run)
+            await self._execute_planner_task(run)
             return
         await self._execute_legacy(run)
 
@@ -297,6 +305,420 @@ class AuditWorker:
                     "exploration_incomplete": partial,
                 },
             )
+
+    def _policy_for_run(self, run: dict) -> AgentPolicy:
+        policy = run.get("agent_policy") or {}
+        return AgentPolicy(**policy) if policy.get("version") == "whitebox-2" else AgentPolicy()
+
+    async def _execute_planner_task(self, run: dict) -> None:
+        """Run ARTEX-style Planner rounds over a durable, dynamic task frontier.
+
+        One Planner owns task creation and graph changes; many bounded workers only
+        claim ready tasks.  A worker never decides that the project goal is impossible.
+        Its evidence-bound summary becomes input for the next serialized Planner round.
+        """
+        run_id = run["id"]
+        task_spec = run["task_spec"]
+        if self.health.is_open():
+            error = "模型熔断窗口尚未结束；未发起新的 Planner 或 worker 请求"
+            self.store.abandon_planner_tasks(run_id, error)
+            self.store.update_run(run_id, status="failed", finished_at=_now(), error=error)
+            self.bus.emit(run_id, None, "run_failed", {"reason": "model_unavailable", "error": error})
+            return
+
+        goal = self.store.get_task_goal(run_id)
+        session = self.store.get_planner_session(run_id)
+        project_map = self.store.get_project_map(run_id)
+        if goal is None or session is None or project_map is None:
+            raise RuntimeError("Planner run is missing its durable goal, session, or project map")
+        policy = self._policy_for_run(run)
+        stop = asyncio.Event()
+        coordinator = asyncio.Lock()
+        failure_message: str | None = None
+        consecutive_errors = 0
+
+        self.bus.emit(
+            run_id,
+            None,
+            "run_started",
+            {
+                "snapshot_id": run["snapshot_id"],
+                "scope": run["scope"],
+                "model": run["model"],
+                "budgets": run["budgets"],
+                "mode": "planner_v2",
+                "task": task_spec,
+                "project_map": {"stats": project_map.get("stats"), "entrypoints": project_map.get("entrypoints", [])[:12]},
+            },
+        )
+        self.bus.emit(
+            run_id,
+            None,
+            "planner_session_started",
+            {
+                "goal_id": goal["id"],
+                "session_id": session["session_id"],
+                "objective": goal["objective"],
+                "success_criteria": goal["success_criteria"],
+                "max_planner_rounds": session["max_rounds"],
+                "max_total_attempts": goal["max_total_attempts"],
+                "max_workers": task_spec["max_workers"],
+                "project_map_stats": project_map.get("stats") or {},
+            },
+        )
+
+        async def abort(message: str) -> None:
+            nonlocal failure_message
+            async with coordinator:
+                if failure_message is not None:
+                    return
+                failure_message = message
+                stop.set()
+                self.store.abandon_planner_tasks(run_id, message)
+                self.store.update_run(run_id, status="failed", finished_at=_now(), error=message)
+                self.bus.emit(run_id, None, "run_failed", {"error": message})
+
+        async def account_model_result(outcome: dict, role: str) -> str | None:
+            """Keep provider-health behaviour identical for Planner and worker calls."""
+            nonlocal consecutive_errors
+            reason = outcome.get("terminal_reason")
+            if reason in MODEL_FAILURE_REASONS:
+                async with coordinator:
+                    self.health.trip(outcome.get("error") or f"{role} model error", status=outcome.get("status"))
+                    consecutive_errors += 1
+                    if consecutive_errors >= MODEL_ERROR_ABORT_AFTER or self.health.is_open():
+                        return (
+                            f"模型熔断或连续失败阈值触发（{role}，本次 {consecutive_errors} 次）："
+                            f"{outcome.get('error') or reason}"
+                        )
+            elif reason == "completed":
+                async with coordinator:
+                    self.health.pass_()
+                    consecutive_errors = 0
+            return None
+
+        async def finish_goal(state: str, basis: str, missing: list[str] | None = None) -> bool:
+            """Persist a host-verified terminal goal and its public run state."""
+            try:
+                settled = self.store.finalize_goal(run_id, state, basis, missing)
+            except ValueError as exc:
+                self.bus.emit(run_id, None, "planner_terminal_deferred", {
+                    "state": state, "reason": str(exc), "basis_summary": basis,
+                })
+                return False
+            status_map = {"met": ("completed", "run_completed"), "unreachable": ("unreachable", "goal_unreachable"), "inconclusive": ("inconclusive", "goal_inconclusive")}
+            run_status, event_kind = status_map[state]
+            self.store.update_run(run_id, status=run_status, finished_at=_now())
+            self.bus.emit(run_id, None, event_kind, {
+                "goal_id": settled["id"],
+                "goal_status": state,
+                "reason": settled.get("terminal_reason"),
+                "attempts": settled["attempts"],
+            })
+            stop.set()
+            return True
+
+        async def run_planner_round() -> str:
+            """Reserve, execute and commit one Planner revision."""
+            plan = self.store.begin_planner_round(run_id, session["session_id"])
+            if plan is None:
+                return "no_round"
+            self.bus.emit(run_id, None, "planner_round_started", {
+                "plan_id": plan["id"], "round": plan["round_no"], "revision": plan["revision"],
+                "session_id": session["session_id"],
+            })
+
+            def record(event: dict) -> None:
+                kind = event.get("kind", "planner_agent_event")
+                payload = {key: value for key, value in event.items() if key != "kind"}
+                payload.update({"plan_id": plan["id"], "session_id": session["session_id"], "role": "planner"})
+                self.bus.emit(run_id, None, kind, payload)
+
+            context = self.store.list_planner_context(run_id)
+            outcome = await plan_audit_frontier(
+                project_map=project_map,
+                run_context=context,
+                task=task_spec,
+                round_no=int(plan["round_no"]),
+                config=self.settings.model,
+                budgets=run["budgets"],
+                policy=policy,
+                on_event=record,
+            )
+            failed = await account_model_result(outcome, "Planner")
+            if failed:
+                self.store.finish_planner_round(
+                    run_id, plan["id"], goal_state="inconclusive", basis_summary=failed,
+                    usage=outcome.get("usage"), error=outcome.get("error") or failed,
+                )
+                await abort(failed)
+                return "failed"
+            decision = outcome.get("decision")
+            if not isinstance(decision, dict):
+                message = outcome.get("error") or "Planner 未返回可验证的任务决策"
+                self.store.finish_planner_round(
+                    run_id, plan["id"], goal_state="inconclusive", basis_summary=message,
+                    usage=outcome.get("usage"), error=message,
+                )
+                await finish_goal("inconclusive", message)
+                return "failed"
+            tasks = list(decision.get("tasks") or [])
+            updates = list(decision.get("updates") or [])
+            self.store.finish_planner_round(
+                run_id,
+                plan["id"],
+                goal_state=str(decision.get("goal_state") or "continue"),
+                basis_summary=str(decision.get("basis_summary") or "Planner 已提交任务图更新。"),
+                next_action=str(decision.get("next_action") or ""),
+                missing_context=list(decision.get("missing_context") or []),
+                tasks=tasks,
+                updates=updates,
+                usage=outcome.get("usage"),
+            )
+            queue = self.store.task_queue_state(run_id)
+            self.bus.emit(run_id, None, "planner_round_committed", {
+                "plan_id": plan["id"],
+                "round": plan["round_no"],
+                "revision": plan["revision"],
+                "goal_state": decision.get("goal_state"),
+                "basis_summary": decision.get("basis_summary"),
+                "next_action": decision.get("next_action"),
+                "task_count": len(tasks),
+                "updates": updates,
+                "queue": queue,
+            })
+            requested_state = decision.get("goal_state")
+            if requested_state in {"met", "unreachable", "inconclusive"}:
+                if requested_state == "inconclusive" and queue["active"]:
+                    self.bus.emit(run_id, None, "planner_terminal_deferred", {
+                        "state": requested_state,
+                        "reason": "仍有已派发任务正在等待或执行，先收集 worker 反馈",
+                        "basis_summary": decision.get("basis_summary"),
+                    })
+                    return "committed"
+                # A suggested terminal state is advisory. The store checks candidates,
+                # outstanding tasks and blocked context before it permits closure.
+                closed = await finish_goal(
+                    str(requested_state),
+                    str(decision.get("basis_summary") or "Planner requested goal closure."),
+                    list(decision.get("missing_context") or []),
+                )
+                if closed:
+                    return "closed"
+            return "committed"
+
+        async def execute_slot(slot: int) -> None:
+            worker_id = f"{self.settings.worker}:{run_id[:8]}:{slot}"
+            try:
+                while not stop.is_set():
+                    current = self.store.get_run(run_id)
+                    current_goal = self.store.get_task_goal(run_id)
+                    if current is None or current["status"] != "running" or current_goal is None or current_goal["status"] != "open":
+                        return
+                    planner_task = self.store.claim_ready_task(run_id, worker_id)
+                    if planner_task is None:
+                        return
+                    attempt = int(planner_task["attempts"]) + 1
+                    task_id = planner_task["id"]
+                    self.bus.emit(run_id, task_id, "planner_task_started", {
+                        "task_id": task_id,
+                        "task_key": planner_task["task_key"],
+                        "title": planner_task["title"],
+                        "objective": planner_task["objective"],
+                        "acceptance_criteria": planner_task["acceptance_criteria"],
+                        "worker_id": worker_id,
+                        "attempt": attempt,
+                        "max_attempts": planner_task["max_attempts"],
+                        "dependencies": planner_task["dependencies"],
+                        "context_spec": planner_task["context_spec"],
+                    })
+
+                    def record(event: dict) -> None:
+                        kind = event.get("kind", "planner_worker_event")
+                        payload = {key: value for key, value in event.items() if key != "kind"}
+                        payload.update({
+                            "task_id": task_id,
+                            "task_key": planner_task["task_key"],
+                            "worker_id": worker_id,
+                            "attempt": attempt,
+                            "role": "worker",
+                        })
+                        self.bus.emit(run_id, task_id, kind, payload)
+
+                    # ARTEX lets a worker build on other workers' durable activity.
+                    # For white-box review we narrow that to source-safe handoffs:
+                    # dependency summaries plus bounded public tool/assessment traces.
+                    # The agent still has to read original snapshot lines before it can
+                    # attach an evidence reference to a finding.
+                    dependency_handoffs = self.store.get_planner_dependency_handoffs(task_id)
+
+                    def search_peer_traces(query: str) -> list[dict]:
+                        return self.store.search_planner_worker_traces(
+                            run_id,
+                            exclude_task_id=task_id,
+                            query=query,
+                        )
+
+                    def get_peer_trace(task_key: str, event_ids: list[int] | None = None) -> list[dict]:
+                        return self.store.get_planner_worker_trace(
+                            run_id,
+                            exclude_task_id=task_id,
+                            task_key=task_key,
+                            event_ids=event_ids,
+                        )
+
+                    outcome = await pursue_planner_task(
+                        repository=self.repository,
+                        snapshot_id=run["snapshot_id"],
+                        snapshot_name=run["snapshot_name"],
+                        planner_task=planner_task,
+                        run_task=task_spec,
+                        attempt=attempt,
+                        allowed_paths=set(run.get("scope") or []),
+                        dependency_handoffs=dependency_handoffs,
+                        peer_trace_search=search_peer_traces,
+                        peer_trace_read=get_peer_trace,
+                        config=self.settings.model,
+                        budgets=run["budgets"],
+                        policy=policy,
+                        on_event=record,
+                    )
+                    prepared_findings: list[dict] = []
+                    if outcome["outcome"] == "achieved":
+                        prepared_findings = self._build_planner_findings(run, planner_task, outcome)
+                        if not any(item["candidate"] for item in prepared_findings):
+                            message = "Planner worker 的发现未通过持久化证据校验，不能满足目标"
+                            outcome = {
+                                **outcome,
+                                "outcome": "blocked",
+                                "error": message,
+                                "result": {
+                                    **outcome["result"], "outcome": "blocked", "terminal_reason": "evidence_rejected",
+                                    "finding": None, "findings": [], "missing_context": [message],
+                                },
+                            }
+
+                    resolved = self.store.resolve_task_attempt(
+                        task_id,
+                        worker_id,
+                        outcome=outcome["outcome"],
+                        result=outcome["result"],
+                        usage=outcome.get("usage"),
+                        seen=outcome.get("seen"),
+                        error=outcome.get("error"),
+                        terminal_reason=outcome.get("terminal_reason"),
+                    )
+                    if resolved is None:
+                        return
+                    for prepared in prepared_findings:
+                        self.store.add_finding(prepared["record"])
+                        self.bus.emit(
+                            run_id,
+                            task_id,
+                            "finding_created" if prepared["candidate"] else "finding_rejected_by_validation",
+                            {**prepared["event"], "task_id": task_id, "task_key": planner_task["task_key"]},
+                        )
+                    state_kind = {
+                        "ready": "planner_task_requeued",
+                        "completed": "planner_task_completed",
+                        "exhausted": "planner_task_exhausted",
+                        "blocked": "planner_task_blocked",
+                        "cancelled": "planner_task_cancelled",
+                    }.get(resolved["state"], "planner_task_settled")
+                    self.bus.emit(run_id, task_id, state_kind, {
+                        "task_id": task_id,
+                        "task_key": planner_task["task_key"],
+                        "worker_id": worker_id,
+                        "state": resolved["state"],
+                        "outcome": outcome["outcome"],
+                        "attempt": resolved["attempts"],
+                        "max_attempts": resolved["max_attempts"],
+                        "summary": (outcome.get("result") or {}).get("summary", ""),
+                        "terminal_reason": outcome.get("terminal_reason"),
+                    })
+                    failed = await account_model_result(outcome, "worker")
+                    if failed:
+                        await abort(failed)
+                        return
+                    if outcome["outcome"] == "achieved" and any(item["candidate"] for item in prepared_findings):
+                        if task_spec.get("stop_on_achieved", True):
+                            await finish_goal("met", (outcome.get("result") or {}).get("summary") or "Worker produced evidence-backed findings.")
+                            return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                await abort(f"Planner worker {slot} failure: {type(exc).__name__}: {str(exc)[:400]}")
+
+        async def run_worker_wave() -> None:
+            workers = [
+                asyncio.create_task(execute_slot(slot), name=f"planner-{run_id[:8]}-{slot}")
+                for slot in range(1, max(1, int(task_spec["max_workers"])) + 1)
+            ]
+            await asyncio.gather(*workers)
+
+        while not stop.is_set():
+            current = self.store.get_run(run_id)
+            goal = self.store.get_task_goal(run_id)
+            session_state = self.store.get_planner_session(run_id)
+            if current is None or current["status"] != "running":
+                self.store.abandon_planner_tasks(run_id, "Run is no longer running")
+                self.bus.emit(run_id, None, "run_cancelled", {"reason": "cancel requested"})
+                return
+            if goal is None or session_state is None:
+                raise RuntimeError("Planner goal/session disappeared during execution")
+            if goal["status"] != "open":
+                await finish_goal(goal["status"], goal.get("terminal_reason") or "Goal already settled")
+                return
+            queue = self.store.task_queue_state(run_id)
+            if queue["ready"] or queue["running"]:
+                await run_worker_wave()
+                continue
+            # With stop_on_achieved disabled, workers are allowed to finish the
+            # currently dispatched frontier after the first valid finding.  Once that
+            # frontier is terminal, an evidence-backed candidate still satisfies the
+            # host-verifiable completion condition; do not let a later Planner-round
+            # limit incorrectly recast it as "unreachable".
+            if not task_spec.get("stop_on_achieved", True):
+                has_candidate = any(
+                    item.get("validation_state") == "candidate"
+                    for item in self.store.list_findings(run_id)
+                )
+                if has_candidate and not queue["active"]:
+                    await finish_goal(
+                        "met",
+                        "已完成当前动态任务前沿，并保留至少一条通过源码证据校验的 worker 发现。",
+                    )
+                    return
+            # A hard shared worker cap is an execution limit, not evidence that the
+            # objective is absent. Keep the result reviewable as inconclusive.
+            if int(goal["attempts"]) >= int(goal["max_total_attempts"]):
+                await finish_goal("inconclusive", "worker 共享尝试上限已耗尽，未能完成所有证据方向")
+                return
+            if int(session_state["current_round"]) >= int(session_state["max_rounds"]):
+                terminal = "unreachable" if queue["total"] and not queue["blocked"] and not queue["active"] else "inconclusive"
+                reason = (
+                    "所有已派发的证据方向均已结算且无受阻上下文，Planner 回合预算已耗尽"
+                    if terminal == "unreachable"
+                    else "Planner 回合预算已耗尽，仍存在受阻或未完成的上下文"
+                )
+                await finish_goal(terminal, reason)
+                return
+            state = await run_planner_round()
+            if state in {"closed", "failed"} or stop.is_set():
+                return
+
+    def _build_planner_findings(self, run: dict, planner_task: dict, outcome: dict) -> list[dict]:
+        """Adapt generic finding validation to a task that spans several source files."""
+        refs = (planner_task.get("context_spec") or {}).get("source_refs") or []
+        anchor = next((item for item in refs if isinstance(item, dict) and item.get("path")), {})
+        virtual_unit = {
+            "unit_id": planner_task["id"],
+            "file_path": str(anchor.get("path") or "<project>"),
+            "symbol": str(planner_task.get("title") or planner_task.get("task_key") or "<planner task>"),
+            "start_line": int(anchor.get("start_line") or 1),
+            "end_line": int(anchor.get("end_line") or 1),
+        }
+        return self._build_goal_findings(run, virtual_unit, outcome)
 
     async def _execute_goal_task(self, run: dict) -> None:
         """Coordinate a durable, shared task queue with bounded concurrent workers.

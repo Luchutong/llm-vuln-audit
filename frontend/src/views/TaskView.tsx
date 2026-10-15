@@ -7,6 +7,7 @@ const EMPTY_TASK_SPEC: TaskSpec = {
   success_criteria: '',
   max_iterations: 3,
   max_total_attempts: 24,
+  max_planner_rounds: 8,
   max_workers: 2,
   stop_on_achieved: true,
   require_poc: false,
@@ -22,9 +23,7 @@ function boundedNumber(value: string, minimum: number, maximum: number) {
  * The primary, source-agnostic task flow.
  *
  * The user sees only the data that freezes into a goal-driven run: PHP archive, selected
- * source scope, objective / acceptance criteria, and bounded worker budgets. The server
- * still accepts legacy prompt runs for existing records, but creating one is intentionally
- * not exposed here.
+ * source scope, objective / acceptance criteria, and bounded Planner/worker budgets.
  */
 export function TaskView({
   snapshots,
@@ -85,7 +84,7 @@ export function TaskView({
       const body = new FormData();
       body.append('file', file);
       const created = await api<Snapshot>('/snapshots', { method: 'POST', body });
-      setNotice(`已导入 ${created.name}：${created.files.length} 个文件，${created.units.length} 个审计单元`);
+      setNotice(`已导入 ${created.name}：${created.files.length} 个文件，${created.units?.length ?? 0} 个索引片段`);
       onChanged();
       setSelected(created.id);
     } catch (exc) {
@@ -119,7 +118,7 @@ export function TaskView({
         budgets,
         task: taskSpec,
       });
-      setNotice(`已创建目标审计 ${run.id.slice(0, 10)}：${run.total_units} 个源码单元`);
+      setNotice(`已创建项目级审计 ${run.id.slice(0, 10)}：Planner 将先建立动态任务图`);
       refreshRuns();
       onOpenRun(run.id);
     } catch (exc) {
@@ -133,8 +132,8 @@ export function TaskView({
   const included = indexed.filter((file) => !file.excluded);
   const optionalPhp = indexed.filter((file) => file.excluded && file.is_php === true);
   const excluded = indexed.filter((file) => file.excluded && file.is_php !== true);
-  const units = useMemo(
-    () => (snapshot?.units ?? []).filter((unit) => scope.includes(unit.file_path)),
+  const indexedSymbols = useMemo(
+    () => (snapshot?.units ?? []).filter((unit) => scope.includes(unit.file_path)).length,
     [snapshot, scope],
   );
 
@@ -237,7 +236,7 @@ export function TaskView({
                     ))}
                   </div>
                   <span className="field-hint">
-                    已选择 {scope.length} 个文件，将生成 {units.length} 个源码审计单元；单元按函数、方法或顶层脚本切分，过长时再按语句边界切分。
+                    已选择 {scope.length} 个文件，索引包含 {indexedSymbols} 个函数、方法或顶层代码片段。Planner 会以整个项目图建立跨文件任务，而不会把这些片段逐个分发给 agent。
                   </span>
                 </div>
 
@@ -285,7 +284,7 @@ export function TaskView({
         <div className="panel-head">
           <div>
             <div className="panel-title">3 · 目标与执行边界</div>
-            <div className="faint small">协调器将范围拆成工作项，多个 worker 分别探索，直至目标达成或预算、轮次耗尽。</div>
+            <div className="faint small">主 Planner 先读取项目图并建立跨文件任务图，再把独立证据方向分派给多个 worker。</div>
           </div>
           <span className="chip">多 worker</span>
         </div>
@@ -313,7 +312,7 @@ export function TaskView({
 
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
             <div className="field">
-              <span className="field-label">每个工作项最大轮次</span>
+              <span className="field-label">每个动态任务最大尝试</span>
               <input
                 type="number"
                 min={1}
@@ -335,6 +334,17 @@ export function TaskView({
               <span className="field-hint">1–128 次；所有 worker 共享这个总上限。</span>
             </div>
             <div className="field">
+              <span className="field-label">Planner 最大回合</span>
+              <input
+                type="number"
+                min={1}
+                max={32}
+                value={task.max_planner_rounds}
+                onChange={(event) => setTask((current) => ({ ...current, max_planner_rounds: boundedNumber(event.target.value, 1, 32) }))}
+              />
+              <span className="field-hint">每轮根据项目图和 worker 反馈创建、更新或收束动态任务。</span>
+            </div>
+            <div className="field">
               <span className="field-label">并发 worker 数</span>
               <input
                 type="number"
@@ -343,7 +353,7 @@ export function TaskView({
                 value={task.max_workers}
                 onChange={(event) => setTask((current) => ({ ...current, max_workers: boundedNumber(event.target.value, 1, 4) }))}
               />
-              <span className="field-hint">1–4 个；每个 worker 领取不同的源码工作项。</span>
+              <span className="field-hint">1–4 个；每个 worker 领取一项跨文件审计方向。</span>
             </div>
             <div className="field">
               <span className="field-label">每项模型响应上限</span>
@@ -353,7 +363,7 @@ export function TaskView({
                 value={budgets.responses}
                 onChange={(event) => setBudgets((current) => ({ ...current, responses: boundedNumber(event.target.value, 1, 128) }))}
               />
-              <span className="field-hint">用于一次工作项探索的模型请求预算。</span>
+              <span className="field-hint">用于一次 Planner 或 worker 回合的模型请求预算。</span>
             </div>
             <div className="field">
               <span className="field-label">每项工具调用上限</span>
@@ -386,7 +396,7 @@ export function TaskView({
               />
               <span>
                 <strong>达成后停止</strong>
-                <span className="field-hint" style={{ display: 'block' }}>首个有源码证据的目标达成后，跳过尚未开始的工作项。</span>
+                <span className="field-hint" style={{ display: 'block' }}>首个有源码证据的目标达成后，跳过尚未开始的动态任务。</span>
               </span>
             </label>
             <label className="checkbox" style={{ alignItems: 'flex-start' }}>
@@ -404,10 +414,10 @@ export function TaskView({
 
           <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={start} disabled={busy || !scope.length || (config !== null && !config.configured)}>
-              {busy ? '处理中…' : `开始目标审计（${units.length} 个单元）`}
+              {busy ? '处理中…' : `启动 Planner 审计（${scope.length} 个文件）`}
             </button>
             <span className="field-hint" style={{ maxWidth: 720 }}>
-              目标、验收条件、范围、worker 与预算会随运行冻结。完成页保留每次工具调用、工作项状态和模型生成的证据化依据摘要，供复核执行过程。
+              目标、验收条件、范围、Planner/worker 边界与预算会随运行冻结。完成页保留项目图、任务图、工具调用和证据化依据摘要，供复核执行过程。
             </span>
           </div>
         </div>
@@ -448,7 +458,7 @@ export function TaskView({
                       </div>
                     ) : <span className="faint">历史运行</span>}
                   </td>
-                  <td style={{ padding: '8px 8px' }} className="small">{run.completed_units}/{run.total_units}</td>
+                  <td style={{ padding: '8px 8px' }} className="small">{run.completed_tasks ?? 0}/{run.total_tasks ?? 0} 任务</td>
                   <td style={{ padding: '8px 8px' }} className="small faint">{run.usage.requests} 响应 / {run.usage.tool_calls} 工具</td>
                   <td style={{ padding: '8px 8px' }} className="small faint">{run.created_at.slice(0, 19)}</td>
                   <td style={{ padding: '8px 14px' }}><button className="btn" onClick={() => onOpenRun(run.id)}>查看结果</button></td>

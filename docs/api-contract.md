@@ -37,6 +37,7 @@
     "success_criteria": "每条结论给出原始行号、路由和中间件判断；否则说明未决原因",
     "max_iterations": 3,
     "max_total_attempts": 24,
+    "max_planner_rounds": 8,
     "max_workers": 2,
     "stop_on_achieved": true,
     "require_poc": false
@@ -44,37 +45,37 @@
 }
 ```
 
-`scope` 在目标任务中可省略，服务会冻结所有默认项目 PHP 文件；前端默认显式发送该范围。`vendor`、构建产物等目录中的 PHP 源码默认不选，但可在 `scope` 中显式加入；非 PHP 文件不能加入范围。目标任务不能携带 `prompt_id`。`scope`、任务文本、预算和队列顺序都在创建时冻结。目标文本中出现的文件路径和代码标识会影响工作项顺序，固定 SQL/XSS/命令执行优先级不会进入目标任务。
+`scope` 在目标任务中可省略，服务会冻结所有默认项目 PHP 文件；前端默认显式发送该范围。`vendor`、构建产物等目录中的 PHP 源码默认不选，但可在 `scope` 中显式加入；非 PHP 文件不能加入范围。请求只接受 `task` 模式，不能携带历史 `prompt_id`。`scope`、任务文本、预算和**项目图**会在创建时冻结；项目图记录范围内的文件、符号、静态 include、调用点、入口候选与解析限制，但不作为发现证据。
 
 `TaskSpec`：
 
 ```text
 {objective,success_criteria,max_iterations:1..8,max_total_attempts:1..128,
- max_workers:1..4,stop_on_achieved,require_poc}
+ max_planner_rounds:1..32,max_workers:1..4,stop_on_achieved,require_poc}
 ```
 
 `require_poc=false` 适用于源码事实、架构、配置和边界审计。设为 `true` 时，每条 `achieved` 发现都必须带可人工复核的 POC；服务不会执行 POC。
 
-旧的固定 Prompt 审计仍可通过 `{snapshot_id,scope,prompt_id}` 创建，用于读取历史实验记录；默认工作台不展示该入口。
-
 - `GET /runs` → 运行摘要。
-- `GET /runs/{id}` → `{run,units,goals,work_items,findings,metrics,attributions}`。
+- `GET /runs/{id}` → `{run,goal,planner,project_map,plans,tasks,findings,metrics}`。Planner 运行的 `units` 与 `work_items` 为兼容字段且始终为空。
 - `POST /runs/{id}/cancel` → 取消待运行或运行中任务。
 
-目标任务的 `Run.status` 可能是 `pending`、`running`、`completed`、`unreachable`、`inconclusive`、`cancelled`、`interrupted` 或 `failed`。`unreachable` 只在所有工作项正常结束或耗尽次数、且无受阻项时产生；缺失源码、模型/预算失败、取消和中断不会被转换为“不可达”。
+目标任务的 `Run.status` 可能是 `pending`、`running`、`completed`、`unreachable`、`inconclusive`、`cancelled`、`interrupted` 或 `failed`。`unreachable` 只在动态前沿的所有证据方向结算且无受阻项时产生；缺失源码、模型/预算失败、共享尝试上限、Planner 回合耗尽、取消和中断不会被转换为“不可达”。
 
-## 多 worker 队列与结果
+## Planner、动态任务图与多 worker
 
-`Goal` 保存一个运行的目标状态。`TaskWorkItem` 保存一个冻结源码单元的工作状态，`TaskWorkAttempt` 追加保存每一轮：
+`Goal` 保存一个运行的目标状态。一个运行只有一个主 `PlannerSession`；Planner 在序列化回合中基于冻结项目图和已持久化 worker 摘要生成或更新 `PlannerTask`。任务是跨文件证据方向，不是一个文件或语法切片。
 
 ```text
 Goal {id,run_id,objective,success_criteria,status,attempts,max_iterations,max_total_attempts,...}
-TaskWorkItem {id,goal_id,unit_id,summary,focus,priority,state,attempt,max_attempts,
-              claimed_by,result,error,attempt_history:TaskWorkAttempt[]}
-TaskWorkAttempt {work_id,attempt,worker_id,outcome,state,result,usage,seen,error,created_at}
+PlannerSession {run_id,session_id,current_round,max_rounds,current_revision,status,terminal_state,...}
+PlannerPlan {id,round_no,revision,basis_summary,next_action,task_snapshot,updates,usage,...}
+PlannerTask {id,task_key,title,objective,acceptance_criteria,context_spec,dependencies,
+             priority,state,attempts,max_attempts,claimed_by,result,error,attempt_history:PlannerTaskAttempt[]}
+PlannerTaskAttempt {task_id,attempt,worker_id,outcome,state,result,usage,seen,error,created_at}
 ```
 
-worker 通过原子租约领取工作项。`achieved`、已验证的发现、工作项结算和目标状态在一个 SQLite 事务中提交。`continue` 只会重试同一工作项；`blocked` 会使最终状态成为 `inconclusive`。每次工具调用都受运行冻结的 `scope` 限制，不能读取范围外文件。
+Planner 不能直接声明源码发现：它只能提供任务目标、依据摘要、文件/符号阅读指令和依赖。worker 通过原子租约领取已就绪任务，并先装载受范围约束的多文件上下文；已完成依赖的摘要会作为未验证线索交接给后续任务。worker 还可以检索同一运行中其他 worker 的受限持久化轨迹（工具参数/结果预览和依据摘要），但这些内容不是证据，任何 finding 仍须由该 worker 实际读取的源码行号支撑。`continue` 只会重试同一动态任务；`blocked` 会使整体结论保留为 `inconclusive`。每次工具调用都受运行冻结的 `scope` 限制，不能读取范围外文件。
 
 目标发现使用通用结构，不强制伪造漏洞链：
 
@@ -84,22 +85,25 @@ TaskFinding {title,kind="source_observation",summary,evidence,
  preconditions?,poc?,remediation?}
 ```
 
-`kind` 可为 `source_observation`、`data_flow`、`security_boundary`、`vulnerability` 或任务定义的其他短名称。同一工作项可提交多条独立引用的发现；每条引用都要在快照内且已被该 worker 实际读取。
+`kind` 可为 `source_observation`、`data_flow`、`security_boundary`、`vulnerability` 或任务定义的其他短名称。同一动态任务可提交多条独立引用的发现；每条引用都要在快照内且已被该 worker 实际读取。
 
 ## 执行轨迹
 
 `GET /runs/{id}/events?after=0` 是持久化 SSE。服务先将事件写入 SQLite，再推送；客户端应使用 `Last-Event-ID` 或 `after` 续传并以事件 ID 去重。`GET /runs/{id}/event-log?after=0` 返回 JSON 回放。
 
-目标任务事件包括：
+Planner 任务事件包括：
 
 ```text
-task_coordinator_started, task_plan_created,
-task_work_started, task_work_requeued, task_work_completed,
+planner_run_queued, planner_session_started,
+planner_round_started, planner_assessment, planner_round_committed,
+planner_context_prepared, planner_task_started, planner_task_requeued,
+planner_task_completed, planner_task_exhausted, planner_task_blocked,
+planner_dependency_handoff_prepared,
 tool_call, tool_result, task_assessment,
-task_goal_met, goal_unreachable, goal_inconclusive
+run_completed, goal_unreachable, goal_inconclusive
 ```
 
-所有 worker 工具事件带 `work_id`、`worker_id`、`attempt`。`tool_call` 和 `tool_result` 使用同一 `call_id` / `span_id` 配对，结果携带状态、受限预览、已读范围、用量和 `duration_ms`。`task_assessment` 包含 `outcome`、`summary`、`rationale`、`next_focus`、`missing_context` 和经解析的源码引用。
+Planner 事件带 `plan_id`、`session_id`、`role=planner`；worker 事件带 `task_id`、`task_key`、`worker_id`、`attempt`、`role=worker`。`tool_call` 和 `tool_result` 使用同一 `call_id` / `span_id` 配对，结果携带状态、受限预览、已读范围、用量和 `duration_ms`。`task_assessment` 包含 `outcome`、`summary`、`rationale`、`next_focus`、`missing_context` 和经解析的源码引用。
 
 `rationale` 是模型生成的、可审计的简短依据摘要，必须关联展示过的源码事实；不是模型内部思维链。系统不会保存或返回 provider thinking delta、隐藏推理或 API 密钥。
 
@@ -110,7 +114,7 @@ task_goal_met, goal_unreachable, goal_inconclusive
 - `POST /findings/{id}/verifications` → `multipart/form-data`，字段 `record`（JSON）和可选 `files`。带 POC 的漏洞发现确认或排除需要成功执行、环境、命令和对照观测；确认还需要附件。没有 POC 的通用源码发现可用人工复核说明确认或排除，无需伪造攻击执行记录；证据校验未通过的源码结论不能被确认。
 - `GET /runs/{id}/report?format=markdown|json|zip` → 审计报告、原始结果或证据包。
 
-自定义目标任务的统计 `truth_status=goal_task_not_comparable`、`evaluation=null`，不会套用固定三类漏洞的 TP/FP/FN/TN 或 Recall 矩阵。
+Planner 目标任务的统计 `truth_status=planner_goal_not_comparable`、`evaluation=null`，进度字段表示动态任务前沿的结算状态，不会套用固定三类漏洞的 TP/FP/FN/TN 或 Recall 矩阵。
 
 ## 配置
 

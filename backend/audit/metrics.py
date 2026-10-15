@@ -19,7 +19,14 @@ def _round(value: float) -> float:
     return round(value, 6)
 
 
-def summarise(run: dict, units: list[dict], findings: list[dict], truths: list[dict]) -> dict:
+def summarise(
+    run: dict,
+    units: list[dict],
+    findings: list[dict],
+    truths: list[dict],
+    *,
+    tasks: list[dict] | None = None,
+) -> dict:
     total_units = len(units)
     completed = [unit for unit in units if unit["status"] == "completed"]
     incomplete = [unit for unit in units if unit["status"] in INCOMPLETE_STATUSES]
@@ -54,6 +61,39 @@ def summarise(run: dict, units: list[dict], findings: list[dict], truths: list[d
         "incomplete_units": len(incomplete),
         "pending_units": len(pending),
     }
+
+    # Planner v2 has no static per-file queue. Its meaningful progress measure is
+    # the durable task frontier, so do not present a task count as source coverage.
+    # ``tasks is not None`` distinguishes the new API bundle from historical goal
+    # records which used the former work-item queue.
+    if run.get("task_spec") and tasks is not None:
+        state_counts: dict[str, int] = {}
+        for item in tasks:
+            state = str(item.get("state") or "unknown")
+            state_counts[state] = state_counts.get(state, 0) + 1
+        total_tasks = len(tasks)
+        terminal_states = {"completed", "exhausted", "blocked", "cancelled", "skipped"}
+        terminal_tasks = sum(count for state, count in state_counts.items() if state in terminal_states)
+        active_tasks = sum(state_counts.get(state, 0) for state in ("pending", "ready", "running"))
+        metrics.update({
+            # Keep the old field for older clients, but its value is deliberately
+            # task-frontier completion in this mode, not a claim about file coverage.
+            "audit_coverage": _round(terminal_tasks / total_tasks) if total_tasks else 0.0,
+            "total_units": 0,
+            "completed_units": 0,
+            "incomplete_units": 0,
+            "pending_units": 0,
+            "total_tasks": total_tasks,
+            "completed_tasks": state_counts.get("completed", 0),
+            "terminal_tasks": terminal_tasks,
+            "active_tasks": active_tasks,
+            "blocked_tasks": state_counts.get("blocked", 0),
+            "task_states": state_counts,
+            "task_coverage": _round(terminal_tasks / total_tasks) if total_tasks else 0.0,
+            "truth_status": "planner_goal_not_comparable",
+            "evaluation": None,
+        })
+        return metrics
 
     # A custom objective does not make the fixed SQLi/XSS/command-injection
     # checklist disappear from historic truth data.  It does make that matrix

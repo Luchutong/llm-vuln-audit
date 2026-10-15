@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -45,48 +44,6 @@ def _iso() -> str:
 def _safe_name(value: str) -> str:
     cleaned = Path(value.replace("\\", "/")).name.strip()[:120]
     return "".join(ch for ch in cleaned if ch.isprintable() and ch not in '/\\:*?"<>|') or "upload.bin"
-
-
-def _task_terms(task: dict) -> tuple[str, ...]:
-    """Extract code-shaped terms from a target without applying a vulnerability checklist."""
-    text = "\n".join(
-        str(task.get(name) or "") for name in ("objective", "success_criteria")
-    ).lower()
-    terms = re.findall(r"[$a-z_][a-z0-9_./:-]{1,}", text)
-    ignored = {"the", "and", "for", "from", "with", "into", "that", "this", "php", "source", "code"}
-    return tuple(dict.fromkeys(term for term in terms if term not in ignored and len(term) >= 2))[:32]
-
-
-def _order_task_units(units: list[dict], task: dict) -> list[dict]:
-    """Order every selected unit by target relevance, then stable source position.
-
-    Goal tasks intentionally do not inherit the legacy SQL/XSS/command sink priority.
-    This lightweight deterministic planner only ranks user-mentioned identifiers and
-    paths; it never filters units or makes a security conclusion.
-    """
-    terms = _task_terms(task)
-
-    def relevance(unit: dict) -> int:
-        if not terms:
-            return 0
-        haystack = " ".join(
-            [
-                str(unit.get("file_path") or ""),
-                str(unit.get("symbol") or ""),
-                *[str(line.get("text") or "") for line in unit.get("cleaned_lines") or []],
-            ]
-        ).lower()
-        return sum(haystack.count(term) for term in terms)
-
-    return sorted(
-        units,
-        key=lambda unit: (
-            -relevance(unit),
-            str(unit.get("file_path") or ""),
-            int(unit.get("start_byte") or 0),
-            str(unit.get("id") or ""),
-        ),
-    )
 
 
 def _required_verification_fields(record: VerificationRecord) -> list[str]:
@@ -148,9 +105,29 @@ def _run_bundle(state: Services, run_id: str) -> dict:
     run = state.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run does not exist")
-    units = state.store.list_run_units(run_id)
     findings = state.store.list_findings(run_id)
     truths = state.store.list_truths(run["snapshot_id"])
+    planner = state.store.get_planner_session(run_id)
+    if planner is not None:
+        tasks = state.store.list_tasks(run_id)
+        goal = state.store.get_task_goal(run_id)
+        return {
+            "run": run,
+            "goal": goal,
+            "goals": [goal] if goal else [],
+            "planner": planner,
+            "project_map": state.store.get_project_map(run_id),
+            "plans": state.store.list_plans(run_id),
+            "tasks": tasks,
+            # Compatibility fields remain empty for older API consumers; Planner v2
+            # does not create per-file run units or the former static work queue.
+            "units": [],
+            "work_items": [],
+            "findings": findings,
+            "attributions": [],
+            "metrics": summarise(run, [], findings, truths, tasks=tasks),
+        }
+    units = state.store.list_run_units(run_id)
     return {
         "run": run,
         "units": units,
@@ -267,33 +244,19 @@ async def get_source(
 
 @app.post("/api/runs")
 async def create_run(request: Request, payload: CreateRunRequest) -> dict:
+    """Create a Planner-led project audit from an immutable PHP snapshot.
+
+    No source unit queue is frozen here.  The project map is frozen instead, then the
+    run's main Planner creates and revises cross-file worker tasks as evidence arrives.
+    """
     state = services(request)
     try:
         snapshot = state.repository.get_snapshot(payload.snapshot_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Snapshot does not exist") from exc
 
-    # Goal tasks have their own constrained executor instruction in agent.py.  Carrying a
-    # P0/P1/P2 record into this mode would be misleading because those prompts explicitly
-    # require the fixed SQLi/XSS/command-injection checklist.  Fixed-audit runs retain the
-    # historical prompt lookup and frozen full text unchanged.
-    if payload.task is not None:
-        prompt = {
-            "id": "goal-task",
-            "label": "目标任务执行器",
-            "text": "",
-        }
-    else:
-        prompt = state.store.get_prompt(payload.prompt_id or "")
-        if prompt is None:
-            raise HTTPException(status_code=400, detail="Prompt version does not exist")
-
-    # A dependency or generated directory is omitted from the *default* scope so a
-    # first pass does not burn its budget on third-party code.  It is still immutable
-    # PHP source in the snapshot, however, and an explicit target task may need to
-    # audit it.  Keep that opt-in path available instead of treating a directory name
-    # as a hard language or trust boundary.  Older snapshots did not carry ``is_php``;
-    # their historical non-excluded set remains the safe compatibility fallback.
+    # Default scope excludes generated/dependency trees only for cost control; an
+    # explicit selection may include any PHP source indexed in the immutable snapshot.
     available = {
         item["path"]
         for item in snapshot["files"]
@@ -304,48 +267,51 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         for item in snapshot["files"]
         if not item["excluded"] and item["path"] in available
     }
-    # A target task is useful before a reviewer knows the project layout.  Omitting the
-    # optional scope therefore means every default PHP source; an explicit scope can
-    # additionally include a default-excluded PHP dependency and remains frozen for
-    # focused reviews and reproducible reruns.
-    # If every PHP file happened to live in a normally excluded directory (for
-    # example, a library-only archive), falling back to the available PHP set is more
-    # useful than creating an empty task that the user cannot begin to inspect.
     implicit_scope = default_scope or available
     requested = list(dict.fromkeys(payload.scope or sorted(implicit_scope)))
     unknown = [path for path in requested if path not in available]
     if unknown:
         raise HTTPException(status_code=400, detail=f"Scope contains non-PHP files or paths outside the snapshot: {unknown[:5]}")
 
-    scope = set(requested)
-    units = [unit for unit in snapshot["units"] if unit["file_path"] in scope]
-    if not units:
-        raise HTTPException(status_code=400, detail="The selected scope contains no audit units")
-    # Legacy experiment runs retain their fixed vulnerability-oriented ordering.  Target
-    # tasks instead start with code identifiers or paths named in the user's objective,
-    # then work through the rest of the frozen scope in a stable order.
-    if payload.task is not None:
-        units = _order_task_units(units, payload.task.model_dump())
-    else:
-        units.sort(key=lambda unit: (-unit["priority"], unit["file_path"], unit["start_byte"]))
-
     budgets = clamp_budgets(payload.budgets)
     run_id = uuid.uuid4().hex
+    try:
+        project_map = await asyncio.to_thread(
+            state.repository.build_project_map, snapshot["id"], set(requested)
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to build the frozen project map: {exc}") from exc
+    if not project_map.get("files"):
+        raise HTTPException(status_code=400, detail="The selected scope contains no readable PHP source files")
     run = {
         "id": run_id,
         "snapshot_id": snapshot["id"],
         "snapshot_name": snapshot["name"],
         "scope": requested,
-        "prompt_id": prompt["id"],
-        "prompt_label": prompt["label"],
-        "prompt_text": prompt["text"],
+        # Historical columns stay populated for database compatibility. They are not
+        # a selectable prompt path in the Planner-led API or UI.
+        "prompt_id": "planner-v2",
+        "prompt_label": "项目级 Planner",
+        "prompt_text": "",
         "model": state.settings.model.label,
         "budgets": budgets,
         "agent_policy": AgentPolicy().snapshot(),
-        "task_spec": payload.task.model_dump() if payload.task else None,
+        "task_spec": payload.task.model_dump(),
         "created_at": _iso(),
     }
-    state.store.create_run(run, units)
+    state.store.create_run(run)
+    state.store.create_planner_session(
+        run_id,
+        f"planner:{run_id[:12]}",
+        payload.task.max_planner_rounds,
+        project_map,
+    )
+    state.bus.emit(run_id, None, "planner_run_queued", {
+        "objective": payload.task.objective,
+        "scope_files": len(requested),
+        "project_map_stats": project_map.get("stats") or {},
+        "max_planner_rounds": payload.task.max_planner_rounds,
+    })
     state.worker.notify()
     return state.store.get_run(run_id)
 
@@ -375,7 +341,10 @@ async def cancel_run(request: Request, run_id: str) -> dict:
         current = state.store.get_run(run_id)
         if current and current["status"] == "cancelled":
             state.store.abandon_pending_units(run_id, "Run cancelled")
-            state.store.abandon_task_work(run_id, "Run cancelled")
+            if state.store.get_planner_session(run_id) is not None:
+                state.store.abandon_planner_tasks(run_id, "Run cancelled")
+            else:
+                state.store.abandon_task_work(run_id, "Run cancelled")
             state.bus.emit(run_id, None, "run_cancelled", {"reason": "cancel requested"})
     state.worker.notify()
     return state.store.get_run(run_id)

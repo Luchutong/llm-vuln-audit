@@ -665,3 +665,137 @@ def test_goal_executor_persists_host_observed_scope_limits_with_the_assessment(m
     assert any("无法解析的依赖" in note for note in result["result"]["missing_context"])
     assessment = next(event for event in events if event["kind"] == "task_assessment")
     assert assessment["missing_context"] == result["result"]["missing_context"]
+
+
+def test_planner_worker_preloads_a_multi_file_bundle_when_no_tools_are_available(monkeypatch):
+    """A dynamic task must not fall back to its first file when its tool budget is zero."""
+    class BundleRepository(Repository):
+        def build_context_bundle(self, snapshot_id, task, allowed_paths, max_bytes):
+            assert allowed_paths == {"a.php", "b.php"}
+            return {
+                "excerpts": [
+                    {"path": "a.php", "start_line": 3, "end_line": 3,
+                     "lines": [{"number": 3, "text": "$value = $_GET['x'];"}], "reason": "entry"},
+                    {"path": "b.php", "start_line": 2, "end_line": 2,
+                     "lines": [{"number": 2, "text": "echo $value;"}], "reason": "sink"},
+                ],
+                "unresolved_dependencies": [],
+                "limitations": [],
+            }
+
+    received: list[str] = []
+
+    def provider(messages, info):
+        received.append(str(messages))
+        return output(info, {
+            "outcome": "achieved",
+            "summary": "已读取入口与输出文件中的数据流。",
+            "reasoning": "入口读取请求参数，另一文件将同一变量输出，两个行号均已展示。",
+            "next_focus": "",
+            "missing_context": [],
+            "finding": {
+                "title": "跨文件请求参数输出",
+                "kind": "data_flow",
+                "summary": "请求参数在入口读取后进入输出文件。",
+                "evidence": "a.php:3-3; b.php:2-2",
+            },
+        })
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    events: list[dict] = []
+    result = asyncio.run(agent.pursue_planner_task(
+        repository=BundleRepository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        planner_task={
+            "id": "task-1", "task_key": "entry-output", "title": "入口到输出",
+            "context_spec": {"source_refs": []},
+        },
+        run_task={
+            "objective": "确认请求参数从入口到输出的跨文件路径。",
+            "success_criteria": "保存两个文件的原始行号证据。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "max_workers": 1,
+            "stop_on_achieved": True,
+            "require_poc": False,
+        },
+        attempt=1,
+        allowed_paths={"a.php", "b.php"},
+        config=CONFIG,
+        budgets={"responses": 4, "tools": 0, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+        on_event=events.append,
+    ))
+
+    assert result["outcome"] == "achieved", result
+    assert any("文件: a.php" in message and "3 | $value = $_GET['x'];" in message for message in received)
+    assert any("b.php:2 | echo $value;" in message for message in received)
+    assert {item["path"] for item in result["seen"]} == {"a.php", "b.php"}
+    assert any(event["kind"] == "planner_context_prepared" for event in events)
+    assert not [event for event in events if event["kind"] == "tool_call"]
+
+
+def test_planner_worker_can_search_a_bounded_peer_trace_as_an_untrusted_lead(monkeypatch):
+    """Peer activity is available to a Planner worker but cannot replace source evidence."""
+    received: list[str] = []
+    turns = 0
+    searches: list[str] = []
+
+    def provider(messages, info):
+        nonlocal turns
+        received.append(str(messages))
+        if turns == 0:
+            turns += 1
+            assert {"search_peer_traces", "get_peer_trace"} <= {tool.name for tool in info.function_tools}
+            return ModelResponse(parts=[ToolCallPart("search_peer_traces", {"query": "auth"})])
+        return output(info, {
+            "outcome": "no_evidence",
+            "summary": "同行记录提供了认证线索，但当前任务未取得决定性行号。",
+            "reasoning": "同行工具摘要只用于定位；本任务没有将其作为源码引用。",
+            "next_focus": "",
+            "missing_context": [],
+        })
+
+    def search_peer(query: str) -> list[dict]:
+        searches.append(query)
+        return [{
+            "event_id": 19,
+            "task_key": "entry-auth",
+            "title": "入口认证链",
+            "kind": "task_assessment",
+            "trace": {"summary": "认证函数读取 session。", "rationale": "见该任务自己的源码范围。"},
+        }]
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    events: list[dict] = []
+    result = asyncio.run(agent.pursue_task_work(
+        repository=Repository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        unit=UNIT,
+        task={
+            "objective": "确认入口认证条件是否在敏感操作前得到验证。",
+            "success_criteria": "结论必须来自本 worker 已读取的原始源码行号。",
+            "max_iterations": 2,
+            "max_total_attempts": 8,
+            "require_poc": False,
+        },
+        attempt=1,
+        allowed_paths={"a.php", "entry.php"},
+        initial_excerpts=[{"path": "a.php", "lines": UNIT["cleaned_lines"]}],
+        peer_trace_search=search_peer,
+        peer_trace_read=lambda task_key, event_ids: [],
+        config=CONFIG,
+        budgets={"responses": 4, "tools": 2, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+        on_event=events.append,
+    ))
+
+    assert result["outcome"] == "no_evidence", result
+    assert searches == ["auth"]
+    assert any(
+        event["kind"] == "tool_result" and event["tool"] == "search_peer_traces" and event["status"] == "ok"
+        for event in events
+    )
+    assert any("未验证的审计线索" in message for message in received)

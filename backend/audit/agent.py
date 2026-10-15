@@ -6,7 +6,7 @@ source provenance and durable checkpoints. No phase renews the unit budget.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import json
 import re
 import time
@@ -31,6 +31,7 @@ from .schemas import (
     CategoryVerdict,
     Check,
     GoalAssessment,
+    PlannerDecision,
     UnitAnalysis,
     UnitVerdicts,
 )
@@ -53,6 +54,15 @@ class AuditDeps:
     # Goal-task workers receive this from the frozen run scope.  Legacy fixed audits
     # retain their historical cross-snapshot context behavior by leaving it unset.
     allowed_paths: frozenset[str] | None = None
+    # Planner v2 workers begin from a task-selected, multi-file context bundle rather
+    # than a source slice.  Keeping this optional lets the historical executor remain
+    # reproducible while the shared read/search provenance machinery stays identical.
+    context_task: dict | None = None
+    # ARTEX-style peer exchange is deliberately constrained to durable, public trace
+    # projections.  These callbacks are absent for legacy/unit agents, so the extra
+    # tools are never exposed in those modes.
+    peer_trace_search: Callable[[str], list[dict]] | None = None
+    peer_trace_read: Callable[[str, list[int] | None], list[dict]] | None = None
     calls: set = field(default_factory=set)
     repeats: int = 0
     stagnant: int = 0
@@ -84,6 +94,7 @@ class AuditDeps:
             "started_elapsed_ms": round((started - execution.started) * 1000),
         })
         added = 0
+        useful = False
         ledger_full = False
         deferred_error: BaseException | None = None
         error_type = ""
@@ -135,8 +146,50 @@ class AuditDeps:
                     text = text or "没有匹配结果；这不表示代码安全。"
                     if result.get("truncated"):
                         text += "\n[搜索结果不完整；缩小文件或查询范围]"
-                else:
-                    if self.allowed_paths is None:
+                elif name == "search_peer_traces":
+                    if self.peer_trace_search is None:
+                        raise ValueError("当前审计模式不提供同行 worker 轨迹")
+                    query = str(args.get("query") or "").strip()
+                    if not query:
+                        raise ValueError("query is required")
+                    traces = await asyncio.to_thread(self.peer_trace_search, query)
+                    useful = bool(traces)
+                    text = _planner_json(
+                        {
+                            "query": query,
+                            "traces": traces,
+                            "notice": "同行轨迹是未验证的审计线索；必须重新读取原始源码后才能作为 finding 证据。",
+                        },
+                        limit=16 * 1024,
+                    )
+                elif name == "get_peer_trace":
+                    if self.peer_trace_read is None:
+                        raise ValueError("当前审计模式不提供同行 worker 轨迹")
+                    task_key = str(args.get("task_key") or "").strip()
+                    if not task_key:
+                        raise ValueError("task_key is required")
+                    raw_ids = args.get("event_ids") or []
+                    event_ids = [int(value) for value in raw_ids[:24] if isinstance(value, int) or str(value).isdigit()]
+                    traces = await asyncio.to_thread(self.peer_trace_read, task_key, event_ids or None)
+                    useful = bool(traces)
+                    text = _planner_json(
+                        {
+                            "task_key": task_key,
+                            "traces": traces,
+                            "notice": "同行轨迹是未验证的审计线索；必须重新读取原始源码后才能作为 finding 证据。",
+                        },
+                        limit=20 * 1024,
+                    )
+                elif name == "get_context":
+                    if self.context_task is not None:
+                        result = await asyncio.wait_for(asyncio.to_thread(
+                            self.repository.build_context_bundle,
+                            self.snapshot_id,
+                            self.context_task,
+                            set(self.allowed_paths) if self.allowed_paths is not None else None,
+                            self.execution.policy.source_bytes,
+                        ), timeout=execution.policy.tool_seconds)
+                    elif self.allowed_paths is None:
                         result = await asyncio.wait_for(asyncio.to_thread(
                             self.repository.get_context, self.snapshot_id, self.unit
                         ), timeout=execution.policy.tool_seconds)
@@ -164,6 +217,8 @@ class AuditDeps:
                         self.notes.append(note)
                         text += "\n" + note
                     text = text or "未找到额外静态上下文；运行时依赖需要人工补充。"
+                else:
+                    raise ValueError(f"Unknown audit tool: {name}")
                 status = "ok"
             except (ValueError, FileNotFoundError, OSError, asyncio.TimeoutError) as exc:
                 text = f"{name} 未能补读：{type(exc).__name__}: {str(exc)[:200]}。缺失依赖应记录为 missing_context。"
@@ -183,7 +238,7 @@ class AuditDeps:
                 status = "error"
                 error_type = type(exc).__name__
                 deferred_error = exc
-        self.stagnant = 0 if added else self.stagnant + 1
+        self.stagnant = 0 if added or useful else self.stagnant + 1
         result_event = {
             "kind": "tool_result",
             "tool": name,
@@ -208,6 +263,113 @@ class AuditDeps:
         if ledger_full or self.ledger.bytes_used >= self.ledger.max_bytes:
             raise StopAudit("context_limit", "已读源码达到上限，停止探索并基于现有证据作答")
         return text + f"\n[剩余工具 {execution.budgets['tools'] - execution.tools}；判定和 POC 共享总预算]"
+
+
+@dataclass
+class PlannerDeps:
+    """Read-only project-index tools exposed to the run's sole Planner.
+
+    The planner decides which cross-file directions deserve exploration. It does not
+    receive source evidence as proof; workers still have to read original lines before
+    a finding can be persisted.
+    """
+
+    project_map: dict
+    run_context: dict
+    execution: Execution
+    calls: set = field(default_factory=set)
+    repeats: int = 0
+
+    async def call(self, name: str, args: dict) -> str:
+        execution = self.execution
+        execution.before_tool()
+        call_id = f"planner-tool-{execution.tools:04d}"
+        span_id = f"{execution.phase}:{call_id}"
+        started = time.monotonic()
+        key = canonical_call(name, args)
+        execution.emit({
+            "kind": "tool_call",
+            "tool": name,
+            "args": args,
+            "turn": execution.tools,
+            "call_id": call_id,
+            "span_id": span_id,
+            "phase": execution.phase,
+            "started_elapsed_ms": round((started - execution.started) * 1000),
+        })
+        status = "ok"
+        if key in self.calls:
+            self.repeats += 1
+            text = "该项目索引查询已执行；请使用已有结果制定下一轮可执行任务。"
+            status = "duplicate"
+        else:
+            self.calls.add(key)
+            try:
+                if name == "get_project_map":
+                    text = _planner_json(self.project_map)
+                elif name == "get_task_results":
+                    text = _planner_json({
+                        "goal": self.run_context.get("goal"),
+                        "tasks": self.run_context.get("tasks") or [],
+                        "plans": self.run_context.get("plans") or [],
+                    })
+                else:
+                    query = str(args.get("query") or "").casefold().strip()
+                    if not query:
+                        raise ValueError("query is required")
+                    matches: list[dict] = []
+                    for collection_name in ("files", "symbols", "includes", "calls", "entrypoints"):
+                        for item in self.project_map.get(collection_name) or []:
+                            if query in json.dumps(item, ensure_ascii=False).casefold():
+                                matches.append({"kind": collection_name[:-1], **item})
+                                if len(matches) >= 40:
+                                    break
+                        if len(matches) >= 40:
+                            break
+                    text = _planner_json({"query": query, "matches": matches, "truncated": len(matches) >= 40})
+            except (ValueError, TypeError) as exc:
+                status = "context_missing"
+                text = f"{name} 无法执行：{type(exc).__name__}: {str(exc)[:200]}"
+        execution.emit({
+            "kind": "tool_result",
+            "tool": name,
+            "status": status,
+            "new_lines": 0,
+            "chars": len(text),
+            "preview": text[:1200],
+            "usage": execution.snapshot(),
+            "call_id": call_id,
+            "span_id": span_id,
+            "phase": execution.phase,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+        })
+        if self.repeats >= execution.policy.repeated_calls:
+            raise StopAudit("no_progress", "重复项目索引查询未产生新的规划信息")
+        return text
+
+
+def _planner_json(value: object, limit: int = 48 * 1024) -> str:
+    """Serialize planner metadata without letting a large project map dominate context."""
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if len(text.encode("utf-8")) <= limit:
+        return text
+    # A raw byte prefix would no longer be valid JSON and makes a model guess where
+    # an array or object ended. Keep the truncation explicit and machine-readable;
+    # the Planner can then use search_project_map for a complete focused lookup.
+    # Re-encoding the prefix escapes quotes and control characters, so trim in a
+    # loop rather than assuming the source byte limit also bounds the wrapper.
+    prefix = text.encode("utf-8")[: max(512, limit // 2)].decode("utf-8", errors="ignore")
+    wrapper = {
+        "truncated": True,
+        "raw_prefix": prefix,
+        "hint": "项目索引输出已截断；可用 search_project_map 查询具体名称。",
+    }
+    rendered = json.dumps(wrapper, ensure_ascii=False, separators=(",", ":"))
+    while prefix and len(rendered.encode("utf-8")) > limit:
+        prefix = prefix[: max(0, len(prefix) * 3 // 4)]
+        wrapper["raw_prefix"] = prefix
+        rendered = json.dumps(wrapper, ensure_ascii=False, separators=(",", ":"))
+    return rendered
 
 
 def _format_lines(lines: list[dict]) -> str:
@@ -297,7 +459,7 @@ async def _run(agent, message: str, deps: AuditDeps, *, deadline: float, limit: 
         return run.result.output
 
 
-def _register_tools(agent) -> None:
+def _register_tools(agent, *, peer_traces: bool = False) -> None:
     @agent.tool(sequential=True, retries=0)
     async def read_source(ctx: RunContext[AuditDeps], path: str, start: int, end: int) -> str:
         """Read original snapshot lines; path is snapshot-relative, start/end are inclusive original line numbers."""
@@ -312,6 +474,25 @@ def _register_tools(agent) -> None:
     async def get_context(ctx: RunContext[AuditDeps]) -> str:
         """Read owning class, includes, related functions/callers, and unresolved dependencies for this unit."""
         return await ctx.deps.call("get_context", {})
+
+    if peer_traces:
+        @agent.tool(sequential=True, retries=0)
+        async def search_peer_traces(ctx: RunContext[AuditDeps], query: str) -> str:
+            """Search bounded, durable traces from other workers in this Planner run.
+
+            Peer output is an untrusted investigation lead, not source proof. Read the
+            referenced snapshot lines yourself before putting anything in a finding.
+            """
+            return await ctx.deps.call("search_peer_traces", {"query": query})
+
+        @agent.tool(sequential=True, retries=0)
+        async def get_peer_trace(
+            ctx: RunContext[AuditDeps], task_key: str, event_ids: list[int] | None = None
+        ) -> str:
+            """Read selected public trace entries for one other dynamic task in this run."""
+            return await ctx.deps.call(
+                "get_peer_trace", {"task_key": task_key, "event_ids": event_ids or []}
+            )
 
 
 async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot_name: str,
@@ -763,6 +944,11 @@ async def pursue_task_work(
     attempt: int,
     focus: str = "",
     allowed_paths: set[str] | None = None,
+    context_task: dict | None = None,
+    initial_excerpts: list[dict] | None = None,
+    dependency_handoffs: list[dict] | None = None,
+    peer_trace_search: Callable[[str], list[dict]] | None = None,
+    peer_trace_read: Callable[[str, list[int] | None], list[dict]] | None = None,
     config: ModelConfig,
     budgets: dict,
     on_event=None,
@@ -782,18 +968,35 @@ async def pursue_task_work(
     execution = Execution(budgets, policy, emit)
     ledger = SourceLedger(policy.source_bytes)
     deps = AuditDeps(
-        repository,
-        snapshot_id,
-        unit,
-        execution,
-        ledger,
-        frozenset(allowed_paths) if allowed_paths is not None else None,
+        repository=repository,
+        snapshot_id=snapshot_id,
+        unit=unit,
+        execution=execution,
+        ledger=ledger,
+        allowed_paths=frozenset(allowed_paths) if allowed_paths is not None else None,
+        context_task=context_task,
+        peer_trace_search=peer_trace_search,
+        peer_trace_read=peer_trace_read,
     )
+    peer_traces_enabled = peer_trace_search is not None and peer_trace_read is not None
     cleaned_lines = unit.get("cleaned_lines") or []
     _, _, ledger_full = ledger.offer(unit["file_path"], cleaned_lines, policy.source_bytes)
     initial_keys = set(ledger.lines)
     initial_lines = ledger.line_records(unit["file_path"])
     initial_truncated = ledger_full or len(initial_lines) < len(cleaned_lines)
+    # Planner workers start from a host-selected project bundle.  Seed every excerpt
+    # before the first model request so a worker has genuine cross-file context even
+    # when its per-attempt tool budget is zero.  Keep the anchor separate so
+    # ``render_unit`` remains a compact header and the other files appear below as
+    # explicit supplemental source.  The same ledger powers evidence validation.
+    seeded_bundle_truncated = False
+    for excerpt in initial_excerpts or []:
+        path = excerpt.get("path")
+        lines = excerpt.get("lines")
+        if not isinstance(path, str) or not isinstance(lines, list):
+            continue
+        _, _, bundle_full = ledger.offer(path, lines, policy.source_bytes)
+        seeded_bundle_truncated = seeded_bundle_truncated or bundle_full or bool(excerpt.get("truncated"))
     model = None
     status = None
     terminal_reason = "completed"
@@ -840,6 +1043,12 @@ async def pursue_task_work(
 每次只处理当前工作项。若原始行号证据已经直接支撑验收条件，返回 achieved 并给出一条或多条完整 findings；每条 finding 都必须是独立、可引用的源码结论。目标是漏洞时，在 finding.poc 提供完整、可人工复核的 POC 与运行说明，但不要执行它。若还有一个具体、不同的源码方向可继续，返回 continue 并写清 next_focus；若当前工作项的已读代码没有相关证据，返回 no_evidence；若缺少会改变结论的源码、解析失败或环境事实，返回 blocked 并列出 missing_context。不能把整个任务判为不可达。
 
 reasoning 字段只写简短、可审计的依据摘要：说明当前结论、已读源码中的具体事实或行号证据，以及它与目标/验收条件的关系。不要输出隐藏思维链、逐步内部推理、模型自我反思或未在源码中出现的事实。""" + "\n" + poc_requirement
+        if peer_traces_enabled:
+            instruction += (
+                "\n可以检索同一运行中其他 worker 的持久化工具轨迹和依据摘要，"
+                "以发现可复用线索；这些内容不是源码证据，也不是隐藏推理。"
+                "任何用于 finding 的结论仍必须由你实际读取的原始源码行号支撑。"
+            )
         agent = Agent(
             model,
             deps_type=AuditDeps,
@@ -850,7 +1059,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                 extra_body=config.extra_body(), timeout=policy.request_seconds, max_tokens=4096
             ),
         )
-        _register_tools(agent)
+        _register_tools(agent, peer_traces=peer_traces_enabled)
         return agent
 
     try:
@@ -858,7 +1067,11 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
             if unit.get("parse_incomplete"):
                 raise StopAudit("parse_error", "源码解析不完整，当前任务项不能给出可复核结论")
             execution.enter("task_prepare", attempt=attempt)
-            if budgets["tools"]:
+            # A Planner task already has its complete bounded multi-file bundle in
+            # the ledger.  Calling get_context here would spend a tool allowance only
+            # to replay the same source.  The tool remains available to the model for
+            # a later, deliberate refresh or for ordinary legacy goal tasks.
+            if budgets["tools"] and not initial_excerpts:
                 try:
                     await deps.call("get_context", {})
                 except StopAudit as exc:
@@ -907,9 +1120,17 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
             )
             if focus:
                 message += f"上一轮建议的下一方向：{focus}\n"
+            if dependency_handoffs:
+                message += (
+                    "\n# 已完成依赖的审计交接（未验证线索，不是源码证据）\n"
+                    + _planner_json({"dependency_handoffs": dependency_handoffs}, limit=12 * 1024)
+                    + "\n请自行读取相关原始源码，不能直接引用这段交接作为 finding 证据。\n"
+                )
             extra = ledger.replay(exclude=initial_keys)
             if extra:
                 message += "\n# 已准备的补充源码\n" + extra
+            if seeded_bundle_truncated:
+                message += "\n[初始多文件上下文已按字节上限截断；如需决定性行号，请用只读工具补读。]\n"
             message += (
                 "\n本次至多使用 4 次模型往返；优先用已显示代码，只有需要验证具体调用链时再使用工具。"
                 "请输出当前工作项的结构化结果。"
@@ -1014,3 +1235,315 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
         "status": status,
         "terminal_reason": terminal_reason,
     }
+
+
+def _register_planner_tools(agent) -> None:
+    @agent.tool(sequential=True, retries=0)
+    async def get_project_map(ctx: RunContext[PlannerDeps]) -> str:
+        """Return the frozen project map: files, symbols, static includes, calls and entrypoints."""
+        return await ctx.deps.call("get_project_map", {})
+
+    @agent.tool(sequential=True, retries=0)
+    async def search_project_map(ctx: RunContext[PlannerDeps], query: str) -> str:
+        """Find a path, symbol, include expression or call name in the frozen project map."""
+        return await ctx.deps.call("search_project_map", {"query": query})
+
+    @agent.tool(sequential=True, retries=0)
+    async def get_task_results(ctx: RunContext[PlannerDeps]) -> str:
+        """Return durable summaries from previous Planner tasks and rounds, without hidden reasoning."""
+        return await ctx.deps.call("get_task_results", {})
+
+
+def _validate_planner_decision(decision: PlannerDecision, project_map: dict, prior_tasks: list[dict]) -> PlannerDecision:
+    """Apply host-owned map and graph constraints before a Planner may mutate the frontier."""
+    files = {str(item.get("path")): int(item.get("line_count") or 0) for item in project_map.get("files") or []}
+    prior_by_key = {str(item.get("task_key")): item for item in prior_tasks if item.get("task_key")}
+    prior_keys = set(prior_by_key)
+    proposed_keys = {proposal.task_key for proposal in decision.tasks}
+    known_keys = prior_keys | proposed_keys
+    for proposal in decision.tasks:
+        prior = prior_by_key.get(proposal.task_key)
+        if prior is not None and prior.get("state") not in {"pending", "ready", "deferred"}:
+            raise ModelRetry(
+                f"任务 {proposal.task_key} 已经处于 {prior.get('state')}，不能重新定义已派发或已结算任务"
+            )
+        for ref in proposal.source_refs:
+            if ref.path not in files:
+                raise ModelRetry(f"任务 {proposal.task_key} 引用了冻结范围外的源码路径：{ref.path}")
+            if ref.end_line > files[ref.path]:
+                raise ModelRetry(
+                    f"任务 {proposal.task_key} 的 {ref.path}:{ref.start_line}-{ref.end_line} 超出文件行数 {files[ref.path]}"
+                )
+        unknown = [key for key in proposal.dependencies if key not in known_keys]
+        if unknown:
+            raise ModelRetry(f"任务 {proposal.task_key} 依赖不存在的 task_key：{', '.join(unknown[:4])}")
+    for update in decision.updates:
+        prior = prior_by_key.get(update.task_key)
+        if prior is None:
+            raise ModelRetry(f"任务更新引用不存在的 task_key：{update.task_key}")
+        state = str(prior.get("state") or "")
+        if state in {"running", "completed", "blocked", "exhausted", "cancelled", "skipped"}:
+            raise ModelRetry(f"任务 {update.task_key} 已处于 {state}，不能由 Planner 更新")
+        if update.action == "defer" and state not in {"pending", "ready"}:
+            raise ModelRetry(f"任务 {update.task_key} 当前不能暂缓")
+
+    # Dependencies are a task graph, not merely a list of valid names.  Reject a
+    # same-round A→B→A cycle before it can leave both rows permanently pending.
+    graph = {
+        key: [str(dep) for dep in item.get("dependencies") or [] if str(dep)]
+        for key, item in prior_by_key.items()
+    }
+    for proposal in decision.tasks:
+        graph[proposal.task_key] = list(proposal.dependencies)
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(key: str) -> None:
+        if key in visited:
+            return
+        if key in visiting:
+            raise ModelRetry(f"Planner 任务依赖图存在循环：{key}")
+        visiting.add(key)
+        for dependency in graph.get(key, []):
+            visit(dependency)
+        visiting.remove(key)
+        visited.add(key)
+
+    for key in graph:
+        visit(key)
+    if decision.goal_state == "continue" and not decision.tasks and not decision.updates:
+        raise ModelRetry("目标仍需继续时，必须给出至少一个新任务或一个已有任务更新，不能提交空计划")
+    return decision
+
+
+async def plan_audit_frontier(
+    *,
+    project_map: dict,
+    run_context: dict,
+    task: dict,
+    round_no: int,
+    config: ModelConfig,
+    budgets: dict,
+    on_event=None,
+    policy: AgentPolicy | None = None,
+) -> dict:
+    """Execute one bounded Planner round over a project map and durable worker feedback."""
+    policy = policy or AgentPolicy()
+    emit = on_event or (lambda event: None)
+    # A Planner pass has its own narrow allowance. Worker attempts retain the run's
+    # configured budget, while a planning round cannot quietly consume an unbounded
+    # number of model requests before it creates any executable task.
+    planner_budgets = {
+        **budgets,
+        "responses": max(1, min(3, int(budgets.get("responses", 1)))),
+        "tools": min(6, int(budgets.get("tools", 0))),
+    }
+    execution = Execution(planner_budgets, policy, emit)
+    deps = PlannerDeps(project_map=project_map, run_context=run_context, execution=execution)
+    model = None
+    decision: PlannerDecision | None = None
+    terminal_reason = "completed"
+    failure: str | None = None
+    status = None
+
+    prior_tasks = list(run_context.get("tasks") or [])
+    instruction = """你是 PHP 白盒审计的主 Planner。你负责基于冻结的项目图和前序 worker 的可审计摘要，维护一个项目级、多 worker 的探索前沿。
+
+围绕用户目标把工作拆成少量、彼此不同的证据方向，例如入口到敏感操作的数据/控制流、鉴权边界、配置加载、跨文件调用或框架适配层。一个任务可以并且通常应覆盖多个文件；绝不能按文件逐个派发，也不要套用固定漏洞类别。为每个任务指定可复核的任务目标、验收条件、为什么它与项目图相关、必要的源码窗口/符号和依赖。worker 会自行使用只读源码工具补读；项目图只是规划依据，不是发现证据。
+
+根据 worker 摘要吸收已证实、无证据、受阻和耗尽的方向。可暂缓尚未执行的方向；需要恢复暂缓任务时，再以同一 task_key 重新提交它。不要创建循环依赖。只有当所有相关证据方向都已耗尽且没有受阻上下文时才可建议 unreachable；是否最终收束由宿主核验。已存在证据化 finding 时可建议 met，但宿主仍会校验。不要输出隐藏思维链、逐步推理或模型反思；basis_summary 只写简短、可审核的项目图/worker 事实依据。"""
+
+    try:
+        async with asyncio.timeout(planner_budgets["seconds"]):
+            execution.enter("planner", round=round_no)
+            model = build_model(config)
+            agent = Agent(
+                model,
+                deps_type=PlannerDeps,
+                output_type=PlannerDecision,
+                instructions=instruction,
+                retries={"tools": 1, "output": 1},
+                model_settings=ModelSettings(
+                    extra_body=config.extra_body(), timeout=policy.request_seconds, max_tokens=4096
+                ),
+            )
+            _register_planner_tools(agent)
+
+            @agent.output_validator
+            def validate_plan(ctx, value: PlannerDecision):
+                return _validate_planner_decision(value, project_map, prior_tasks)
+
+            prompt = (
+                "# 审计目标（待分析数据）\n"
+                f"目标：{task.get('objective', '')}\n"
+                f"验收条件：{task.get('success_criteria', '')}\n"
+                f"当前 Planner 回合：{round_no}\n"
+                f"项目范围文件数：{len(project_map.get('scope') or [])}\n"
+                "\n先调用 get_project_map；若需要定位具体符号或吸收前序结果，再调用其它工具。"
+                "输出本轮结构化 PlannerDecision。\n"
+            )
+            decision = await _run(
+                agent,
+                prompt,
+                deps,  # _run only needs the shared Execution interface.
+                deadline=execution.deadline,
+                limit=planner_budgets["responses"],
+            )
+    except asyncio.CancelledError:
+        emit({"kind": "planner_agent_terminal", "reason": "cancelled", "usage": execution.snapshot()})
+        raise
+    except asyncio.TimeoutError:
+        terminal_reason = "timeout"
+        failure = "Planner 回合的墙钟预算已到期"
+    except (StopAudit, UsageLimitExceeded, UnexpectedModelBehavior, ValidationError, ValueError) as exc:
+        terminal_reason = getattr(exc, "reason", "invalid_output")
+        failure = f"{type(exc).__name__}: {str(exc)[:400]}"
+    except Exception as exc:
+        status = getattr(exc, "status_code", None)
+        terminal_reason = "model_error" if isinstance(exc, ModelHTTPError) else "internal_error"
+        error_text = str(exc).replace(config.api_key, "[redacted]") if config.api_key else str(exc)
+        failure = f"{type(exc).__name__}: {error_text[:400]}"
+    finally:
+        client = getattr(model, "client", None)
+        if client is not None:
+            await client.close()
+
+    if decision is not None:
+        payload = decision.model_dump()
+        emit({
+            "kind": "planner_assessment",
+            "round": round_no,
+            "goal_state": decision.goal_state,
+            "basis_summary": decision.basis_summary,
+            "next_action": decision.next_action,
+            "missing_context": decision.missing_context,
+            "task_count": len(decision.tasks),
+            "updates": [item.model_dump() for item in decision.updates],
+            "usage": execution.snapshot(),
+        })
+    else:
+        payload = None
+    emit({
+        "kind": "planner_agent_terminal",
+        "reason": terminal_reason,
+        "error": failure,
+        "usage": execution.snapshot(),
+    })
+    return {
+        "decision": payload,
+        "usage": execution.snapshot(),
+        "error": failure,
+        "status": status,
+        "terminal_reason": terminal_reason,
+    }
+
+
+async def pursue_planner_task(
+    *,
+    repository: SourceRepository,
+    snapshot_id: str,
+    snapshot_name: str,
+    planner_task: dict,
+    run_task: dict,
+    attempt: int,
+    allowed_paths: set[str],
+    dependency_handoffs: list[dict] | None = None,
+    peer_trace_search: Callable[[str], list[dict]] | None = None,
+    peer_trace_read: Callable[[str, list[int] | None], list[dict]] | None = None,
+    config: ModelConfig,
+    budgets: dict,
+    on_event=None,
+    policy: AgentPolicy | None = None,
+) -> dict:
+    """Run one dynamic planner task using an initial multi-file context bundle."""
+    emit = on_event or (lambda event: None)
+    bundle = await asyncio.to_thread(
+        repository.build_context_bundle,
+        snapshot_id,
+        planner_task,
+        allowed_paths,
+        (policy or AgentPolicy()).source_bytes,
+    )
+    excerpts = list(bundle.get("excerpts") or [])
+    emit({
+        "kind": "planner_context_prepared",
+        "task_id": planner_task.get("id"),
+        "task_key": planner_task.get("task_key"),
+        "paths": [item.get("path") for item in excerpts],
+        "excerpts": len(excerpts),
+        "unresolved_dependencies": bundle.get("unresolved_dependencies") or [],
+        "limitations": bundle.get("limitations") or [],
+    })
+    if dependency_handoffs:
+        emit({
+            "kind": "planner_dependency_handoff_prepared",
+            "task_id": planner_task.get("id"),
+            "task_key": planner_task.get("task_key"),
+            "dependencies": [item.get("task_key") for item in dependency_handoffs],
+            "handoff_count": len(dependency_handoffs),
+            "notice": "依赖交接只提供已持久化摘要；worker 仍须读取原始源码后才能引用。",
+        })
+    if not excerpts:
+        message = "Planner 任务没有生成可读取的冻结范围源码上下文"
+        return {
+            "outcome": "blocked",
+            "result": {
+                "outcome": "blocked",
+                "summary": message,
+                "reasoning": "项目图任务未能解析到范围内源码窗口，不能据此给出目标结论。",
+                "next_focus": "",
+                "missing_context": [message, *(str(item) for item in bundle.get("unresolved_dependencies") or [])],
+                "finding": None,
+                "findings": [],
+                "attempt": attempt,
+                "terminal_reason": "missing_context_bundle",
+            },
+            "usage": {"requests": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0},
+            "seen": [],
+            "seen_exact": True,
+            "error": message,
+            "status": None,
+            "terminal_reason": "missing_context_bundle",
+        }
+    anchor = excerpts[0]
+    # ``pursue_task_work`` retains the source ledger and tool-level evidence guard.
+    # The anchor supplies the presentation shell; all excerpts are preloaded into the
+    # same evidence ledger before the worker's first model request.
+    virtual_unit = {
+        "file_path": anchor["path"],
+        "symbol": planner_task.get("title") or planner_task.get("task_key") or "<planner task>",
+        "kind": "planner_context",
+        "start_line": anchor["start_line"],
+        "end_line": anchor["end_line"],
+        "slice_index": 1,
+        "slice_count": 1,
+        "cleaned_lines": anchor.get("lines") or [],
+        "omissions": [],
+        "slice_rule": {},
+        "parse_incomplete": False,
+    }
+    worker_task = {
+        **run_task,
+        "objective": planner_task.get("objective") or run_task.get("objective"),
+        "success_criteria": planner_task.get("acceptance_criteria") or run_task.get("success_criteria"),
+        "max_iterations": planner_task.get("max_attempts") or run_task.get("max_iterations"),
+    }
+    return await pursue_task_work(
+        repository=repository,
+        snapshot_id=snapshot_id,
+        snapshot_name=snapshot_name,
+        unit=virtual_unit,
+        task=worker_task,
+        attempt=attempt,
+        focus=str((planner_task.get("result") or {}).get("next_focus") or ""),
+        allowed_paths=allowed_paths,
+        context_task=planner_task,
+        initial_excerpts=excerpts,
+        dependency_handoffs=dependency_handoffs,
+        peer_trace_search=peer_trace_search,
+        peer_trace_read=peer_trace_read,
+        config=config,
+        budgets=budgets,
+        on_event=emit,
+        policy=policy,
+    )

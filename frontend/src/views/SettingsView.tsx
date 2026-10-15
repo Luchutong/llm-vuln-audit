@@ -136,14 +136,14 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
         <div className="panel">
           <div className="panel-head">
             <span className="panel-title">默认预算</span>
-            <span className="faint small">每个单元</span>
+            <span className="faint small">每次 agent 回合</span>
           </div>
           <div style={{ padding: '12px 16px' }} className="small">
             <div>模型响应 {config.budgets.responses} 次</div>
             <div>工具调用 {config.budgets.tools} 次</div>
             <div>墙钟 {config.budgets.seconds} 秒</div>
             <div className="muted" style={{ marginTop: 8 }}>
-              预算在运行创建时冻结并写入运行记录；运行开始后队列不再变动。
+              预算在运行创建时冻结并写入运行记录；Planner 可更新动态任务图，但不能扩大源码范围。
             </div>
           </div>
         </div>

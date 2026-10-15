@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CATEGORIES = ("sqli", "xss_r", "command_injection")
 CATEGORY_LABELS = {
@@ -228,7 +228,13 @@ class TaskSpec(BaseModel):
         default=24,
         ge=1,
         le=128,
-        description="Maximum settled attempts across the entire task queue",
+        description="Maximum settled worker attempts across the entire task frontier",
+    )
+    max_planner_rounds: int = Field(
+        default=8,
+        ge=1,
+        le=32,
+        description="Maximum autonomous Planner rounds for this run",
     )
     max_workers: int = Field(default=2, ge=1, le=4, description="Concurrent source-analysis workers for this run")
     stop_on_achieved: bool = Field(default=True, description="Stop queued work once an evidence-backed result reaches the goal")
@@ -342,36 +348,124 @@ class GoalAssessment(BaseModel):
         return self
 
 
+# --- planner/frontier contract ---------------------------------------------
+
+
+PlannerGoalState = Literal["continue", "met", "unreachable", "inconclusive"]
+
+
+class PlannerSourceRef(BaseModel):
+    """A source window selected by the Planner for a worker context bundle.
+
+    The host validates every path and line range against the immutable snapshot before
+    persisting a task.  It is deliberately separate from a finding ``EvidenceRef``:
+    this is a *reading instruction*, not a claim that the source proves anything.
+    """
+
+    path: str = Field(min_length=1, max_length=1024)
+    start_line: int = Field(default=1, ge=1)
+    end_line: int = Field(default=160, ge=1, le=400)
+    reason: str = Field(default="planner_selected", max_length=240)
+
+    @model_validator(mode="after")
+    def _ordered_lines(self) -> "PlannerSourceRef":
+        if self.end_line < self.start_line:
+            raise ValueError("end_line must not precede start_line")
+        if self.end_line - self.start_line + 1 > 400:
+            raise ValueError("a planner source window may not exceed 400 lines")
+        return self
+
+
+class PlannerTaskProposal(BaseModel):
+    """One dependency-aware, multi-file direction emitted by the main Planner."""
+
+    task_key: str = Field(
+        min_length=3,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+        description="Stable, run-local identifier used by dependency edges",
+    )
+    title: str = Field(min_length=3, max_length=240)
+    objective: str = Field(min_length=8, max_length=2000)
+    acceptance_criteria: str = Field(min_length=8, max_length=1600)
+    rationale_summary: str = Field(
+        min_length=3,
+        max_length=1600,
+        description="Short project-map-grounded reason to schedule this task; never private reasoning",
+    )
+    source_refs: list[PlannerSourceRef] = Field(default_factory=list, max_length=16)
+    target_symbols: list[str] = Field(default_factory=list, max_length=24)
+    dependencies: list[str] = Field(default_factory=list, max_length=12)
+    query_hints: list[str] = Field(default_factory=list, max_length=12)
+    priority: int = Field(default=50, ge=1, le=100)
+
+    @field_validator("target_symbols", "dependencies", "query_hints")
+    @classmethod
+    def _dedupe_short_strings(cls, values: list[str]) -> list[str]:
+        result: list[str] = []
+        for value in values:
+            value = str(value).strip()
+            if value and value not in result:
+                result.append(value[:240])
+        return result
+
+    @model_validator(mode="after")
+    def _no_self_dependency(self) -> "PlannerTaskProposal":
+        if self.task_key in self.dependencies:
+            raise ValueError("a planner task cannot depend on itself")
+        return self
+
+
+class PlannerTaskUpdate(BaseModel):
+    """A constrained update to an existing task in the durable frontier."""
+
+    task_key: str = Field(min_length=3, max_length=96, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")
+    action: Literal["cancel", "defer", "reprioritize"]
+    rationale_summary: str = Field(min_length=3, max_length=1200)
+    priority: int | None = Field(default=None, ge=1, le=100)
+
+
+class PlannerDecision(BaseModel):
+    """Structured output of the sole intent-generating agent.
+
+    Workers cannot use this shape.  The host owns all state transitions and accepts
+    only validated source references and dependencies from it.
+    """
+
+    goal_state: PlannerGoalState = "continue"
+    basis_summary: str = Field(
+        min_length=3,
+        max_length=4000,
+        description="Concise auditable planning basis derived from the project map and worker results",
+    )
+    next_action: str = Field(default="", max_length=1200)
+    missing_context: list[str] = Field(default_factory=list, max_length=24)
+    tasks: list[PlannerTaskProposal] = Field(default_factory=list, max_length=8)
+    updates: list[PlannerTaskUpdate] = Field(default_factory=list, max_length=16)
+
+    @model_validator(mode="after")
+    def _distinct_task_keys(self) -> "PlannerDecision":
+        keys = [item.task_key for item in self.tasks]
+        if len(keys) != len(set(keys)):
+            raise ValueError("a planning round cannot contain duplicate task_key values")
+        return self
+
+
 # --- request bodies ---------------------------------------------------------
 
 
 class CreateRunRequest(BaseModel):
+    # The public entrypoint has one execution model: a user-defined Planner task.
+    # Reject stale prompt-era fields instead of silently accepting and ignoring them.
+    model_config = ConfigDict(extra="forbid")
+
     snapshot_id: str
     scope: list[str] = Field(
         default_factory=list,
         description="Exact file paths frozen into this run; omit only for a goal task to select all indexable PHP files",
     )
-    prompt_id: str | None = Field(
-        default=None,
-        description="Fixed-audit prompt version; omitted for a goal-driven task",
-    )
     budgets: dict | None = None
-    task: TaskSpec | None = Field(default=None, description="Optional goal-driven task; omit for the fixed three-category audit")
-
-    @field_validator("prompt_id")
-    @classmethod
-    def _normalise_prompt_id(cls, value: str | None) -> str | None:
-        return value.strip() if value and value.strip() else None
-
-    @model_validator(mode="after")
-    def _require_a_fixed_prompt_only_for_the_fixed_audit(self) -> "CreateRunRequest":
-        if self.task is None and self.prompt_id is None:
-            raise ValueError("prompt_id is required when task is omitted")
-        if self.task is not None and self.prompt_id is not None:
-            raise ValueError("prompt_id must be omitted when task is provided")
-        if self.task is None and not self.scope:
-            raise ValueError("scope is required when task is omitted")
-        return self
+    task: TaskSpec = Field(description="Goal-driven white-box audit task")
 
 
 class PromptCreateRequest(BaseModel):

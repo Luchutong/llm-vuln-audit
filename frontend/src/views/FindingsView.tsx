@@ -113,8 +113,12 @@ function evidenceRangeLabel(references: Evidence[]): string {
   return references.map((reference) => `${reference.start_line}-${reference.end_line}`).join('、');
 }
 
-function auditUnitLocation(finding: Pick<Finding, 'file_path' | 'unit_start_line' | 'unit_end_line'>): string {
-  return `审计单元：${finding.file_path}:${finding.unit_start_line}-${finding.unit_end_line}`;
+function auditUnitLocation(finding: Pick<Finding, 'file_path' | 'unit_start_line' | 'unit_end_line' | 'task_id' | 'task_key'>): string {
+  const source = `${finding.file_path}:${finding.unit_start_line}-${finding.unit_end_line}`;
+  if (finding.task_id) {
+    return `动态任务：${finding.task_key || finding.task_id.slice(0, 8)} · 来源：${source}`;
+  }
+  return `审计单元：${source}`;
 }
 
 /**
@@ -131,7 +135,7 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
   const current = findings.find((finding) => finding.id === selected) ?? findings[0] ?? null;
 
   if (!findings.length) {
-    return <div className="empty">这次运行没有产生候选发现。<br />单元级结论请在「概览」里查看。</div>;
+    return <div className="empty">这次运行没有产生候选发现。<br />动态任务状态和审计依据请在「概览」与「执行轨迹」中查看。</div>;
   }
 
   return (

@@ -574,3 +574,254 @@ class SourceRepository:
         if owned["parse_incomplete"]:
             unresolved.append({"path": path, "reason": "PHP syntax index contains parse errors; inspect original source"})
         return {"snapshot_id": snapshot_id, "unit_id": owned["id"], "excerpts": excerpts, "unresolved_dependencies": unresolved, "limitations": ["Static syntax context is not a complete call graph", "Dynamic dispatch and includes require manual source reads"]}
+
+    # --- planner-oriented project context ---------------------------------
+
+    def build_project_map(
+        self,
+        snapshot_id: str,
+        allowed_paths: set[str] | None = None,
+    ) -> dict:
+        """Return a source-free, immutable project map for the Planner.
+
+        The map deliberately contains paths, symbols and static relations instead of
+        whole source files.  This lets a planner reason about a project as a system
+        while the worker remains responsible for reading the exact source evidence.
+        ``allowed_paths`` is the run's frozen scope and is applied to every relation
+        so a planner cannot use an out-of-scope file as a hidden hint.
+        """
+        snapshot = self.get_snapshot(snapshot_id)
+        syntax = json.loads((self._directory(snapshot_id) / "syntax.json").read_text("utf-8"))
+        php_files = {
+            item["path"]: item
+            for item in snapshot["files"]
+            if bool(item.get("is_php", not item.get("excluded", False)))
+        }
+        scope = set(allowed_paths) if allowed_paths is not None else set(php_files)
+        scope &= set(php_files)
+        file_rows = []
+        directories: set[str] = set()
+        symbols: list[dict] = []
+        includes: list[dict] = []
+        calls: list[dict] = []
+        available = set(php_files)
+
+        for path in sorted(scope):
+            record = php_files[path]
+            index = syntax.get(path, {})
+            parent = PurePosixPath(path).parent
+            while str(parent) not in {"", "."}:
+                directories.add(str(parent))
+                parent = parent.parent
+            file_rows.append({
+                "path": path,
+                "line_count": int(record.get("line_count") or 0),
+                "size": int(record.get("size") or 0),
+                "parse_errors": list(record.get("parse_errors") or []),
+                "has_top_level": any(unit.get("file_path") == path and unit.get("kind") == "top_level" for unit in snapshot.get("units") or []),
+            })
+            for item in index.get("classes", []):
+                symbols.append({
+                    "path": path,
+                    "name": item.get("name") or "<anonymous class>",
+                    "kind": "class",
+                    "start_line": item.get("start_line"),
+                    "end_line": item.get("end_line"),
+                })
+            for item in index.get("functions", []):
+                symbols.append({
+                    "path": path,
+                    "name": item.get("symbol") or item.get("name") or "<anonymous>",
+                    "short_name": item.get("name") or "<anonymous>",
+                    "kind": "method" if item.get("class_name") else "function",
+                    "class_name": item.get("class_name"),
+                    "start_line": item.get("start_line"),
+                    "end_line": item.get("end_line"),
+                })
+            for item in index.get("includes", []):
+                resolved = self._resolve_include(str(item.get("expression") or ""), path, available)
+                includes.append({
+                    "from_path": path,
+                    "to_path": resolved if resolved in scope else None,
+                    "line": item.get("start_line"),
+                    "expression": str(item.get("expression") or "")[:300],
+                    "resolved_outside_scope": bool(resolved and resolved not in scope),
+                })
+            for item in index.get("calls", []):
+                calls.append({
+                    "path": path,
+                    "name": item.get("name") or "<dynamic>",
+                    "line": item.get("start_line"),
+                })
+
+        inbound = {item["to_path"] for item in includes if item.get("to_path")}
+        entrypoints = []
+        for file_row in file_rows:
+            path = file_row["path"]
+            name = PurePosixPath(path).name.casefold()
+            if name in {"index.php", "bootstrap.php", "app.php", "artisan"} or file_row["has_top_level"] or path not in inbound:
+                entrypoints.append({"path": path, "reason": "conventional_entry" if name in {"index.php", "bootstrap.php", "app.php", "artisan"} else ("top_level" if file_row["has_top_level"] else "no_static_inbound_include")})
+
+        return {
+            "snapshot_id": snapshot_id,
+            "scope": sorted(scope),
+            "files": file_rows,
+            "directories": sorted(directories),
+            "symbols": sorted(symbols, key=lambda item: (item["path"], int(item.get("start_line") or 0), item["name"])),
+            "includes": includes,
+            "calls": calls,
+            "entrypoints": entrypoints,
+            "parse_errors": [
+                {"path": row["path"], "errors": row["parse_errors"]}
+                for row in file_rows if row["parse_errors"]
+            ],
+            "stats": {
+                "files": len(file_rows),
+                "symbols": len(symbols),
+                "includes": len(includes),
+                "calls": len(calls),
+                "entrypoints": len(entrypoints),
+            },
+            "limitations": [
+                "Static PHP parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+                "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding.",
+            ],
+        }
+
+    def get_project_map(self, snapshot_id: str, allowed_paths: set[str] | None = None) -> dict:
+        """Public alias used by the coordinator and API layer."""
+        return self.build_project_map(snapshot_id, allowed_paths)
+
+    def build_context_bundle(
+        self,
+        snapshot_id: str,
+        task: dict,
+        allowed_paths: set[str] | None = None,
+        max_bytes: int = 64 * 1024,
+    ) -> dict:
+        """Prepare a bounded, multi-file source bundle for one planner task.
+
+        The host selects only planner-validated paths and symbols.  The result is
+        still fed into the worker ledger line-by-line, so visible source and eligible
+        evidence always remain the same set.  This method never executes code or
+        resolves a dynamic include.
+        """
+        if max_bytes < 1024:
+            raise ValueError("context bundle budget is too small")
+        project_map = self.build_project_map(snapshot_id, allowed_paths)
+        scope = set(project_map["scope"])
+        all_files = {item["path"]: item for item in project_map["files"]}
+        symbols = project_map["symbols"]
+        context = task.get("context_spec") if isinstance(task.get("context_spec"), dict) else task
+        source_refs = context.get("source_refs") or []
+        requested_symbols = {str(item).casefold() for item in context.get("target_symbols") or [] if str(item).strip()}
+        requested_paths = [str(item) for item in context.get("scope_paths") or [] if str(item) in scope]
+        requests: list[tuple[str, int, int, str]] = []
+        unresolved: list[dict] = []
+
+        for ref in source_refs:
+            if not isinstance(ref, dict):
+                continue
+            path = str(ref.get("path") or "")
+            if path not in scope:
+                unresolved.append({"path": path, "reason": "Planner selected a path outside the frozen scope"})
+                continue
+            limit = int(all_files[path].get("line_count") or 1)
+            start = max(1, int(ref.get("start_line") or 1))
+            end = min(limit, max(start, int(ref.get("end_line") or start)))
+            requests.append((path, start, min(end, start + MAX_READ_LINES - 1), str(ref.get("reason") or "planner_source_ref")))
+
+        for symbol in symbols:
+            names = {str(symbol.get("name") or "").casefold(), str(symbol.get("short_name") or "").casefold()}
+            if requested_symbols and not names.intersection(requested_symbols):
+                continue
+            path = str(symbol.get("path") or "")
+            if path not in scope:
+                continue
+            start = max(1, int(symbol.get("start_line") or 1))
+            end = min(int(symbol.get("end_line") or start), start + MAX_READ_LINES - 1)
+            requests.append((path, start, end, "planner_target_symbol"))
+
+        for path in requested_paths:
+            requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 160), "planner_selected_file"))
+
+        # A planner can intentionally leave source refs empty for reconnaissance.
+        # Seed a project-level task from multiple entrypoints, never from one arbitrary
+        # slice, so it still has useful cross-file orientation.
+        if not requests:
+            for entry in project_map["entrypoints"][:4]:
+                path = entry["path"]
+                requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 120), "project_entrypoint"))
+            for symbol in symbols[:4]:
+                path = symbol["path"]
+                requests.append((path, int(symbol.get("start_line") or 1), min(int(symbol.get("end_line") or 1), int(symbol.get("start_line") or 1) + 120), "project_symbol_seed"))
+
+        # For every selected path, put its static include targets and callers in the
+        # candidate set. This creates genuinely multi-file context without pretending
+        # the static graph is complete.
+        selected_paths = {path for path, _, _, _ in requests}
+        for edge in project_map["includes"]:
+            if edge.get("from_path") in selected_paths and edge.get("to_path") in scope:
+                target = str(edge["to_path"])
+                requests.append((target, 1, min(int(all_files[target].get("line_count") or 1), 120), "static_include"))
+            if edge.get("to_path") in selected_paths and edge.get("from_path") in scope:
+                source = str(edge["from_path"])
+                requests.append((source, 1, min(int(all_files[source].get("line_count") or 1), 120), "static_includer"))
+            if edge.get("resolved_outside_scope"):
+                unresolved.append({"path": edge.get("from_path"), "line": edge.get("line"), "reason": "Static include resolves outside the frozen scope"})
+
+        excerpts: list[dict] = []
+        used = 0
+        seen: set[tuple[str, int, int]] = set()
+        for path, start, end, reason in requests:
+            key = (path, start, end)
+            if key in seen or path not in scope or len(excerpts) >= 16 or used >= max_bytes:
+                continue
+            seen.add(key)
+            try:
+                value = self.read_source(snapshot_id, path, start, end)
+            except ValueError as exc:
+                unresolved.append({"path": path, "line": start, "reason": str(exc)})
+                continue
+            kept: list[dict] = []
+            for line in value.get("lines") or []:
+                size = len(f"{path}:{line['number']} | {line['text']}\n".encode("utf-8"))
+                if used + size > max_bytes:
+                    break
+                kept.append(line)
+                used += size
+            if not kept:
+                unresolved.append({"path": path, "line": start, "reason": "Context bundle byte budget reached"})
+                break
+            excerpts.append({
+                "path": path,
+                "start_line": kept[0]["number"],
+                "end_line": kept[-1]["number"],
+                "lines": kept,
+                "reason": reason,
+                "truncated": len(kept) != len(value.get("lines") or []),
+            })
+            if len(kept) != len(value.get("lines") or []):
+                unresolved.append({"path": path, "line": kept[-1]["number"] + 1, "reason": "Context bundle excerpt was truncated"})
+
+        relation_summary = {
+            "selected_paths": sorted({item["path"] for item in excerpts}),
+            "selected_symbols": sorted(requested_symbols),
+            "included_excerpts": len(excerpts),
+            "map_stats": project_map["stats"],
+        }
+        unique_unresolved: list[dict] = []
+        unresolved_seen: set[str] = set()
+        for item in unresolved:
+            key = json.dumps(item, ensure_ascii=False, sort_keys=True)
+            if key not in unresolved_seen:
+                unresolved_seen.add(key)
+                unique_unresolved.append(item)
+        return {
+            "snapshot_id": snapshot_id,
+            "scope": sorted(scope),
+            "excerpts": excerpts,
+            "unresolved_dependencies": unique_unresolved,
+            "relation_summary": relation_summary,
+            "limitations": project_map["limitations"],
+        }

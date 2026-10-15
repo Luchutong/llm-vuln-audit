@@ -43,6 +43,21 @@ const LABELS: Record<string, string> = {
   goal_inconclusive: '目标未决',
   task_agent_terminal: '目标工作项终止原因',
   task_assessment: '审计依据摘要',
+  planner_run_queued: 'Planner 审计已排队',
+  planner_session_started: 'Planner 会话开始',
+  planner_round_started: 'Planner 回合开始',
+  planner_round_committed: 'Planner 回合已提交',
+  planner_assessment: 'Planner 调度依据摘要',
+  planner_agent_terminal: 'Planner 回合终止原因',
+  planner_terminal_deferred: 'Planner 终态建议暂缓',
+  planner_context_prepared: '多文件上下文已准备',
+  planner_dependency_handoff_prepared: '依赖任务交接已准备',
+  planner_task_started: '动态任务开始',
+  planner_task_requeued: '动态任务重试',
+  planner_task_completed: '动态任务完成',
+  planner_task_exhausted: '动态任务方向耗尽',
+  planner_task_blocked: '动态任务受阻',
+  planner_task_cancelled: '动态任务取消',
 };
 
 const PAYLOAD_LABELS: Record<string, string> = {
@@ -107,6 +122,26 @@ const PAYLOAD_LABELS: Record<string, string> = {
   stop_on_achieved: '达成后停止',
   terminal_reason: '终止原因',
   mode: '运行模式',
+  role: '角色',
+  plan_id: '计划版本 ID',
+  task_id: '动态任务 ID',
+  task_key: '动态任务标识',
+  task_count: '任务数',
+  queue: '任务队列',
+  basis_summary: '调度依据摘要',
+  next_action: '下一步',
+  goal_state: '目标建议状态',
+  project_map: '项目图摘要',
+  project_map_stats: '项目图统计',
+  context_spec: '任务上下文规格',
+  dependencies: '依赖任务',
+  paths: '上下文文件',
+  excerpts: '上下文片段',
+  handoff_count: '交接摘要数',
+  notice: '说明',
+  limitations: '静态分析限制',
+  acceptance_criteria: '任务验收条件',
+  objective: '任务目标',
 };
 
 type EventGroup = 'all' | 'tools' | 'decisions' | 'workers' | 'system';
@@ -132,8 +167,8 @@ function payloadOf(event: AuditEvent): Record<string, unknown> {
 
 function groupFor(kind: string): Exclude<EventGroup, 'all'> {
   if (kind === 'tool_call' || kind === 'tool_result') return 'tools';
-  if (kind === 'task_assessment' || kind === 'task_goal_met' || kind === 'goal_unreachable' || kind === 'goal_inconclusive' || kind === 'finding_created' || kind === 'finding_rejected_by_validation' || kind === 'settled' || kind === 'unit_completed' || kind === 'unit_incomplete') return 'decisions';
-  if (kind.startsWith('task_work_') || kind === 'task_agent_terminal' || kind === 'task_coordinator_started' || kind === 'task_planner_started' || kind === 'task_plan_created') return 'workers';
+  if (kind === 'task_assessment' || kind === 'planner_assessment' || kind === 'task_goal_met' || kind === 'goal_unreachable' || kind === 'goal_inconclusive' || kind === 'finding_created' || kind === 'finding_rejected_by_validation' || kind === 'settled' || kind === 'unit_completed' || kind === 'unit_incomplete') return 'decisions';
+  if (kind.startsWith('task_work_') || kind.startsWith('planner_task_') || kind.startsWith('planner_round_') || kind.startsWith('planner_session_') || kind === 'planner_context_prepared' || kind === 'planner_dependency_handoff_prepared' || kind === 'planner_terminal_deferred' || kind === 'task_agent_terminal' || kind === 'planner_agent_terminal' || kind === 'task_coordinator_started' || kind === 'task_planner_started' || kind === 'task_plan_created') return 'workers';
   return 'system';
 }
 
@@ -220,7 +255,7 @@ function toolSpans(events: AuditEvent[]): ToolSpan[] {
     if (event.kind !== 'tool_call' && event.kind !== 'tool_result') continue;
     const payload = payloadOf(event);
     const callId = String(payload.call_id ?? `legacy-${event.id}`);
-    const key = [payload.work_id ?? 'legacy', payload.attempt ?? '', callId].join(':');
+    const key = [payload.task_id ?? payload.work_id ?? event.unit_id ?? 'planner', payload.attempt ?? '', callId].join(':');
     const current = spans.get(key) ?? { key };
     if (event.kind === 'tool_call') current.call = event;
     else current.result = event;
@@ -242,7 +277,7 @@ function toolSpans(events: AuditEvent[]): ToolSpan[] {
 function ExecutionTrace({ events, unitName }: { events: AuditEvent[]; unitName: Record<string, string> }) {
   const toolEvents = events.filter((event) => groupFor(event.kind) === 'tools');
   const spans = toolSpans(events);
-  const assessments = events.filter((event) => event.kind === 'task_assessment');
+  const assessments = events.filter((event) => event.kind === 'task_assessment' || event.kind === 'planner_assessment');
   const recentTools = spans.slice(-20).reverse();
   const recentAssessments = assessments.slice(-16).reverse();
 
@@ -268,7 +303,7 @@ function ExecutionTrace({ events, unitName }: { events: AuditEvent[]; unitName: 
               const resultPayload = span.result ? payloadOf(span.result) : {};
               const payload = { ...callPayload, ...resultPayload };
               const tool = String(payload.tool ?? '工具');
-              const unit = event.unit_id ? unitName[event.unit_id] ?? event.unit_id.slice(0, 8) : '协调器';
+              const unit = event.unit_id ? unitName[event.unit_id] ?? event.unit_id.slice(0, 8) : String(payload.role === 'planner' ? 'Planner' : '协调器');
               return (
                 <details key={span.key} style={{ padding: '6px 0', borderBottom: '1px solid var(--line-soft)' }}>
                   <summary className="small" style={{ cursor: 'pointer', overflowWrap: 'anywhere' }}>
@@ -293,9 +328,9 @@ function ExecutionTrace({ events, unitName }: { events: AuditEvent[]; unitName: 
               <div className="faint small">工作项完成后会在这里出现依据摘要。</div>
             ) : recentAssessments.map((event) => {
               const payload = payloadOf(event);
-              const rationale = String(payload.rationale ?? payload.reasoning ?? '未提供依据摘要。');
+              const rationale = String(payload.rationale ?? payload.reasoning ?? payload.basis_summary ?? '未提供依据摘要。');
               const evidence = sourceReference(payload.evidence);
-              const unit = event.unit_id ? unitName[event.unit_id] ?? event.unit_id.slice(0, 8) : '协调器';
+              const unit = event.unit_id ? unitName[event.unit_id] ?? event.unit_id.slice(0, 8) : String(payload.role === 'planner' ? 'Planner' : '协调器');
               return (
                 <details key={event.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line-soft)' }}>
                   <summary className="small" style={{ cursor: 'pointer', overflowWrap: 'anywhere' }}>
@@ -330,13 +365,17 @@ export function Timeline({ events, detail }: { events: AuditEvent[]; detail: Run
   const [attemptFilter, setAttemptFilter] = useState<string>('all');
 
   const units = detail?.units ?? [];
+  const tasks = detail?.tasks ?? [];
   const unitName = useMemo(() => {
     const map: Record<string, string> = {};
     for (const unit of units) {
       map[unit.id] = `${unit.file_path}:${unit.start_line}-${unit.end_line}`;
     }
+    for (const task of tasks) {
+      map[task.id] = `${task.task_key} · ${task.title}`;
+    }
     return map;
-  }, [units]);
+  }, [units, tasks]);
 
   const groupEvents = useMemo(
     () => group === 'all' ? events : events.filter((event) => groupFor(event.kind) === group),
@@ -382,11 +421,14 @@ export function Timeline({ events, detail }: { events: AuditEvent[]; detail: Run
           ))}
         </select>
         <select value={unitFilter} onChange={(event) => setUnitFilter(event.target.value)} style={{ width: 300 }}>
-          <option value="all">全部源码单元</option>
+          <option value="all">全部任务或源码单元</option>
           {units.map((unit) => (
             <option key={unit.id} value={unit.id}>
               {unit.file_path}:{unit.start_line}-{unit.end_line}
             </option>
+          ))}
+          {tasks.map((task) => (
+            <option key={task.id} value={task.id}>{task.task_key} · {task.title}</option>
           ))}
         </select>
         {workers.length > 0 && (
@@ -445,10 +487,10 @@ function Inline({ event, payload }: { event: AuditEvent; payload: Record<string,
     return <span className="small mono">{String(payload.tool ?? '')} · {kind === 'tool_call'
       ? JSON.stringify(payload.args ?? {}) : `${String(payload.status ?? '')} · 新增 ${String(payload.new_lines ?? 0)} 行`}</span>;
   }
-  if (kind === 'task_assessment') {
+  if (kind === 'task_assessment' || kind === 'planner_assessment') {
     return <span className="small">
-      {String(payload.outcome ?? '')} · {String(payload.summary ?? '')}
-      {payload.rationale || payload.reasoning ? <span className="faint"> · 已记录审计依据摘要</span> : null}
+      {String(payload.outcome ?? payload.goal_state ?? '调度')} · {String(payload.summary ?? payload.basis_summary ?? '')}
+      {payload.rationale || payload.reasoning || payload.basis_summary ? <span className="faint"> · 已记录依据摘要</span> : null}
     </span>;
   }
   if (kind === 'agent_phase' || kind === 'agent_terminal' || kind === 'task_agent_terminal' || kind === 'exploration_stopped') {
@@ -461,6 +503,18 @@ function Inline({ event, payload }: { event: AuditEvent; payload: Record<string,
       {String(payload.file_path ?? '')} · 第 {String(payload.attempt ?? '')}/{String(payload.max_attempts ?? '')} 轮
       {payload.summary ? ` · ${String(payload.summary)}` : ''}
       {payload.terminal_reason ? ` · ${String(payload.terminal_reason)}` : ''}
+    </span>;
+  }
+  if (kind.startsWith('planner_task_')) {
+    return <span className="small">
+      {String(payload.task_key ?? '')} · {String(payload.title ?? payload.state ?? '')}
+      {payload.attempt ? ` · 第 ${String(payload.attempt)}/${String(payload.max_attempts ?? '')} 次` : ''}
+      {payload.summary ? ` · ${String(payload.summary)}` : ''}
+    </span>;
+  }
+  if (kind.startsWith('planner_round_') || kind === 'planner_session_started' || kind === 'planner_run_queued') {
+    return <span className="small">
+      {payload.round != null ? `第 ${String(payload.round)} 回合` : ''} {String(payload.basis_summary ?? payload.objective ?? payload.next_action ?? '')}
     </span>;
   }
   if (kind === 'task_goal_met' || kind === 'goal_unreachable' || kind === 'goal_inconclusive') {

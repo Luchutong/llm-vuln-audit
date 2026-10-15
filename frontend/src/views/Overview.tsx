@@ -1,145 +1,116 @@
-import type { AuditEvent, RunDetail, TaskSpec, TaskWorkItem } from '../types';
+import type { AuditEvent, PlannerTask, RunDetail } from '../types';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  sqli: 'SQL 注入',
-  xss_r: '反射型 XSS',
-  command_injection: '命令注入',
+const GOAL_LABELS: Record<string, string> = {
+  open: '探索中', met: '已达成', unreachable: '不可达', inconclusive: '未决',
 };
 
-const TASK_WORK_STATE_LABELS: Record<string, string> = {
-  open: '排队中',
-  running: '执行中',
-  done: '已完成',
-  exhausted: '轮次耗尽',
-  blocked: '受阻',
-  skipped: '已跳过',
+const TASK_LABELS: Record<string, string> = {
+  pending: '等待依赖', ready: '待领取', running: '执行中', deferred: '已暂缓', completed: '已完成',
+  exhausted: '方向耗尽', blocked: '受阻', cancelled: '已取消', skipped: '已跳过',
 };
 
-function Stat({ value, label, note }: { value: string | number; label: string; note?: string }) {
+function references(task: PlannerTask) {
+  const refs = task.context_spec?.source_refs ?? [];
+  const symbols = task.context_spec?.target_symbols ?? [];
+  return {
+    refs: refs.map((item) => `${item.path}:${item.start_line}-${item.end_line}`),
+    symbols,
+  };
+}
+
+function taskResult(task: PlannerTask) {
+  const result = task.result;
+  return result?.summary || task.error || '尚无 worker 结果';
+}
+
+function Stat({ value, label, note }: { value: string | number; label: string; note: string }) {
   return (
-    <div className="panel stat">
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-      {note && <div className="stat-note">{note}</div>}
+    <div className="stat">
+      <strong>{value}</strong>
+      <span>{label}</span>
+      <small>{note}</small>
     </div>
   );
 }
 
-function percent(value: number | null | undefined) {
-  return value === null || value === undefined ? '—' : `${(value * 100).toFixed(1)}%`;
-}
-
-/**
- * Run summary.
- *
- * The counts are deliberately split by what is actually knowable. On a project with no
- * independently verified truth set there is no ground truth to compare against, so recall
- * and the false-negative count are reported as not computable — printing 0 there would
- * claim the auditor missed nothing, which is exactly the claim nobody can make.
- */
-export function Overview({
-  detail,
-  events,
-}: {
-  detail: RunDetail;
-  events: AuditEvent[];
-}) {
-  const { run, units, findings, metrics } = detail;
-  if (run.task_spec) {
-    return <TargetOverview detail={detail} events={events} task={run.task_spec} />;
-  }
-
-  const evaluation = metrics.evaluation;
-  const withTruth = metrics.truth_status === 'has_truth_set';
-
-  const unitRows = units.map((unit) => {
-    const result = unit.result as { conclusions?: Record<string, string>; exploration_incomplete?: string | null } | null;
-    return {
-      unit,
-      conclusions: result?.conclusions ?? null,
-      partial: result?.exploration_incomplete ?? null,
-      candidates: findings.filter((finding) => finding.unit_id === unit.id).length,
-    };
-  });
-
-  const unfinished = unitRows.filter(
-    (row) => row.unit.status !== 'completed' || row.partial,
-  );
+/** Project-level status: source slices are not displayed as a work queue. */
+export function Overview({ detail, events }: { detail: RunDetail; events: AuditEvent[] }) {
+  const { run, metrics } = detail;
+  const planner = detail.planner;
+  const goal = detail.goal ?? detail.goals?.[0];
+  const projectMap = detail.project_map;
+  const plans = detail.plans ?? [];
+  const tasks = detail.tasks ?? [];
+  const findings = detail.findings ?? [];
+  const counts = tasks.reduce<Record<string, number>>((result, task) => {
+    result[task.state] = (result[task.state] ?? 0) + 1;
+    return result;
+  }, {});
+  const toolCalls = events.filter((event) => event.kind === 'tool_call').length;
+  const plannerEvents = events.filter((event) => event.kind.startsWith('planner_')).length;
+  const mapStats = projectMap?.stats ?? {};
 
   return (
     <div className="grid">
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-        <Stat value={`${run.completed_units}/${run.total_units}`} label="已审计单元" note={`未完成 ${metrics.incomplete_units} · 待处理 ${metrics.pending_units ?? units.filter((u) => u.status === 'pending').length}`} />
-        <Stat value={metrics.candidates} label="候选（证据通过）" note={`证据不通过 ${metrics.discarded_candidates ?? 0}`} />
-        <Stat value={metrics.confirmed} label="人工确认" note={`排除 ${metrics.rejected} · 待验证 ${metrics.awaiting_verification}`} />
-        <Stat value={percent(metrics.audit_coverage)} label="审计覆盖率" note="已完成单元 / 全部单元" />
-        <Stat value={percent(metrics.verification_coverage)} label="验证覆盖率" note="已验证候选 / 全部候选" />
-        <Stat value={run.usage.requests} label="模型响应次数" note={`工具 ${run.usage.tool_calls} · 输入 ${run.usage.input_tokens} tok`} />
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))' }}>
+        <Stat value={`${planner?.current_round ?? 0}/${planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'}`} label="Planner 回合" note={`版本 ${planner?.current_revision ?? 0}`} />
+        <Stat value={`${metrics.terminal_tasks ?? 0}/${metrics.total_tasks ?? tasks.length}`} label="已结算动态任务" note={`执行中 ${metrics.active_tasks ?? counts.running ?? 0}`} />
+        <Stat value={findings.filter((item) => item.validation_state === 'candidate').length} label="证据化发现" note={`待复核 ${metrics.awaiting_verification}`} />
+        <Stat value={toolCalls || run.usage.tool_calls} label="只读工具调用" note={`模型响应 ${run.usage.requests}`} />
+        <Stat value={mapStats.files ?? run.scope.length} label="项目图文件" note={`${mapStats.symbols ?? 0} 个符号`} />
+        <Stat value={plannerEvents} label="Planner 轨迹事件" note="可在执行轨迹展开" />
       </div>
 
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">统计口径</span>
-          <span className={`chip ${withTruth ? 'chip-confirmed' : 'chip-pending'}`}>
-            {withTruth ? '已建立已知真实样本' : '无已知真实样本'}
-          </span>
+          <div>
+            <div className="panel-title">目标收束</div>
+            <div className="faint small">主 Planner 维护跨文件任务图；worker 只能提交证据化结果和下一方向。</div>
+          </div>
+          <span className={`chip chip-${goal?.status ?? run.status}`}>{GOAL_LABELS[goal?.status ?? ''] ?? run.status}</span>
         </div>
-        <div style={{ padding: '12px 16px' }}>
-          {withTruth && evaluation ? (
-            <>
-              <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
-                <Stat value={evaluation.TP} label="TP" />
-                <Stat value={evaluation.FP} label="FP" />
-                <Stat value={evaluation.FN} label="FN" />
-                <Stat value={evaluation.TN} label="TN" />
-                <Stat value={percent(evaluation.precision)} label="精确率" />
-                <Stat value={percent(evaluation.recall)} label="召回率" />
-                <Stat value={percent(evaluation.f1)} label="F1" />
-                {/* `eligible` counts the verified samples; `unresolved` ones are dropped again
-                    below, so the number that actually feeds the matrix is the difference. */}
-                <Stat
-                  value={evaluation.total_samples}
-                  label="样本数"
-                  note={`参与计算 ${evaluation.eligible - evaluation.unresolved.length} / 核验 ${evaluation.eligible}`}
-                />
-              </div>
-              <div className="small muted" style={{ marginTop: 10 }}>
-                这 {evaluation.eligible} 个样本是已知答案的演示文件，用来说明流程走得通，
-                <strong>不能据此声称对未知 PHP 项目的检测能力</strong>。
-                未决样本 {evaluation.unresolved.length} 个已单列，不进混淆矩阵：既不记漏报，也不记真阴，
-                因此上面的精确率与召回率只是在其余样本上的比值。
-              </div>
-              {evaluation.unresolved.length > 0 && (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, marginTop: 8 }}>
-                  <thead>
-                    <tr style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>
-                      <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontWeight: 500 }}>未决样本</th>
-                      <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 500 }}>真值</th>
-                      <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 500 }}>未决原因</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {evaluation.unresolved.map((sample, index) => (
-                      <tr key={index} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                        <td style={{ padding: '4px 8px 4px 0' }} className="mono">
-                          {sample.file_path} <span className="faint">{CATEGORY_LABELS[sample.category]}</span>
-                        </td>
-                        <td style={{ padding: '4px 8px' }}>{sample.vulnerable ? '漏洞' : '无漏洞'}</td>
-                        <td style={{ padding: '4px 8px' }} className="muted">{sample.reason}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <div className="grid" style={{ padding: '12px 16px', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+          <div className="field"><span className="field-label">审计目标</span><span className="small">{run.task_spec?.objective ?? '—'}</span></div>
+          <div className="field"><span className="field-label">验收条件</span><span className="small">{run.task_spec?.success_criteria ?? '—'}</span></div>
+          <div className="field"><span className="field-label">当前状态</span><span className="small">{goal?.terminal_reason ?? planner?.terminal_reason ?? '尚在收集项目图或 worker 反馈。'}</span></div>
+          <div className="field"><span className="field-label">边界</span><span className="small">{run.scope.length} 个冻结 PHP 文件；动态 include、路由和运行时配置会作为缺失上下文保留。</span></div>
+        </div>
+      </div>
+
+      <div className="grid" style={{ gridTemplateColumns: 'minmax(300px, 1fr) minmax(420px, 1.6fr)' }}>
+        <div className="panel">
+          <div className="panel-head"><span className="panel-title">冻结项目图</span><span className="faint small">规划索引，不是发现证据</span></div>
+          <div style={{ padding: '12px 16px' }} className="grid">
+            <div className="small">文件 {mapStats.files ?? 0} · 符号 {mapStats.symbols ?? 0} · 静态 include {mapStats.includes ?? 0} · 调用点 {mapStats.calls ?? 0}</div>
+            <div className="field">
+              <span className="field-label">入口候选</span>
+              {(projectMap?.entrypoints ?? []).length === 0 ? <span className="faint small">尚未记录。</span> : (
+                <div className="small mono" style={{ maxHeight: 150, overflowY: 'auto' }}>
+                  {(projectMap?.entrypoints ?? []).slice(0, 16).map((entry, index) => <div key={index}>{String((entry as { path?: string }).path ?? entry)}</div>)}
+                </div>
               )}
-            </>
-          ) : (
-            <div className="small muted">
-              这个快照没有独立核验过的真实样本集，所以只报告候选数、人工结论、审计覆盖率与验证覆盖率。
-              <strong>召回率、漏报数与真阴数在此标记为「不可计算」</strong>，而不是记为 0：
-              没有基准就没有漏报可言，把它们填成 0 等于宣称没有漏掉任何漏洞。
-              <div style={{ marginTop: 6 }}>
-                如需混淆矩阵，请为该快照录入带有独立核验依据的真实样本后再查看。
-              </div>
+            </div>
+            <div className="faint small">{projectMap?.limitations?.[0] ?? '静态图不能代替运行时调用图。'}</div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-head"><span className="panel-title">Planner 回合</span><span className="faint small">每个版本均持久化，可回看调度依据</span></div>
+          {plans.length === 0 ? <div className="empty">等待主 Planner 建立第一版任务图。</div> : (
+            <div style={{ maxHeight: 290, overflowY: 'auto' }}>
+              {plans.map((plan) => (
+                <details key={plan.id} style={{ padding: '10px 14px', borderBottom: '1px solid var(--line-soft)' }}>
+                  <summary className="row" style={{ cursor: 'pointer', flexWrap: 'wrap' }}>
+                    <span className={`chip chip-${plan.status}`}>第 {plan.round_no} 回合</span>
+                    <span className="small">{plan.basis_summary || '等待 Planner 返回依据摘要。'}</span>
+                  </summary>
+                  <div className="small" style={{ marginTop: 7 }}>
+                    <div>目标建议：{plan.goal_state ?? 'continue'} · 下一步：{plan.next_action || '—'}</div>
+                    {plan.error && <div style={{ color: 'var(--danger)' }}>错误：{plan.error}</div>}
+                    {(plan.task_snapshot as { task_key?: string; title?: string }[]).length > 0 && <div className="faint" style={{ marginTop: 4 }}>本轮任务：{(plan.task_snapshot as { task_key?: string; title?: string }[]).map((item) => item.title || item.task_key).join('；')}</div>}
+                  </div>
+                </details>
+              ))}
             </div>
           )}
         </div>
@@ -147,364 +118,32 @@ export function Overview({
 
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">单元级结论</span>
-          <span className="faint small">
-            三类逐项保存；失败或缺上下文保留为未完成
-          </span>
+          <div><div className="panel-title">动态任务图</div><div className="faint small">依赖满足后才进入 worker 队列；任务跨文件上下文由 Planner 指定并由工具补读。</div></div>
+          <span className="faint small">{Object.entries(counts).map(([state, count]) => `${TASK_LABELS[state] ?? state} ${count}`).join(' · ') || '尚未建立'}</span>
         </div>
-        <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
-                  <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>单元</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>状态</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>SQL 注入</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>反射型 XSS</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>命令注入</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>模型</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unitRows.map(({ unit, conclusions, partial, candidates }) => (
-                  <tr key={unit.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                    <td style={{ padding: '8px 14px' }}>
-                      <div className="mono small">{unit.file_path}:{unit.start_line}-{unit.end_line}</div>
-                      <div className="faint" style={{ fontSize: 11.5 }}>
-                        {unit.symbol} · {unit.kind} · 切片 {unit.slice_index}/{unit.slice_count} · 排序优先级 {unit.priority}
-                        {candidates > 0 && <> · 候选 {candidates}</>}
-                      </div>
-                    </td>
-                    <td style={{ padding: '8px 10px', minWidth: 96 }}>
-                      <span className={`chip chip-${unit.status}`}>{unit.status}</span>
-                      {partial && <span className="chip chip-incomplete" title={partial}>探索未走完</span>}
-                      {unit.result?.terminal_reason && <div className="faint small">{unit.result.terminal_reason}</div>}
-                      {unit.error && (
-                        <div className="error-box small" style={{ marginTop: 5, maxWidth: 320, maxHeight: 90, overflowY: 'auto' }}>
-                          {unit.error}
-                        </div>
-                      )}
-                    </td>
-                    {(['sqli', 'xss_r', 'command_injection'] as const).map((category) => (
-                      <td key={category} style={{ padding: '8px 10px' }}>
-                        {conclusions?.[category]
-                          ? <span className={`chip chip-${conclusions[category]}`}>{CATEGORY_LABELS[category]}·{conclusions[category]}</span>
-                          : <span className="faint">—</span>}
-                      </td>
-                    ))}
-                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                      <span className="faint small" title={unit.usage ? undefined : '未完成：模型调用次数未记录'}>
-                        {unit.status !== 'completed' && !unit.usage
-                          ? '未记录'
-                          : unit.usage ? `${unit.usage.requests} 响应 / ${unit.usage.tool_calls} 工具` : '—'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">未完成与未决单元</span>
-          <span className="faint small">单独列出，不当作阴性结果</span>
-        </div>
-        {unfinished.length === 0 ? (
-          <div className="empty">全部单元都正常完成。</div>
-        ) : (
-          <div>
-            {unfinished.map(({ unit, partial }) => (
-              <div key={unit.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-soft)' }}>
-                <div className="row" style={{ flexWrap: 'wrap' }}>
-                  <span className={`chip chip-${unit.status}`}>{unit.status}</span>
-                  <span className="mono small">{unit.file_path}:{unit.start_line}-{unit.end_line}</span>
-                  {partial && <span className="chip chip-incomplete">{partial}</span>}
-                </div>
-                {unit.error && <div className="small mono" style={{ marginTop: 5, color: 'var(--danger)' }}>{unit.error}</div>}
-                <div className="faint small" style={{ marginTop: 4 }}>
-                  该单元不能作为「没有漏洞」的证据。
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {events.length > 0 && (
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">运行事件</span>
-            <span className="faint small">已持久化 {events.length} 条</span>
-          </div>
-          <div style={{ padding: '12px 16px' }} className="small muted">
-            事件先写入 SQLite 再推送，所以刷新页面或重启服务后这里的内容不变。
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-const TASK_RUN_STATUS_LABELS: Record<string, string> = {
-  completed: '目标已达成',
-  unreachable: '目标不可达',
-  inconclusive: '目标未决',
-  failed: '运行失败',
-  cancelled: '运行已取消',
-  interrupted: '运行已中断',
-};
-
-const TASK_GOAL_STATUS_LABELS: Record<string, string> = {
-  open: '待达成',
-  met: '已达成',
-  unreachable: '不可达',
-  inconclusive: '未决',
-};
-
-function evidenceLabel(finding: RunDetail['findings'][number]) {
-  if (finding.evidence.length === 0) return '无可核验源码引用';
-  return finding.evidence
-    .map((reference) => `${reference.path}:${reference.start_line}-${reference.end_line}`)
-    .join('、');
-}
-
-/**
- * The target-first overview intentionally has no truth matrix or fixed vulnerability
- * columns. A task result is judged only against the frozen target, acceptance criteria,
- * queue history, and source evidence captured for this run.
- */
-function TargetOverview({
-  detail,
-  events,
-  task,
-}: {
-  detail: RunDetail;
-  events: AuditEvent[];
-  task: TaskSpec;
-}) {
-  const { run, units, findings, metrics } = detail;
-  const workItems = detail.work_items ?? [];
-  const goals = detail.goals ?? [];
-  const unitById = new Map(units.map((unit) => [unit.id, unit]));
-  const settled = workItems.filter((item) => ['done', 'exhausted', 'blocked', 'skipped'].includes(item.state)).length;
-  const active = workItems.filter((item) => item.state === 'running').length;
-  const attempts = workItems.reduce((total, item) => total + item.attempt, 0);
-  const evidenceBacked = findings.filter((finding) => finding.validation_state === 'candidate');
-  const unresolved = workItems.filter((item) => !['done', 'exhausted', 'blocked', 'skipped'].includes(item.state));
-  const terminalLabel = TASK_RUN_STATUS_LABELS[run.status] ?? run.status;
-
-  return (
-    <div className="grid">
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-        <Stat value={`${settled}/${workItems.length || run.total_units}`} label="已结算工作项" note={`执行中 ${active} · 队列共 ${workItems.length || run.total_units} 项`} />
-        <Stat value={evidenceBacked.length} label="证据化发现" note={`证据不通过 ${metrics.discarded_candidates ?? 0}`} />
-        <Stat value={metrics.confirmed} label="确认结论" note={`待复核 ${metrics.awaiting_verification} · 驳回 ${metrics.rejected}`} />
-        <Stat value={percent(metrics.audit_coverage)} label="源码单元覆盖率" note="已完成单元 / 冻结范围" />
-        <Stat value={attempts} label="已用尝试" note={`上限 ${task.max_total_attempts} · 每项最多 ${task.max_iterations}`} />
-        <Stat value={run.usage.tool_calls} label="工具调用" note={`模型响应 ${run.usage.requests} 次`} />
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">任务判断</span>
-          <span className={`chip chip-${run.status}`}>{terminalLabel}</span>
-        </div>
-        <div style={{ padding: '12px 16px' }} className="grid">
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-            <div className="field">
-              <span className="field-label">目标</span>
-              <span className="small">{task.objective}</span>
-            </div>
-            <div className="field">
-              <span className="field-label">验收条件</span>
-              <span className="small">{task.success_criteria}</span>
-            </div>
-            <div className="field">
-              <span className="field-label">审计范围</span>
-              <span className="small">{run.scope.length} 个冻结源码文件</span>
-            </div>
-            <div className="field">
-              <span className="field-label">POC 要求</span>
-              <span className="small">{task.require_poc ? '目标达成时需要附带 POC' : '按源码证据验证，不强制 POC'}</span>
-            </div>
-          </div>
-          <div className="small muted">
-            “目标已达成”表示已有发现满足验收条件；“目标不可达”只表示冻结范围内的队列已按本次预算完成或耗尽，
-            不能推断整个项目不存在其他问题。执行轨迹中的依据是可复核摘要，模型的内部思维链不会展示或导出。
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">目标状态</span>
-          <span className="faint small">按目标、工作项尝试和源码证据判断</span>
-        </div>
-        {goals.length === 0 ? (
-          <div className="empty">协调器尚未写入目标状态。</div>
-        ) : (
-          <div>
-            {goals.map((goal) => (
-              <div key={goal.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-soft)' }}>
-                <div className="row" style={{ flexWrap: 'wrap' }}>
-                  <span className={`chip chip-${goal.status}`}>{TASK_GOAL_STATUS_LABELS[goal.status] ?? goal.status}</span>
-                  <span className="small">尝试 {goal.attempts}/{goal.max_total_attempts} 次 · 每项最多 {goal.max_iterations} 次</span>
-                </div>
-                <div className="small" style={{ marginTop: 5 }}>{goal.objective}</div>
-                {goal.terminal_reason && <div className="faint small" style={{ marginTop: 3 }}>{goal.terminal_reason}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">证据化发现</span>
-          <span className="faint small">{findings.length} 条记录 · {evidenceBacked.length} 条引用校验通过</span>
-        </div>
-        {findings.length === 0 ? (
-          <div className="empty">尚无满足任务验收条件的源码发现。</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
-                  <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>发现</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>类型 / 风险</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>源码引用</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>复核状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                {findings.map((finding) => (
-                  <tr key={finding.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                    <td style={{ padding: '8px 14px', minWidth: 220 }}>
-                      <div className="small" style={{ fontWeight: 500 }}>{finding.title}</div>
-                      <div className="faint small" style={{ marginTop: 3 }}>{finding.summary}</div>
-                    </td>
-                    <td style={{ padding: '8px 10px', minWidth: 120 }}>
-                      <div className="small">{finding.finding_kind || '源码观察'}</div>
-                      <div className="faint small">{finding.severity || '未分级'}</div>
-                    </td>
-                    <td style={{ padding: '8px 10px', minWidth: 220 }} className="mono small">{evidenceLabel(finding)}</td>
-                    <td style={{ padding: '8px 10px', minWidth: 110 }}>
-                      <span className={`chip chip-${finding.validation_state}`}>
-                        {finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}
-                      </span>
-                      {finding.verdict && <div className="faint small" style={{ marginTop: 3 }}>{finding.verdict}</div>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">源码工作项</span>
-          <span className="faint small">队列顺序、轮次和最近结论均可回放</span>
-        </div>
-        <GoalWorkTable workItems={workItems} units={units} />
-      </div>
-
-      {unresolved.length > 0 && (
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">未结算工作项</span>
-            <span className="faint small">不会被解释为目标未命中</span>
-          </div>
-          {unresolved.map((item) => {
-            const unit = unitById.get(item.unit_id);
-            return (
-              <div key={item.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-soft)' }}>
-                <div className="row" style={{ flexWrap: 'wrap' }}>
-                  <span className={`chip chip-${item.state}`}>{TASK_WORK_STATE_LABELS[item.state] ?? item.state}</span>
-                  {unit && <span className="mono small">{unit.file_path}:{unit.start_line}-{unit.end_line}</span>}
-                  <span className="faint small">轮次 {item.attempt}/{item.max_attempts}</span>
-                </div>
-                <div className="small" style={{ marginTop: 4 }}>{item.error || item.result?.summary || item.summary}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {events.length > 0 && (
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">可回放执行记录</span>
-            <span className="faint small">已持久化 {events.length} 条</span>
-          </div>
-          <div style={{ padding: '12px 16px' }} className="small muted">
-            在“执行轨迹”中可筛选 worker、工作项和尝试次数，并展开查看工具调用、工具结果及证据化依据摘要。
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function GoalWorkTable({
-  workItems,
-  units,
-}: {
-  workItems: TaskWorkItem[];
-  units: RunDetail['units'];
-}) {
-  const unitById = new Map(units.map((unit) => [unit.id, unit]));
-  if (workItems.length === 0) {
-    return <div className="empty">工作队列尚未建立。</div>;
-  }
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-        <thead>
-          <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
-            <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>源码工作项</th>
-            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>状态</th>
-            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>轮次</th>
-            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>最近结果</th>
-            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>模型</th>
-          </tr>
-        </thead>
-        <tbody>
-          {workItems.map((item) => {
-            const unit = unitById.get(item.unit_id);
-            const lastUsage = item.attempt_history?.at(-1)?.usage;
-            const terminalReason = item.result?.terminal_reason;
-            return (
-              <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                <td style={{ padding: '8px 14px', minWidth: 220 }}>
-                  <div className="mono small">
-                    {unit ? `${unit.file_path}:${unit.start_line}-${unit.end_line}` : item.unit_id}
+        {tasks.length === 0 ? <div className="empty">首轮 Planner 尚未提交任务。</div> : (
+          <div style={{ maxHeight: 520, overflowY: 'auto' }}>
+            {tasks.map((item) => {
+              const source = references(item);
+              return (
+                <details key={item.id} style={{ padding: '10px 14px', borderBottom: '1px solid var(--line-soft)' }}>
+                  <summary className="row" style={{ cursor: 'pointer', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <span className={`chip chip-${item.state}`}>{TASK_LABELS[item.state] ?? item.state}</span>
+                    <span className="small"><strong>{item.title}</strong> · {item.attempts}/{item.max_attempts} 次</span>
+                    <span className="faint small">{taskResult(item)}</span>
+                  </summary>
+                  <div className="grid" style={{ marginTop: 9, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+                    <div className="small"><span className="field-label">任务目标</span>{item.objective}</div>
+                    <div className="small"><span className="field-label">初始上下文</span>{source.refs.length ? source.refs.map((ref) => <div className="mono" key={ref}>{ref}</div>) : '由项目入口和符号种子组成'}{source.symbols.length > 0 && <div className="faint">符号：{source.symbols.join('、')}</div>}</div>
+                    <div className="small"><span className="field-label">依赖</span>{item.dependencies.length ? item.dependencies.join('、') : '无'}{item.error && <div style={{ color: 'var(--danger)', marginTop: 4 }}>{item.error}</div>}</div>
                   </div>
-                  <div className="faint" style={{ fontSize: 11.5 }}>{item.summary}</div>
-                  {item.focus && <div className="faint small" style={{ marginTop: 3 }}>关注点：{item.focus}</div>}
-                </td>
-                <td style={{ padding: '8px 10px', minWidth: 110 }}>
-                  <span className={`chip chip-${item.state}`}>{TASK_WORK_STATE_LABELS[item.state] ?? item.state}</span>
-                  {item.error && <div className="error-box small" style={{ marginTop: 5, maxWidth: 320 }}>{item.error}</div>}
-                </td>
-                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{item.attempt}/{item.max_attempts}</td>
-                <td style={{ padding: '8px 10px', minWidth: 220 }}>
-                  <div className="small">{item.result?.summary || '—'}</div>
-                  {item.result?.outcome && <div className="faint small">{item.result.outcome}</div>}
-                  {terminalReason && <div className="faint small">{terminalReason}</div>}
-                </td>
-                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                  <span className="faint small">
-                    {lastUsage ? `${lastUsage.requests} 响应 / ${lastUsage.tool_calls} 工具` : '—'}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  {(item.attempt_history ?? []).length > 0 && <div style={{ marginTop: 9 }}><span className="field-label">尝试历史</span>{item.attempt_history?.map((attempt) => <div className="small faint" key={`${attempt.attempt}-${attempt.created_at}`}>第 {attempt.attempt} 次 · {attempt.outcome ?? attempt.state ?? '—'} · {attempt.result?.summary ?? attempt.error ?? '—'}</div>)}</div>}
+                </details>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

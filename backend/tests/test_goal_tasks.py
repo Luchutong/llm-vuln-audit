@@ -225,6 +225,55 @@ def test_project_map_and_bundle_keep_cross_file_context(repository):
     assert "src/auth.php" in paths, "static include neighbours should enrich the worker context"
 
 
+def test_context_bundle_does_not_expand_empty_symbol_selection_to_every_file(repository):
+    """An empty target-symbol list means no symbol filter, not all project symbols."""
+    snapshot = repository.import_zip(
+        make_zip({
+            "public/index.php": "<?php\nrequire __DIR__ . '/../src/handler.php';\nhandle($_GET['q'] ?? '');\n",
+            "src/handler.php": "<?php\nfunction handle($q) { return $q; }\n",
+            "src/unrelated.php": "<?php\nfunction alphabetically_first_noise() { return true; }\n",
+            "docs/help.php": "<?php\nfunction docs_only() { return true; }\n",
+        }),
+        "bundle.zip",
+    )
+    bundle = repository.build_context_bundle(
+        snapshot["id"],
+        {"context_spec": {
+            "source_refs": [{"path": "public/index.php", "start_line": 1, "end_line": 3, "reason": "entry"}],
+            "target_symbols": [],
+            "query_hints": [],
+        }},
+        {"public/index.php", "src/handler.php", "src/unrelated.php", "docs/help.php"},
+    )
+
+    paths = {excerpt["path"] for excerpt in bundle["excerpts"]}
+    assert {"public/index.php", "src/handler.php"}.issubset(paths)
+    assert "src/unrelated.php" not in paths
+    assert "docs/help.php" not in paths
+
+
+def test_context_bundle_reconnaissance_uses_ranked_entries_not_alphabetical_symbols(repository):
+    snapshot = repository.import_zip(
+        make_zip({
+            "public/index.php": "<?php\nrequire __DIR__ . '/../src/bootstrap.php';\nrun();\n",
+            "src/bootstrap.php": "<?php\nfunction run() { return true; }\n",
+            "src/a_first_symbol.php": "<?php\nfunction a_first_symbol() { return true; }\n",
+            "docs/help.php": "<?php\nfunction documentation_symbol() { return true; }\n",
+        }),
+        "orientation.zip",
+    )
+    bundle = repository.build_context_bundle(
+        snapshot["id"],
+        {"context_spec": {"source_refs": [], "scope_paths": [], "target_symbols": [], "query_hints": []}},
+        {"public/index.php", "src/bootstrap.php", "src/a_first_symbol.php", "docs/help.php"},
+    )
+
+    paths = {excerpt["path"] for excerpt in bundle["excerpts"]}
+    assert {"public/index.php", "src/bootstrap.php"}.issubset(paths)
+    assert "src/a_first_symbol.php" not in paths
+    assert "docs/help.php" not in paths
+
+
 def test_planner_store_tracks_dependencies_attempts_and_total_usage(store, repository):
     run, _ = create_planner_run(store, repository)
     session = store.get_planner_session(run["id"])

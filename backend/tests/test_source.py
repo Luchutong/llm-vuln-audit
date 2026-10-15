@@ -1,5 +1,6 @@
 import hashlib
 import io
+from pathlib import Path
 import stat
 import zipfile
 
@@ -250,6 +251,40 @@ def test_import_detects_a_late_php_tag_in_framework_or_extensionless_source(repo
     assert {unit["file_path"] for unit in snapshot["units"]} >= {
         "modules/late.module", "bin/late-worker",
     }
+
+
+def test_dvwa_project_map_limits_entries_to_high_confidence_request_paths(repository):
+    """A real PHP application must not turn every executable file into an entry."""
+    archive = Path(__file__).resolve().parents[2] / "demo" / "dvwa-source.zip"
+    snapshot = repository.import_zip(archive.read_bytes(), archive.name)
+
+    project_map = repository.build_project_map(snapshot["id"])
+    entrypoints = project_map["entrypoints"]
+
+    assert project_map["stats"]["files"] > 100
+    assert entrypoints
+    assert len(entrypoints) < project_map["stats"]["files"]
+    assert all(item["confidence"] == "high" for item in entrypoints)
+    assert all(
+        marker not in item["path"]
+        for item in entrypoints
+        for marker in ("/source/", "/help/", "/includes/")
+    )
+    assert project_map["architecture"]["modules"]
+    assert project_map["architecture"]["role_counts"]
+
+
+def test_default_project_map_omits_excluded_dependency_tree_but_explicit_scope_keeps_it(repository):
+    snapshot = repository.import_zip(make_zip([
+        ("public/index.php", "<?php echo 'ok';"),
+        ("vendor/package/helper.php", "<?php function helper() { return true; }"),
+    ]), "scope-map.zip")
+
+    default_map = repository.build_project_map(snapshot["id"])
+    explicit_map = repository.build_project_map(snapshot["id"], {"vendor/package/helper.php"})
+
+    assert default_map["scope"] == ["public/index.php"]
+    assert explicit_map["scope"] == ["vendor/package/helper.php"]
 
 
 def test_context_and_search_respect_a_task_frozen_scope(repository):

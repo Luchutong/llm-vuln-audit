@@ -11,9 +11,11 @@ const TASK_LABELS: Record<string, string> = {
 
 function references(task: PlannerTask) {
   const refs = task.context_spec?.source_refs ?? [];
+  const scopePaths = task.context_spec?.scope_paths ?? [];
   const symbols = task.context_spec?.target_symbols ?? [];
   return {
     refs: refs.map((item) => `${item.path}:${item.start_line}-${item.end_line}`),
+    scopePaths,
     symbols,
   };
 }
@@ -82,11 +84,15 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
           <div className="panel-head"><span className="panel-title">冻结项目图</span><span className="faint small">规划索引，不是发现证据</span></div>
           <div style={{ padding: '12px 16px' }} className="grid">
             <div className="small">文件 {mapStats.files ?? 0} · 符号 {mapStats.symbols ?? 0} · 静态 include {mapStats.includes ?? 0} · 调用点 {mapStats.calls ?? 0}</div>
+            <div className="faint small">高置信入口 {mapStats.entrypoints ?? 0} · 低置信静态根 {mapStats.low_confidence_roots ?? 0} · 未解析 include {mapStats.unresolved_includes ?? 0}</div>
             <div className="field">
-              <span className="field-label">入口候选</span>
+              <span className="field-label">高置信入口候选</span>
               {(projectMap?.entrypoints ?? []).length === 0 ? <span className="faint small">尚未记录。</span> : (
                 <div className="small mono" style={{ maxHeight: 150, overflowY: 'auto' }}>
-                  {(projectMap?.entrypoints ?? []).slice(0, 16).map((entry, index) => <div key={index}>{String((entry as { path?: string }).path ?? entry)}</div>)}
+                  {(projectMap?.entrypoints ?? []).slice(0, 16).map((entry, index) => {
+                    const value = entry as { path?: string; reason?: string; confidence?: string };
+                    return <div key={index}>{String(value.path ?? entry)}{value.reason ? ` · ${value.reason}` : ''}{value.confidence ? ` · ${value.confidence}` : ''}</div>;
+                  })}
                 </div>
               )}
             </div>
@@ -134,7 +140,7 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
                   </summary>
                   <div className="grid" style={{ marginTop: 9, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
                     <div className="small"><span className="field-label">任务目标</span>{item.objective}</div>
-                    <div className="small"><span className="field-label">初始上下文</span>{source.refs.length ? source.refs.map((ref) => <div className="mono" key={ref}>{ref}</div>) : '由项目入口和符号种子组成'}{source.symbols.length > 0 && <div className="faint">符号：{source.symbols.join('、')}</div>}</div>
+                    <div className="small"><span className="field-label">初始上下文</span>{source.refs.length ? source.refs.map((ref) => <div className="mono" key={ref}>{ref}</div>) : '由高置信入口、引导文件或 Planner 查询线索组成'}{source.scopePaths.length > 0 && <div className="faint">范围：{source.scopePaths.join('、')}</div>}{source.symbols.length > 0 && <div className="faint">符号：{source.symbols.join('、')}</div>}</div>
                     <div className="small"><span className="field-label">依赖</span>{item.dependencies.length ? item.dependencies.join('、') : '无'}{item.error && <div style={{ color: 'var(--danger)', marginTop: 4 }}>{item.error}</div>}</div>
                   </div>
                   {(item.attempt_history ?? []).length > 0 && <div style={{ marginTop: 9 }}><span className="field-label">尝试历史</span>{item.attempt_history?.map((attempt) => <div className="small faint" key={`${attempt.attempt}-${attempt.created_at}`}>第 {attempt.attempt} 次 · {attempt.outcome ?? attempt.state ?? '—'} · {attempt.result?.summary ?? attempt.error ?? '—'}</div>)}</div>}

@@ -48,6 +48,8 @@ const LABELS: Record<string, string> = {
   planner_round_started: 'Planner 回合开始',
   planner_round_committed: 'Planner 回合已提交',
   planner_assessment: 'Planner 调度依据摘要',
+  planner_overview_prepared: 'Planner 项目结构概览已准备',
+  planner_exploration_stopped: 'Planner 索引探索停止',
   planner_agent_terminal: 'Planner 回合终止原因',
   planner_terminal_deferred: 'Planner 终态建议暂缓',
   planner_context_prepared: '多文件上下文已准备',
@@ -133,6 +135,8 @@ const PAYLOAD_LABELS: Record<string, string> = {
   goal_state: '目标建议状态',
   project_map: '项目图摘要',
   project_map_stats: '项目图统计',
+  overview: 'Planner 结构概览',
+  overview_bytes: '结构概览字节数',
   context_spec: '任务上下文规格',
   dependencies: '依赖任务',
   paths: '上下文文件',
@@ -168,7 +172,7 @@ function payloadOf(event: AuditEvent): Record<string, unknown> {
 function groupFor(kind: string): Exclude<EventGroup, 'all'> {
   if (kind === 'tool_call' || kind === 'tool_result') return 'tools';
   if (kind === 'task_assessment' || kind === 'planner_assessment' || kind === 'task_goal_met' || kind === 'goal_unreachable' || kind === 'goal_inconclusive' || kind === 'finding_created' || kind === 'finding_rejected_by_validation' || kind === 'settled' || kind === 'unit_completed' || kind === 'unit_incomplete') return 'decisions';
-  if (kind.startsWith('task_work_') || kind.startsWith('planner_task_') || kind.startsWith('planner_round_') || kind.startsWith('planner_session_') || kind === 'planner_context_prepared' || kind === 'planner_dependency_handoff_prepared' || kind === 'planner_terminal_deferred' || kind === 'task_agent_terminal' || kind === 'planner_agent_terminal' || kind === 'task_coordinator_started' || kind === 'task_planner_started' || kind === 'task_plan_created') return 'workers';
+  if (kind.startsWith('task_work_') || kind.startsWith('planner_task_') || kind.startsWith('planner_round_') || kind.startsWith('planner_session_') || kind === 'planner_context_prepared' || kind === 'planner_dependency_handoff_prepared' || kind === 'planner_terminal_deferred' || kind === 'planner_overview_prepared' || kind === 'planner_exploration_stopped' || kind === 'task_agent_terminal' || kind === 'planner_agent_terminal' || kind === 'task_coordinator_started' || kind === 'task_planner_started' || kind === 'task_plan_created') return 'workers';
   return 'system';
 }
 
@@ -493,7 +497,7 @@ function Inline({ event, payload }: { event: AuditEvent; payload: Record<string,
       {payload.rationale || payload.reasoning || payload.basis_summary ? <span className="faint"> · 已记录依据摘要</span> : null}
     </span>;
   }
-  if (kind === 'agent_phase' || kind === 'agent_terminal' || kind === 'task_agent_terminal' || kind === 'exploration_stopped') {
+  if (kind === 'agent_phase' || kind === 'agent_terminal' || kind === 'task_agent_terminal' || kind === 'exploration_stopped' || kind === 'planner_exploration_stopped') {
     return <span className="small">{String(payload.phase ?? '')} {String(payload.reason ?? '')}
       {payload.remaining_seconds != null ? ` · 剩余 ${String(payload.remaining_seconds)}s` : ''}</span>;
   }

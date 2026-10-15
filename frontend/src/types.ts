@@ -77,6 +77,13 @@ export interface ProjectMap {
   includes: unknown[];
   calls: unknown[];
   entrypoints: unknown[];
+  unresolved_root_candidates?: unknown[];
+  architecture?: {
+    role_counts?: Record<string, number>;
+    include_graph?: Record<string, number>;
+    modules?: unknown[];
+    bootstrap_files?: unknown[];
+  };
   parse_errors: unknown[];
   stats: Record<string, number>;
   limitations: string[];

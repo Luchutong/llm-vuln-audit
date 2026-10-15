@@ -480,6 +480,9 @@ def _render_task_markdown(bundle: dict) -> str:
         symbols = context.get("target_symbols") if isinstance(context, dict) else []
         if symbols:
             rendered.append("符号：" + "、".join(f"`{name}`" for name in symbols[:4]))
+        scope_paths = context.get("scope_paths") if isinstance(context, dict) else []
+        if scope_paths:
+            rendered.append("范围：" + "、".join(f"`{path}`" for path in scope_paths[:6]))
         return "；".join(rendered) or "由项目图和 worker 工具补读确定"
 
     terminal_labels = {
@@ -514,7 +517,7 @@ def _render_task_markdown(bundle: dict) -> str:
         "",
         "## 2. 项目图与执行模型",
         "",
-        f"项目图冻结时记录：{map_stats.get('files', 0)} 个文件、{map_stats.get('symbols', 0)} 个符号、{map_stats.get('includes', 0)} 条静态 include 关系、{map_stats.get('calls', 0)} 个调用点、{map_stats.get('entrypoints', 0)} 个入口候选。",
+        f"项目图冻结时记录：{map_stats.get('files', 0)} 个文件、{map_stats.get('symbols', 0)} 个符号、{map_stats.get('includes', 0)} 条静态 include 关系、{map_stats.get('calls', 0)} 个调用点、{map_stats.get('entrypoints', 0)} 个高置信入口候选；另有 {map_stats.get('low_confidence_roots', 0)} 个未解析静态根和 {map_stats.get('unresolved_includes', 0)} 条未解析 include 关系，均不等同于路由事实。",
         "",
         "```mermaid",
         "flowchart LR",

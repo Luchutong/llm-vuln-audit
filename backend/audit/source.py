@@ -53,6 +53,27 @@ CALL_TYPES = {"function_call_expression", "member_call_expression", "scoped_call
 # deliberately exclude XML processing instructions such as ``<?xml``.
 PHP_OPEN_TAG = re.compile(rb"<\?(?:php\b|=|(?=[\t\r\n ]))", re.I)
 
+# Project-map roles are deliberately conservative.  A PHP parser's ``top_level``
+# unit means only that text was not owned by a function or method; it is not proof
+# that a web server or CLI invokes that file.  These path signals are used solely to
+# select a small set of *high-confidence candidates* for initial project orientation.
+# Workers still establish actual reachability by reading frozen source and any runtime
+# configuration that is available to the audit.
+ENTRY_INDEX_NAMES = {"index.php", "index.phtml", "index.phps"}
+BOOTSTRAP_NAMES = {"bootstrap.php", "bootstrap.inc", "app.php", "application.php"}
+CLI_ENTRY_NAMES = {"artisan", "console", "console.php", "cli.php", "server.php", "router.php"}
+WEB_ROOT_DIRECTORIES = {"public", "web", "www", "htdocs", "httpdocs", "public_html"}
+CLI_DIRECTORIES = {"bin", "cli"}
+LIBRARY_DIRECTORIES = {"vendor", "lib", "libs", "library", "libraries", "include", "includes", "inc"}
+TEST_DIRECTORIES = {"test", "tests", "spec", "specs", "fixture", "fixtures", "example", "examples"}
+MATERIAL_DIRECTORIES = {"doc", "docs", "documentation", "help", "source", "sources", "sample", "samples"}
+CONFIG_DIRECTORIES = {"config", "configs", "configuration", "settings"}
+TEMPLATE_DIRECTORIES = {"template", "templates", "view", "views", "layout", "layouts"}
+MODULE_CONTAINER_DIRECTORIES = {
+    "modules", "module", "plugins", "plugin", "packages", "package", "apps", "app",
+    "sites", "site", "extensions", "extension", "components", "component", "vulnerabilities",
+}
+
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -109,6 +130,93 @@ def _looks_like_php(content: bytes) -> bool:
     immutable snapshot workflow.
     """
     return PHP_OPEN_TAG.search(content) is not None
+
+
+def _project_path_profile(path: str) -> dict:
+    """Classify a path for navigation without claiming runtime reachability.
+
+    The result makes a useful distinction between likely request/command entry
+    scripts and code that is normally included, configured, documented, or used as
+    a test fixture.  It intentionally never promotes an unresolved static-include
+    root or a parser ``top_level`` region to a high-confidence entrypoint.
+    """
+    parsed = PurePosixPath(path)
+    name = parsed.name.casefold()
+    directories = [part.casefold() for part in parsed.parts[:-1]]
+    directory_set = set(directories)
+    roles: set[str] = set()
+
+    if directory_set & LIBRARY_DIRECTORIES:
+        roles.add("library")
+    if directory_set & TEST_DIRECTORIES:
+        roles.add("test")
+    if directory_set & MATERIAL_DIRECTORIES:
+        roles.add("reference_material")
+    if directory_set & CONFIG_DIRECTORIES or name.startswith(("config.", "settings.")):
+        roles.add("configuration")
+    if directory_set & TEMPLATE_DIRECTORIES:
+        roles.add("template")
+    if directory_set & WEB_ROOT_DIRECTORIES:
+        roles.add("web_root")
+    if directory_set & CLI_DIRECTORIES or name in CLI_ENTRY_NAMES:
+        roles.add("cli")
+    if "routes" in directory_set or "route" in directory_set:
+        roles.add("route_definition")
+    if "controller" in directory_set or "controllers" in directory_set:
+        roles.add("controller")
+    if "model" in directory_set or "models" in directory_set:
+        roles.add("model")
+    if "migration" in directory_set or "migrations" in directory_set:
+        roles.add("migration")
+    if "src" in directory_set:
+        roles.add("application_code")
+    if name in BOOTSTRAP_NAMES:
+        roles.add("bootstrap")
+
+    non_entry = bool(roles & {"library", "test", "reference_material", "configuration", "template"})
+    entrypoint = None
+    signals: list[str] = []
+    # An index in a web/module directory and a root-level executable PHP script are
+    # useful first places to orient an audit.  They remain candidates: framework
+    # routing, rewrite rules and deployment configuration can still change reality.
+    if not non_entry and name in ENTRY_INDEX_NAMES:
+        if not directories:
+            entrypoint = ("front_controller", 100)
+            signals.append("root_index_name")
+        elif directory_set & WEB_ROOT_DIRECTORIES:
+            entrypoint = ("web_root_index", 95)
+            signals.append("web_root_index_name")
+        else:
+            entrypoint = ("module_index", 80)
+            signals.append("module_index_name")
+    elif not non_entry and not directories and parsed.suffix.casefold() in PHP_EXTENSIONS:
+        entrypoint = ("root_web_script", 85)
+        signals.append("root_level_php_script")
+    elif not non_entry and directory_set & WEB_ROOT_DIRECTORIES and parsed.suffix.casefold() in PHP_EXTENSIONS:
+        entrypoint = ("web_root_script", 75)
+        signals.append("web_root_php_script")
+    elif not non_entry and (name in CLI_ENTRY_NAMES or directory_set & CLI_DIRECTORIES):
+        entrypoint = ("cli_command", 70)
+        signals.append("cli_name_or_directory")
+
+    if entrypoint:
+        roles.add("entrypoint")
+    return {
+        "roles": sorted(roles),
+        "non_entry": non_entry,
+        "entrypoint": entrypoint,
+        "signals": signals,
+    }
+
+
+def _project_module_path(path: str) -> str:
+    """Return a stable, shallow grouping key for an arbitrary PHP tree."""
+    directories = list(PurePosixPath(path).parts[:-1])
+    if not directories:
+        return "."
+    if directories[0].casefold() in MODULE_CONTAINER_DIRECTORIES and len(directories) > 1:
+        return "/".join(directories[:2])
+    return directories[0]
 
 
 class SourceRepository:
@@ -597,13 +705,18 @@ class SourceRepository:
             for item in snapshot["files"]
             if bool(item.get("is_php", not item.get("excluded", False)))
         }
-        scope = set(allowed_paths) if allowed_paths is not None else set(php_files)
+        # Match the API's default-selection semantics even when the repository is
+        # called directly: dependency/generated trees remain indexable when an
+        # explicit scope names them, but do not silently enlarge an implicit map.
+        default_scope = {path for path, item in php_files.items() if not item.get("excluded")}
+        scope = set(allowed_paths) if allowed_paths is not None else (default_scope or set(php_files))
         scope &= set(php_files)
         file_rows = []
         directories: set[str] = set()
         symbols: list[dict] = []
         includes: list[dict] = []
         calls: list[dict] = []
+        profiles: dict[str, dict] = {}
         available = set(php_files)
 
         for path in sorted(scope):
@@ -613,12 +726,18 @@ class SourceRepository:
             while str(parent) not in {"", "."}:
                 directories.add(str(parent))
                 parent = parent.parent
+            profile = _project_path_profile(path)
+            profiles[path] = profile
             file_rows.append({
                 "path": path,
                 "line_count": int(record.get("line_count") or 0),
                 "size": int(record.get("size") or 0),
                 "parse_errors": list(record.get("parse_errors") or []),
+                # Kept as a source-index fact for callers that use it, but never
+                # interpreted as an execution or routing fact below.
                 "has_top_level": any(unit.get("file_path") == path and unit.get("kind") == "top_level" for unit in snapshot.get("units") or []),
+                "roles": profile["roles"],
+                "module": _project_module_path(path),
             })
             for item in index.get("classes", []):
                 symbols.append({
@@ -654,13 +773,104 @@ class SourceRepository:
                     "line": item.get("start_line"),
                 })
 
-        inbound = {item["to_path"] for item in includes if item.get("to_path")}
-        entrypoints = []
+        inbound_counts = {path: 0 for path in scope}
+        outbound_counts = {path: 0 for path in scope}
+        unresolved_include_count = 0
+        for edge in includes:
+            source = str(edge.get("from_path") or "")
+            target = edge.get("to_path")
+            if source in outbound_counts:
+                outbound_counts[source] += 1
+            if target in inbound_counts:
+                inbound_counts[str(target)] += 1
+            elif target is None:
+                unresolved_include_count += 1
+
+        entrypoints: list[dict] = []
+        unresolved_root_candidates: list[dict] = []
+        role_counts: dict[str, int] = {}
         for file_row in file_rows:
             path = file_row["path"]
-            name = PurePosixPath(path).name.casefold()
-            if name in {"index.php", "bootstrap.php", "app.php", "artisan"} or file_row["has_top_level"] or path not in inbound:
-                entrypoints.append({"path": path, "reason": "conventional_entry" if name in {"index.php", "bootstrap.php", "app.php", "artisan"} else ("top_level" if file_row["has_top_level"] else "no_static_inbound_include")})
+            profile = profiles[path]
+            file_row["static_inbound_includes"] = inbound_counts[path]
+            file_row["static_outbound_includes"] = outbound_counts[path]
+            for role in file_row["roles"]:
+                role_counts[role] = role_counts.get(role, 0) + 1
+            candidate = profile.get("entrypoint")
+            if candidate:
+                reason, priority = candidate
+                entrypoints.append({
+                    "path": path,
+                    "reason": reason,
+                    "confidence": "high",
+                    "priority": priority,
+                    "signals": list(profile.get("signals") or []),
+                })
+            # Static include coverage is incomplete in normal PHP applications.
+            # Preserve no-inbound scripts as a low-confidence investigation lead, but
+            # do not feed them to the Planner or worker as if they were routes.
+            elif not profile.get("non_entry") and not inbound_counts[path] and file_row["has_top_level"]:
+                unresolved_root_candidates.append({
+                    "path": path,
+                    "reason": "no_resolved_static_inbound_include",
+                    "confidence": "low",
+                    "signals": ["unresolved_include_graph"],
+                })
+
+        entrypoints.sort(key=lambda item: (-int(item["priority"]), item["path"]))
+        unresolved_root_candidates.sort(key=lambda item: item["path"])
+        module_data: dict[str, dict] = {}
+        for row in file_rows:
+            module = str(row["module"])
+            current = module_data.setdefault(module, {
+                "path": module,
+                "file_count": 0,
+                "role_counts": {},
+                "entrypoints": [],
+                "resolved_include_edges": 0,
+                "unresolved_include_edges": 0,
+                "call_counts": {},
+            })
+            current["file_count"] += 1
+            for role in row["roles"]:
+                current["role_counts"][role] = current["role_counts"].get(role, 0) + 1
+        module_by_path = {row["path"]: str(row["module"]) for row in file_rows}
+        for entry in entrypoints:
+            module_data[module_by_path[entry["path"]]]["entrypoints"].append(entry["path"])
+        cross_module_edges = 0
+        for edge in includes:
+            source_module = module_by_path.get(str(edge.get("from_path") or ""))
+            target_module = module_by_path.get(str(edge.get("to_path") or ""))
+            if source_module is None:
+                continue
+            if target_module is None:
+                module_data[source_module]["unresolved_include_edges"] += 1
+            else:
+                module_data[source_module]["resolved_include_edges"] += 1
+                if source_module != target_module:
+                    cross_module_edges += 1
+        for call in calls:
+            module = module_by_path.get(str(call.get("path") or ""))
+            name = str(call.get("name") or "<dynamic>")
+            if module is not None and name != "<dynamic>":
+                counts = module_data[module]["call_counts"]
+                counts[name] = counts.get(name, 0) + 1
+        modules = []
+        for value in module_data.values():
+            call_counts = value.pop("call_counts")
+            modules.append({
+                **value,
+                "entrypoints": value["entrypoints"][:12],
+                "notable_calls": [
+                    {"name": name, "count": count}
+                    for name, count in sorted(call_counts.items(), key=lambda item: (-item[1], item[0]))[:8]
+                ],
+            })
+        modules.sort(key=lambda item: (-len(item["entrypoints"]), -int(item["file_count"]), item["path"]))
+        bootstrap_files = [
+            {"path": row["path"], "module": row["module"]}
+            for row in file_rows if "bootstrap" in row["roles"]
+        ]
 
         return {
             "snapshot_id": snapshot_id,
@@ -671,6 +881,17 @@ class SourceRepository:
             "includes": includes,
             "calls": calls,
             "entrypoints": entrypoints,
+            "unresolved_root_candidates": unresolved_root_candidates,
+            "architecture": {
+                "role_counts": dict(sorted(role_counts.items())),
+                "modules": modules,
+                "bootstrap_files": bootstrap_files,
+                "include_graph": {
+                    "resolved_edges": len(includes) - unresolved_include_count,
+                    "unresolved_edges": unresolved_include_count,
+                    "cross_module_edges": cross_module_edges,
+                },
+            },
             "parse_errors": [
                 {"path": row["path"], "errors": row["parse_errors"]}
                 for row in file_rows if row["parse_errors"]
@@ -681,9 +902,13 @@ class SourceRepository:
                 "includes": len(includes),
                 "calls": len(calls),
                 "entrypoints": len(entrypoints),
+                "low_confidence_roots": len(unresolved_root_candidates),
+                "unresolved_includes": unresolved_include_count,
+                "modules": len(modules),
             },
             "limitations": [
                 "Static PHP parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+                "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
                 "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding.",
             ],
         }
@@ -716,8 +941,10 @@ class SourceRepository:
         source_refs = context.get("source_refs") or []
         requested_symbols = {str(item).casefold() for item in context.get("target_symbols") or [] if str(item).strip()}
         requested_paths = [str(item) for item in context.get("scope_paths") or [] if str(item) in scope]
+        query_hints = [str(item).strip()[:240] for item in context.get("query_hints") or [] if str(item).strip()]
         requests: list[tuple[str, int, int, str]] = []
         unresolved: list[dict] = []
+        resolved_hints: list[dict] = []
 
         for ref in source_refs:
             if not isinstance(ref, dict):
@@ -731,30 +958,84 @@ class SourceRepository:
             end = min(limit, max(start, int(ref.get("end_line") or start)))
             requests.append((path, start, min(end, start + MAX_READ_LINES - 1), str(ref.get("reason") or "planner_source_ref")))
 
-        for symbol in symbols:
-            names = {str(symbol.get("name") or "").casefold(), str(symbol.get("short_name") or "").casefold()}
-            if requested_symbols and not names.intersection(requested_symbols):
-                continue
-            path = str(symbol.get("path") or "")
-            if path not in scope:
-                continue
-            start = max(1, int(symbol.get("start_line") or 1))
-            end = min(int(symbol.get("end_line") or start), start + MAX_READ_LINES - 1)
-            requests.append((path, start, end, "planner_target_symbol"))
+        if requested_symbols:
+            for symbol in symbols:
+                names = {str(symbol.get("name") or "").casefold(), str(symbol.get("short_name") or "").casefold()}
+                if not names.intersection(requested_symbols):
+                    continue
+                path = str(symbol.get("path") or "")
+                if path not in scope:
+                    continue
+                start = max(1, int(symbol.get("start_line") or 1))
+                end = min(int(symbol.get("end_line") or start), start + MAX_READ_LINES - 1)
+                requests.append((path, start, end, "planner_target_symbol"))
 
         for path in requested_paths:
             requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 160), "planner_selected_file"))
 
+        # Query hints are navigation aids, not source claims.  Resolve them against
+        # high-confidence entry candidates first, then named symbols and calls.  This
+        # prevents a reconnaissance task from falling back to alphabetic files while
+        # still letting a Planner ask for a target-specific cross-file starting set.
+        for raw_hint in query_hints[:12]:
+            hint = raw_hint.casefold()
+            hint_matches = 0
+            for entry in project_map.get("entrypoints") or []:
+                path = str(entry.get("path") or "")
+                if path in scope and hint in path.casefold():
+                    requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 160), "planner_query_hint_entrypoint"))
+                    hint_matches += 1
+                    if hint_matches >= 4:
+                        break
+            if hint_matches < 4:
+                for symbol in symbols:
+                    path = str(symbol.get("path") or "")
+                    names = " ".join(str(symbol.get(key) or "") for key in ("name", "short_name"))
+                    if path not in scope or (hint not in path.casefold() and hint not in names.casefold()):
+                        continue
+                    start = max(1, int(symbol.get("start_line") or 1))
+                    end = min(int(symbol.get("end_line") or start), start + MAX_READ_LINES - 1)
+                    requests.append((path, start, end, "planner_query_hint_symbol"))
+                    hint_matches += 1
+                    if hint_matches >= 8:
+                        break
+            if hint_matches < 8:
+                for call in project_map.get("calls") or []:
+                    path = str(call.get("path") or "")
+                    name = str(call.get("name") or "")
+                    if path not in scope or (hint not in path.casefold() and hint not in name.casefold()):
+                        continue
+                    start = max(1, int(call.get("line") or 1) - 8)
+                    requests.append((path, start, min(int(all_files[path].get("line_count") or start), start + 120), "planner_query_hint_call"))
+                    hint_matches += 1
+                    if hint_matches >= 12:
+                        break
+            resolved_hints.append({"hint": raw_hint, "matches": hint_matches})
+
         # A planner can intentionally leave source refs empty for reconnaissance.
-        # Seed a project-level task from multiple entrypoints, never from one arbitrary
-        # slice, so it still has useful cross-file orientation.
+        # Seed it from ranked high-confidence entries and bootstraps, never from a
+        # parser top-level unit, an unresolved root, or alphabetically first symbols.
         if not requests:
             for entry in project_map["entrypoints"][:4]:
                 path = entry["path"]
                 requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 120), "project_entrypoint"))
-            for symbol in symbols[:4]:
-                path = symbol["path"]
-                requests.append((path, int(symbol.get("start_line") or 1), min(int(symbol.get("end_line") or 1), int(symbol.get("start_line") or 1) + 120), "project_symbol_seed"))
+            for bootstrap in (project_map.get("architecture") or {}).get("bootstrap_files") or []:
+                path = str(bootstrap.get("path") or "")
+                if path in scope:
+                    requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 120), "project_bootstrap"))
+                if len(requests) >= 6:
+                    break
+            if not requests:
+                for candidate in project_map.get("unresolved_root_candidates") or []:
+                    path = str(candidate.get("path") or "")
+                    if path in scope:
+                        requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 120), "low_confidence_orientation_lead"))
+                    if len(requests) >= 2:
+                        break
+                if requests:
+                    unresolved.append({
+                        "reason": "No high-confidence entry candidate was available; orientation uses low-confidence static roots only.",
+                    })
 
         # For every selected path, put its static include targets and callers in the
         # candidate set. This creates genuinely multi-file context without pretending
@@ -807,6 +1088,7 @@ class SourceRepository:
         relation_summary = {
             "selected_paths": sorted({item["path"] for item in excerpts}),
             "selected_symbols": sorted(requested_symbols),
+            "query_hints": resolved_hints,
             "included_excerpts": len(excerpts),
             "map_stats": project_map["stats"],
         }

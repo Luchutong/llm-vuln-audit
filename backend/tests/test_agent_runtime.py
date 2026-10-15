@@ -11,7 +11,7 @@ from pydantic_ai.models.function import FunctionModel
 from audit import agent
 from audit.config import ModelConfig
 from audit.evidence import seen_ranges, validate_evidence
-from audit.runtime import AgentPolicy, SourceLedger
+from audit.runtime import AgentPolicy, Execution, SourceLedger
 
 UNIT = {
     "id": "u1", "file_path": "a.php", "symbol": "<top-level>", "kind": "top_level",
@@ -122,6 +122,177 @@ def test_malformed_output_has_one_shared_correction_and_a_finite_end(monkeypatch
     assert result["incomplete"] == "invalid_output"
     assert result["usage"]["corrections"] == 1
     assert calls <= 3
+
+
+def test_planner_project_map_tool_returns_a_compact_overview():
+    """The Planner gets navigation metadata, not a full project-map payload."""
+    events: list[dict] = []
+    execution = Execution(
+        {"responses": 4, "tools": 1, "seconds": 2},
+        AgentPolicy(request_seconds=0.5),
+        events.append,
+    )
+    execution.enter("planner")
+    project_map = {
+        "snapshot_id": "snapshot-1",
+        "scope": [f"modules/{number}/handler.php" for number in range(600)],
+        "files": [
+            {"path": f"modules/{number}/handler.php", "line_count": 40, "size": 1024}
+            for number in range(600)
+        ],
+        "directories": [f"modules/{number}" for number in range(600)],
+        "symbols": [
+            {"path": f"modules/{number}/handler.php", "name": f"handle_{number}", "kind": "function"}
+            for number in range(600)
+        ],
+        "includes": [
+            {"from_path": f"modules/{number}/handler.php", "to_path": "bootstrap.php", "line": 2}
+            for number in range(600)
+        ],
+        "calls": [
+            {"path": f"modules/{number}/handler.php", "name": f"dispatch_{number}", "line": 10}
+            for number in range(600)
+        ],
+        "entrypoints": [{"path": "index.php", "confidence": "high"}],
+        "stats": {"files": 600, "symbols": 600, "includes": 600, "calls": 600, "entrypoints": 1},
+        "architecture": {
+            "modules": [{"path": "modules", "file_count": 600}],
+            "role_counts": {"entry": 1, "application": 599},
+        },
+    }
+
+    payload_text = asyncio.run(agent.PlannerDeps(
+        project_map=project_map,
+        run_context={},
+        execution=execution,
+    ).call("get_project_map", {}))
+    payload = json.loads(payload_text)
+
+    assert payload["overview"] is True
+    assert "scope" not in payload
+    assert "calls" not in payload
+    assert len(payload_text.encode("utf-8")) < 16 * 1024
+    assert events[-1]["tool"] == "get_project_map"
+
+
+def test_planner_task_history_stays_structured_and_bounded():
+    execution = Execution(
+        {"responses": 4, "tools": 1, "seconds": 2},
+        AgentPolicy(request_seconds=0.5),
+        lambda _event: None,
+    )
+    execution.enter("planner")
+    long_text = "多文件审计摘要" * 400
+    payload_text = asyncio.run(agent.PlannerDeps(
+        project_map={"stats": {}, "architecture": {}},
+        run_context={
+            "goal": {"objective": long_text, "success_criteria": long_text},
+            "tasks": [
+                {
+                    "task_key": f"task-{number}", "state": "completed", "objective": long_text,
+                    "dependencies": ["prior"], "rationale_summary": long_text,
+                    "result": {"summary": long_text, "missing_context": [long_text] * 4},
+                }
+                for number in range(20)
+            ],
+            "plans": [
+                {"round_no": number, "status": "completed", "basis_summary": long_text, "next_action": long_text}
+                for number in range(10)
+            ],
+        },
+        execution=execution,
+    ).call("get_task_results", {}))
+    payload = json.loads(payload_text)
+
+    assert "raw_prefix" not in payload
+    assert len(payload["tasks"]) == 8
+    assert len(payload["plans"]) == 4
+    assert len(payload_text.encode("utf-8")) < 12 * 1024
+
+
+def test_planner_reserves_a_tool_free_response_after_index_exploration(monkeypatch):
+    """A discovery turn cannot consume the response needed to publish tasks."""
+    calls = 0
+    events: list[dict] = []
+    prompts: list[str] = []
+    project_map = {
+        "snapshot_id": "snapshot-1",
+        "scope": ["public/index.php", "src/handler.php"],
+        "files": [
+            {"path": "public/index.php", "line_count": 8, "roles": ["entrypoint"], "module": "public"},
+            {"path": "src/handler.php", "line_count": 12, "roles": ["application_code"], "module": "src"},
+        ],
+        "symbols": [{"path": "src/handler.php", "name": "handle", "kind": "function", "start_line": 2, "end_line": 8}],
+        "includes": [{"from_path": "public/index.php", "to_path": "src/handler.php", "line": 2}],
+        "calls": [{"path": "public/index.php", "name": "handle", "line": 4}],
+        "entrypoints": [{"path": "public/index.php", "reason": "web_root_index", "confidence": "high"}],
+        "unresolved_root_candidates": [],
+        "architecture": {
+            "role_counts": {"entrypoint": 1, "application_code": 1},
+            "include_graph": {"resolved_edges": 1, "unresolved_edges": 0, "cross_module_edges": 1},
+            "bootstrap_files": [],
+            "modules": [{
+                "path": "public", "file_count": 1, "role_counts": {"entrypoint": 1},
+                "entrypoints": ["public/index.php"], "resolved_include_edges": 1,
+                "unresolved_include_edges": 0, "notable_calls": [{"name": "handle", "count": 1}],
+            }],
+        },
+        "stats": {"files": 2, "symbols": 1, "includes": 1, "calls": 1, "entrypoints": 1},
+        "limitations": [],
+    }
+
+    def provider(messages, info):
+        nonlocal calls
+        calls += 1
+        prompts.append(str(messages))
+        if info.function_tools:
+            if calls == 1:
+                return ModelResponse(parts=[ToolCallPart("get_project_map", {})])
+            return ModelResponse(parts=[ToolCallPart("search_project_map", {"query": "handle"})])
+        return output(info, {
+            "goal_state": "continue",
+            "basis_summary": "入口静态 include 处理函数，先验证跨文件请求处理方向。",
+            "next_action": "派发入口和处理函数的联合读取任务。",
+            "missing_context": [],
+            "tasks": [{
+                "task_key": "entry-handler",
+                "title": "入口到处理函数的数据流",
+                "objective": "读取入口和处理函数，确认请求数据如何进入目标操作。",
+                "acceptance_criteria": "worker 引用两个文件的原始行号并说明跨文件关系。",
+                "rationale_summary": "项目图显示 public/index.php 静态包含 src/handler.php 并调用 handle。",
+                "source_refs": [
+                    {"path": "public/index.php", "start_line": 1, "end_line": 8, "reason": "request entry"},
+                    {"path": "src/handler.php", "start_line": 1, "end_line": 12, "reason": "handler"},
+                ],
+                "scope_paths": [],
+                "target_symbols": ["handle"],
+                "dependencies": [],
+                "query_hints": ["handle"],
+                "priority": 80,
+            }],
+            "updates": [],
+        })
+
+    monkeypatch.setattr(agent, "build_model", lambda config: FunctionModel(provider))
+    result = asyncio.run(agent.plan_audit_frontier(
+        project_map=project_map,
+        run_context={"goal": {}, "tasks": [], "plans": []},
+        task={"objective": "确认请求入口到目标操作的跨文件路径。", "success_criteria": "源码行号可复核。"},
+        round_no=1,
+        config=CONFIG,
+        budgets={"responses": 4, "tools": 4, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+        on_event=events.append,
+    ))
+
+    assert result["decision"] is not None, result
+    assert result["decision"]["tasks"][0]["task_key"] == "entry-handler"
+    assert result["usage"]["model_attempts"] == 3
+    assert result["usage"]["tool_calls"] == 2
+    assert any(item["kind"] == "planner_exploration_stopped" and item["reason"] == "budget" for item in events)
+    assert any(item["kind"] == "agent_phase" and item["phase"] == "planner_decision" for item in events)
+    assert "主机生成的项目结构概览" in prompts[0]
+    assert '"overview":true' in prompts[0]
 
 
 def test_tool_flood_cannot_spend_the_reserved_model_budget(monkeypatch):

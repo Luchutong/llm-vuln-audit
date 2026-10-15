@@ -277,8 +277,25 @@ class PlannerDeps:
     project_map: dict
     run_context: dict
     execution: Execution
+    planning_overview: dict | None = None
     calls: set = field(default_factory=set)
     repeats: int = 0
+    observations: list[dict] = field(default_factory=list)
+
+    def _overview(self) -> dict:
+        if self.planning_overview is None:
+            self.planning_overview = _planner_project_overview(self.project_map)
+        return self.planning_overview
+
+    def _remember(self, name: str, args: dict, text: str) -> None:
+        """Keep a bounded public handoff for the tool-free decision phase."""
+        if len(self.observations) >= 6:
+            return
+        self.observations.append({
+            "tool": name,
+            "args": args,
+            "result": text[:2400],
+        })
 
     async def call(self, name: str, args: dict) -> str:
         execution = self.execution
@@ -306,30 +323,20 @@ class PlannerDeps:
             self.calls.add(key)
             try:
                 if name == "get_project_map":
-                    text = _planner_json(self.project_map)
+                    text = _planner_json(self._overview(), limit=12 * 1024)
                 elif name == "get_task_results":
-                    text = _planner_json({
-                        "goal": self.run_context.get("goal"),
-                        "tasks": self.run_context.get("tasks") or [],
-                        "plans": self.run_context.get("plans") or [],
-                    })
+                    text = _planner_json(_planner_task_results(self.run_context), limit=12 * 1024)
                 else:
                     query = str(args.get("query") or "").casefold().strip()
                     if not query:
                         raise ValueError("query is required")
-                    matches: list[dict] = []
-                    for collection_name in ("files", "symbols", "includes", "calls", "entrypoints"):
-                        for item in self.project_map.get(collection_name) or []:
-                            if query in json.dumps(item, ensure_ascii=False).casefold():
-                                matches.append({"kind": collection_name[:-1], **item})
-                                if len(matches) >= 40:
-                                    break
-                        if len(matches) >= 40:
-                            break
-                    text = _planner_json({"query": query, "matches": matches, "truncated": len(matches) >= 40})
+                    if len(query.encode("utf-8")) > 200:
+                        raise ValueError("query exceeds 200 bytes")
+                    text = _planner_json(_planner_project_search(self.project_map, query), limit=12 * 1024)
             except (ValueError, TypeError) as exc:
                 status = "context_missing"
                 text = f"{name} 无法执行：{type(exc).__name__}: {str(exc)[:200]}"
+        self._remember(name, args, text)
         execution.emit({
             "kind": "tool_result",
             "tool": name,
@@ -346,6 +353,219 @@ class PlannerDeps:
         if self.repeats >= execution.policy.repeated_calls:
             raise StopAudit("no_progress", "重复项目索引查询未产生新的规划信息")
         return text
+
+
+def _compact_map_item(kind: str, item: dict) -> dict:
+    """Project-map projection suitable for Planner navigation, never evidence."""
+    if kind == "files":
+        return {
+            "path": item.get("path"),
+            "line_count": item.get("line_count"),
+            "roles": item.get("roles") or [],
+            "module": item.get("module"),
+            "static_inbound_includes": item.get("static_inbound_includes"),
+            "static_outbound_includes": item.get("static_outbound_includes"),
+        }
+    if kind == "symbols":
+        return {
+            "path": item.get("path"),
+            "name": _planner_text(item.get("name"), 160),
+            "short_name": _planner_text(item.get("short_name"), 160),
+            "kind": item.get("kind"),
+            "start_line": item.get("start_line"),
+            "end_line": item.get("end_line"),
+        }
+    if kind == "includes":
+        return {
+            "from_path": item.get("from_path"),
+            "to_path": item.get("to_path"),
+            "line": item.get("line"),
+            "expression": _planner_text(item.get("expression"), 192),
+            "resolved_outside_scope": bool(item.get("resolved_outside_scope")),
+        }
+    if kind == "calls":
+        return {"path": item.get("path"), "name": _planner_text(item.get("name"), 160), "line": item.get("line")}
+    return {
+        "path": item.get("path"),
+        "reason": item.get("reason"),
+        "confidence": item.get("confidence"),
+        "signals": item.get("signals") or [],
+    }
+
+
+def _planning_terms(*values: str) -> list[str]:
+    """Extract literal technical anchors without imposing a fixed audit taxonomy."""
+    terms: list[str] = []
+    for value in values:
+        for term in re.findall(r"[a-zA-Z][a-zA-Z0-9_.:-]{1,}", str(value or "").casefold()):
+            bounded = _planner_text(term, 80)
+            if bounded not in terms:
+                terms.append(bounded)
+    return terms[:12]
+
+
+def _planner_text(value: object, byte_limit: int) -> str:
+    """Trim untrusted durable text by bytes while preserving valid UTF-8."""
+    text = str(value or "")
+    encoded = text.encode("utf-8")
+    if len(encoded) <= byte_limit:
+        return text
+    return encoded[: max(0, byte_limit - 3)].decode("utf-8", errors="ignore") + "…"
+
+
+def _planner_project_search(project_map: dict, query: str, *, per_kind: int = 6) -> dict:
+    """Search the frozen index in balanced groups instead of first-match order.
+
+    A flat search used to let file-path matches consume the entire result before the
+    Planner saw a symbol, relation, or call.  Grouping creates a compact navigation
+    response even when a module name appears in many files.
+    """
+    groups: dict[str, list[dict]] = {}
+    truncated = False
+    for collection_name in ("entrypoints", "files", "symbols", "includes", "calls"):
+        matches: list[dict] = []
+        for item in project_map.get(collection_name) or []:
+            if query not in json.dumps(item, ensure_ascii=False).casefold():
+                continue
+            if len(matches) >= per_kind:
+                truncated = True
+                continue
+            matches.append(_compact_map_item(collection_name, item))
+        if matches:
+            groups[collection_name] = matches
+    module_matches: list[dict] = []
+    for module in (project_map.get("architecture") or {}).get("modules") or []:
+        if query not in json.dumps(module, ensure_ascii=False).casefold():
+            continue
+        if len(module_matches) >= per_kind:
+            truncated = True
+            continue
+        module_matches.append({
+            "path": module.get("path"),
+            "file_count": module.get("file_count"),
+            "entrypoints": list(module.get("entrypoints") or [])[:4],
+            "notable_calls": [
+                {"name": _planner_text(item.get("name"), 160), "count": item.get("count")}
+                for item in (module.get("notable_calls") or [])[:4]
+                if isinstance(item, dict)
+            ],
+        })
+    if module_matches:
+        groups["modules"] = module_matches
+    return {
+        "query": query,
+        "matches_by_kind": groups,
+        "truncated": truncated,
+        "notice": "项目图匹配仅用于选择后续源码阅读方向，不能作为 finding 证据。",
+    }
+
+
+def _planner_project_overview(
+    project_map: dict,
+    *,
+    objective: str = "",
+    success_criteria: str = "",
+) -> dict:
+    """Build a small structural briefing for the first Planner request.
+
+    The full map remains durable and searchable.  This view intentionally excludes
+    raw scope/file/call arrays so a Planner can understand architecture before asking
+    for a focused detail lookup, rather than spending its first context window on a
+    truncated JSON prefix.
+    """
+    architecture = project_map.get("architecture") or {}
+    terms = _planning_terms(objective, success_criteria)
+
+    def module_score(module: dict) -> int:
+        haystack = json.dumps(module, ensure_ascii=False).casefold()
+        return sum(1 for term in terms if term in haystack)
+
+    modules = list(architecture.get("modules") or [])
+    modules.sort(key=lambda item: (
+        -module_score(item),
+        -len(item.get("entrypoints") or []),
+        -int(item.get("file_count") or 0),
+        str(item.get("path") or ""),
+    ))
+    module_summary = []
+    for module in modules[:12]:
+        module_summary.append({
+            "path": module.get("path"),
+            "file_count": module.get("file_count"),
+            "role_counts": module.get("role_counts") or {},
+            "entrypoints": list(module.get("entrypoints") or [])[:4],
+            "resolved_include_edges": module.get("resolved_include_edges", 0),
+            "unresolved_include_edges": module.get("unresolved_include_edges", 0),
+            "notable_calls": [
+                {"name": _planner_text(item.get("name"), 160), "count": item.get("count")}
+                for item in (module.get("notable_calls") or [])[:3]
+                if isinstance(item, dict)
+            ],
+        })
+    stats = project_map.get("stats") or {}
+    return {
+        "overview": True,
+        "snapshot_id": project_map.get("snapshot_id"),
+        "project_stats": {
+            key: stats.get(key, 0)
+            for key in ("files", "symbols", "includes", "calls", "entrypoints", "low_confidence_roots", "unresolved_includes", "modules")
+        },
+        "focus_terms": terms,
+        "high_confidence_entrypoints": [
+            _compact_map_item("entrypoints", item)
+            for item in (project_map.get("entrypoints") or [])[:12]
+        ],
+        "architecture": {
+            "role_counts": architecture.get("role_counts") or {},
+            "include_graph": architecture.get("include_graph") or {},
+            "bootstrap_files": list(architecture.get("bootstrap_files") or [])[:8],
+            "modules": module_summary,
+        },
+        "low_confidence_root_count": len(project_map.get("unresolved_root_candidates") or []),
+        "limitations": list(project_map.get("limitations") or [])[:3],
+        "navigation": "需要具体路径、符号、include 或调用点时再用 search_project_map 精确查询；不要把低置信静态根当作路由事实。",
+    }
+
+
+def _planner_task_results(run_context: dict) -> dict:
+    """Bound durable Planner history to decisions a new round can act on."""
+    goal = run_context.get("goal") or {}
+    tasks = []
+    for item in (run_context.get("tasks") or [])[-8:]:
+        result = item.get("result") if isinstance(item.get("result"), dict) else {}
+        tasks.append({
+            "task_key": item.get("task_key"),
+            "state": item.get("state"),
+            "objective": _planner_text(item.get("objective"), 120),
+            "dependencies": [_planner_text(value, 96) for value in (item.get("dependencies") or [])[:8]],
+            "rationale_summary": _planner_text(item.get("rationale_summary"), 160),
+            "result_summary": _planner_text(result.get("summary") or item.get("summary"), 192),
+            "missing_context": [
+                _planner_text(value, 80)
+                for value in (result.get("missing_context") or item.get("missing_context") or [])[:2]
+            ],
+        })
+    plans = []
+    for item in (run_context.get("plans") or [])[-4:]:
+        plans.append({
+            "round_no": item.get("round_no"),
+            "status": item.get("status"),
+            "goal_state": item.get("goal_state"),
+            "basis_summary": _planner_text(item.get("basis_summary"), 192),
+            "next_action": _planner_text(item.get("next_action"), 120),
+        })
+    return {
+        "goal": {
+            "objective": _planner_text(goal.get("objective"), 160),
+            "success_criteria": _planner_text(goal.get("success_criteria"), 160),
+            "status": goal.get("status"),
+            "attempts": goal.get("attempts"),
+            "max_total_attempts": goal.get("max_total_attempts"),
+        },
+        "tasks": tasks,
+        "plans": plans,
+        "notice": "worker 摘要是已持久化的审计事实线索；任务自己的 finding 仍须引用 worker 已读源码。",
+    }
 
 
 def _planner_json(value: object, limit: int = 48 * 1024) -> str:
@@ -1240,7 +1460,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
 def _register_planner_tools(agent) -> None:
     @agent.tool(sequential=True, retries=0)
     async def get_project_map(ctx: RunContext[PlannerDeps]) -> str:
-        """Return the frozen project map: files, symbols, static includes, calls and entrypoints."""
+        """Return the compact frozen project overview; use focused search for detailed paths, symbols, includes or calls."""
         return await ctx.deps.call("get_project_map", {})
 
     @agent.tool(sequential=True, retries=0)
@@ -1274,6 +1494,11 @@ def _validate_planner_decision(decision: PlannerDecision, project_map: dict, pri
                 raise ModelRetry(
                     f"任务 {proposal.task_key} 的 {ref.path}:{ref.start_line}-{ref.end_line} 超出文件行数 {files[ref.path]}"
                 )
+        outside_scope = [path for path in proposal.scope_paths if path not in files]
+        if outside_scope:
+            raise ModelRetry(
+                f"任务 {proposal.task_key} 的 scope_paths 引用了冻结范围外的源码路径：{', '.join(outside_scope[:4])}"
+            )
         unknown = [key for key in proposal.dependencies if key not in known_keys]
         if unknown:
             raise ModelRetry(f"任务 {proposal.task_key} 依赖不存在的 task_key：{', '.join(unknown[:4])}")
@@ -1330,16 +1555,26 @@ async def plan_audit_frontier(
     """Execute one bounded Planner round over a project map and durable worker feedback."""
     policy = policy or AgentPolicy()
     emit = on_event or (lambda event: None)
-    # A Planner pass has its own narrow allowance. Worker attempts retain the run's
-    # configured budget, while a planning round cannot quietly consume an unbounded
-    # number of model requests before it creates any executable task.
+    # A Planner pass has its own narrow allowance.  Reserve at least one response for
+    # a tool-free structured decision: otherwise a model can use every turn exploring
+    # the map and never create the first worker task.
     planner_budgets = {
         **budgets,
-        "responses": max(1, min(3, int(budgets.get("responses", 1)))),
-        "tools": min(6, int(budgets.get("tools", 0))),
+        "responses": max(1, min(4, int(budgets.get("responses", 1)))),
+        "tools": min(4, int(budgets.get("tools", 0))),
     }
     execution = Execution(planner_budgets, policy, emit)
-    deps = PlannerDeps(project_map=project_map, run_context=run_context, execution=execution)
+    planning_overview = _planner_project_overview(
+        project_map,
+        objective=str(task.get("objective") or ""),
+        success_criteria=str(task.get("success_criteria") or ""),
+    )
+    deps = PlannerDeps(
+        project_map=project_map,
+        run_context=run_context,
+        execution=execution,
+        planning_overview=planning_overview,
+    )
     model = None
     decision: PlannerDecision | None = None
     terminal_reason = "completed"
@@ -1351,44 +1586,96 @@ async def plan_audit_frontier(
 
 围绕用户目标把工作拆成少量、彼此不同的证据方向，例如入口到敏感操作的数据/控制流、鉴权边界、配置加载、跨文件调用或框架适配层。一个任务可以并且通常应覆盖多个文件；绝不能按文件逐个派发，也不要套用固定漏洞类别。为每个任务指定可复核的任务目标、验收条件、为什么它与项目图相关、必要的源码窗口/符号和依赖。worker 会自行使用只读源码工具补读；项目图只是规划依据，不是发现证据。
 
-根据 worker 摘要吸收已证实、无证据、受阻和耗尽的方向。可暂缓尚未执行的方向；需要恢复暂缓任务时，再以同一 task_key 重新提交它。不要创建循环依赖。只有当所有相关证据方向都已耗尽且没有受阻上下文时才可建议 unreachable；是否最终收束由宿主核验。已存在证据化 finding 时可建议 met，但宿主仍会校验。不要输出隐藏思维链、逐步推理或模型反思；basis_summary 只写简短、可审核的项目图/worker 事实依据。"""
+根据 worker 摘要吸收已证实、无证据、受阻和耗尽的方向。可暂缓尚未执行的方向；需要恢复暂缓任务时，再以同一 task_key 重新提交它。不要创建循环依赖。只有当所有相关证据方向都已耗尽且没有受阻上下文时才可建议 unreachable；是否最终收束由宿主核验。已存在证据化 finding 时可建议 met，但宿主仍会校验。不要输出隐藏思维链、逐步推理或模型反思；basis_summary 只写简短、可审核的项目图/worker 事实依据。
+
+主机已经提供结构化项目概览和前序摘要。默认直接提交可执行的 PlannerDecision；只有概览无法确定少量源码阅读方向时才做一次聚焦索引查询。不要为了浏览完整项目图连续调用工具。若需要先建立架构事实，可以创建覆盖多个相关文件的侦察任务，而不是把文件逐个派发。"""
 
     try:
         async with asyncio.timeout(planner_budgets["seconds"]):
-            execution.enter("planner", round=round_no)
-            model = build_model(config)
-            agent = Agent(
-                model,
-                deps_type=PlannerDeps,
-                output_type=PlannerDecision,
-                instructions=instruction,
-                retries={"tools": 1, "output": 1},
-                model_settings=ModelSettings(
-                    extra_body=config.extra_body(), timeout=policy.request_seconds, max_tokens=4096
-                ),
-            )
-            _register_planner_tools(agent)
+            def build_planner(*, tools: bool):
+                nonlocal model
+                if model is None:
+                    model = build_model(config)
+                value = Agent(
+                    model,
+                    deps_type=PlannerDeps,
+                    output_type=PlannerDecision,
+                    instructions=instruction,
+                    retries={"tools": 1, "output": 1},
+                    model_settings=ModelSettings(
+                        extra_body=config.extra_body(), timeout=policy.request_seconds, max_tokens=4096
+                    ),
+                )
+                if tools:
+                    _register_planner_tools(value)
 
-            @agent.output_validator
-            def validate_plan(ctx, value: PlannerDecision):
-                return _validate_planner_decision(value, project_map, prior_tasks)
+                @value.output_validator
+                def validate_plan(ctx, output: PlannerDecision):
+                    return _validate_planner_decision(output, project_map, prior_tasks)
 
-            prompt = (
-                "# 审计目标（待分析数据）\n"
-                f"目标：{task.get('objective', '')}\n"
-                f"验收条件：{task.get('success_criteria', '')}\n"
-                f"当前 Planner 回合：{round_no}\n"
-                f"项目范围文件数：{len(project_map.get('scope') or [])}\n"
-                "\n先调用 get_project_map；若需要定位具体符号或吸收前序结果，再调用其它工具。"
-                "输出本轮结构化 PlannerDecision。\n"
-            )
-            decision = await _run(
-                agent,
-                prompt,
-                deps,  # _run only needs the shared Execution interface.
-                deadline=execution.deadline,
-                limit=planner_budgets["responses"],
-            )
+                return value
+
+            def planner_prompt(*, tools: bool) -> str:
+                prompt = (
+                    "# 审计目标（待分析数据）\n"
+                    f"目标：{task.get('objective', '')}\n"
+                    f"验收条件：{task.get('success_criteria', '')}\n"
+                    f"当前 Planner 回合：{round_no}\n"
+                    "\n# 主机生成的项目结构概览（不是源码证据）\n"
+                    + _planner_json(planning_overview, limit=12 * 1024)
+                    + "\n# 已持久化的前序任务摘要\n"
+                    + _planner_json(_planner_task_results(run_context), limit=12 * 1024)
+                )
+                if tools:
+                    return prompt + (
+                        "\n概览已在上方；不要先调用 get_project_map。通常应直接输出本轮结构化 PlannerDecision。"
+                        "若确实缺少一个具体路径、符号或关系，可做一次聚焦查询后立即提交任务图。"
+                    )
+                return prompt + (
+                    "\n# 已执行的索引查询（仅作规划线索）\n"
+                    + _planner_json({"observations": deps.observations}, limit=12 * 1024)
+                    + "\n索引工具已停用。请基于概览和这些查询结果立即输出本轮结构化 PlannerDecision。"
+                )
+
+            response_cap = int(planner_budgets["responses"])
+            reserve = min(2, max(1, response_cap - 1))
+            explore_limit = max(0, response_cap - reserve)
+            exploration_reason = None
+            execution.enter("planner_prepare", round=round_no, reserved_responses=reserve)
+            emit({
+                "kind": "planner_overview_prepared",
+                "round": round_no,
+                "overview": planning_overview,
+                "overview_bytes": len(_planner_json(planning_overview, limit=12 * 1024).encode("utf-8")),
+                "usage": execution.snapshot(),
+            })
+            if explore_limit and planner_budgets["tools"]:
+                execution.enter("planner_explore", response_limit=explore_limit, reserved_responses=reserve)
+                try:
+                    decision = await _run(
+                        build_planner(tools=True),
+                        planner_prompt(tools=True),
+                        deps,
+                        deadline=execution.started + planner_budgets["seconds"] * policy.exploration_fraction,
+                        limit=explore_limit,
+                    )
+                except (StopAudit, UsageLimitExceeded, UnexpectedModelBehavior) as exc:
+                    exploration_reason = getattr(exc, "reason", "invalid_output")
+                    emit({
+                        "kind": "planner_exploration_stopped",
+                        "reason": exploration_reason,
+                        "error": str(exc)[:400],
+                        "usage": execution.snapshot(),
+                    })
+            if decision is None:
+                execution.enter("planner_decision", reason=exploration_reason or "direct")
+                decision = await _run(
+                    build_planner(tools=False),
+                    planner_prompt(tools=False),
+                    deps,
+                    deadline=execution.deadline,
+                    limit=response_cap,
+                )
     except asyncio.CancelledError:
         emit({"kind": "planner_agent_terminal", "reason": "cancelled", "usage": execution.snapshot()})
         raise

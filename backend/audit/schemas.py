@@ -394,12 +394,17 @@ class PlannerTaskProposal(BaseModel):
         description="Short project-map-grounded reason to schedule this task; never private reasoning",
     )
     source_refs: list[PlannerSourceRef] = Field(default_factory=list, max_length=16)
+    scope_paths: list[str] = Field(
+        default_factory=list,
+        max_length=24,
+        description="Additional frozen paths that form one cross-file reading scope; they are not evidence claims",
+    )
     target_symbols: list[str] = Field(default_factory=list, max_length=24)
     dependencies: list[str] = Field(default_factory=list, max_length=12)
     query_hints: list[str] = Field(default_factory=list, max_length=12)
     priority: int = Field(default=50, ge=1, le=100)
 
-    @field_validator("target_symbols", "dependencies", "query_hints")
+    @field_validator("scope_paths", "target_symbols", "dependencies", "query_hints")
     @classmethod
     def _dedupe_short_strings(cls, values: list[str]) -> list[str]:
         result: list[str] = []

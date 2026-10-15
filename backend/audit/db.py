@@ -1741,6 +1741,7 @@ class Store:
                         raise ValueError(f"Planner task dependencies are invalid for {task_key}")
                     context_spec = {
                         "source_refs": task.get("source_refs") or [],
+                        "scope_paths": task.get("scope_paths") or [],
                         "target_symbols": task.get("target_symbols") or [],
                         "query_hints": task.get("query_hints") or [],
                     }

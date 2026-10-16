@@ -7,7 +7,9 @@ Streams the run's event log, then prints the per-unit verdicts, findings and met
 """
 import json
 import sys
+import tempfile
 import time
+from pathlib import Path
 
 import httpx
 
@@ -148,6 +150,6 @@ for finding in bundle["findings"]:
 print("\n=== metrics ===")
 print(json.dumps(bundle["metrics"], ensure_ascii=False, indent=2))
 
-print(f"\nrun id saved to /tmp/run_id.txt")
-with open("/tmp/run_id.txt", "w") as handle:
-    handle.write(run_id)
+run_id_path = Path(tempfile.gettempdir()) / "run_id.txt"
+run_id_path.write_text(run_id)
+print(f"\nrun id saved to {run_id_path}")

@@ -1,6 +1,5 @@
 import hashlib
 import io
-from pathlib import Path
 import stat
 import time
 import zipfile
@@ -302,10 +301,49 @@ def test_php_tag_sniffing_stops_at_a_known_other_language(repository):
     assert repository.read_source(snapshot["id"], "backend/audit/agent.py", 1, 1)["lines"]
 
 
-def test_dvwa_project_map_limits_entries_to_high_confidence_request_paths(repository):
+def php_web_app_files() -> list[tuple[str, str]]:
+    """A PHP web application shaped like the ones this classifier was tuned against.
+
+    Built here rather than read from a checked-in archive: the map's job is to limit
+    orientation to high-confidence request paths, and a fixture that has to exist on disk
+    -- and be fetched or regenerated before the suite can run -- is a suite that fails for
+    a reason unrelated to the classifier.  What matters is the shape: a root front
+    controller and root scripts, a web root, one index per feature module, and the three
+    kinds of file that must never be offered as an entry -- the per-feature ``source/``
+    and ``help/`` files, and the shared ``includes/`` and ``vendor/`` trees.
+    """
+    files = [
+        ("index.php", "<?php\nrequire_once 'includes/page.inc.php';\nrender_page();\n"),
+        ("login.php", "<?php\nrequire_once 'includes/page.inc.php';\nlogin();\n"),
+        ("logout.php", "<?php\nsession_start();\nsession_destroy();\n"),
+        ("setup.php", "<?php\nrequire_once 'includes/database.inc.php';\ncreate_database();\n"),
+        ("security.php", "<?php\n$security_level = $_POST['security'];\n"),
+        ("public/index.php", "<?php\nrequire '../index.php';\n"),
+    ]
+    for feature in (
+        "sqli", "sqli_blind", "xss_r", "xss_s", "xss_d", "exec", "fi", "upload",
+        "brute", "csrf", "weak_id", "csp", "javascript", "open_redirect",
+    ):
+        files += [
+            (f"vulnerabilities/{feature}/index.php", f"<?php\n// {feature} module front end\n"),
+            (f"vulnerabilities/{feature}/source/low.php", f"<?php\n// {feature} vulnerable implementation\n"),
+            (f"vulnerabilities/{feature}/source/impossible.php", f"<?php\n// {feature} hardened implementation\n"),
+            (f"vulnerabilities/{feature}/help/help.php", f"<?php\n// {feature} help text\n"),
+        ]
+    files += [
+        (f"includes/library-{number}.inc.php", f"<?php\nfunction shared_helper_{number}() {{ return {number}; }}\n")
+        for number in range(1, 26)
+    ]
+    files += [
+        (f"vendor/package/p{number}/src/Thing{number}.php", f"<?php\nclass Thing{number} {{}}\n")
+        for number in range(1, 26)
+    ]
+    return files
+
+
+def test_a_php_web_app_map_limits_entries_to_high_confidence_request_paths(repository):
     """A real PHP application must not turn every executable file into an entry."""
-    archive = Path(__file__).resolve().parents[2] / "demo" / "dvwa-source.zip"
-    snapshot = repository.import_zip(archive.read_bytes(), archive.name)
+    snapshot = repository.import_zip(make_zip(php_web_app_files()), "web-app.zip")
 
     project_map = repository.build_project_map(snapshot["id"])
     entrypoints = project_map["entrypoints"]
@@ -321,6 +359,9 @@ def test_dvwa_project_map_limits_entries_to_high_confidence_request_paths(reposi
     )
     assert project_map["architecture"]["modules"]
     assert project_map["architecture"]["role_counts"]
+    # ...and the entries are the ones a reader would start from, not just "not those".
+    assert {"index.php", "public/index.php"} <= {item["path"] for item in entrypoints}
+    assert "vulnerabilities/sqli/index.php" in {item["path"] for item in entrypoints}
 
 
 def test_project_map_covers_the_whole_snapshot_by_default(repository):

@@ -19,7 +19,7 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PY="$ROOT/backend/.venv/bin/python"
-LOG_DIR="${LOG_DIR:-/tmp}"
+LOG_DIR="${LOG_DIR:-${TMPDIR:-/tmp}}"
 
 for version in "${VERSIONS[@]}"; do
   log="$LOG_DIR/run_${version}.log"

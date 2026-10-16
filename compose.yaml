@@ -1,9 +1,8 @@
 name: vuln-audit
 
-# The default stack is the generic source-audit application.  It accepts any PHP source
-# archive through the UI/API; no demo target or project-specific archive is mounted into
-# the application container.  The optional DVWA stack stays available behind the `demo`
-# profile for course demonstrations and manual POC verification.
+# One service: the source-audit application.  It accepts any PHP source archive through the
+# UI/API; no target, sample project or project-specific archive is mounted into the
+# container, and no target ships with this repository.
 
 services:
   app:
@@ -13,7 +12,7 @@ services:
     image: vuln-audit:local
     ports:
       # 8899 is the documented address; AUDIT_PORT exists only so a machine that already has
-      # something on 8899 can still start the demo without stopping the other service.
+      # something on 8899 can still start the stack without stopping the other service.
       - "127.0.0.1:${AUDIT_PORT:-8899}:8899"
     environment:
       AUDIT_DATA_DIR: /app/data
@@ -29,51 +28,5 @@ services:
     restart: unless-stopped
     init: true
 
-  dvwa:
-    profiles: ["demo"]
-    build:
-      context: ./demo/dvwa
-      dockerfile: Dockerfile
-    image: vuln-audit-dvwa:local
-    # Build from the pinned local source rather than pulling a floating tag: the audit and
-    # the target must be the same code, and `latest` would silently drift away from it.
-    pull_policy: build
-    ports:
-      - "127.0.0.1:4280:80"
-    environment:
-      # DVWA reads DB_PASSWORD, not MYSQL_PASSWORD — it falls back to its own built-in
-      # default when unset, which is not the password the db service below was initialised
-      # with. Telling it only DB_SERVER produced "Access denied for user 'dvwa'" on the
-      # setup page. Both services now read the same variable so they cannot drift apart.
-      DB_SERVER: db
-      DB_DATABASE: dvwa
-      DB_USER: dvwa
-      DB_PASSWORD: ${DVWA_DB_PASSWORD:-vulnerables}
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-
-  db:
-    profiles: ["demo"]
-    image: docker.io/library/mariadb:10
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DVWA_DB_PASSWORD:-vulnerables}
-      MYSQL_DATABASE: dvwa
-      MYSQL_USER: dvwa
-      MYSQL_PASSWORD: ${DVWA_DB_PASSWORD:-vulnerables}
-    volumes:
-      - dvwa-db:/var/lib/mysql
-    healthcheck:
-      # DVWA's setup page fails confusingly if it starts before the database accepts
-      # connections, so wait for a real query rather than just for the process.
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-
 volumes:
   audit-data:
-  dvwa-db:

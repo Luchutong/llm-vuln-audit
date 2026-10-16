@@ -15,6 +15,5 @@ frontend/dist
 frontend/*.tsbuildinfo
 test-results
 playwright-report
-demo
 *.docx
 *.log

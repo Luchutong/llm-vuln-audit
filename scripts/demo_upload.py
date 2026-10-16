@@ -5,6 +5,7 @@ Usage: demo_upload.py <base-url> <zip-path> [file-path-filter ...]
 """
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -54,5 +55,6 @@ print(f"count = {len(zero)}")
 for unit in zero[:8]:
     print(f"   {unit['file_path']}:{unit['start_line']}-{unit['end_line']} [{unit['kind']}] {unit['symbol']}")
 
-Path("/tmp/snapshot_id.txt").write_text(snapshot["id"])
-print(f"\nsnapshot id saved to /tmp/snapshot_id.txt")
+snapshot_id_path = Path(tempfile.gettempdir()) / "snapshot_id.txt"
+snapshot_id_path.write_text(snapshot["id"])
+print(f"\nsnapshot id saved to {snapshot_id_path}")

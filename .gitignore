@@ -17,8 +17,5 @@ frontend/dist/
 frontend/*.tsbuildinfo
 test-results/
 playwright-report/
-demo/dvwa/
-demo/*.zip
-demo/*manifest*.json
 .DS_Store
 *.log

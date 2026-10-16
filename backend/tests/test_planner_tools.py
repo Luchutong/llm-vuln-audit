@@ -317,7 +317,7 @@ def test_a_model_that_only_ever_calls_tools_still_publishes_the_round(project, m
     }
 
     policy = AgentPolicy(request_seconds=0.5)
-    result, events, _ = run_round(monkeypatch, project, script, policy=policy)
+    result, events, prompts = run_round(monkeypatch, project, script, policy=policy)
 
     assert result["decision"] is not None, result
     withdrawn = [item for item in events if item["kind"] == "planner_tools_withdrawn"]
@@ -328,3 +328,11 @@ def test_a_model_that_only_ever_calls_tools_still_publishes_the_round(project, m
     assert phases.count("planner_decision") == policy.decision_confirmations
     assert phases[-1] == "planner_publish"
     assert not [item for item in events if item["kind"] == "tool_call" and item["phase"] == "planner_publish"]
+    # The publish request carries its own prompt and not the two phases behind it: a
+    # boundary is a reset, because the phase's prompt already holds what those phases
+    # found.  Inheriting them is what a round dies of -- live run e3bb0c7530 reached
+    # ~170 KB by its first publish request, and the one correction a refused decision is
+    # allowed was refused by the history cap before it was ever sent.
+    assert "工具已经收回" in prompts[-1]
+    assert "不要先调用 get_project_map" not in prompts[-1]
+    assert "工具仍然可用" not in prompts[-1]

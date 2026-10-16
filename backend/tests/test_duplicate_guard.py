@@ -166,6 +166,34 @@ def test_the_scope_paths_count_towards_the_file_set():
         ))
 
 
+def test_a_directory_scope_is_read_as_the_files_under_it():
+    """The scope a model writes most often has to be compared as what it actually reads.
+
+    ``scope_paths`` is where a module directory goes, and a direction scoped to ``src`` reads
+    the files under ``src``.  Left as the bare string, the set comparison matches nothing and
+    the guard goes quiet on exactly the proposals that describe their scope most broadly.
+    """
+    def validate_src(decision_value):
+        return agent._validate_planner_decision(
+            decision_value,
+            PROJECT_MAP,
+            [{"task_key": "src-read", "state": "completed",
+              "files": ["src/bootstrap.php", "src/auth.php"]}],
+            policy=AgentPolicy(),
+            findings=[{"id": "f-1", "paths": ["src/bootstrap.php", "src/auth.php"]}],
+        )
+
+    # Scoped to the whole directory the settled direction read: 2 of 2, the same direction.
+    with pytest.raises(ModelRetry, match="Jaccard 1.00"):
+        validate_src(decision(key="src-read-again", files=[], scope=["src"]))
+
+    # The same directory plus a file it did not cover is a different direction, and the
+    # guard must not turn "this module" into a blanket refusal.
+    assert validate_src(decision(key="src-read-again", files=[], scope=["src", "config/app.yaml"]))
+    # Half the directory is below the threshold too.
+    assert validate_src(decision(key="bootstrap-only", files=["src/bootstrap.php"]))
+
+
 def test_the_situation_shows_the_file_sets_the_guard_compares():
     """The round is given what it is judged on, so the guard is avoidable rather than a trap."""
     situation = agent._planner_situation({

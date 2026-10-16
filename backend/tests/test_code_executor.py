@@ -10,7 +10,9 @@ Every test here also asserts the same second thing: the phase survived.  A refus
 is the model's business, not the run's.
 """
 import pytest
+from smolagents.local_python_executor import InterpreterError
 
+from audit.executor import failure_reason
 from audit.runtime import AgentPolicy
 from audit.toolkit import PLANNER_TOOLS
 from tests.code_model import Answer, Host, Phase, code
@@ -127,6 +129,48 @@ def test_omitted_arguments_take_the_declared_defaults():
 
     assert host.calls == [("list_tree", {"path": "", "depth": 2})]
     assert "depth=2" in step["logs"]
+
+
+def test_the_reason_is_read_from_under_the_interpreter_echo():
+    """The wrappers repeat the whole code block in their message; the reason is under them."""
+    refusal = ValueError("任务 x 的 scope_paths 引用了冻结范围外的路径")
+    echo = InterpreterError(f"Code execution failed at line 'print(1)' due to: {refusal}")
+    echo.__cause__ = refusal
+
+    assert failure_reason(echo) == f"ValueError: {refusal}"
+    # Anything that is not one of those wrappers comes back whole, class name included, so
+    # a host refusal and a slip in the model's own code stay told apart.
+    assert failure_reason(KeyError("nope")) == "KeyError: 'nope'"
+    assert failure_reason(None) is None
+
+
+def test_a_refused_answer_leaves_its_reason_in_the_event():
+    """The event is read for *why* the action failed, not for a copy of the action.
+
+    Live run ``e3bb0c7530`` handed in a 5.9 KB decision, had it refused, and left no
+    readable trace of the refusal in any of its 40 ``agent_code`` events: the interpreter
+    writes ``Code execution failed at line '<the whole block>' due to: …``, so the 400-byte
+    event budget kept the echo of the model's own code and dropped the reason.
+    """
+    filler = "\n".join(f"value_{index} = {index}" for index in range(40))
+    outcome = Phase(Host({}), specs=PLANNER_TOOLS, output_model=Answer).play([
+        code(f"{filler}\nfinal_answer({{'nope': 1}})"),
+        RECOVERED,
+    ])
+
+    assert outcome.failure is None
+    step = outcome.codes[0]
+    assert step["is_final"] is False
+    # The refusal the host raised, with its class name, and both fields it refused.
+    assert step["error"].startswith("OutputRejected: ")
+    assert "note: Field required" in step["error"]
+    assert "nope: Extra inputs are not permitted" in step["error"]
+    # Nothing of the interpreter's echo of the code it was raised under.
+    assert "value_39" not in step["error"]
+    assert "Code execution failed" not in step["error"]
+    # The phase carried on and the model corrected itself, which is the whole point of
+    # handing a refusal back as an observation.
+    assert outcome.gate.published == Answer(note="recovered")
 
 
 def test_variables_survive_from_one_step_to_the_next():

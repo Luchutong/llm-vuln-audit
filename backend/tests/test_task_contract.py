@@ -248,6 +248,51 @@ def test_host_rejects_planner_references_or_dependencies_outside_the_frozen_map(
         _validate_planner_decision(cyclic, project_map, [])
 
 
+def test_a_module_directory_is_a_scope_path_and_still_not_a_source_ref():
+    """The contract the Planner is told, which the host was not honouring.
+
+    ``PlannerTaskProposal.scope_paths`` is documented as the place a directory goes, and the
+    Planner instruction says the same in as many words (``architecture.modules[]`` entries
+    are directories, "目录只能写进 ``scope_paths``").  The host compared the field against the
+    map's *file* list, so run ``e3bb0c7530`` had all three of its decisions refused for doing
+    exactly what it was told -- and with one correction per phase, that ended the run.
+
+    ``source_refs`` stays strict: a worker reads lines, and a directory has none.
+    """
+    project_map = {
+        "files": [
+            {"path": "src/app.php", "line_count": 8},
+            {"path": "src/handler.php", "line_count": 12},
+        ],
+    }
+    accepted = PlannerDecision(
+        goal_state="continue",
+        basis_summary="按 src 模块派发一个方向。",
+        tasks=[planner_task(scope_paths=["./src/"])],
+    )
+
+    assert _validate_planner_decision(accepted, project_map, []) is accepted
+    # Normalised to the map's own spelling, so the duplicate guard and the read ledger see
+    # the same string the map would have written.
+    assert accepted.tasks[0].scope_paths == ["src"]
+
+    unknown = PlannerDecision(
+        goal_state="continue",
+        basis_summary="尝试引用不在快照里的目录。",
+        tasks=[planner_task(scope_paths=["vendor"])],
+    )
+    with pytest.raises(ModelRetry, match="冻结范围外"):
+        _validate_planner_decision(unknown, project_map, [])
+
+    as_ref = PlannerDecision(
+        goal_state="continue",
+        basis_summary="把目录当成可以读行的源码路径。",
+        tasks=[planner_task(source_refs=[{"path": "src", "start_line": 1, "end_line": 2}])],
+    )
+    with pytest.raises(ModelRetry, match="冻结范围外"):
+        _validate_planner_decision(as_ref, project_map, [])
+
+
 def test_whole_snapshot_scope_is_frozen_including_dependency_trees(tmp_path):
     """There is no scope picker: uploading a project puts every readable file in scope."""
     from audit.app import create_run

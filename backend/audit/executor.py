@@ -58,6 +58,44 @@ def build_executor(policy: AgentPolicy) -> LocalPythonExecutor:
     )
 
 
+# The loop's wrappers whose message echoes the model's whole code block into its head.
+# What is wanted is the reason *under* them, not the bottom of the chain: an interpreter
+# timeout is raised inside ``except FuturesTimeoutError``, so walking all the way down
+# lands on a bare ``TimeoutError`` with no message at all.
+_ECHO_WRAPPERS = frozenset({"AgentExecutionError", "InterpreterError"})
+
+
+def failure_reason(error: BaseException | None) -> str | None:
+    """Why a code action failed, in the words the event is read for.
+
+    The interpreter builds its message as ``Code execution failed at line '<the whole
+    block>' due to: <type>: <message>``: the reason is at the *end* of a message whose head
+    is the model's own code.  Cutting that to an event budget therefore keeps the echo and
+    drops the reason -- live run ``e3bb0c7530`` handed in a 5.9 KB decision, had it refused,
+    and left no readable trace of why in any of its 40 ``agent_code`` events.
+
+    The reason is recovered from under the wrappers instead.  The library raises inside its
+    own ``except`` block, so what the host or the code actually raised is chained as
+    ``__context__``: the refusal the host raised (``OutputRejected``, whose text is the
+    refusal), a ``NameError`` from the model's own code, or the interpreter's own timeout.
+    The class name stays on the front, so a host refusal and a slip in the code are still
+    told apart.
+    """
+    if error is None:
+        return None
+    if not isinstance(error, BaseException):
+        return str(error)
+    current = error
+    for _ in range(10):
+        if type(current).__name__ not in _ECHO_WRAPPERS:
+            break
+        inner = current.__cause__ or current.__context__
+        if inner is None or inner is current:
+            break
+        current = inner
+    return f"{type(current).__name__}: {current}"
+
+
 def step_recorder(model: AuditCodeModel) -> Callable[[ActionStep], None]:
     """Record every code action as it happens, including the ones that failed.
 
@@ -79,7 +117,7 @@ def step_recorder(model: AuditCodeModel) -> Callable[[ActionStep], None]:
             code=step.code_action,
             logs=step.observations,
             is_final=step.is_final_answer,
-            error=str(step.error) if step.error is not None else None,
+            error=failure_reason(step.error),
         )
 
     return record
@@ -133,19 +171,28 @@ def attach_phase(agent: CodeAgent, *, tools: dict, gate: PhaseGate, model: Audit
 
 
 async def drive_phase(agent: CodeAgent, gate: PhaseGate, task: str, *,
-                      max_steps: int | None = None) -> Any:
+                      max_steps: int | None = None, reset: bool = False) -> Any:
     """Run one phase's loop on a worker thread and report what ended it.
 
     The return value is the loop's own, and says nothing about whether the phase
     produced anything: a loop that ran out of steps still returns a string from its
     last-chance request.  What the phase concluded is on the gate.
 
+    ``reset`` clears the loop's memory before the phase's task message, leaving the
+    interpreter's variables alone.  A phase whose prompt already carries the situation it
+    needs -- the host prefetches the overview, the frontier and the pinned investigations
+    into every one of them -- starts bounded instead of inheriting the previous phase's
+    observations, which are the part that grows without limit.  Carrying them is what made
+    a refused decision fatal: live run ``e3bb0c7530`` reached ~170 KB of history by its
+    first publish request, and the request after it -- the one correction a refused
+    decision is allowed -- was refused by ``history_bytes`` before it was ever sent.
+
     Failures come back as the host's own: a ``StopAudit`` that ended the phase, or the
     provider failure with ``reason`` still attached, both with the loop's wrappers
     removed, so the driver's failure taxonomy keeps reading the real class name.
     """
     try:
-        return await asyncio.to_thread(agent.run, task, reset=False, max_steps=max_steps)
+        return await asyncio.to_thread(agent.run, task, reset=reset, max_steps=max_steps)
     except BaseException as exc:
         failure = unwrap_failure(exc)
         if failure is exc:

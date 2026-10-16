@@ -423,11 +423,14 @@ def test_a_discovery_turn_cannot_consume_the_reserved_decision_request(monkeypat
     assert "主机生成的项目结构概览" in prompts[0]
     assert '"overview":true' in prompts[0]
     # The reserve bought a request whose prompt says exploration is over -- and the
-    # queries that ended the exploration phase were its own, not the decision's.  The
-    # decision phase is a later request in the same conversation, so exploration's own
-    # turn is still in front of the model when it is asked to decide.
+    # queries that ended the exploration phase were its own, not the decision's.
     assert "本轮探索阶段已经结束" in prompts[-1]
     assert factory.phases == ["planner_explore", "planner_decision"]
+    # The decision phase starts from that prompt and nothing else: a phase boundary is a
+    # reset, so exploration's own turns are not re-sent as observations.  Read off the
+    # request rather than its text -- the host's own blocks carry the same strings by
+    # design, and the point here is what the request is made of.
+    assert [message.role for message in factory.built().requests[-1]] == ["system", "user"]
 
 
 def test_tool_flood_cannot_spend_the_reserved_model_budget(monkeypatch):

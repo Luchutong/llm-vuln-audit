@@ -15,6 +15,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Awaitable, Protocol
 
 from pydantic import ValidationError
@@ -2221,15 +2222,72 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
 _SETTLED_STATES = frozenset({"completed", "blocked", "exhausted", "cancelled", "skipped"})
 
 
-def _declared_files(proposal) -> set[str]:
-    """The file set a proposal asks a worker to read."""
+def _frozen_path(value: object) -> str:
+    """A path as the frozen map spells it, so a near miss is not a refusal.
+
+    The map's keys are POSIX and relative to the snapshot root, and a model writing
+    ``./backend/audit`` or ``backend/audit/`` means the same path.  Only spelling is
+    normalised here; whether the path *exists* is the map's answer, not this function's.
+    """
+    path = str(value or "").strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path.rstrip("/")
+
+
+def _frozen_scope(project_map: dict) -> tuple[dict[str, int], dict[str, set[str]]]:
+    """The frozen files, and the files each directory of the map covers.
+
+    Two different rules read this one index.  ``source_refs[].path`` must be a *file* --
+    a worker reads lines, and a directory has none.  ``scope_paths`` may name a directory:
+    the schema says so in as many words, and the Planner instruction spells it out
+    ("``architecture.modules[]`` 给出的是目录，目录只能写进 ``scope_paths``").  Keeping both
+    answers here is what lets each rule stay as strict as it is meant to be without the
+    other one being wrong.
+
+    The directory set is derived from the file list itself, so a map that does not publish
+    its own directory list still knows its directories -- every parent of every file.
+    """
+    files = {
+        str(item.get("path")): int(item.get("line_count") or 0)
+        for item in project_map.get("files") or []
+    }
+    directories = {str(item) for item in project_map.get("directories") or [] if str(item)}
+    for path in files:
+        parent = PurePosixPath(path).parent
+        while str(parent) not in {"", "."}:
+            directories.add(str(parent))
+            parent = parent.parent
+    under = {
+        name: {path for path in files if path.startswith(name + "/")}
+        for name in directories
+    }
+    return files, under
+
+
+def _declared_files(proposal, directory_files: dict[str, set[str]] | None = None) -> set[str]:
+    """The file set a proposal asks a worker to read.
+
+    A ``scope_paths`` entry that names a directory is expanded into the files under it.
+    The duplicate guard below compares file sets, and a directory left as itself matches
+    nothing -- which would quietly weaken the guard for exactly the proposals that
+    describe their scope most broadly.
+    """
     paths = {str(ref.path) for ref in proposal.source_refs if str(ref.path)}
-    paths |= {str(path) for path in proposal.scope_paths if str(path)}
+    for entry in proposal.scope_paths:
+        path = _frozen_path(entry)
+        if not path:
+            continue
+        if directory_files and path in directory_files:
+            paths |= directory_files[path]
+        else:
+            paths.add(path)
     return paths
 
 
 def _duplicate_direction(
     decision: PlannerDecision, prior_tasks: list[dict], findings: list[dict], policy: AgentPolicy,
+    *, directory_files: dict[str, set[str]] | None = None,
 ) -> str | None:
     """The cheapest guardrail against a same-thing-new-name direction, and no more than that.
 
@@ -2249,7 +2307,7 @@ def _duplicate_direction(
     threshold = float(policy.duplicate_overlap_threshold)
     concluded = {str(path) for item in findings for path in (item.get("paths") or []) if path}
     for proposal in decision.tasks:
-        files = _declared_files(proposal)
+        files = _declared_files(proposal, directory_files)
         if not files:
             continue
         for prior in prior_tasks:
@@ -2386,7 +2444,7 @@ def _validate_planner_decision(
         if on_sanitize is not None:
             on_sanitize(note)
 
-    files = {str(item.get("path")): int(item.get("line_count") or 0) for item in project_map.get("files") or []}
+    files, directory_files = _frozen_scope(project_map)
     prior_by_key = {str(item.get("task_key")): item for item in prior_tasks if item.get("task_key")}
     findings_by_id = {
         str(item.get("id")): item
@@ -2429,10 +2487,24 @@ def _validate_planner_decision(
                     f"读取窗口上限为 {window} 行",
                 )
             ref.start_line, ref.end_line = start, end
-        outside_scope = [path for path in proposal.scope_paths if path not in files]
+        normalised = [_frozen_path(path) for path in proposal.scope_paths]
+        if normalised != list(proposal.scope_paths):
+            proposal.scope_paths = normalised
+        # A file, or a directory this map covers.  The field is *documented* as the place a
+        # directory goes -- ``PlannerTaskProposal.scope_paths`` says so, and the Planner
+        # instruction tells the model that ``architecture.modules[]`` entries are
+        # directories and "目录只能写进 scope_paths" -- so checking it against the file list
+        # alone refused the model for doing exactly what it was told.  Live run e3bb0c7530
+        # handed in three decisions, each with a module directory in ``scope_paths``, and
+        # all three were refused here.
+        outside_scope = [
+            path for path in normalised if path not in files and path not in directory_files
+        ]
         if outside_scope:
             raise ModelRetry(
-                f"任务 {proposal.task_key} 的 scope_paths 引用了冻结范围外的源码路径：{', '.join(outside_scope[:4])}"
+                f"任务 {proposal.task_key} 的 scope_paths 引用了冻结范围外的路径："
+                f"{', '.join(outside_scope[:4])}；这里只能写项目图 files 里的文件，"
+                "或这些文件所在的目录（例如某个模块的 directory）"
             )
         unknown = [key for key in proposal.dependencies if key not in known_keys]
         if unknown:
@@ -2516,7 +2588,9 @@ def _validate_planner_decision(
             "目标仍未达成而前沿为空（没有 pending/ready/running 任务），本轮必须给出至少一个新任务；"
             "若确无可派方向，请改用 goal_state=unreachable 并说明理由"
         )
-    duplicate = _duplicate_direction(decision, prior_tasks, findings or [], policy)
+    duplicate = _duplicate_direction(
+        decision, prior_tasks, findings or [], policy, directory_files=directory_files
+    )
     if duplicate is not None:
         raise ModelRetry(duplicate)
     return decision
@@ -2694,9 +2768,19 @@ source_refs 是给 worker 的阅读指令，写错会让整条任务作废：pat
                 """The round's one agent; a phase boundary re-points its table and its gate.
 
                 One agent per round rather than one per phase, because the loop re-sends
-                tools and variables at the start of every ``run``: when the decision is
-                handed in, the exploration that led to it is still in front of the model
-                instead of being rebuilt from the situation block.
+                tools and variables at the start of every ``run``: a boundary is the new
+                table, the new gate, and the interpreter's variables, which are how the
+                round's own computed state crosses it.
+
+                What a boundary does *not* carry is memory.  The deciding phases run with
+                ``reset=True``, so each starts from the host's situation block plus its own
+                prompt.  Carrying the exploration forward instead is what a deliberate
+                earlier version did, and what it cost was measured: live run e3bb0c7530
+                reached ~170 KB of history by its first ``planner_publish`` request, and the
+                request after it -- the one correction a refused decision is allowed -- was
+                refused by ``policy.history_bytes`` before it could be sent.  The pinned
+                investigations are the round's memory; the raw observations were never meant
+                to be.
                 """
                 nonlocal model, agent
                 if agent is None:
@@ -2881,11 +2965,16 @@ source_refs 是给 worker 的阅读指令，写错会让整条任务作废：pat
                 # framework could return a tool call and a structured answer together.
                 steps = confirmations + 1
                 try:
+                    # ``reset=True``: the prompt above carries the overview, the situation
+                    # and the coverage, and the pinned investigations replay what
+                    # exploration asked.  Inheriting the exploration's own steps instead
+                    # would start this phase one observation away from the history cap.
                     await drive_phase(
                         planner_agent(gate=decision_gate, specs=PLANNER_TOOLS, max_steps=steps),
                         decision_gate,
                         planner_prompt(deciding=True),
                         max_steps=steps,
+                        reset=True,
                     )
                 except (StopAudit, ModelCallFailed) as exc:
                     emit({
@@ -2913,11 +3002,15 @@ source_refs 是给 worker 的阅读指令，写错会让整条任务作废：pat
                 steps = 1 + corrections
                 stopped: BaseException | None = None
                 try:
+                    # ``reset=True``, and here it is load-bearing twice over: this phase
+                    # exists to produce the round's decision, and the correction a refused
+                    # decision is allowed is a request this phase has to be able to send.
                     await drive_phase(
                         planner_agent(gate=publish_gate, specs=(), max_steps=steps),
                         publish_gate,
                         planner_prompt(deciding=True, tools=False),
                         max_steps=steps,
+                        reset=True,
                     )
                 except (StopAudit, ModelCallFailed) as exc:
                     stopped = exc

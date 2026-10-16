@@ -9,6 +9,7 @@ import asyncio
 import pytest
 from smolagents.monitoring import LogLevel
 
+from audit.codemodel import request_bytes
 from audit.executor import PROMPT_FILE, attach_phase, build_agent, drive_phase, prompt_templates
 from audit.runtime import AgentPolicy
 from audit.toolkit import PLANNER_TOOLS, build_tools
@@ -200,3 +201,63 @@ def test_a_phase_boundary_is_a_new_tool_table_and_a_new_gate():
     assert [event["phase"] for event in host.events_of("agent_code")] == [
         "planner_explore", "planner_explore", "planner_explore", "planner_publish", "planner_publish",
     ]
+
+
+def test_a_reset_boundary_keeps_the_variables_and_drops_the_observations():
+    """Why the decision and publish phases start with ``reset=True``.
+
+    A phase whose prompt already carries the situation -- the host prefetches the overview,
+    the situation and the pinned investigations into every one of them -- gains nothing from
+    the previous phase's observations and pays for them in the request.  That bill is what
+    made a refused decision fatal in run ``e3bb0c7530``: ~170 KB of history by the first
+    publish request, and the correction a refused decision is allowed was refused by
+    ``history_bytes`` before it was ever sent.
+
+    What must survive the boundary is the interpreter's own state: the tables the exploration
+    phase built are what the decision phase decides *from*.
+    """
+    async def scenario(reset: bool):
+        host = Host({"read_source": "a.php:1 | 探索阶段读到的一行"})
+        explore = Phase(host, specs=PLANNER_TOOLS, output_model=Answer, phase="planner_explore").gate()
+        model = ScriptedCodeModel(
+            {
+                "planner_explore": [
+                    code("kept = '探索阶段留下的表'"),
+                    code("print(read_source(path='a.php', start=1, end=1))"),
+                    code('final_answer({"note": "explore"})'),
+                ],
+                "planner_publish": [
+                    code("print(kept)"),
+                    code('final_answer({"note": "publish"})'),
+                ],
+            },
+            gate=explore,
+        )
+        agent = build_agent(model=model, gate=explore, tools=build_tools(PLANNER_TOOLS, explore),
+                            instructions="探索", max_steps=3)
+        await drive_phase(agent, explore, "探索阶段")
+
+        publish = Phase(host, specs=(), output_model=Answer, phase="planner_publish").gate()
+        attach_phase(agent, tools=build_tools((), publish), gate=publish, model=model)
+        await drive_phase(agent, publish, "交回决策", reset=reset)
+        return host, model, publish
+
+    host, model, publish = asyncio.run(scenario(reset=True))
+
+    assert publish.published == Answer(note="publish")
+    # The publish phase's requests carry its own task and nothing else: the exploration
+    # phase's observation -- the read reply, echoed into every request after it -- is gone.
+    first, last = transcript(model.requests[-2]), transcript(model.requests[-1])
+    assert "交回决策" in first
+    assert "探索阶段读到的一行" not in first
+    assert "探索阶段读到的一行" not in last
+    # The variable itself is not memory: it is the interpreter's, re-sent on every run, and
+    # the publish phase prints it in its first request.
+    assert "探索阶段留下的表" in last
+
+    # The guard on the other direction: without the reset the phase does inherit the
+    # previous one's steps, and the request pays for them -- measured in the unit the
+    # history cap is measured in, since these phases are small and real ones are not.
+    _, inherited, _ = asyncio.run(scenario(reset=False))
+    assert "探索阶段读到的一行" in transcript(inherited.requests[-1])
+    assert request_bytes(model.requests[-2]) < request_bytes(inherited.requests[-2])

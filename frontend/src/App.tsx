@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ShieldCheck, Settings, FolderGit2 } from 'lucide-react';
 import { api, errorText } from './api';
 import type { Config, SnapshotSummary } from './types';
 import { TaskView } from './views/TaskView';
@@ -7,17 +8,13 @@ import { SettingsView } from './views/SettingsView';
 
 type Page = 'tasks' | 'settings';
 
-const NAV: { key: Page; label: string }[] = [
-  { key: 'tasks', label: '源码审计' },
-  { key: 'settings', label: '配置' },
+const NAV: { key: Page; label: string; icon: typeof ShieldCheck }[] = [
+  { key: 'tasks', label: '源码审计', icon: ShieldCheck },
+  { key: 'settings', label: '配置', icon: Settings },
 ];
 
 /**
- * Application shell.
- *
- * The default workspace is deliberately task-first: import a PHP source archive, describe
- * the target and acceptance criteria, then review the durable result. Historical prompt
- * and experiment APIs remain compatible on the server, but are not part of this workflow.
+ * Application shell — dark sidebar + light content area, responsive.
  */
 export default function App() {
   const [page, setPage] = useState<Page>(() => pageFromHash());
@@ -54,7 +51,6 @@ export default function App() {
   const openRun = (id: string) => {
     window.location.hash = `#run/${id}`;
     setRunId(id);
-    setPage('tasks');
   };
 
   const go = (next: Page) => {
@@ -67,20 +63,37 @@ export default function App() {
     <div className="shell">
       <aside className="side">
         <div className="side-brand">
-          PHP Audit
-          <small>可追溯的源码目标审计工作台</small>
+          <div className="brand-logo">
+            <div className="brand-icon">P</div>
+            <div>
+              <div className="brand-name">PHP Audit</div>
+              <div className="brand-sub">可追溯的源码审计工作台</div>
+            </div>
+          </div>
         </div>
-        {NAV.map((item) => (
-          <button
-            key={item.key}
-            className={`nav-item${page === item.key && !runId ? ' active' : ''}`}
-            onClick={() => go(item.key)}
-          >
-            {item.label}
-          </button>
-        ))}
-        <div style={{ marginTop: 18, padding: '0 8px' }} className="small faint">
-          {snapshots.length} 个源码快照
+
+        <nav className="side-nav">
+          <div className="nav-label">导航</div>
+          {NAV.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                className={`nav-item${page === item.key && !runId ? ' active' : ''}`}
+                onClick={() => go(item.key)}
+              >
+                <Icon size={16} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="side-foot">
+          <div className="row" style={{ gap: 6 }}>
+            <FolderGit2 size={13} />
+            <span>{snapshots.length} 个源码快照</span>
+          </div>
         </div>
       </aside>
 

@@ -169,6 +169,7 @@ export function PromptsView({ prompts, onChanged }: { prompts: Prompt[]; onChang
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>运行</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>Prompt</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>候选</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>未标注候选</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>证据不通过</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>已确认</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>审计覆盖</th>
@@ -185,6 +186,7 @@ export function PromptsView({ prompts, onChanged }: { prompts: Prompt[]; onChang
                       <td className="mono small" style={{ padding: '6px 8px' }}>{run.id.slice(0, 10)}</td>
                       <td style={{ padding: '6px 8px' }}><span className="chip">{run.prompt_id}</span></td>
                       <td style={{ padding: '6px 8px' }}>{metrics.candidates}</td>
+                      <td style={{ padding: '6px 8px' }}>{metrics.evaluation?.unmatched_candidates?.length ?? '—'}</td>
                       <td style={{ padding: '6px 8px' }}>{metrics.discarded_candidates}</td>
                       <td style={{ padding: '6px 8px' }}>{metrics.confirmed}</td>
                       <td style={{ padding: '6px 8px' }}>{(metrics.audit_coverage * 100).toFixed(1)}%</td>
@@ -199,6 +201,52 @@ export function PromptsView({ prompts, onChanged }: { prompts: Prompt[]; onChang
                   ))}
                 </tbody>
               </table>
+              {(experiment.paired_comparisons?.length ?? 0) > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div className="field-label">
+                    同样本配对比较（相对基线 {experiment.paired_comparisons[0].baseline_prompt_id}）
+                  </div>
+                  <div className="small muted" style={{ marginBottom: 8 }}>
+                    只统计两轮均已判定的相同真值样本；Δ 为百分点。未标注候选或条件不一致时不报告提升。
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>版本对比</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>共同样本</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>Precision Δ</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>Recall Δ</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>F1 Δ</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>状态</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {experiment.paired_comparisons.map((comparison) => (
+                        <tr key={`${comparison.baseline_prompt_id}-${comparison.prompt_id}`} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                          <td className="mono small" style={{ padding: '6px 8px' }}>
+                            {comparison.baseline_prompt_id} → {comparison.prompt_id}
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>{comparison.common_samples}</td>
+                          {(['precision_pp', 'recall_pp', 'f1_pp'] as const).map((key) => {
+                            const value = comparison.delta_percentage_points[key];
+                            return (
+                              <td key={key} className="mono small" style={{ padding: '6px 8px' }}>
+                                {comparison.comparable && value !== null ? `${value > 0 ? '+' : ''}${value.toFixed(2)} pp` : '无法计算'}
+                              </td>
+                            );
+                          })}
+                          <td style={{ padding: '6px 8px' }}>
+                            <span className={`chip ${comparison.comparable ? 'chip-confirmed' : 'chip-failed'}`}>
+                              {comparison.comparable ? '可比较' : comparison.reason || '不可比较'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="small muted" style={{ marginTop: 8 }}>百分点差值不代表统计显著性。</div>
+                </div>
+              )}
             </div>
           )}
         </div>

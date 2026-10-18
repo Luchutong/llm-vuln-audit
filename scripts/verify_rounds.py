@@ -83,6 +83,24 @@ def main(argv: list[str]) -> int:
             print(f"注意：{note}")
         if len(experiment["runs"]) != len(order):
             failures.append(f"实验对比返回 {len(experiment['runs'])} 行，期望 {len(order)} 行")
+        paired = experiment.get("paired_comparisons") or []
+        if len(paired) != max(0, len(order) - 1):
+            failures.append(
+                f"同样本配对比较返回 {len(paired)} 行，期望 {max(0, len(order) - 1)} 行"
+            )
+        for comparison in paired:
+            values = comparison.get("delta_percentage_points") or {}
+            if comparison.get("comparable"):
+                if comparison.get("common_samples", 0) < 1:
+                    failures.append(
+                        f"{comparison.get('baseline_prompt_id')}→{comparison.get('prompt_id')} "
+                        "标为可比较但没有共同样本"
+                    )
+            elif any(value is not None for value in values.values()):
+                failures.append(
+                    f"{comparison.get('baseline_prompt_id')}→{comparison.get('prompt_id')} "
+                    "不可比较却报告了提升数值"
+                )
         if not experiment["comparable"]:
             # The spec only allows claiming an improvement under one snapshot, scope, model
             # and budget. That is a finding about the runs, not a broken export — report it
@@ -95,10 +113,12 @@ def main(argv: list[str]) -> int:
         for heading in REQUIRED_HEADINGS:
             if f"\n{heading}" not in doc:
                 failures.append(f"Markdown 缺少章节：{heading}")
-        if "None" in doc:
+        if re.search(r"\|\s*None\s*\|", doc):
             failures.append("Markdown 里出现了字面量 None，指标缺失应写成无法计算")
         if doc.count("| Prompt 版本 |") != 1:
             failures.append("4.2.1 的轮次对比表没有恰好在预期位置出现一次")
+        if paired and "同样本配对比较（相对基线 " not in doc:
+            failures.append("Markdown 缺少同样本配对比较表")
         # Only the table itself will do: a prompt id also appears in 4.2's version list, so
         # searching the whole chapter would pass even with the rounds table missing.
         section = doc.split("#### 4.2.1", 1)[1].split("\n### ", 1)[0] if "#### 4.2.1" in doc else ""
@@ -112,6 +132,8 @@ def main(argv: list[str]) -> int:
         rounds = data.get("rounds") or {}
         if len(rounds.get("runs") or []) != len(order):
             failures.append("result.json 的 rounds 行数与实验对比不一致")
+        if len(rounds.get("paired_comparisons") or []) != len(paired):
+            failures.append("result.json 的同样本配对比较行数与实验 API 不一致")
         if [entry["run"]["prompt_id"] for entry in rounds.get("runs", [])] != [
             run["prompt_id"] for run in order
         ]:

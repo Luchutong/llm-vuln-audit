@@ -19,8 +19,10 @@ MAX_BUDGETS = {"responses": 64, "tools": 256, "seconds": 3600}
 
 _MODEL_KEYS = ("LLM_MODEL", "AUDIT_MODEL")
 _BASE_KEYS = ("LLM_BASE_URL", "AUDIT_BASE_URL")
-_KEY_KEYS = ("LLM_API_KEY", "AUDIT_API_KEY", "OPENAI_API_KEY")
+_KEY_KEYS = ("LLM_API_KEY", "AUDIT_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY")
 _THINKING_KEYS = ("LLM_THINKING", "AUDIT_THINKING")
+_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+_DEEPSEEK_MODEL = "deepseek-flash"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -71,9 +73,12 @@ class ModelConfig:
     def from_environ(cls, environ: dict[str, str] | None = None) -> "ModelConfig":
         env = dict(os.environ if environ is None else environ)
         thinking = _first(env, _THINKING_KEYS, "disabled").casefold()
+        deepseek_configured = bool((env.get("DEEPSEEK_API_KEY") or "").strip())
         return cls(
-            model=_first(env, _MODEL_KEYS),
-            base_url=_first(env, _BASE_KEYS).rstrip("/"),
+            model=_first(env, _MODEL_KEYS, _DEEPSEEK_MODEL if deepseek_configured else ""),
+            base_url=_first(
+                env, _BASE_KEYS, _DEEPSEEK_BASE_URL if deepseek_configured else ""
+            ).rstrip("/"),
             api_key=_first(env, _KEY_KEYS),
             thinking="enabled" if thinking in _TRUTHY else "disabled",
         )

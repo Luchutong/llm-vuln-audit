@@ -85,6 +85,35 @@ CRITERIA_P2 = """# 三、漏洞判定标准
 
 **证据要求**：每条 candidate 必须附上承载该结论的原始文件行号区间，且这些行必须是你在本次审计中实际读过的代码。"""
 
+TASK_LITE = """# 二、核心任务
+
+阅读给定的 PHP 审计单元，分别判断 SQL 注入、反射型 XSS、命令注入是否存在。
+每类结论只能使用 candidate、no_candidate 或 insufficient_context；依据当前可见代码判断，不足以确认时不要猜测。"""
+
+CRITERIA_P0_LITE = """# 三、漏洞判定标准
+
+**SQL 注入**：关注外部输入是否用于 SQL 查询，以及是否存在参数化或转义处理。
+
+**反射型 XSS**：关注外部输入是否出现在返回给浏览器的内容中，以及是否进行了转义。
+
+**命令注入**：关注外部输入是否参与系统命令，以及是否有输入限制或转义。"""
+
+CRITERIA_P1_LITE = """# 三、漏洞判定标准
+
+**SQL 注入**：关注外部输入是否用于 SQL 查询，并检查参数化、类型转换或转义等处理。
+
+**反射型 XSS**：关注外部输入是否出现在返回给浏览器的内容中，并检查转义是否适用于输出内容。
+
+**命令注入**：关注外部输入是否参与系统命令，并检查白名单、类型转换或转义等处理。
+
+判断时可指出相关输入和危险操作所在位置；证据不足时使用 insufficient_context。"""
+
+OUTPUT_LITE = """# 四、输出格式
+
+对 SQL 注入、反射型 XSS、命令注入分别给出结论、简短理由和原始文件行号。
+若判断为 candidate，提供一个验证 POC 和修复建议；POC 应给出目标地址和攻击输入。
+若判断为 no_candidate 或 insufficient_context，说明理由；信息不足时指出缺少的上下文。"""
+
 OUTPUT = """# 四、输出格式
 
 按给定结构返回，不要附加结构之外的解释性文字。
@@ -147,6 +176,32 @@ BUILTIN_PROMPTS: list[dict] = [
         "issues": [],
         "parent_id": "P1",
         "text": _text(ROLE, TASK_BASE, CRITERIA_P2, OUTPUT),
+    },
+    {
+        "id": "P0-lite",
+        "label": "简化基线 A（P0-lite，最低要求）",
+        "phase": "custom",
+        "reason": "透明标注的最低要求基线，用于消融对照；不替代或覆盖原 P0。",
+        "issues": [
+            "不强制完整输入—传播—危险操作证据链。",
+            "未细分输出上下文、命令参数边界或跨文件分析要求。",
+            "POC 只要求给出目标地址和攻击输入，不要求正常输入对照。",
+        ],
+        "parent_id": None,
+        "text": _text(ROLE, TASK_LITE, CRITERIA_P0_LITE, OUTPUT_LITE),
+    },
+    {
+        "id": "P1-lite",
+        "label": "简化基线 B（P1-lite，轻量补充）",
+        "phase": "custom",
+        "reason": "在 P0-lite 上仅补充一般性防护检查和位置线索，不加入严格证据链；用于透明的消融对照。",
+        "issues": [
+            "仍不要求逐段证明输入到危险操作的传播链。",
+            "不要求切片缺失、跨文件上下文或触发前提分析。",
+            "POC 仍不要求正常输入对照。",
+        ],
+        "parent_id": "P0-lite",
+        "text": _text(ROLE, TASK_LITE, CRITERIA_P1_LITE, OUTPUT_LITE),
     },
 ]
 

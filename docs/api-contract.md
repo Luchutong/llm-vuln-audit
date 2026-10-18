@@ -47,6 +47,21 @@
 
 `scope` 在目标任务中可省略，服务会冻结所有默认项目 PHP 文件；前端默认显式发送该范围。`vendor`、构建产物等目录中的 PHP 源码默认不选，但可在 `scope` 中显式加入；非 PHP 文件不能加入范围。请求只接受 `task` 模式，不能携带历史 `prompt_id`。`scope`、任务文本、预算和**项目图**会在创建时冻结；项目图记录范围内的文件、符号、静态 include、调用点、模块聚合、高置信入口候选和未解析静态根。入口候选与未解析根都只用于导航，不能作为发现证据或运行时路由事实。
 
+### 兼容课程实验接口（非默认工作流）
+
+历史固定 Prompt 轮次仅为课程实验与旧数据提供兼容入口，不属于默认目标审计流程；主工作台仍通过上面的 `POST /api/runs` 创建 Planner 目标任务。需要复现课程示例时，可使用独立的 `POST /api/prompt-runs`：
+
+```json
+{
+  "snapshot_id": "已上传快照 ID",
+  "scope": ["vulnerabilities/sqli/source/low.php"],
+  "prompt_id": "P0",
+  "budgets": {"responses": 8, "tools": 16, "seconds": 300}
+}
+```
+
+该端点只接受内置的 `P0`、`P1`、`P2`，校验范围内文件属于该快照的 PHP 源码，然后冻结 Prompt 文本、模型、预算和筛选后的源码单元，进入兼容 worker 队列。此入口仅供显式调用课程示例脚本；默认工作台不调用它，也不把这些运行当作 Planner 目标任务。需要复现历史比较时，`scripts/prompt_rounds.py <base-url> <snapshot-id>` 会依次运行 P0/P1/P2；各轮必须使用相同快照、范围、模型和预算，配对指标只对双方均已判定的共同真值样本计算。
+
 `TaskSpec`：
 
 ```text
@@ -113,6 +128,8 @@ Planner 事件带 `plan_id`、`session_id`、`role=planner`；worker 事件带 `
 - `GET /findings/{id}/poc` → 原样下载已存 POC；没有 POC 时返回 404。
 - `POST /findings/{id}/verifications` → `multipart/form-data`，字段 `record`（JSON）和可选 `files`。带 POC 的漏洞发现确认或排除需要成功执行、环境、命令和对照观测；确认还需要附件。没有 POC 的通用源码发现可用人工复核说明确认或排除，无需伪造攻击执行记录；证据校验未通过的源码结论不能被确认。
 - `GET /runs/{id}/report?format=markdown|json|zip` → 审计报告、原始结果或证据包。
+
+兼容课程实验的 `/api/experiments` 和历史报告 `rounds` 同时返回 `paired_comparisons`。有 P0 时以 P0 为基线，否则以最早运行版本为基线；Precision、Recall、F1 差值只使用两轮均已判定的相同真值样本，返回共同样本数及百分点差（`*_pp`）。运行条件不一致、无共同可判定样本、样本真值冲突或任一轮有未标注类别候选时，不返回提升指标。普通逐轮混淆矩阵保留原统计范围，未决样本仍单列。该接口不属于默认 Planner 工作流。
 
 Planner 目标任务的统计 `truth_status=planner_goal_not_comparable`、`evaluation=null`，进度字段表示动态任务前沿的结算状态，不会套用固定三类漏洞的 TP/FP/FN/TN 或 Recall 矩阵。
 

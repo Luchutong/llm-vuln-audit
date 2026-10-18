@@ -58,7 +58,10 @@ def test_the_three_versions_of_the_experiment_are_the_three_rounds(state):
     add_run(store, "r0", "P0", "2026-01-01T00:00:00+00:00")
     add_run(store, "r1", "P1", "2026-01-01T01:00:00+00:00")
     add_run(store, "r2", "P2", "2026-01-01T02:00:00+00:00")
-    assert selected(state, store.get_run("r2")) == ["P0", "P1", "P2"]
+    comparison = _round_comparison(state, store.get_run("r2"))
+    assert [entry["run"]["prompt_id"] for entry in comparison["runs"]] == ["P0", "P1", "P2"]
+    assert [item["prompt_id"] for item in comparison["paired_comparisons"]] == ["P1", "P2"]
+    assert all(not item["comparable"] for item in comparison["paired_comparisons"])
 
 
 def test_an_ad_hoc_version_is_not_a_fourth_round(state):

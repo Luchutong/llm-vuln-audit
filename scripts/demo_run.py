@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
-"""Create a run over the DVWA demo scope and follow it to completion.
+"""Coursework compatibility example: run a fixed prompt over DVWA and follow it.
 
 Usage: demo_run.py <base-url> <snapshot-id> [prompt-id]
 
-Streams the run's event log, then prints the per-unit verdicts, findings and metrics.
+This does not use or replace the default Planner-led audit endpoint. Streams the
+legacy run's event log, then prints per-unit verdicts, findings and metrics.
 """
+import argparse
 import json
-import sys
+import tempfile
 import time
+from pathlib import Path
 
 import httpx
 
-SCOPE = [
-    "vulnerabilities/sqli/source/low.php",
-    "vulnerabilities/sqli/source/impossible.php",
-    "vulnerabilities/xss_r/source/low.php",
-    "vulnerabilities/xss_r/source/impossible.php",
-    "vulnerabilities/exec/source/low.php",
-    "vulnerabilities/exec/source/impossible.php",
-]
+from prompt_scope import DVWA_SCOPE
 
 # `completed` belongs here: leaving it out meant the follow loop never noticed a run that
 # had finished cleanly and kept polling until its own deadline.
 TERMINAL = {"succeeded", "completed", "failed", "cancelled", "interrupted"}
 
-base = sys.argv[1].rstrip("/")
-snapshot_id = sys.argv[2]
-prompt_id = sys.argv[3] if len(sys.argv) > 3 else "P2"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("base_url")
+parser.add_argument("snapshot_id")
+parser.add_argument("prompt_id", nargs="?", default="P2")
+args = parser.parse_args()
+base = args.base_url.rstrip("/")
+snapshot_id = args.snapshot_id
+prompt_id = args.prompt_id
 
 client = httpx.Client(base_url=base, timeout=600)
 
@@ -40,7 +41,7 @@ if snapshot_id == "--follow":
 else:
     response = client.post(
         "/api/runs",
-        json={"snapshot_id": snapshot_id, "scope": SCOPE, "prompt_id": prompt_id},
+        json={"snapshot_id": snapshot_id, "scope": DVWA_SCOPE, "prompt_id": prompt_id},
     )
     if response.status_code >= 400:
         print("create run failed:", response.status_code, response.text[:800])
@@ -148,6 +149,7 @@ for finding in bundle["findings"]:
 print("\n=== metrics ===")
 print(json.dumps(bundle["metrics"], ensure_ascii=False, indent=2))
 
-print(f"\nrun id saved to /tmp/run_id.txt")
-with open("/tmp/run_id.txt", "w") as handle:
+run_id_file = Path(tempfile.gettempdir()) / "llm-vuln-audit-run-id.txt"
+print(f"\nrun id saved to {run_id_file}")
+with run_id_file.open("w", encoding="utf-8") as handle:
     handle.write(run_id)

@@ -61,8 +61,8 @@ class Execution:
         if self.attempts >= min(limit, self.budgets["responses"]):
             raise StopAudit("budget", "模型请求预算已用尽（包括纠正与失败请求）")
         if correction:
-            if self.corrections >= 1:
-                raise StopAudit("invalid_output", "本单元的输出纠正重试已用尽")
+            # The Agent limits corrections per output; this execution-wide count is
+            # observational only. Shared response/time budgets bound retries across phases.
             self.corrections += 1
             self.emit({"kind": "model_retry", "phase": self.phase, "corrections": self.corrections})
         self.attempts += 1

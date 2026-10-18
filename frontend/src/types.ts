@@ -252,7 +252,21 @@ export interface UnresolvedSample {
   reason: string;
   units?: { unit_id: string; symbol: string; status: string; error?: string | null }[];
 }
-export interface Evaluation { TP: number; FP: number; FN: number; TN: number; precision: number | null; recall: number | null; f1: number | null; unresolved: UnresolvedSample[]; eligible: number; total_samples: number; excluded_samples: { file_path: string; category: Category }[] }
+export interface Evaluation {
+  TP: number;
+  FP: number;
+  FN: number;
+  TN: number;
+  precision: number | null;
+  recall: number | null;
+  f1: number | null;
+  unresolved: UnresolvedSample[];
+  sample_results?: { file_path: string; category: Category; vulnerable: boolean; resolved: boolean; predicted_vulnerable: boolean | null }[];
+  unmatched_candidates?: { finding_id?: string; file_path: string; category: Category; reason: string }[];
+  eligible: number;
+  total_samples: number;
+  excluded_samples: { file_path: string; category: Category }[];
+}
 export interface Metrics {
   candidates: number;
   candidate_findings: number;
@@ -310,5 +324,24 @@ export interface AuditEvent {
 }
 export interface Source { snapshot_id: string; path: string; sha256: string; lines: {number: number; text: string}[] }
 export interface Config { model: string; base_url?: string; configured: boolean; budgets: Budget; worker: string; version: string }
-export interface Experiment { comparable: boolean; reasons: string[]; notes?: string[]; runs: {run: Run; metrics: Metrics}[]; prompt_diffs: unknown[] }
+export interface PairedPromptComparison {
+  baseline_prompt_id: string;
+  prompt_id: string;
+  comparable: boolean;
+  reason: string;
+  common_samples: number;
+  unmatched_candidates: Record<string, number>;
+  baseline: { TP: number; FP: number; FN: number; TN: number; precision: number | null; recall: number | null; f1: number | null } | null;
+  current: { TP: number; FP: number; FN: number; TN: number; precision: number | null; recall: number | null; f1: number | null } | null;
+  delta_percentage_points: { precision_pp: number | null; recall_pp: number | null; f1_pp: number | null };
+  truth_conflicts: { file_path: string; category: Category }[];
+}
+export interface Experiment {
+  comparable: boolean;
+  reasons: string[];
+  notes?: string[];
+  runs: {run: Run; metrics: Metrics}[];
+  prompt_diffs: unknown[];
+  paired_comparisons: PairedPromptComparison[];
+}
 export interface Truth { file_path: string; category: Category; vulnerable: boolean; independently_verified: boolean; verification_basis: string; evidence: unknown[] }

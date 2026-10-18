@@ -6,7 +6,7 @@ not see enough is an unfinished observation. Folding any of those into a negativ
 let the report claim a true negative the model never asserted — or, worse, book its
 honesty as a missed detection.
 """
-from audit.metrics import summarise
+from audit.metrics import paired_prompt_comparisons, summarise
 
 RUN = {"id": "r1", "scope": ["vuln.php", "safe.php"], "snapshot_id": "s1"}
 
@@ -56,12 +56,32 @@ def test_a_candidate_on_a_vulnerable_sample_is_a_true_positive():
     units = [unit("u1", "vuln.php", conclusions={"sqli": "candidate"})]
     evaluation = evaluate(units, [finding("u1", "vuln.php", "sqli")], [truth("vuln.php", "sqli")])
     assert (evaluation["TP"], evaluation["FN"]) == (1, 0)
+    assert evaluation["sample_results"] == [
+        {
+            "file_path": "vuln.php",
+            "category": "sqli",
+            "vulnerable": True,
+            "resolved": True,
+            "predicted_vulnerable": True,
+        }
+    ]
 
 
 def test_a_candidate_on_a_safe_sample_is_a_false_positive():
     units = [unit("u1", "safe.php", conclusions={"sqli": "candidate"})]
     evaluation = evaluate(units, [finding("u1", "safe.php", "sqli")], [truth("safe.php", "sqli", vulnerable=False)])
     assert (evaluation["FP"], evaluation["TN"]) == (1, 0)
+
+
+def test_f1_is_zero_when_recall_is_zero_and_truth_positives_exist():
+    evaluation = evaluate(
+        [unit("u1", "vuln.php", conclusions={"sqli": "no_candidate"})],
+        [],
+        [truth("vuln.php", "sqli")],
+    )
+    assert evaluation["precision"] is None
+    assert evaluation["recall"] == 0
+    assert evaluation["f1"] == 0
 
 
 def test_missing_context_is_not_a_false_negative():
@@ -186,3 +206,90 @@ def test_the_same_unmatched_combination_is_listed_once():
         [truth("vuln.php", "sqli")],
     )
     assert len(evaluation["unmatched_candidates"]) == 1
+
+
+def test_paired_prompt_comparison_uses_only_the_same_resolved_samples():
+    samples = [
+        truth("vuln.php", "sqli"),
+        truth("safe.php", "sqli", vulnerable=False),
+        truth("pending.php", "sqli"),
+    ]
+    run = {**RUN, "scope": ["vuln.php", "safe.php", "pending.php"]}
+    baseline = summarise(
+        run,
+        [
+            unit("b1", "vuln.php", conclusions={"sqli": "no_candidate"}),
+            unit("b2", "safe.php", conclusions={"sqli": "no_candidate"}),
+            unit("b3", "pending.php", status="incomplete"),
+        ],
+        [],
+        samples,
+    )
+    improved = summarise(
+        run,
+        [
+            unit("i1", "vuln.php", conclusions={"sqli": "candidate"}),
+            unit("i2", "safe.php", conclusions={"sqli": "no_candidate"}),
+            unit("i3", "pending.php", status="incomplete"),
+        ],
+        [finding("i1", "vuln.php", "sqli")],
+        samples,
+    )
+    comparison = paired_prompt_comparisons(
+        [
+            {"run": {"prompt_id": "P0"}, "metrics": baseline},
+            {"run": {"prompt_id": "P1"}, "metrics": improved},
+        ],
+        runs_comparable=True,
+    )[0]
+
+    assert comparison["comparable"] is True
+    assert comparison["common_samples"] == 2
+    assert comparison["baseline"]["f1"] == 0
+    assert comparison["current"]["f1"] == 1
+    assert comparison["delta_percentage_points"]["f1_pp"] == 100
+
+
+def test_paired_comparison_withholds_improvement_for_incompatible_runs():
+    samples = [truth("vuln.php", "sqli")]
+    metrics = summarise(
+        RUN,
+        [unit("u1", "vuln.php", conclusions={"sqli": "candidate"})],
+        [finding("u1", "vuln.php", "sqli")],
+        samples,
+    )
+    comparison = paired_prompt_comparisons(
+        [
+            {"run": {"prompt_id": "P0"}, "metrics": metrics},
+            {"run": {"prompt_id": "P1"}, "metrics": metrics},
+        ],
+        runs_comparable=False,
+    )[0]
+
+    assert comparison["comparable"] is False
+    assert comparison["baseline"] is None
+    assert comparison["current"] is None
+    assert comparison["delta_percentage_points"]["f1_pp"] is None
+    assert comparison["reason"] == "运行条件不可比"
+
+
+def test_paired_comparison_withholds_metrics_when_candidates_lack_truth_labels():
+    samples = [truth("vuln.php", "sqli")]
+    metrics = summarise(
+        RUN,
+        [unit("u1", "vuln.php", conclusions={"sqli": "candidate", "xss_r": "candidate"})],
+        [finding("u1", "vuln.php", "sqli"), finding("u1", "vuln.php", "xss_r")],
+        samples,
+    )
+    comparison = paired_prompt_comparisons(
+        [
+            {"run": {"prompt_id": "P0"}, "metrics": metrics},
+            {"run": {"prompt_id": "P1"}, "metrics": metrics},
+        ],
+        runs_comparable=True,
+    )[0]
+
+    assert comparison["comparable"] is False
+    assert comparison["common_samples"] == 1
+    assert comparison["unmatched_candidates"] == {"P0": 1, "P1": 1}
+    assert comparison["reason"] == "存在未标注候选（P0=1、P1=1）"

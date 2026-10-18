@@ -473,6 +473,17 @@ class CreateRunRequest(BaseModel):
     task: TaskSpec = Field(description="Goal-driven white-box audit task")
 
 
+class FixedPromptRunRequest(BaseModel):
+    """Create a historical fixed-prompt benchmark run over frozen source units."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: str
+    scope: list[str] = Field(min_length=1)
+    prompt_id: str = Field(min_length=1, max_length=120)
+    budgets: dict | None = None
+
+
 class PromptCreateRequest(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     text: str = Field(min_length=1)

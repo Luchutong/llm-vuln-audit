@@ -22,7 +22,7 @@ from audit.events import EventBus
 from audit.health import ModelHealth
 from audit.metrics import summarise
 from audit.runtime import AgentPolicy
-from audit.schemas import CreateRunRequest
+from audit.schemas import Check, CreateRunRequest, FixedPromptRunRequest, UnitAnalysis
 from audit.source import SourceRepository
 from audit.worker import AuditWorker
 
@@ -176,6 +176,110 @@ def test_create_request_requires_a_planner_task_and_rejects_legacy_prompt_fields
         CreateRunRequest(snapshot_id="snapshot-1")
     with pytest.raises(ValidationError, match="prompt_id"):
         CreateRunRequest(snapshot_id="snapshot-1", task=TASK, prompt_id="P2")
+
+
+@pytest.mark.parametrize(("prompt_id", "phase"), [("P2", "P2"), ("P0-lite", "custom")])
+def test_fixed_prompt_api_freezes_prompt_and_selected_source_units(
+    store, repository, monkeypatch, prompt_id, phase,
+):
+    from audit import worker as worker_module
+    from audit.app import create_fixed_prompt_run
+
+    snapshot = import_project(repository)
+    prompt_text = "Frozen benchmark prompt"
+    store.add_prompt({
+        "id": prompt_id, "label": prompt_id, "phase": phase, "text": prompt_text,
+        "reason": "", "issues": [], "parent_id": None, "created_at": now(),
+    })
+    notified = []
+    state = SimpleNamespace(
+        repository=repository,
+        store=store,
+        settings=SimpleNamespace(
+            model=SimpleNamespace(label="test-model"),
+            budgets={"responses": 8, "tools": 16, "seconds": 30},
+        ),
+        bus=EventBus(store),
+        worker=SimpleNamespace(notify=lambda: notified.append(True)),
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(services=state)))
+    payload = FixedPromptRunRequest(
+        snapshot_id=snapshot["id"],
+        scope=["src/auth.php"],
+        prompt_id=prompt_id,
+    )
+
+    created = asyncio.run(create_fixed_prompt_run(request, payload))
+
+    assert created["prompt_id"] == prompt_id
+    assert created["prompt_text"] == prompt_text
+    assert created["model"] == "test-model"
+    assert created["scope"] == ["src/auth.php"]
+    assert created["total_units"] > 0
+    assert {unit["file_path"] for unit in store.list_run_units(created["id"])} == {"src/auth.php"}
+    assert created["task_spec"] is None
+    assert notified == [True]
+
+    calls = []
+
+    async def deterministic_audit(**kwargs):
+        calls.append(kwargs)
+        check = Check(conclusion="no_candidate", reasoning="test result")
+        analysis = UnitAnalysis(
+            summary="test complete",
+            sqli=check,
+            xss_r=check,
+            command_injection=check,
+        )
+        return {
+            "analysis": analysis,
+            "checks": analysis.by_category(),
+            "usage": {"requests": 1, "tool_calls": 0},
+            "seen": [],
+            "incomplete": None,
+            "error": None,
+        }
+
+    monkeypatch.setattr(worker_module, "audit_unit", deterministic_audit)
+    worker = AuditWorker(
+        settings=SimpleNamespace(worker="test", model=ModelConfig(model="test-model")),
+        store=store,
+        repository=repository,
+        bus=EventBus(store),
+        health=ModelHealth(),
+    )
+    asyncio.run(worker._execute(store.claim_next_run()))
+
+    assert store.get_run(created["id"])["status"] == "completed"
+    assert len(calls) == created["total_units"]
+    assert all(prompt_text in call["prompt_text"] for call in calls)
+    assert {call["unit"]["file_path"] for call in calls} == {"src/auth.php"}
+
+def test_fixed_prompt_api_rejects_scope_outside_snapshot(store, repository):
+    from fastapi import HTTPException
+    from audit.app import create_fixed_prompt_run
+
+    snapshot = import_project(repository)
+    state = SimpleNamespace(
+        repository=repository,
+        store=store,
+        settings=SimpleNamespace(
+            model=SimpleNamespace(label="test-model"),
+            budgets={"responses": 8, "tools": 16, "seconds": 30},
+        ),
+        bus=EventBus(store),
+        worker=SimpleNamespace(notify=lambda: None),
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(services=state)))
+    payload = FixedPromptRunRequest(
+        snapshot_id=snapshot["id"],
+        scope=["outside/snapshot.php"],
+        prompt_id="P0",
+    )
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(create_fixed_prompt_run(request, payload))
+    assert error.value.status_code == 400
 
 
 def test_api_creation_freezes_a_project_map_not_a_static_source_queue(store, repository):

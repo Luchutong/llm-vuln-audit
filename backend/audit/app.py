@@ -19,12 +19,13 @@ from .config import DEFAULT_BUDGETS, VERSION, Settings, clamp_budgets, find_env_
 from .db import Store, now
 from .events import EventBus
 from .health import ModelHealth
-from .metrics import comparable_runs, prompt_diffs, summarise
+from .metrics import comparable_runs, paired_prompt_comparisons, prompt_diffs, summarise
 from .prompts import DEFAULT_PROMPT_ID, builtin_prompt_records
 from .report import collect_evidence, render_json, render_markdown, render_zip
 from .schemas import (
     AttributionRequest,
     CreateRunRequest,
+    FixedPromptRunRequest,
     PromptCreateRequest,
     TruthRequest,
     VerificationRecord,
@@ -311,6 +312,64 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "scope_files": len(requested),
         "project_map_stats": project_map.get("stats") or {},
         "max_planner_rounds": payload.task.max_planner_rounds,
+    })
+    state.worker.notify()
+    return state.store.get_run(run_id)
+
+
+@app.post("/api/prompt-runs")
+async def create_fixed_prompt_run(request: Request, payload: FixedPromptRunRequest) -> dict:
+    """Queue a versioned fixed-prompt run over frozen source units."""
+    state = services(request)
+    try:
+        snapshot = state.repository.get_snapshot(payload.snapshot_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Snapshot does not exist") from exc
+
+    available = {
+        item["path"]
+        for item in snapshot["files"]
+        if bool(item.get("is_php", not item.get("excluded", False)))
+    }
+    requested = list(dict.fromkeys(path.replace("\\", "/") for path in payload.scope))
+    unknown = [path for path in requested if path not in available]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Scope contains non-PHP files or paths outside the snapshot: {unknown[:5]}",
+        )
+
+    prompt = state.store.get_prompt(payload.prompt_id)
+    if prompt is None or (
+        prompt.get("phase") != payload.prompt_id
+        and prompt.get("phase") != "custom"
+    ):
+        raise HTTPException(status_code=404, detail=f"Prompt {payload.prompt_id} does not exist")
+    units = [
+        unit for unit in snapshot.get("units", [])
+        if unit.get("file_path") in requested
+    ]
+    if not units:
+        raise HTTPException(status_code=400, detail="The selected scope contains no auditable source units")
+
+    run_id = uuid.uuid4().hex
+    run = {
+        "id": run_id,
+        "snapshot_id": snapshot["id"],
+        "snapshot_name": snapshot["name"],
+        "scope": requested,
+        "prompt_id": payload.prompt_id,
+        "prompt_label": prompt["label"],
+        "prompt_text": prompt["text"],
+        "model": state.settings.model.label,
+        "budgets": clamp_budgets(payload.budgets or state.settings.budgets),
+        "created_at": _iso(),
+    }
+    state.store.create_run(run, units)
+    state.bus.emit(run_id, None, "prompt_run_queued", {
+        "prompt_id": payload.prompt_id,
+        "scope_files": len(requested),
+        "units": len(units),
     })
     state.worker.notify()
     return state.store.get_run(run_id)
@@ -702,7 +761,14 @@ def _round_comparison(state: Services, run: dict) -> dict:
         findings = state.store.list_findings(item["id"])
         truths = state.store.list_truths(item["snapshot_id"])
         entries.append({"run": item, "metrics": summarise(item, units, findings, truths)})
-    return {**comparable_runs(ordered), "runs": entries}
+    compatibility = comparable_runs(ordered)
+    return {
+        **compatibility,
+        "runs": entries,
+        "paired_comparisons": paired_prompt_comparisons(
+            entries, runs_comparable=compatibility["comparable"]
+        ),
+    }
 
 
 # --- experiments and reports ------------------------------------------------
@@ -727,7 +793,15 @@ async def experiments(request: Request, run_ids: str = Query(...)) -> dict:
         findings = state.store.list_findings(run["id"])
         truths = state.store.list_truths(run["snapshot_id"])
         entries.append({"run": run, "metrics": summarise(run, units, findings, truths)})
-    return {**comparable_runs(ordered), "runs": entries, "prompt_diffs": prompt_diffs(ordered)}
+    compatibility = comparable_runs(ordered)
+    return {
+        **compatibility,
+        "runs": entries,
+        "prompt_diffs": prompt_diffs(ordered),
+        "paired_comparisons": paired_prompt_comparisons(
+            entries, runs_comparable=compatibility["comparable"]
+        ),
+    }
 
 
 @app.get("/api/runs/{run_id}/report")

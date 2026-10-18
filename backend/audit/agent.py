@@ -780,7 +780,7 @@ async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot
             "不要把缺失配置、路由或登录条件当作事实。缺少会改变结论的源码时用 insufficient_context。"
         )
         agent = Agent(model, deps_type=AuditDeps, output_type=schema,
-                      instructions=instruction, retries={"tools": 1, "output": 1},
+                      instructions=instruction, retries={"tools": 1, "output": 4},
                       model_settings=ModelSettings(extra_body=config.extra_body(),
                                                    timeout=policy.request_seconds, max_tokens=4096))
         if tools:

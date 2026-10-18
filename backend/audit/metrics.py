@@ -131,6 +131,7 @@ def _evaluate(truths: list[dict], units: list[dict], candidates: list[dict], run
 
     TP = FP = FN = TN = 0
     unresolved: list[dict] = []
+    sample_results: list[dict] = []
     for sample in eligible:
         key = (sample["file_path"], sample["category"])
         file_units = units_by_file.get(sample["file_path"], [])
@@ -141,12 +142,23 @@ def _evaluate(truths: list[dict], units: list[dict], candidates: list[dict], run
                 TP += 1
             else:
                 FP += 1
+            sample_results.append({
+                **_sample_ref(sample),
+                "resolved": True,
+                "predicted_vulnerable": True,
+            })
             continue
 
         # No candidate. Absence only counts when every unit of that file finished.
         if not file_units:
             unresolved.append({**_sample_ref(sample), "reason": "该文件不在本次审计范围内"})
+            sample_results.append({
+                **_sample_ref(sample),
+                "resolved": False,
+                "predicted_vulnerable": None,
+            })
             continue
+
         unfinished = [u for u in file_units if u["status"] in UNRESOLVED_STATUSES]
         if unfinished:
             unresolved.append(
@@ -159,6 +171,11 @@ def _evaluate(truths: list[dict], units: list[dict], candidates: list[dict], run
                     ],
                 }
             )
+            sample_results.append({
+                **_sample_ref(sample),
+                "resolved": False,
+                "predicted_vulnerable": None,
+            })
             continue
 
         # A unit can finish and still say "what I was shown is not enough to decide". The spec
@@ -178,12 +195,22 @@ def _evaluate(truths: list[dict], units: list[dict], candidates: list[dict], run
                     ],
                 }
             )
+            sample_results.append({
+                **_sample_ref(sample),
+                "resolved": False,
+                "predicted_vulnerable": None,
+            })
             continue
 
         if sample["vulnerable"]:
             FN += 1
         else:
             TN += 1
+        sample_results.append({
+            **_sample_ref(sample),
+            "resolved": True,
+            "predicted_vulnerable": False,
+        })
 
     # The loop above runs from truth sample to candidate. A candidate whose file×category
     # combination has no truth sample at all cannot be scored in either direction: there is
@@ -217,7 +244,8 @@ def _evaluate(truths: list[dict], units: list[dict], candidates: list[dict], run
 
     precision = TP / (TP + FP) if (TP + FP) else None
     recall = TP / (TP + FN) if (TP + FN) else None
-    f1 = (2 * precision * recall / (precision + recall)) if precision and recall else None
+    f1_denominator = 2 * TP + FP + FN
+    f1 = (2 * TP / f1_denominator) if f1_denominator else None
     evaluation = {
         "TP": TP,
         "FP": FP,
@@ -227,6 +255,7 @@ def _evaluate(truths: list[dict], units: list[dict], candidates: list[dict], run
         "recall": _round(recall) if recall is not None else None,
         "f1": _round(f1) if f1 is not None else None,
         "unresolved": unresolved,
+        "sample_results": sample_results,
         "unmatched_candidates": unmatched,
         "eligible": len(eligible),
         "total_samples": len(truths),
@@ -235,6 +264,134 @@ def _evaluate(truths: list[dict], units: list[dict], candidates: list[dict], run
         ],
     }
     return evaluation, "evaluated"
+
+
+def paired_prompt_comparisons(entries: list[dict], *, runs_comparable: bool) -> list[dict]:
+    """Compare each prompt round with P0 on the same resolved truth samples.
+
+    Per-run metrics can have different denominators when some units are unresolved.
+    Paired metrics use only truth samples that both runs resolved, and are withheld
+    entirely when the frozen run conditions differ.
+    """
+    if len(entries) < 2:
+        return []
+
+    baseline = next(
+        (entry for entry in entries if entry["run"].get("prompt_id") == "P0"),
+        entries[0],
+    )
+    baseline_id = baseline["run"].get("prompt_id", "")
+    baseline_samples = _resolved_sample_map(baseline)
+    comparisons = []
+
+    for entry in entries:
+        prompt_id = entry["run"].get("prompt_id", "")
+        if entry is baseline or prompt_id == baseline_id:
+            continue
+
+        current_samples = _resolved_sample_map(entry)
+        common_keys = sorted(baseline_samples.keys() & current_samples.keys())
+        truth_conflicts = [
+            key for key in common_keys
+            if baseline_samples[key]["vulnerable"] != current_samples[key]["vulnerable"]
+        ]
+        common_keys = [key for key in common_keys if key not in set(truth_conflicts)]
+        baseline_unmatched = len(
+            (baseline.get("metrics", {}).get("evaluation") or {}).get("unmatched_candidates") or []
+        )
+        current_unmatched = len(
+            (entry.get("metrics", {}).get("evaluation") or {}).get("unmatched_candidates") or []
+        )
+
+        baseline_metrics = _metrics_for_samples(
+            [baseline_samples[key] for key in common_keys]
+        )
+        current_metrics = _metrics_for_samples(
+            [current_samples[key] for key in common_keys]
+        )
+        comparable = (
+            runs_comparable
+            and bool(common_keys)
+            and not truth_conflicts
+            and not baseline_unmatched
+            and not current_unmatched
+        )
+        deltas = {}
+        for name in ("precision", "recall", "f1"):
+            before = baseline_metrics[name]
+            after = current_metrics[name]
+            deltas[f"{name}_pp"] = (
+                _round((after - before) * 100)
+                if comparable and before is not None and after is not None
+                else None
+            )
+
+        comparisons.append({
+            "baseline_prompt_id": baseline_id,
+            "prompt_id": prompt_id,
+            "comparable": comparable,
+            "reason": (
+                "运行条件不可比"
+                if not runs_comparable
+                else "没有共同可判定样本"
+                if not common_keys
+                else "相同样本的真值不一致"
+                if truth_conflicts
+                else f"存在未标注候选（{baseline_id}={baseline_unmatched}、{prompt_id}={current_unmatched}）"
+                if baseline_unmatched or current_unmatched
+                else ""
+            ),
+            "common_samples": len(common_keys),
+            "unmatched_candidates": {
+                baseline_id: baseline_unmatched,
+                prompt_id: current_unmatched,
+            },
+            "baseline": baseline_metrics if comparable else None,
+            "current": current_metrics if comparable else None,
+            "delta_percentage_points": deltas,
+            "truth_conflicts": [
+                {"file_path": key[0], "category": key[1]} for key in truth_conflicts
+            ],
+        })
+    return comparisons
+
+
+def _resolved_sample_map(entry: dict) -> dict[tuple[str, str], dict]:
+    evaluation = (entry.get("metrics") or {}).get("evaluation") or {}
+    return {
+        (sample["file_path"], sample["category"]): sample
+        for sample in evaluation.get("sample_results", [])
+        if sample.get("resolved")
+    }
+
+
+def _metrics_for_samples(samples: list[dict]) -> dict:
+    TP = FP = FN = TN = 0
+    for sample in samples:
+        truth = bool(sample["vulnerable"])
+        prediction = bool(sample["predicted_vulnerable"])
+        if prediction and truth:
+            TP += 1
+        elif prediction and not truth:
+            FP += 1
+        elif not prediction and truth:
+            FN += 1
+        else:
+            TN += 1
+
+    precision = TP / (TP + FP) if TP + FP else None
+    recall = TP / (TP + FN) if TP + FN else None
+    f1_denominator = 2 * TP + FP + FN
+    f1 = 2 * TP / f1_denominator if f1_denominator else None
+    return {
+        "TP": TP,
+        "FP": FP,
+        "FN": FN,
+        "TN": TN,
+        "precision": _round(precision) if precision is not None else None,
+        "recall": _round(recall) if recall is not None else None,
+        "f1": _round(f1) if f1 is not None else None,
+    }
 
 
 def _sample_ref(sample: dict) -> dict:

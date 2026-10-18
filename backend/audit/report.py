@@ -43,6 +43,10 @@ def _cell(value) -> object:
     return NOT_COMPUTABLE if value is None else value
 
 
+def _percentage_points(value) -> str:
+    return NOT_COMPUTABLE if value is None else f"{value:+.2f} pp"
+
+
 def _evidence_text(evidence: list[dict]) -> str:
     if not evidence:
         return "（无行号引用）"
@@ -299,6 +303,33 @@ def _prompt_rounds(bundle: dict) -> list[str]:
         lines.append(f"- 注意：{note}")
     if rounds.get("notes"):
         lines.append("")
+
+    paired = rounds.get("paired_comparisons") or []
+    if paired:
+        lines += [
+            f"**同样本配对比较（相对基线 {paired[0]['baseline_prompt_id']}）**：只在两轮都已判定的相同真值样本上计算；"
+            "差值单位为百分点（pp），未决样本不计入。运行条件不一致或没有共同样本时不报告提升。",
+            "",
+            "| 对比 | 共同样本数 | Precision（基线→当前） | Recall（基线→当前） | F1（基线→当前） | ΔF1 |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+        for comparison in paired:
+            before = comparison.get("baseline") or {}
+            after = comparison.get("current") or {}
+            delta = comparison.get("delta_percentage_points") or {}
+            if comparison.get("comparable"):
+                precision = f"{_cell(before.get('precision'))} → {_cell(after.get('precision'))}"
+                recall = f"{_cell(before.get('recall'))} → {_cell(after.get('recall'))}"
+                f1 = f"{_cell(before.get('f1'))} → {_cell(after.get('f1'))}"
+                f1_delta = _percentage_points(delta.get("f1_pp"))
+            else:
+                reason = comparison.get("reason") or "无可比较结果"
+                precision = recall = f1 = f1_delta = f"无法计算（{reason}）"
+            lines.append(
+                f"| {comparison['baseline_prompt_id']} → {comparison['prompt_id']} | "
+                f"{comparison['common_samples']} | {precision} | {recall} | {f1} | {f1_delta} |"
+            )
+        lines += ["", "百分点差值只描述共同可判定样本上的变化，不代表统计显著性。", ""]
 
     # The running version's text is printed in full just above; repeating it here would
     # double the length of the chapter for no new information.

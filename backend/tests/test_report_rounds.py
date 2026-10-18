@@ -157,5 +157,62 @@ def test_a_real_zero_is_not_mistaken_for_a_missing_metric():
     assert _cell(None) == "无法计算"
 
 
+def test_report_shows_paired_percentage_point_deltas():
+    rounds = {
+        **COMPARABLE,
+        "runs": [
+            {"run": run("P0", "P0 初始版"), "metrics": metrics(evaluation=EVAL)},
+            {"run": run("P1", "P1 第一轮优化"), "metrics": metrics(evaluation=EVAL)},
+        ],
+        "paired_comparisons": [
+            {
+                "baseline_prompt_id": "P0",
+                "prompt_id": "P1",
+                "comparable": True,
+                "common_samples": 6,
+                "baseline": {"precision": 0.5, "recall": 0.5, "f1": 0.5},
+                "current": {"precision": 1.0, "recall": 1.0, "f1": 1.0},
+                "delta_percentage_points": {
+                    "precision_pp": 50,
+                    "recall_pp": 50,
+                    "f1_pp": 50,
+                },
+            }
+        ],
+    }
+    text = "\n".join(_prompt_rounds(bundle(rounds, [])))
+    assert "**同样本配对比较（相对基线 P0）**" in text
+    assert "共同样本数" in text
+    assert "+50.00 pp" in text
+    assert "不代表统计显著性" in text
+
+
+def test_report_does_not_claim_improvement_when_run_conditions_differ():
+    rounds = {
+        "comparable": False,
+        "reasons": ["模型不同"],
+        "notes": [],
+        "runs": [
+            {"run": run("P0", "P0 初始版"), "metrics": metrics(evaluation=EVAL)},
+            {"run": run("P1", "P1 第一轮优化"), "metrics": metrics(evaluation=EVAL)},
+        ],
+        "paired_comparisons": [
+            {
+                "baseline_prompt_id": "P0",
+                "prompt_id": "P1",
+                "comparable": False,
+                "reason": "运行条件不可比",
+                "common_samples": 6,
+                "baseline": None,
+                "current": None,
+                "delta_percentage_points": {"f1_pp": None},
+            }
+        ],
+    }
+    text = "\n".join(_prompt_rounds(bundle(rounds, [])))
+    assert "无法计算（运行条件不可比）" in text
+    assert "无法计算（运行条件不可比）" in text.split("同样本配对比较", 1)[1]
+
+
 def test_no_rounds_means_no_section():
     assert _prompt_rounds({"run": run("P0", "P0 初始版"), "rounds": {}, "prompts": []}) == []

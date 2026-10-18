@@ -111,17 +111,35 @@ def test_distinct_empty_searches_also_stop_without_progress(monkeypatch):
     assert result["usage"]["model_attempts"] == 4
 
 
-def test_malformed_output_has_one_shared_correction_and_a_finite_end(monkeypatch):
+def test_malformed_output_retries_each_phase_within_the_response_budget(monkeypatch):
     calls = 0
     def provider(messages, info):
         nonlocal calls
         calls += 1
         return output(info, {"summary": "missing categories"})
-    result, _ = run(monkeypatch, provider)
+    result, _ = run(monkeypatch, provider, budgets={"responses": 20, "tools": 16, "seconds": 2})
     assert result["analysis"] is None
     assert result["incomplete"] == "invalid_output"
-    assert result["usage"]["corrections"] == 1
-    assert calls <= 3
+    assert result["usage"]["corrections"] == 8
+    assert result["usage"]["model_attempts"] == calls == 10
+
+
+def test_a_valid_output_after_three_format_corrections_is_accepted(monkeypatch):
+    calls = 0
+
+    def provider(messages, info):
+        nonlocal calls
+        calls += 1
+        if calls <= 3:
+            return output(info, {"summary": "malformed response"})
+        return output(info, decision())
+
+    result, events = run(monkeypatch, provider)
+
+    assert result["analysis"] is not None
+    assert result["usage"]["corrections"] == 3
+    assert result["usage"]["model_attempts"] == calls == 4
+    assert [event["corrections"] for event in events if event["kind"] == "model_retry"] == [1, 2, 3]
 
 
 def test_planner_project_map_tool_returns_a_compact_overview():

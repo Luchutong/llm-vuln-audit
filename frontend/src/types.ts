@@ -351,6 +351,7 @@ export interface Evaluation { TP: number; FP: number; FN: number; TN: number; pr
 export interface Metrics {
   candidates: number;
   candidate_findings: number;
+  withdrawn_findings?: number;
   discarded_candidates: number;
   confirmed: number;
   rejected: number;

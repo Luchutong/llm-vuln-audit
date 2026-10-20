@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, errorText, post } from '../api';
 import type { Config, ModelProfile } from '../types';
+import { Disclosure } from '../components/Disclosure';
+import { LongContent } from '../components/LongContent';
 
 interface CheckResult {
   ok: boolean;
@@ -260,13 +262,14 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
   };
 
   return (
-    <div className="grid" style={{ gridTemplateColumns: 'minmax(460px, 1.35fr) minmax(300px, .8fr)', alignItems: 'start' }}>
+    <div className="grid settings-grid">
       {(error || notice) && (
         <div
+          role={error ? 'alert' : 'status'}
           className={error ? 'error-box' : 'panel'}
           style={{ gridColumn: '1 / -1', ...(notice ? { padding: '10px 14px', color: 'var(--ok)', fontSize: 13 } : {}) }}
         >
-          {error ?? notice}
+          <LongContent value={error ?? notice} label={error ? '配置错误' : '操作结果'} />
         </div>
       )}
 
@@ -302,8 +305,8 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
                           {profileCredentialLabel(profile)}
                         </span>
                       </div>
-                      <div className="mono small" style={{ marginTop: 4, overflowWrap: 'anywhere' }}>{profile.model}</div>
-                      <div className="faint small" style={{ overflowWrap: 'anywhere' }}>{profile.base_url}</div>
+                      <LongContent value={profile.model} label="模型标识" />
+                      <LongContent value={profile.base_url} label="服务地址" />
                     </div>
                     <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <button
@@ -433,14 +436,8 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
               <span className="field-label">正在使用的档案</span>
               <span className="small">{selectedProfile?.label ?? '未选择'}</span>
             </div>
-            <div className="field">
-              <span className="field-label">模型</span>
-              <span className="mono small">{config.model || '—'}</span>
-            </div>
-            <div className="field">
-              <span className="field-label">Base URL</span>
-              <span className="mono small" style={{ overflowWrap: 'anywhere' }}>{config.base_url || '—'}</span>
-            </div>
+            <LongContent value={config.model || '—'} label="模型" />
+            <LongContent value={config.base_url || '—'} label="Base URL" />
             {(config.missing ?? []).length > 0 && (
               <div className="error-box" style={{ marginBottom: 10 }}>
                 缺少配置：{(config.missing ?? []).join('、')}
@@ -453,10 +450,8 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
               <span className="field-hint">向当前档案发送一次最小请求。</span>
             </div>
             {result && (
-              <div className={result.ok ? 'small' : 'error-box'} style={{ marginTop: 12, color: result.ok ? 'var(--ok)' : undefined }}>
-                {result.ok
-                  ? `连通，${result.latency_ms} ms，回复 ${JSON.stringify(result.reply)}`
-                  : `失败：${result.error}`}
+              <div role="status" className={result.ok ? 'small' : 'error-box'} style={{ marginTop: 12, color: result.ok ? 'var(--ok)' : undefined }}>
+                <LongContent value={result.ok ? `连通，${result.latency_ms} ms，回复 ${JSON.stringify(result.reply)}` : `失败：${result.error}`} label="连接检测结果" />
               </div>
             )}
           </div>
@@ -472,7 +467,7 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
           <div style={{ padding: '12px 16px' }} className="small">
             <div>连续失败 {health?.fails ?? 0} 次 · 熔断 {health?.trips ?? 0} 次</div>
             <div>冷却剩余 {health?.cooldown_seconds ?? 0} 秒</div>
-            {health?.last_error && <div className="mono small" style={{ marginTop: 6, color: 'var(--danger)' }}>{health.last_error}</div>}
+            {health?.last_error && <LongContent value={health.last_error} label="最近连接错误" />}
             <div className="muted" style={{ marginTop: 8 }}>
               切换或更新档案时会重置连接健康状态，避免把一个服务商的失败带到另一个服务商。
             </div>
@@ -499,7 +494,7 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
           <div style={{ padding: '12px 16px' }} className="small">
             <div>审计应用 <span className="mono">127.0.0.1:8899</span></div>
             <div>版本 <span className="mono">{config.version}</span></div>
-            <div>Worker：<span className="mono">{JSON.stringify(config.worker)}</span></div>
+            <Disclosure title="Worker 配置"><LongContent value={config.worker} label="Worker 配置" /></Disclosure>
           </div>
         </div>
       </div>

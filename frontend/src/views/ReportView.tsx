@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, errorText, post } from '../api';
 import { scopeFileCount, scopeLabel } from '../types';
 import type { RunDetail, Truth } from '../types';
+import { Disclosure } from '../components/Disclosure';
+import { LongContent } from '../components/LongContent';
+import { PlannerNavigation } from './Overview';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
@@ -60,13 +63,13 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
     finding_id: '',
   });
 
-  const loadTruths = () => {
+  const loadTruths = useCallback(() => {
     api<Truth[]>(`/snapshots/${run.snapshot_id}/truths`)
       .then(setTruths)
       .catch((exc) => setError(errorText(exc)));
-  };
+  }, [run.snapshot_id]);
 
-  if (truths === null) loadTruths();
+  useEffect(() => { loadTruths(); }, [loadTruths]);
 
   const addTruth = async () => {
     try {
@@ -101,7 +104,7 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
 
   return (
     <div className="grid">
-      {error && <div className="error-box">{error}</div>}
+      {error && <div role="alert" className="error-box">{error}</div>}
 
       <div className="panel">
         <div className="panel-head">
@@ -110,7 +113,7 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
         </div>
         <div style={{ padding: '12px 16px' }} className="small">
           <div>快照 <span className="mono">{run.snapshot_id}</span>（{run.snapshot_name}）</div>
-          <div>范围 {scopeLabel(run, projectMap)}</div>
+          <LongContent value={scopeLabel(run, projectMap)} label="冻结范围" />
           <div>
             历史 Prompt <span className="mono">{run.prompt_id}</span>
             {' · '}模型 <span className="mono">{run.model}</span> · 预算 <span className="mono">{JSON.stringify(run.budgets)}</span>
@@ -127,8 +130,9 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
           </span>
         </div>
         <div style={{ padding: '12px 16px' }}>
+          <Disclosure title={`查看真值集与录入样本（${truths?.length ?? 0}）`}>
           {truths && truths.length > 0 ? (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
+            <div className="table-scroll"><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
               <thead>
                 <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
                   <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>文件</th>
@@ -149,48 +153,49 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
                       </span>
                     </td>
                     <td style={{ padding: '6px 8px' }}>{truth.independently_verified ? '是' : '否'}</td>
-                    <td className="small muted" style={{ padding: '6px 8px' }}>{truth.verification_basis}</td>
+                    <td className="small muted" style={{ padding: '6px 8px' }}><LongContent value={truth.verification_basis} label="核验依据" /></td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <div className="small muted" style={{ marginBottom: 12 }}>
               还没有真实样本。没有它，召回率与漏报数不可计算。
             </div>
           )}
 
-          <div className="grid" style={{ gridTemplateColumns: '2fr 1fr auto auto 3fr auto', alignItems: 'end' }}>
-            <div className="field">
+          <div className="grid form-grid">
+            <label className="field">
               <span className="field-label">文件路径</span>
-              <input type="text" className="mono" value={draft.file_path} placeholder="vulnerabilities/sqli/source/low.php" onChange={(event) => setDraft({ ...draft, file_path: event.target.value })} />
-            </div>
-            <div className="field">
+              <input type="text" className="mono" value={draft.file_path} placeholder="src/path/to/source.ext" onChange={(event) => setDraft({ ...draft, file_path: event.target.value })} />
+            </label>
+            <label className="field">
               <span className="field-label">类别</span>
               <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
                 {Object.entries(CATEGORY_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
               </select>
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">实际</span>
               <select value={draft.vulnerable ? '1' : '0'} onChange={(event) => setDraft({ ...draft, vulnerable: event.target.value === '1' })}>
                 <option value="1">存在漏洞</option>
                 <option value="0">不存在</option>
               </select>
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">独立核验</span>
               <select value={draft.independently_verified ? '1' : '0'} onChange={(event) => setDraft({ ...draft, independently_verified: event.target.value === '1' })}>
                 <option value="1">是</option>
                 <option value="0">否</option>
               </select>
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">核验依据</span>
               <input type="text" value={draft.verification_basis} placeholder="例如：独立复现记录、代码评审编号或测试报告" onChange={(event) => setDraft({ ...draft, verification_basis: event.target.value })} />
-            </div>
+            </label>
             <button className="btn btn-primary" onClick={addTruth} disabled={!draft.file_path}>录入样本</button>
           </div>
+          </Disclosure>
         </div>
       </div>
 
@@ -200,8 +205,9 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
           <span className="faint small">每条误报 / 漏报都要能指到提示词里的哪一条</span>
         </div>
         <div style={{ padding: '12px 16px' }}>
+          <Disclosure title={`查看归因与记录问题（${attributions.length}）`}>
           {attributions.length > 0 && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
+            <div className="table-scroll"><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
               <thead>
                 <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
                   <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 500 }}>类型</th>
@@ -217,40 +223,40 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
                     <td style={{ padding: '6px 8px' }}><span className="chip">{ATTRIBUTION_LABELS[item.kind] ?? item.kind}</span></td>
                     <td className="mono small" style={{ padding: '6px 8px' }}>{item.file_path}</td>
                     <td style={{ padding: '6px 8px' }}>{CATEGORY_LABELS[item.category]}</td>
-                    <td className="small" style={{ padding: '6px 8px' }}>{item.cause}</td>
-                    <td className="small muted" style={{ padding: '6px 8px' }}>{item.check_item}</td>
+                    <td className="small" style={{ padding: '6px 8px' }}><LongContent value={item.cause} label="归因原因" /></td>
+                    <td className="small muted" style={{ padding: '6px 8px' }}><LongContent value={item.check_item} label="对应检查项" /></td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
 
-          <div className="grid" style={{ gridTemplateColumns: '1.2fr 1.2fr 1fr 2fr 1.5fr 1.5fr auto', alignItems: 'end' }}>
-            <div className="field">
+          <div className="grid form-grid">
+            <label className="field">
               <span className="field-label">类型</span>
               <select value={attribution.kind} onChange={(event) => setAttribution({ ...attribution, kind: event.target.value })}>
                 {Object.entries(ATTRIBUTION_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
               </select>
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">文件路径</span>
               <input type="text" className="mono" value={attribution.file_path} onChange={(event) => setAttribution({ ...attribution, file_path: event.target.value })} />
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">类别</span>
               <select value={attribution.category} onChange={(event) => setAttribution({ ...attribution, category: event.target.value })}>
                 {Object.entries(CATEGORY_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
               </select>
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">原因</span>
               <input type="text" value={attribution.cause} placeholder="例如：判据没有要求核对输出上下文" onChange={(event) => setAttribution({ ...attribution, cause: event.target.value })} />
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">对应检查项</span>
               <input type="text" value={attribution.check_item} placeholder="例如：三、漏洞判定标准 / 反射型 XSS 第 2 条" onChange={(event) => setAttribution({ ...attribution, check_item: event.target.value })} />
-            </div>
-            <div className="field">
+            </label>
+            <label className="field">
               <span className="field-label">关联发现（可选）</span>
               <select value={attribution.finding_id} onChange={(event) => setAttribution({ ...attribution, finding_id: event.target.value })}>
                 <option value="">不关联</option>
@@ -260,9 +266,10 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
             <button className="btn btn-primary" onClick={addAttribution} disabled={!attribution.file_path}>记录</button>
           </div>
+          </Disclosure>
         </div>
       </div>
 
@@ -313,6 +320,32 @@ function sourceReferences(detail: RunDetail['findings'][number]) {
   return detail.evidence.map((reference) => `${reference.path}:${reference.start_line}-${reference.end_line}`).join('、');
 }
 
+function ReportFindings({ detail }: Pick<ReportViewProps, 'detail'>) {
+  const findings = detail.findings;
+  const valid = findings.filter((finding) => finding.validation_state === 'candidate').length;
+  return (
+    <section className="panel" aria-label="报告证据化结果">
+      <div className="panel-head"><span className="panel-title">证据化结果</span><span className="faint small">{valid} 条引用通过 · {findings.length - valid} 条无效记录</span></div>
+      <div className="panel-body">
+        {findings.length === 0 ? <div className="empty">尚无发现。</div> : <Disclosure title={`查看报告发现（${findings.length}）`}>
+          {findings.map((finding) => (
+            <Disclosure key={finding.id} title={<span className="disclosure-heading"><span className={`chip chip-${finding.validation_state}`}>{finding.validation_state === 'candidate' ? '引用通过' : '引用不通过'}</span><span className="disclosure-preview">{finding.title}</span></span>}>
+              <div className="grid">
+                <div className="small">{finding.finding_kind || finding.category || '源码观察'} · {finding.severity || '未分级'} · 人工结论：{finding.verdict || '待复核'}</div>
+                <LongContent value={finding.summary} label="发现摘要" />
+                <LongContent value={{ 引用校验: finding.validation_state, 人工裁决: finding.verdict ?? '尚未复核', 结论处置: finding.disposition ?? 'open', 处置理由: finding.disposition_reason, 标注者: finding.disposition_by, 版本: finding.revision ?? 1, 派生自: finding.derived_from_finding_id }} label="结论的独立状态" />
+                {(finding.superseded_summary ?? []).length > 0 && <Disclosure title={`历史结论（${finding.superseded_summary.length}）`}><LongContent value={finding.superseded_summary} label="历史版本与引用" /></Disclosure>}
+                <LongContent value={sourceReferences(finding)} label="源码引用" />
+                <LongContent value={finding.missing_context} label="缺失上下文" />
+              </div>
+            </Disclosure>
+          ))}
+        </Disclosure>}
+      </div>
+    </section>
+  );
+}
+
 function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
   const { run, findings, metrics } = detail;
   const projectMap = detail.project_map;
@@ -321,55 +354,64 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
   const planner = detail.planner;
   const plans = detail.plans ?? [];
   const tasks = detail.tasks ?? [];
-  const validFindings = findings.filter((finding) => finding.validation_state === 'candidate');
-  const invalidFindings = findings.filter((finding) => finding.validation_state !== 'candidate');
   const usedAttempts = tasks.reduce((total, item) => total + item.attempts, 0);
   if (!task) return null;
 
   return (
     <div className="grid">
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">项目级审计报告</span>
-          <span className={`chip chip-${run.status}`}>{TARGET_RUN_STATUS_LABELS[run.status] ?? run.status}</span>
-        </div>
-        <div style={{ padding: '12px 16px' }} className="grid">
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-            <div className="field"><span className="field-label">目标</span><span className="small">{task.objective}</span></div>
-            <div className="field"><span className="field-label">验收条件</span><span className="small">{task.success_criteria}</span></div>
+      <section className="panel" aria-label="项目级审计报告">
+        <div className="panel-head"><span className="panel-title">项目级审计报告</span><span className={`chip chip-${run.status}`}>{TARGET_RUN_STATUS_LABELS[run.status] ?? run.status}</span></div>
+        <div className="panel-body grid">
+          <div className="grid detail-fields">
+            <div className="field"><LongContent value={task.objective} label="报告审计目标" /></div>
+            <div className="field"><LongContent value={task.success_criteria} label="报告验收条件" /></div>
             <div className="field"><span className="field-label">规划与执行预算</span><span className="small">Planner {planner?.current_round ?? 0}/{planner?.max_rounds ?? task.max_planner_rounds} 回合 · worker {usedAttempts}/{task.max_total_attempts} 次</span></div>
-            <div className="field"><span className="field-label">运行结论</span><span className="small">{goal?.terminal_reason ?? planner?.terminal_reason ?? '尚未收束'}</span></div>
+            <div className="field"><LongContent value={goal?.terminal_reason ?? planner?.terminal_reason ?? '尚未收束'} label="报告运行结论" /></div>
           </div>
-          <div className="small muted">报告覆盖本次冻结的 {scopeFileCount(run, projectMap)} 个可读文本文件和由项目图派生出的动态跨文件任务。它不按固定漏洞类型评分，也不会把受阻或预算耗尽当作否定结论。</div>
+          <p className="small muted">报告覆盖本次冻结的 {scopeFileCount(run, projectMap)} 个可读文本文件。受阻或预算耗尽仍保留为未决结果。</p>
+          <Disclosure title="运行参数与冻结范围"><LongContent value={{ 快照: run.snapshot_id, 名称: run.snapshot_name, 模型: run.model, 预算: run.budgets, 用量: run.usage, 范围: scopeLabel(run, projectMap), 显式文件列表: run.scope, 模型档案: run.model_profile }} label="运行参数与冻结范围" /></Disclosure>
         </div>
-      </div>
+      </section>
 
-      <div className="panel">
-        <div className="panel-head"><span className="panel-title">Planner 版本记录</span><span className="faint small">项目图依据与 worker 反馈驱动后续调度</span></div>
-        {plans.length === 0 ? <div className="empty">尚无 Planner 回合。</div> : (
-          <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead><tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}><th style={{ textAlign: 'left', padding: '8px 14px' }}>回合</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>依据摘要</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>下一步</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>任务</th></tr></thead>
-            <tbody>{plans.map((plan) => <tr key={plan.id} style={{ borderTop: '1px solid var(--line-soft)' }}><td style={{ padding: '8px 14px' }}>#{plan.round_no}</td><td className="small" style={{ padding: '8px 10px' }}>{plan.basis_summary || '—'}</td><td className="small" style={{ padding: '8px 10px' }}>{plan.next_action || '—'}</td><td style={{ padding: '8px 10px' }}>{plan.task_snapshot.length}</td></tr>)}</tbody>
-          </table></div>
-        )}
-      </div>
+      <section className="panel" aria-label="Planner 版本记录">
+        <div className="panel-head"><span className="panel-title">Planner 版本记录</span><span className="faint small">{plans.length} 个版本</span></div>
+        <div className="panel-body">
+          {plans.length === 0 ? <div className="empty">尚无 Planner 回合。</div> : <Disclosure title={`查看版本记录（${plans.length}）`}>
+            {plans.map((plan) => <Disclosure key={plan.id} title={`第 ${plan.round_no} 回合 · ${plan.task_snapshot.length} 个任务`}>
+              <LongContent value={plan.basis_summary || '—'} label="调度依据" />
+              <LongContent value={plan.next_action || '—'} label="下一步" />
+              <LongContent value={plan.task_snapshot} label="任务快照" />
+              {plan.error && <LongContent value={plan.error} label="错误" />}
+            </Disclosure>)}
+          </Disclosure>}
+        </div>
+      </section>
 
-      <div className="panel">
+      <section className="panel" aria-label="动态任务与尝试">
         <div className="panel-head"><span className="panel-title">动态任务与尝试</span><span className="faint small">已结算 {metrics.terminal_tasks ?? 0}/{metrics.total_tasks ?? tasks.length}</span></div>
-        {tasks.length === 0 ? <div className="empty">尚未创建动态任务。</div> : (
-          <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead><tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}><th style={{ textAlign: 'left', padding: '8px 14px' }}>任务</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>状态</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>尝试</th><th style={{ textAlign: 'left', padding: '8px 10px' }}>结果摘要</th></tr></thead>
-            <tbody>{tasks.map((item) => <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}><td style={{ padding: '8px 14px' }}><div className="small">{item.title}</div><div className="mono faint small">{item.task_key}</div></td><td style={{ padding: '8px 10px' }}><span className={`chip chip-${item.state}`}>{item.state}</span></td><td style={{ padding: '8px 10px' }}>{item.attempts}/{item.max_attempts}</td><td className="small" style={{ padding: '8px 10px' }}>{item.result?.summary ?? item.error ?? '—'}</td></tr>)}</tbody>
-          </table></div>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="panel-head"><span className="panel-title">证据化结果</span><span className="faint small">{validFindings.length} 条引用通过 · {invalidFindings.length} 条保留为无效记录</span></div>
-        {findings.length === 0 ? <div className="empty">尚无发现。</div> : <div style={{ padding: '12px 16px' }} className="grid">{findings.map((finding) => <div key={finding.id} style={{ borderBottom: '1px solid var(--line-soft)', paddingBottom: 9 }}><div className="row"><span className={`chip chip-${finding.validation_state}`}>{finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}</span><strong className="small">{finding.title}</strong></div><div className="small" style={{ marginTop: 5 }}>{finding.summary}</div><div className="mono faint small" style={{ marginTop: 4 }}>{sourceReferences(finding)}</div></div>)}</div>}
-      </div>
+        <div className="panel-body">
+          {tasks.length === 0 ? <div className="empty">尚未创建动态任务。</div> : <Disclosure title={`查看任务结果（${tasks.length}）`}>
+            {tasks.map((item) => <Disclosure key={item.id} title={<span className="disclosure-heading"><span className={`chip chip-${item.state}`}>{item.state}</span><span className="disclosure-preview">{item.title}</span><span className="faint small">{item.attempts}/{item.max_attempts} 次</span></span>}>
+              <LongContent value={item.task_key} label="任务标识" />
+              <LongContent value={item.objective} label="任务目标" />
+              <LongContent value={item.result?.summary ?? item.error ?? '—'} label="结果摘要" />
+              <LongContent value={item.attempt_history ?? []} label="尝试历史" />
+            </Disclosure>)}
+          </Disclosure>}
+        </div>
+      </section>
+      <PlannerNavigation detail={detail} />
+      <ReportFindings detail={detail} />
+      <ReviewSummary detail={detail} confirmed={findings.filter((finding) => finding.verdict === 'confirmed').length} rejected={findings.filter((finding) => finding.verdict === 'rejected').length} />
     </div>
   );
+}
+
+function ReviewSummary({ detail, confirmed, rejected }: Pick<ReportViewProps, 'detail'> & { confirmed: number; rejected: number }) {
+  return <section className="panel" aria-label="人工复核清单">
+    <div className="panel-head"><span className="panel-title">人工复核清单</span><span className="faint small">在「发现与复核」中记录结论和附件</span></div>
+    <div className="panel-body small">待复核 {detail.metrics.awaiting_verification} 条 · 确认 {confirmed} 条 · 驳回 {rejected} 条</div>
+  </section>;
 }
 
 /** Historical target queue report retained only for old stored runs. */
@@ -380,187 +422,48 @@ function LegacyTargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
   const goals = detail.goals ?? [];
   const workItems = detail.work_items ?? [];
   const unitById = new Map(units.map((unit) => [unit.id, unit]));
-  const validFindings = findings.filter((finding) => finding.validation_state === 'candidate');
-  const invalidFindings = findings.filter((finding) => finding.validation_state !== 'candidate');
-  const confirmedFindings = findings.filter((finding) => finding.verdict === 'confirmed');
-  const rejectedFindings = findings.filter((finding) => finding.verdict === 'rejected');
   const finished = workItems.filter((item) => ['done', 'exhausted', 'blocked', 'skipped'].includes(item.state));
-  const pending = workItems.filter((item) => !['done', 'exhausted', 'blocked', 'skipped'].includes(item.state));
   const usedAttempts = workItems.reduce((total, item) => total + item.attempt, 0);
-
   if (!task) return null;
 
   return (
     <div className="grid">
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">目标审计报告</span>
-          <span className={`chip chip-${run.status}`}>{TARGET_RUN_STATUS_LABELS[run.status] ?? run.status}</span>
-        </div>
-        <div style={{ padding: '12px 16px' }} className="grid">
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))' }}>
-            <div className="field">
-              <span className="field-label">目标</span>
-              <span className="small">{task.objective}</span>
-            </div>
-            <div className="field">
-              <span className="field-label">验收条件</span>
-              <span className="small">{task.success_criteria}</span>
-            </div>
-            <div className="field">
-              <span className="field-label">冻结范围</span>
-              <span className="small">{scopeLabel(run, projectMap)}</span>
-            </div>
-            <div className="field">
-              <span className="field-label">执行预算</span>
-              <span className="small">每项 {task.max_iterations} 轮 · 总计 {usedAttempts}/{task.max_total_attempts} 次 · 最多 {task.max_workers} 个 worker</span>
-            </div>
+      <section className="panel" aria-label="历史目标审计报告">
+        <div className="panel-head"><span className="panel-title">目标审计报告</span><span className={`chip chip-${run.status}`}>{TARGET_RUN_STATUS_LABELS[run.status] ?? run.status}</span></div>
+        <div className="panel-body grid">
+          <div className="grid detail-fields">
+            <div className="field"><LongContent value={task.objective} label="报告审计目标" /></div>
+            <div className="field"><LongContent value={task.success_criteria} label="报告验收条件" /></div>
+            <div className="field"><span className="field-label">冻结范围</span><span className="small">{scopeLabel(run, projectMap)}</span></div>
+            <div className="field"><span className="field-label">执行预算</span><span className="small">每项 {task.max_iterations} 轮 · 总计 {usedAttempts}/{task.max_total_attempts} 次 · 最多 {task.max_workers} 个 worker</span></div>
           </div>
-          <div className="small muted">
-            此报告仅说明本次冻结源码范围、目标与预算内的审计结果。它不使用固定漏洞类别、真值集或混淆矩阵，
-            也不会把预算耗尽解释为项目不存在其他风险。
-          </div>
+          <p className="small muted">此报告记录当次目标队列结果；受阻或预算耗尽仍保留为未决结果。</p>
+          <Disclosure title="运行参数与冻结范围"><LongContent value={{ 快照: run.snapshot_id, 名称: run.snapshot_name, 模型: run.model, 预算: run.budgets, 用量: run.usage, 范围: scopeLabel(run, projectMap), 显式文件列表: run.scope, 模型档案: run.model_profile }} label="运行参数与冻结范围" /></Disclosure>
         </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">可复现信息</span>
-          <span className="faint small">运行参数与源码范围随任务固定</span>
-        </div>
-        <div style={{ padding: '12px 16px' }} className="small grid">
-          <div>快照 <span className="mono">{run.snapshot_id}</span>（{run.snapshot_name}）</div>
-          <div>模型 <span className="mono">{run.model}</span> · 响应 {run.usage.requests} 次 · 工具调用 {run.usage.tool_calls} 次</div>
-          <div>范围：</div>
-          <div className="mono faint" style={{ overflowWrap: 'anywhere', maxHeight: 100, overflowY: 'auto' }}>
-            {(run.scope ?? []).join('\n') || scopeLabel(run, projectMap)}
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">目标终态</span>
-          <span className="faint small">依据协调器记录的工作项结论和验收条件</span>
-        </div>
-        {goals.length === 0 ? (
-          <div className="empty">协调器尚未写入目标状态。</div>
-        ) : (
-          <div>
-            {goals.map((goal) => (
-              <div key={goal.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-soft)' }}>
-                <div className="row" style={{ flexWrap: 'wrap' }}>
-                  <span className={`chip chip-${goal.status}`}>{TARGET_GOAL_STATUS_LABELS[goal.status] ?? goal.status}</span>
-                  <span className="small">尝试 {goal.attempts}/{goal.max_total_attempts} 次</span>
-                </div>
-                <div className="small" style={{ marginTop: 4 }}>{goal.objective}</div>
-                {goal.terminal_reason && <div className="faint small" style={{ marginTop: 3 }}>{goal.terminal_reason}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">证据化结果</span>
-          <span className="faint small">{validFindings.length} 条引用校验通过 · {invalidFindings.length} 条不计入可信结果</span>
-        </div>
-        {findings.length === 0 ? (
-          <div className="empty">没有生成满足验收条件的发现。</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
-                  <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>结论</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>类型</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>源码证据</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>验证</th>
-                </tr>
-              </thead>
-              <tbody>
-                {findings.map((finding) => (
-                  <tr key={finding.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                    <td style={{ padding: '8px 14px', minWidth: 220 }}>
-                      <div className="small" style={{ fontWeight: 500 }}>{finding.title}</div>
-                      <div className="faint small" style={{ marginTop: 3 }}>{finding.summary}</div>
-                    </td>
-                    <td style={{ padding: '8px 10px', minWidth: 120 }}>
-                      <div className="small">{finding.finding_kind || '源码观察'}</div>
-                      <div className="faint small">{finding.severity || '未分级'}</div>
-                    </td>
-                    <td className="mono small" style={{ padding: '8px 10px', minWidth: 220 }}>{sourceReferences(finding)}</td>
-                    <td style={{ padding: '8px 10px', minWidth: 110 }}>
-                      <span className={`chip chip-${finding.validation_state}`}>
-                        {finding.validation_state === 'candidate' ? '引用通过' : '引用不通过'}
-                      </span>
-                      {finding.verdict && <div className="faint small" style={{ marginTop: 3 }}>{finding.verdict}</div>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">工作项完成情况</span>
-          <span className="faint small">已结算 {finished.length}/{workItems.length} · 仍在处理 {pending.length}</span>
-        </div>
-        {workItems.length === 0 ? (
-          <div className="empty">工作队列尚未建立。</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
-                  <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 500 }}>范围</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>状态</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>轮次</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 500 }}>最近结论</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workItems.map((item) => {
-                  const unit = unitById.get(item.unit_id);
-                  return (
-                    <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                      <td style={{ padding: '8px 14px', minWidth: 220 }}>
-                        <div className="mono small">{unit ? `${unit.file_path}:${unit.start_line}-${unit.end_line}` : item.unit_id}</div>
-                        <div className="faint small">{item.summary}</div>
-                      </td>
-                      <td style={{ padding: '8px 10px' }}><span className={`chip chip-${item.state}`}>{TARGET_WORK_STATE_LABELS[item.state] ?? item.state}</span></td>
-                      <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{item.attempt}/{item.max_attempts}</td>
-                      <td style={{ padding: '8px 10px', minWidth: 220 }}>
-                        <div className="small">{item.error || item.result?.summary || '—'}</div>
-                        {item.result?.terminal_reason && <div className="faint small">{item.result.terminal_reason}</div>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">人工复核清单</span>
-          <span className="faint small">在“发现与复核”中记录结论和附件</span>
-        </div>
-        <div style={{ padding: '12px 16px' }} className="small">
-          <div>待人工复核：<strong>{metrics.awaiting_verification}</strong> 条。</div>
-          <div>确认结论：<strong>{confirmedFindings.length}</strong> 条；驳回结论：<strong>{rejectedFindings.length}</strong> 条。</div>
-          <div>证据引用不通过：<strong>{invalidFindings.length}</strong> 条，已从可信结果中排除。</div>
-          <div style={{ marginTop: 7 }} className="muted">
-            “执行轨迹”保留工具调用、worker 状态和模型提供的可审计依据摘要；不显示或导出模型内部思维链。
-          </div>
-        </div>
-      </div>
+      </section>
+      <section className="panel" aria-label="目标终态">
+        <div className="panel-head"><span className="panel-title">目标终态</span><span className="faint small">{goals.length} 条记录</span></div>
+        <div className="panel-body">{goals.length === 0 ? <div className="empty">协调器尚未写入目标状态。</div> : goals.map((goal) => <Disclosure key={goal.id} title={<span className="disclosure-heading"><span className={`chip chip-${goal.status}`}>{TARGET_GOAL_STATUS_LABELS[goal.status] ?? goal.status}</span><span className="faint small">尝试 {goal.attempts}/{goal.max_total_attempts} 次</span></span>}>
+          <LongContent value={goal.objective} label="目标" />
+          <LongContent value={goal.terminal_reason || '尚未收束'} label="终态依据" />
+        </Disclosure>)}</div>
+      </section>
+      <PlannerNavigation detail={detail} />
+      <ReportFindings detail={detail} />
+      <section className="panel" aria-label="工作项完成情况">
+        <div className="panel-head"><span className="panel-title">工作项完成情况</span><span className="faint small">已结算 {finished.length}/{workItems.length}</span></div>
+        <div className="panel-body">{workItems.length === 0 ? <div className="empty">工作队列尚未建立。</div> : <Disclosure title={`查看历史工作项（${workItems.length}）`}>
+          {workItems.map((item) => {
+            const unit = unitById.get(item.unit_id);
+            return <Disclosure key={item.id} title={<span className="disclosure-heading"><span className={`chip chip-${item.state}`}>{TARGET_WORK_STATE_LABELS[item.state] ?? item.state}</span><span className="mono disclosure-preview">{unit ? `${unit.file_path}:${unit.start_line}-${unit.end_line}` : item.unit_id}</span><span className="faint small">{item.attempt}/{item.max_attempts} 次</span></span>}>
+              <LongContent value={item.summary} label="工作项摘要" />
+              <LongContent value={item.error || item.result?.summary || '—'} label="结果摘要" />
+              {item.result?.terminal_reason && <LongContent value={item.result.terminal_reason} label="终止依据" />}
+            </Disclosure>;
+          })}
+        </Disclosure>}</div>
+      </section>
+      <ReviewSummary detail={detail} confirmed={findings.filter((finding) => finding.verdict === 'confirmed').length} rejected={findings.filter((finding) => finding.verdict === 'rejected').length} />
     </div>
   );
 }

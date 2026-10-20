@@ -718,6 +718,9 @@ def _sse(event: dict) -> str:
     return f"id: {event['id']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
+SSE_HEARTBEAT_SECONDS = 20
+
+
 @app.get("/api/runs/{run_id}/events")
 async def stream_events(request: Request, run_id: str, after: int = Query(0, ge=0)):
     state = services(request)
@@ -736,26 +739,29 @@ async def stream_events(request: Request, run_id: str, after: int = Query(0, ge=
         position = resume_from
         try:
             while True:
-                batch = await asyncio.to_thread(state.store.list_events, run_id, position, 500)
-                if not batch:
-                    break
-                for event in batch:
-                    position = event["id"]
-                    yield _sse(event)
-            while True:
                 if await request.is_disconnected():
                     return
+                # Notifications only wake the reader. Drain old wakeups before replaying
+                # so an emission during a database read leaves a fresh wakeup behind.
+                # A full queue may drop notifications, but the durable log retains every
+                # event, including those emitted while a slow client is consuming a batch.
+                while not queue.empty():
+                    queue.get_nowait()
+                while True:
+                    batch = await asyncio.to_thread(state.store.list_events, run_id, position, 500)
+                    if not batch:
+                        break
+                    for event in batch:
+                        position = event["id"]
+                        yield _sse(event)
+                    if await request.is_disconnected():
+                        return
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=20)
+                    await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
                 except asyncio.TimeoutError:
                     yield ": ping\n\n"
-                    continue
-                # Events queued between the subscribe and the end of the replay are already
-                # in the log, so skip them rather than showing them twice.
-                if event["id"] <= position:
-                    continue
-                position = event["id"]
-                yield _sse(event)
+                # Both notifications and heartbeats replay after the last delivered ID.
+                # IDs are global across runs, so gaps do not imply missing run events.
         finally:
             state.bus.unsubscribe(run_id, queue)
 

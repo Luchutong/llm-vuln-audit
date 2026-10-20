@@ -1,71 +1,91 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { api, errorText } from './api';
 import type { AuditEvent } from './types';
 
-/**
- * Follow one run's event stream.
- *
- * The server writes every event to SQLite before pushing it, so the stream is only a
- * nudge: on reconnect we ask for everything after the last id we stored. EventSource
- * does that for us through `Last-Event-ID` when the browser reconnects on its own, but
- * a reconnect we trigger (run switched, stream errored) starts from scratch — hence
- * the id we pass explicitly as `after`.
- */
-export function useEvents(runId: string | null, onEvent?: (event: AuditEvent) => void) {
+/** SQLite is authoritative. A terminal run is drained through the paged event log. */
+export function useEvents(runId: string | null, onEvent?: (event: AuditEvent) => void, live: boolean | null = true) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [reconnects, setReconnects] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [retryVersion, setRetryVersion] = useState(0);
   const cursor = useRef(0);
   const handler = useRef(onEvent);
   handler.current = onEvent;
 
-  const reset = useCallback(() => {
+  useEffect(() => {
     cursor.current = 0;
     setEvents([]);
-  }, []);
+    setReconnects(0);
+    setError(null);
+  }, [runId]);
 
   useEffect(() => {
-    if (!runId) return;
-    reset();
-
+    if (!runId || live === null) return;
+    let disposed = false;
     let source: EventSource | null = null;
     let retry: number | undefined;
-    let closed = false;
-
-    const open = () => {
-      if (closed) return;
-      source = new EventSource(`/api/runs/${runId}/events?after=${cursor.current}`);
-      source.onopen = () => setConnected(true);
-      source.onmessage = (message) => {
-        let event: AuditEvent;
-        try {
-          event = JSON.parse(message.data) as AuditEvent;
-        } catch {
-          return;
-        }
-        // The server replays from the cursor, so a duplicate is possible after a
-        // reconnect; ignoring old ids keeps the timeline monotonic.
-        if (event.id <= cursor.current) return;
+    let flush: number | undefined;
+    let pending: AuditEvent[] = [];
+    const abort = new AbortController();
+    const publish = () => {
+      flush = undefined;
+      if (disposed || !pending.length) return;
+      const batch = pending;
+      pending = [];
+      setEvents((current) => [...current, ...batch]);
+      handler.current?.(batch[batch.length - 1]);
+    };
+    const accept = (items: AuditEvent[]) => {
+      for (const event of items) {
+        if (event.run_id !== runId || !Number.isSafeInteger(event.id) || event.id <= cursor.current) continue;
         cursor.current = event.id;
-        setEvents((current) => [...current, event]);
-        handler.current?.(event);
+        pending.push(event);
+      }
+      if (pending.length && flush === undefined) flush = window.setTimeout(publish, 60);
+    };
+    const drain = async () => {
+      try {
+        while (!disposed) {
+          const page = await api<{ events: AuditEvent[] }>(`/runs/${runId}/event-log?after=${cursor.current}`, { signal: abort.signal });
+          if (disposed) return;
+          const previous = cursor.current;
+          accept(page.events);
+          publish();
+          if (page.events.length < 2000 || cursor.current === previous) break;
+        }
+        if (!disposed) setError(null);
+      } catch (exc) { if (!disposed) setError(errorText(exc)); }
+    };
+    const open = () => {
+      if (disposed) return;
+      source = new EventSource(`/api/runs/${runId}/events?after=${cursor.current}`);
+      source.onopen = () => { if (!disposed) { setConnected(true); setError(null); } };
+      source.onmessage = (message) => {
+        if (disposed) return;
+        try { accept([JSON.parse(message.data) as AuditEvent]); } catch { /* Ignore malformed frames. */ }
       };
       source.onerror = () => {
+        if (disposed) return;
+        publish();
         setConnected(false);
         source?.close();
-        if (closed) return;
         setReconnects((count) => count + 1);
         retry = window.setTimeout(open, 2000);
       };
     };
-
-    open();
+    setConnected(false);
+    if (live) open(); else void drain();
     return () => {
-      closed = true;
+      // Flush accepted frames before a live -> terminal transition, without replay duplicates.
+      publish();
+      disposed = true;
+      abort.abort();
       window.clearTimeout(retry);
+      window.clearTimeout(flush);
       source?.close();
-      setConnected(false);
     };
-  }, [runId, reset]);
+  }, [runId, live, retryVersion]);
 
-  return { events, connected, reconnects, cursor: cursor.current, reset };
+  return { events, connected, reconnects, cursor: cursor.current, error, retry: () => setRetryVersion((value) => value + 1) };
 }

@@ -34,14 +34,14 @@ export function SourceViewer({
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let live = true;
+    const abort = new AbortController();
     setSource(null);
     setError(null);
-    api<Source>(`/snapshots/${snapshotId}/source?path=${encodeURIComponent(path)}&start=${start}&end=${end}`)
-      .then((data) => live && setSource(data))
-      .catch((exc) => live && setError(errorText(exc)));
+    api<Source>(`/snapshots/${snapshotId}/source?path=${encodeURIComponent(path)}&start=${start}&end=${end}`, { signal: abort.signal })
+      .then((data) => !abort.signal.aborted && setSource(data))
+      .catch((exc) => !abort.signal.aborted && setError(errorText(exc)));
     return () => {
-      live = false;
+      abort.abort();
     };
   }, [snapshotId, path, start, end]);
 
@@ -56,16 +56,20 @@ export function SourceViewer({
   useEffect(() => {
     const first = source?.lines.find((line) => hit.has(line.number));
     if (first && box.current) {
-      const row = box.current.querySelector(`[data-line="${first.number}"]`);
-      row?.scrollIntoView({ block: 'center' });
+      const row = box.current.querySelector<HTMLDivElement>(`[data-line="${first.number}"]`);
+      if (row) {
+        const container = box.current;
+        const top = row.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+        container.scrollTop = Math.max(0, top - container.clientHeight / 2 + row.clientHeight / 2);
+      }
     }
   }, [source, hit]);
 
-  if (error) return <div className="error-box">{error}</div>;
-  if (!source) return <div className="empty">读取源码…</div>;
+  if (error) return <div role="alert" className="error-box">{error}</div>;
+  if (!source) return <div role="status" className="empty">读取源码…</div>;
 
   return (
-    <div className="source" style={{ maxHeight: height }} ref={box}>
+    <div className="source" role="region" aria-label={`${path} 第 ${start} 至 ${end} 行源码`} tabIndex={0} style={{ maxHeight: height }} ref={box}>
       {source.lines.map((line) => (
         <div
           key={line.number}

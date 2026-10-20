@@ -1,0 +1,175 @@
+import asyncio
+import json
+
+import httpx
+import pytest
+
+from audit.poc_runner import (
+    MAX_JSON_BYTES,
+    PocRunnerClient,
+    PocRunnerError,
+    PocRunnerUnavailable,
+    artifact_manifest,
+)
+
+
+def _client(handler, *, token="secret-token", base_url="http://runner:8080") -> PocRunnerClient:
+    return PocRunnerClient(base_url, token, transport=httpx.MockTransport(handler))
+
+
+def _run(client: PocRunnerClient, coro_factory):
+    async def main():
+        try:
+            return await coro_factory()
+        finally:
+            await client.aclose()
+
+    return asyncio.run(main())
+
+
+def test_health_sends_bearer_token_and_parses_json():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"ok": True, "capabilities": {"php": True}})
+
+    client = _client(handler)
+    result = _run(client, client.health)
+
+    assert result["ok"] is True
+    assert seen == {"auth": "Bearer secret-token", "path": "/healthz"}
+
+
+def test_connection_failure_maps_to_unavailable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    client = _client(handler)
+    with pytest.raises(PocRunnerUnavailable):
+        _run(client, client.target_status)
+
+
+def test_timeout_maps_to_unavailable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    client = _client(handler)
+    with pytest.raises(PocRunnerUnavailable):
+        _run(client, client.prepare_target)
+
+
+def test_unconfigured_runner_never_opens_a_connection():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("transport must not be used")
+
+    client = PocRunnerClient("", "token", transport=httpx.MockTransport(handler))
+    with pytest.raises(PocRunnerUnavailable):
+        asyncio.run(client.health())
+
+
+def test_runner_client_never_uses_environment_proxies():
+    # A developer's HTTP(S)_PROXY must not capture private runner traffic; the real service
+    # answered 502 for prepare until trust_env was disabled.
+    client = PocRunnerClient("http://runner:8080", "secret-token")
+    try:
+        assert client._http().trust_env is False
+    finally:
+        asyncio.run(client.aclose())
+
+
+def test_rejection_is_sanitized_and_truncated():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"detail": "bad script secret-token " + "x" * 800})
+
+    client = _client(handler)
+    with pytest.raises(PocRunnerError) as excinfo:
+        _run(client, lambda: client.run_job(target="dvwa", language="php", script="<?php echo 1;"))
+
+    message = str(excinfo.value)
+    assert "secret-token" not in message
+    assert len(message) < 500
+
+
+def test_oversized_response_is_refused():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{" + b" " * (MAX_JSON_BYTES + 10) + b"}")
+
+    client = _client(handler)
+    with pytest.raises(PocRunnerError):
+        _run(client, client.health)
+
+
+def test_non_object_json_is_refused():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=json.dumps([1, 2, 3]).encode())
+
+    client = _client(handler)
+    with pytest.raises(PocRunnerError):
+        _run(client, client.target_status)
+
+
+def test_artifact_fetch_returns_bytes():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/jobs/abc123/artifacts/out.txt"
+        return httpx.Response(200, content=b"evidence")
+
+    client = _client(handler)
+    assert _run(client, lambda: client.fetch_artifact("abc123", "out.txt")) == b"evidence"
+
+
+def test_artifact_names_cannot_escape_the_job_directory():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("transport must not be used")
+
+    client = _client(handler)
+    with pytest.raises(PocRunnerError):
+        asyncio.run(client.fetch_artifact("abc123", "../../etc/passwd"))
+
+
+def test_unknown_language_is_rejected_before_the_request():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("transport must not be used")
+
+    client = _client(handler)
+    with pytest.raises(PocRunnerError):
+        _run(client, lambda: client.run_job(target="dvwa", language="bash", script="id"))
+
+
+def test_job_payload_is_bounded_and_complete():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"job_id": "j1", "status": "finished", "exit_code": 0})
+
+    client = _client(handler)
+    result = _run(
+        client,
+        lambda: client.run_job(
+            target="dvwa",
+            language="PHP",
+            script="<?php echo 'x';",
+            timeout_seconds=900,
+            artifacts=[f"a{i}" for i in range(20)],
+        ),
+    )
+
+    assert result["job_id"] == "j1"
+    assert seen["language"] == "php"
+    assert seen["timeout_seconds"] == 120
+    assert len(seen["artifacts"]) == 8
+
+
+def test_artifact_manifest_keeps_only_safe_entries():
+    manifest = artifact_manifest(
+        {
+            "artifacts": [
+                {"name": "out.txt", "sha256": "abc", "size": 3},
+                {"name": "../escape", "sha256": "x", "size": 1},
+                "not-a-dict",
+            ]
+        }
+    )
+    assert manifest == [{"name": "out.txt", "sha256": "abc", "size": 3}]

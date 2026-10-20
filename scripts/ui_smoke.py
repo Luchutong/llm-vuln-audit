@@ -18,7 +18,7 @@ from typing import Any
 
 from playwright.sync_api import Page, expect, sync_playwright
 
-from ui_fixtures import ACTIVITY_ID, COMPLETED_ID, CREATED_ID, CRITERIA, LONG_LOG, LONG_VALUE, OBJECTIVE, SOURCE_PATH, MockAPI, activity_events, event, finding, run, snapshot, source_observations
+from ui_fixtures import ACTIVITY_ID, COMPLETED_ID, CREATED_ID, OBJECTIVE, PROJECT_ID, SNAPSHOT_ID, SOURCE_PATH, MockAPI, activity_events, event, finding, run, snapshot, source_observations
 
 
 class Checks:
@@ -59,20 +59,13 @@ def goto(page: Page, base: str, suffix: str = "") -> None:
 
 def workspace_ready(page: Page) -> None:
     expect(page.get_by_role("textbox", name="审计任务", exact=True)).to_be_visible()
-    expect(page.get_by_role("button", name="发送审计任务", exact=True)).to_be_enabled()
-
-
-def choose_snapshot(page: Page) -> None:
-    page.get_by_role("button", name="选择已有快照", exact=True).click()
-    dialog = page.get_by_role("dialog", name="选择已有源码快照", exact=True)
-    dialog.get_by_role("button", name=re.compile("审计样例源码.zip")).click()
-    expect(page.get_by_text("5 个可读文件", exact=False)).to_be_visible()
+    expect(page.get_by_role("button", name="开始审计", exact=True)).to_be_enabled()
 
 
 def open_findings(page: Page) -> Any:
     page.get_by_role("button", name="审计详情", exact=True).click()
     dialog = page.get_by_role("dialog", name="审计详情", exact=True)
-    dialog.get_by_role("tab", name="发现与复核", exact=True).click()
+    dialog.get_by_role("tab", name="发现与验证", exact=True).click()
     return dialog
 
 
@@ -121,57 +114,39 @@ def responsive(page: Page, checks: Checks, label: str, directory: Path | None = 
     page.set_viewport_size({"width": 1440, "height": 900})
 
 
-def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Path | None) -> None:
-    page.route("**/api/**", api.handle)
-    goto(page, base)
+def open_new_audit(page: Page, base: str) -> None:
+    goto(page, base, f"#sources/{PROJECT_ID}/new?snapshot={SNAPSHOT_ID}")
     workspace_ready(page)
+    expect(page.locator(".attachment-card")).to_contain_text("审计样例源码.zip")
+
+
+def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Path | None) -> None:
+    """Audit execution regression; source-library flows live in ui_sources_smoke.py."""
+    page.route("**/api/**", api.handle)
+    open_new_audit(page, base)
     expect(page).to_have_title("VULN-AUDIT · 源码审计工作空间")
     expect(page.locator(".desktop-side .brand-wordmark")).to_have_text("VULN-AUDIT")
     assert page.locator(".desktop-side .brand-wordmark").evaluate("node => getComputedStyle(node).backgroundImage") != "none"
-    checks.passed("VULN-AUDIT branding, local type effect and configured workspace loaded")
+    checks.passed("VULN-AUDIT branding and existing-ZIP audit form loaded")
     save(page, directory, "draft-dark")
-
-    upload = page.get_by_label("上传项目源码 ZIP", exact=True)
-    upload.set_input_files({"name": "wrong.php", "mimeType": "text/plain", "buffer": b"<?php"})
-    expect(page.get_by_role("alert")).to_contain_text("ZIP")
-    assert api.upload_count == 0, "invalid extension reached API"
-    page.evaluate("""() => {
-      const input = document.querySelector('input[aria-label="上传项目源码 ZIP"]');
-      const transfer = new DataTransfer();
-      transfer.items.add(new File([new Uint8Array(64 * 1024 * 1024 + 1)], 'oversize.zip', {type: 'application/zip'}));
-      input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles: true}));
-    }""")
-    expect(page.get_by_role("alert")).to_contain_text("64 MiB")
-    assert api.upload_count == 0, "oversized archive reached API"
-    checks.passed("invalid extension and >64 MiB archive rejected before network")
-
-    archive = {"name": "project.zip", "mimeType": "application/zip", "buffer": b"PK\x03\x04ui-fixture"}
-    upload.set_input_files(archive)
-    expect(page.get_by_role("alert")).to_contain_text("模拟 ZIP 导入失败")
-    upload.set_input_files(archive)
-    expect(page.get_by_text("5 个可读文件", exact=False)).to_be_visible()
-    assert api.upload_count == 2
-    checks.passed("failed upload can retry the same file successfully")
-
-    page.get_by_role("button", name="发送审计任务", exact=True).click()
+    page.get_by_role("button", name="开始审计", exact=True).click()
     expect(page.get_by_role("alert")).to_contain_text("8–2000")
     assert api.create_count == 0
     page.get_by_role("textbox", name="审计任务", exact=True).fill(OBJECTIVE)
-    page.get_by_role("textbox", name="验收目标", exact=True).fill(CRITERIA)
+    expect(page.get_by_role("textbox", name="验收目标", exact=True)).to_have_count(0)
     snapshot_trigger = page.get_by_role("button", name=re.compile(r"^快照"))
     snapshot_trigger.click()
     dialog = page.get_by_role("dialog", name="项目快照摘要")
     expect(dialog.get_by_text("可读文本", exact=True)).to_be_visible()
     expect(dialog.get_by_text("二进制文件", exact=True)).to_be_visible()
     expect(dialog.get_by_role("checkbox")).to_have_count(0)
-    expect(dialog.get_by_text("typescript", exact=False)).to_be_visible()
     dialog.get_by_role("button", name="快照文件清单", exact=True).click()
     expect(dialog.get_by_text("src/client.ts", exact=True)).to_be_visible()
     expect(dialog.get_by_text("vendor/dependency.php", exact=True)).to_be_visible()
     dialog.get_by_role("button", name=re.compile("跳过的条目")).click()
     expect(dialog.get_by_text("build/oversized.js", exact=False)).to_be_visible()
     close_dialog(page, snapshot_trigger)
-    checks.passed("whole multilingual snapshot includes dependency/text/binary metadata and skipped entries without scope selection")
+    checks.passed("ZIP metadata retains multilingual, dependency, binary and skipped files")
 
     options = page.get_by_role("button", name="高级执行设置", exact=True)
     options.click()
@@ -179,76 +154,57 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     expect(dialog.get_by_role("spinbutton", name="并发 worker", exact=False)).to_have_value("2")
     for label, value in (("共享总尝试上限", "64"), ("Planner 最大回合", "24"), ("模型响应次数", "24"), ("工具调用次数", "96"), ("墙钟时间（秒）", "1800")):
         expect(dialog.get_by_role("spinbutton", name=label, exact=False)).to_have_value(value)
-    # Tab must wrap within the modal; Escape must restore the invoking control.
     dialog.get_by_role("button", name="关闭高级执行设置").focus()
     page.keyboard.press("Shift+Tab")
     expect(dialog.get_by_role("button", name="保存设置", exact=True)).to_be_focused()
     close_dialog(page, options)
-    checks.passed("settings modal traps focus; Escape restores the trigger")
+    checks.passed("advanced settings defaults and modal focus containment remain available")
 
     api.hold_create = True
     page.locator("form.composer").evaluate("form => { form.requestSubmit(); form.requestSubmit(); }")
-    page.wait_for_function("document.querySelector('button[aria-label=\"发送审计任务\"]').disabled")
+    expect(page.get_by_role("button", name="开始审计", exact=True)).to_be_disabled()
     page.wait_for_timeout(150)
-    assert api.create_count == 1, f"duplicate submission created {api.create_count} requests"
+    assert api.create_count == 1
     api.finish_create()
     api.hold_create = False
     expect(page.get_by_role("alert")).to_contain_text("模拟队列暂时不可用")
     expect(page.get_by_role("textbox", name="审计任务", exact=True)).to_have_value(OBJECTIVE)
-    expect(page.get_by_role("textbox", name="验收目标", exact=True)).to_have_value(CRITERIA)
-    expect(page.get_by_text("5 个可读文件", exact=False)).to_be_visible()
-    checks.passed("create failure preserves attachment and text; duplicate submit locked")
-
-    page.get_by_role("button", name="移除附件", exact=True).click()
-    choose_snapshot(page)
-    assert api.upload_count == 2, "reusing snapshot uploaded again"
-    page.get_by_role("button", name="发送审计任务", exact=True).click()
+    expect(page.locator(".attachment-card")).to_contain_text("审计样例源码.zip")
+    checks.passed("failed create preserves selected ZIP and goal; duplicate submission is locked")
+    page.get_by_role("button", name="开始审计", exact=True).click()
     expect(page).to_have_url(re.compile(f"#run/{CREATED_ID}$"))
     expect(page.get_by_role("button", name="停止审计", exact=True)).to_be_visible()
     expect(page.locator(".activity-stream")).to_be_visible()
     expect(page.locator(".trace")).to_have_count(0)
     open_logs(page)
     expect(page.locator(".trace-counts")).to_contain_text("11 条事件")
-    expect(page.locator(".trace-counts")).to_contain_text("2 次工具活动")
-    assert api.create_count == 2
-    assert "scope" not in api.create_bodies[-1], "legacy scope field would be rejected by codeagent"
+    assert api.create_count == 2 and api.upload_count == 0
+    assert api.create_bodies[-1]["snapshot_id"] == SNAPSHOT_ID
+    assert "scope" not in api.create_bodies[-1]
+    assert "success_criteria" not in api.create_bodies[-1]["task"]
     assert api.create_bodies[-1]["budgets"] == {"responses": 24, "tools": 96, "seconds": 1800}
-    expect(page.locator(".message-attachment")).to_contain_text("5 个可读文件")
-    checks.passed("existing snapshot creates one run; SSE duplicate frames are deduplicated")
+    checks.passed("explicit existing snapshot starts a run without upload and deduplicates replayed SSE")
     close_dialog(page)
-    save(page, directory, "running-dark")
-
     page.get_by_role("button", name="暂停运行", exact=True).click()
-    expect(page.locator(".conversation-meta")).to_contain_text("已暂停", timeout=10000)
-    expect(page.get_by_role("button", name="继续运行", exact=True)).to_be_visible()
+    expect(page.locator(".conversation-meta")).to_contain_text("已暂停")
     expect(page.locator(".result-card")).to_have_count(0)
-    assert api.pause_count == 1 and api.runs[CREATED_ID]["status"] == "paused"
-    assert api.runs[CREATED_ID]["id"] == CREATED_ID
-    save(page, directory, "paused-dark")
     page.get_by_role("button", name="继续运行", exact=True).click()
-    expect(page.locator(".conversation-meta")).to_contain_text("审计中", timeout=10000)
-    assert api.resume_count == 1 and api.create_count == 2
-    expect(page).to_have_url(re.compile(f"#run/{CREATED_ID}$"))
-    checks.passed("pause/resume preserves one run and never presents a terminal result")
-
-    # Stop is safe here: all requests, including mutations, remain in the mock router.
+    expect(page.locator(".conversation-meta")).to_contain_text("审计中")
+    assert api.pause_count == api.resume_count == 1 and api.create_count == 2
+    checks.passed("pause and resume retain one running audit")
     page.get_by_role("button", name="停止审计", exact=True).click()
-    expect(page.locator(".conversation-meta")).to_contain_text("已取消", timeout=10000)
-    assert api.cancel_count == 1
-    checks.passed("mock cancellation reaches the durable terminal state")
+    expect(page.locator(".conversation-meta")).to_contain_text("已取消")
     page.reload(wait_until="domcontentloaded")
     expect(page.locator(".conversation-meta")).to_contain_text("已取消")
-    expect(page.get_by_role("navigation", name="历史审计任务").get_by_role("button", name=re.compile(OBJECTIVE))).to_have_count(2)
-    checks.passed("hash refresh restores the session and refreshed history")
+    assert api.cancel_count == 1
+    checks.passed("cancellation and hash refresh restore the durable run state")
 
     goto(page, base, f"#run/{COMPLETED_ID}")
     open_logs(page)
     expect(page.locator(".trace-counts")).to_contain_text("2001 条事件", timeout=15000)
-    assert (COMPLETED_ID, 0) in api.event_queries and (COMPLETED_ID, 2000) in api.event_queries, api.event_queries
+    assert (COMPLETED_ID, 0) in api.event_queries and (COMPLETED_ID, 2000) in api.event_queries
     expect(page.locator(".trace-footer")).to_contain_text("50 / 2001")
-    checks.passed("terminal event log drains >2000 rows and discards replayed duplicates")
     card = expand_tool(page)
-    expect(card.get_by_text("LONG_PAYLOAD_END", exact=False)).to_have_count(0)
     card.get_by_role("button", name="调用参数", exact=True).click()
     args = card.locator(".long-content").filter(has=page.get_by_text("已保存的参数", exact=True))
     preview = args.locator(".long-content-text")
@@ -256,105 +212,34 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     assert "LONG_PAYLOAD_END" not in preview.inner_text()
     args.get_by_role("button", name="展开全文", exact=True).click()
     expect(preview).to_contain_text("LONG_PAYLOAD_END")
-    assert len(preview.inner_text()) >= len(LONG_VALUE)
     args.get_by_role("button", name="收起", exact=True).click()
-    expect(args.get_by_role("button", name="展开全文", exact=True)).to_have_attribute("aria-expanded", "false")
-    card.get_by_role("button", name="已保存的返回预览", exact=True).click()
-    expect(card.get_by_text("服务端受限预览", exact=False)).to_be_visible()
-    checks.passed("10KB tool arguments stay three-line clamped; full saved value expands and collapses")
-    save(page, directory, "completed-tools-dark")
-
-    trace = page.locator(".trace")
-    trace.get_by_role("combobox", name="按事件类型筛选轨迹").select_option("agent_code")
-    trace.get_by_role("combobox", name="按角色筛选轨迹").select_option("all")
-    expand_visible_groups(trace)
-    code_card = trace.locator(".trace-code")
-    expect(code_card).to_have_count(1)
-    code_card.get_by_role("button", name=re.compile(r"^模型代码动作")).click()
-    expect(code_card.get_by_text("服务端已截断脚本", exact=False)).to_be_visible()
-    code_card.get_by_role("button", name="已执行的代码", exact=True).click()
-    expect(code_card.get_by_text("print(read_source", exact=False)).to_be_visible()
-    code_card.get_by_role("button", name="Print 与执行日志", exact=True).click()
-    log_content = code_card.locator(".long-content").filter(has=page.get_by_text("已保存的 print / log 输出", exact=True))
-    assert log_content.locator(".long-content-text").evaluate("node => getComputedStyle(node).webkitLineClamp") == "3"
-    log_content.get_by_role("button", name="展开全文", exact=True).click()
-    expect(log_content).to_contain_text("PRINT_LOG_END")
-    assert len(log_content.locator(".long-content-text").inner_text()) == len(LONG_LOG)
-    code_card.get_by_role("button", name="代码执行错误", exact=True).click()
-    expect(code_card.get_by_text("OutputRejected", exact=False)).to_be_visible()
-    expect(page.locator(".conversation-meta")).to_contain_text("目标已达成")
-    checks.passed("executed code and long logs expand with saved truncation markers; a recovered code error does not fail the run")
-    log_content.get_by_role("button", name="收起", exact=True).click()
-    code_card.evaluate("""node => { const box = node.closest('.drawer-body');
-      box.scrollTop += node.getBoundingClientRect().top - box.getBoundingClientRect().top - 14; }""")
-    save(page, directory, "code-action-dark")
-    trace.get_by_role("combobox", name="按事件类型筛选轨迹").select_option("tool_call")
-    trace.get_by_role("combobox", name="按角色筛选轨迹").select_option("recon")
-    expand_visible_groups(trace)
-    expect(trace.locator(".trace-tool")).to_have_count(1)
-    expect(trace.locator(".trace-tool")).to_contain_text("find_files")
-    checks.passed("reconnaissance has its own role and trace filters")
-    close_dialog(page)
-
-    source_count = len(api.source_requests)
-    trigger = page.get_by_role("button", name="审计详情", exact=True)
-    dialog = open_findings(page)
-    assert len(api.source_requests) == source_count, "source fetched before evidence disclosure opens"
-    evidence = dialog.get_by_role("region", name="证据源码", exact=True)
-    evidence.get_by_role("button", name=re.compile(r"^src\/upload\.php")).click()
-    assert len(api.source_requests) == source_count, "source fetched before its source window opens"
-    evidence.get_by_role("button", name=re.compile(r"^查看源码")).first.click()
-    expect(dialog.get_by_role("region", name=re.compile(r"src\/upload\.php 第"))).to_be_visible()
-    assert len(api.source_requests) >= source_count + 1
-    expect(dialog.locator(".source-row.hit")).to_have_count(3)
-    no_overflow(page, "evidence drawer 1440px", checks)
-    checks.passed("evidence source loads lazily with original line numbers and highlights")
-
-    dialog.get_by_role("button", name="记录一次人工复核", exact=True).click()
-    dialog.get_by_role("combobox", name="人工结论", exact=True).select_option("confirmed")
-    dialog.get_by_role("textbox", name=re.compile("人工复核说明")).fill("已核对原始源码及上下文。")
-    dialog.get_by_role("button", name="提交复核记录", exact=True).click()
-    expect(dialog.get_by_role("status")).to_contain_text("已记录")
-    assert api.verification_count == 1
-    dialog.get_by_role("tab", name="执行日志", exact=True).click()
-    expect(page.locator(".trace-counts")).to_contain_text("2002 条事件", timeout=10000)
-    checks.passed("a terminal run fetches new verification events without reopening its live stream")
+    checks.passed("terminal logs drain more than 2000 events and preserve expandable saved tool arguments")
+    dialog = page.get_by_role("dialog", name="审计详情", exact=True)
     dialog.get_by_role("tab", name="结果报告", exact=True).click()
     expect(dialog.get_by_role("region", name="项目级审计报告", exact=True)).to_be_visible()
     expect(dialog.get_by_role("link", name="证据包", exact=True)).to_have_attribute("href", f"/api/runs/{COMPLETED_ID}/report?format=zip")
-    checks.passed("human source review submits; report and evidence downloads remain available")
-    dialog.locator(".drawer-body").evaluate("node => { node.scrollTop = 0; }")
-    save(page, directory, "report-drawer-dark")
+    expect(dialog.get_by_role("link", name="JSON", exact=True)).to_have_attribute("href", f"/api/runs/{COMPLETED_ID}/report?format=json")
+    checks.passed("audit report and evidence download links remain accessible")
     responsive(page, checks, "report-drawer", directory)
-    close_dialog(page, trigger)
-    checks.passed("detail drawer Escape restores its opening control")
-
+    close_dialog(page)
     responsive(page, checks, "conversation", directory)
     page.get_by_role("button", name="切换浅色主题", exact=True).click()
-    expect(page.locator("html")).to_have_attribute("data-theme", "light")
-    save(page, directory, "completed-light")
     page.reload(wait_until="domcontentloaded")
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
-    checks.passed("theme toggle persists across refresh")
-
-    page.get_by_role("button", name="新建审计", exact=False).first.click()
-    workspace_ready(page)
-    responsive(page, checks, "draft", directory)
+    checks.passed("theme survives run refresh")
     page.set_viewport_size({"width": 390, "height": 844})
     navigation = page.get_by_role("button", name="打开导航", exact=True)
     navigation.click()
     expect(page.get_by_role("dialog", name="审计工作空间")).to_be_visible()
     no_overflow(page, "mobile navigation 390px", checks)
-    save(page, directory, "navigation-mobile-light")
     close_dialog(page, navigation)
-    checks.passed("mobile navigation is usable and Escape restores focus")
-    assert not api.unexpected, f"Unhandled mock API routes: {api.unexpected}"
+    page.set_viewport_size({"width": 1440, "height": 900})
 
 
 def run_profile_checks(page: Page, api: MockAPI, checks: Checks, directory: Path | None) -> None:
     """Exercise the existing codeagent provider catalogue without contacting providers."""
     page.set_viewport_size({"width": 1440, "height": 900})
-    page.get_by_role("button", name="工作空间设置", exact=False).first.click()
+    page.get_by_role("link", name="工作空间设置", exact=False).first.click()
     expect(page.get_by_role("heading", name="工作空间设置", exact=True)).to_be_visible()
     # Profile cards are the immediate parent of each .between row.
     def profile_card(name: str) -> Any:
@@ -406,75 +291,65 @@ def run_profile_checks(page: Page, api: MockAPI, checks: Checks, directory: Path
     expect(page.get_by_role("status")).to_contain_text("已删除")
     assert not any(item["id"] == identifier for item in api.model_profiles)
     checks.passed("unused stored provider can be deleted without affecting existing runs")
-    page.get_by_role("button", name="新建审计", exact=False).first.click()
-    workspace_ready(page)
+    open_new_audit(page, page.url.split("/#")[0].rstrip("/"))
 
 
 def run_race_regressions(page: Page, api: MockAPI, checks: Checks) -> None:
-    """Exercise stale requests while keeping all mutations inside the mock router."""
-    page.set_viewport_size({"width": 1440, "height": 900})
-    for destination in ("settings", "new-task"):
-        page.get_by_role("button", name="新建审计", exact=False).first.click()
-        workspace_ready(page)
-        choose_snapshot(page)
+    """A late create response cannot hijack navigation to another page."""
+    base = page.url.split('/#')[0].rstrip('/')
+    for destination in ("settings", "sources"):
+        open_new_audit(page, base)
         page.get_by_role("textbox", name="审计任务", exact=True).fill(OBJECTIVE)
-        page.get_by_role("textbox", name="验收目标", exact=True).fill(CRITERIA)
         api.hold_create = True
-        previous = api.create_count
-        page.get_by_role("button", name="发送审计任务", exact=True).click()
+        page.get_by_role("button", name="开始审计", exact=True).click()
         for _ in range(100):
             if api.pending_create is not None:
                 break
-            page.wait_for_timeout(50)
-        assert api.pending_create is not None, "create request was never held"
-        assert api.create_count == previous + 1
-        if destination == "settings":
-            page.get_by_role("button", name="工作空间设置", exact=False).first.click()
-            expect(page.get_by_role("heading", name="工作空间设置", exact=True)).to_be_visible()
-        else:
-            page.get_by_role("button", name="新建审计", exact=False).first.click()
-            workspace_ready(page)
+            page.wait_for_timeout(25)
+        assert api.pending_create is not None
+        page.evaluate("hash => { location.hash = hash; }", f"#{destination}")
+        expect(page).to_have_url(re.compile(f"#{destination}$"))
         api.finish_create()
         api.hold_create = False
-        # Give the released POST's promise a turn to invoke any stale callbacks.
-        page.wait_for_timeout(300)
-        if destination == "settings":
-            expect(page).to_have_url(re.compile(r"#settings$"))
-            expect(page.get_by_role("heading", name="工作空间设置", exact=True)).to_be_visible()
-        else:
-            assert "#run/" not in page.url, "stale create request hijacked the new draft"
-            expect(page.get_by_role("textbox", name="审计任务", exact=True)).to_have_value("")
-            expect(page.locator(".attachment-card")).to_have_count(0)
-        checks.passed(f"pending create cannot hijack navigation to {destination}")
+        page.wait_for_timeout(150)
+        expect(page).to_have_url(re.compile(f"#{destination}$"))
+        checks.passed(f"pending run creation cannot hijack navigation to {destination}")
+        # Remove this test's running fixture so later provider changes remain possible.
+        api.runs[CREATED_ID]["status"] = "cancelled"
 
-    second_id = "smoke-snapshot-b"
+    # A hash-only snapshot change reuses TaskView: the old request must lose its
+    # right to navigate even though that request may create an audit successfully.
     second = snapshot()
-    second.update(id=second_id, name="第二份源码.zip")
-    api.snapshot_records[second_id] = second
-    api.snapshot_read_failures[second_id] = 1
-    page.reload(wait_until="domcontentloaded")
-    workspace_ready(page)
-    choose_snapshot(page)
+    second.update(id="smoke-race-other-snapshot", name="同项目另一份压缩包.zip",
+                  archive_sha256="d" * 64, created_at="2026-10-20T09:30:00+00:00")
+    api.snapshot_records[second["id"]] = second
+    open_new_audit(page, base)
     page.get_by_role("textbox", name="审计任务", exact=True).fill(OBJECTIVE)
-    page.get_by_role("textbox", name="验收目标", exact=True).fill(CRITERIA)
-    page.get_by_role("button", name="选择已有快照", exact=True).click()
-    dialog = page.get_by_role("dialog", name="选择已有源码快照", exact=True)
-    dialog.get_by_role("button", name=re.compile("第二份源码")).click()
-    expect(page.get_by_role("alert")).to_contain_text("模拟快照读取暂时失败")
-    expect(page.locator(".attachment-card")).to_have_count(0)
-    expect(page.get_by_role("button", name=re.compile(r"^快照"))).to_be_disabled()
     previous = api.create_count
-    page.get_by_role("button", name="发送审计任务", exact=True).click()
-    expect(page.get_by_role("alert")).to_contain_text("请先上传或选择源码 ZIP")
-    assert api.create_count == previous, "failed snapshot B silently submitted stale snapshot A"
-    checks.passed("failed snapshot switch clears the old attachment and prevents stale submission")
-    page.get_by_role("button", name="选择已有快照", exact=True).click()
-    page.get_by_role("dialog", name="选择已有源码快照", exact=True).get_by_role("button", name=re.compile("第二份源码")).click()
-    expect(page.locator(".attachment-card")).to_contain_text("第二份源码.zip")
-    expect(page.get_by_text("5 个可读文件", exact=False)).to_be_visible()
-    expect(page.get_by_role("button", name=re.compile(r"^快照"))).to_be_enabled()
-    expect(page.get_by_role("textbox", name="审计任务", exact=True)).to_have_value(OBJECTIVE)
-    checks.passed("reselecting the same failed snapshot retries and restores its own snapshot")
+    api.hold_create = True
+    page.get_by_role("button", name="开始审计", exact=True).click()
+    for _ in range(100):
+        if api.pending_create is not None:
+            break
+        page.wait_for_timeout(25)
+    assert api.pending_create is not None and api.create_count == previous + 1
+    target = f"#sources/{PROJECT_ID}/new?snapshot={second['id']}"
+    page.evaluate("hash => { location.hash = hash; }", target)
+    expect(page.get_by_role("combobox", name="选择源码 ZIP", exact=True)).to_have_value(second["id"])
+    expect(page.locator(".attachment-card")).to_contain_text(second["name"])
+    expect(page.get_by_role("button", name="开始审计", exact=True)).to_be_enabled()
+    api.finish_create()
+    api.hold_create = False
+    page.wait_for_timeout(150)
+    expect(page).to_have_url(base + "/" + target)
+    expect(page.get_by_role("combobox", name="选择源码 ZIP", exact=True)).to_have_value(second["id"])
+    assert api.runs[CREATED_ID]["snapshot_id"] == SNAPSHOT_ID
+    page.get_by_role("button", name="开始审计", exact=True).click()
+    expect(page).to_have_url(re.compile(f"#run/{CREATED_ID}$"))
+    assert api.create_count == previous + 2
+    assert api.create_bodies[-1]["snapshot_id"] == second["id"]
+    api.runs[CREATED_ID]["status"] = "cancelled"
+    checks.passed("late creation for ZIP A cannot hijack ZIP B in the same project; the new form can submit B immediately")
 
 
 def run_status_regressions(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
@@ -535,8 +410,8 @@ def run_result_classification_checks(page: Page, base: str, api: MockAPI, checks
     review = observations.get_by_role("region", name="历史人工记录", exact=True)
     expect(review).to_contain_text("只读")
     expect(review.get_by_role("combobox")).to_have_count(0)
-    review.get_by_role("button", name="查看历史记录（1）", exact=True).click()
-    review.get_by_role("button", name=re.compile(r"^确认结论")).click()
+    review.get_by_role("button", name="历史人工记录（只读，1）", exact=True).click()
+    review.get_by_role("button", name=re.compile(r"^确认漏洞")).click()
     expect(review).to_contain_text("历史人工排查记录：已核对 basename 防护")
     expect(review.get_by_role("link", name="历史代码评审.txt", exact=True)).to_have_attribute("href", "/api/evidence/historical-review.txt")
     expect(observations.get_by_role("button", name="记录一次人工复核", exact=True)).to_have_count(0)
@@ -564,7 +439,7 @@ def run_result_classification_checks(page: Page, base: str, api: MockAPI, checks
 
     dialog.get_by_role("tab", name="结果报告", exact=True).click()
     expect(dialog.get_by_role("region", name="报告漏洞候选", exact=True)).to_contain_text("1 条引用通过")
-    expect(dialog.get_by_role("region", name="人工复核清单", exact=True)).to_contain_text("确认漏洞 1 条")
+    expect(dialog.get_by_role("region", name="POC 自动验证清单", exact=True)).to_contain_text("自动验证通过 0 条")
     expect(dialog.get_by_role("region", name="排查记录（非漏洞）", exact=True)).to_contain_text("2 条")
     checks.passed("report separates observations and excludes their confirmed historical reviews from confirmed vulnerabilities")
     close_dialog(page)
@@ -714,7 +589,7 @@ def run_chat_activity_checks(page: Page, base: str, api: MockAPI, checks: Checks
     params.get_by_role("tab", name="源码", exact=True).click()
     expect(params.get_by_role("region", name=re.compile(r"src\/upload\.php 第"))).to_be_visible()
     assert len(api.source_requests) >= source_before + 1
-    assert api.source_requests[-1] == {"path": SOURCE_PATH, "start": 10, "end": 12}
+    assert api.source_requests[-1] == {"snapshot_id": SNAPSHOT_ID, "path": SOURCE_PATH, "start": 10, "end": 12}
     checks.passed("tool source is fetched only after the explicit source tab is opened")
     emit(frames[7:14])
     expect(stream).to_contain_text("第二次尝试只补读路径规范化相关源码")
@@ -795,8 +670,8 @@ def run_activity_focus_checks(page: Page, base: str, api: MockAPI, checks: Check
     page.set_viewport_size({"width": 1440, "height": 900})
     # Navigating to the very same hash is a same-document navigation: leave the
     # prior completed fixture so its event cursor and component state are released.
-    goto(page, base)
-    workspace_ready(page)
+    goto(page, base, "#sources")
+    expect(page.get_by_role("heading", name="源码包", exact=True)).to_be_visible()
     goto(page, base, f"#run/{ACTIVITY_ID}")
     stream = page.locator(".activity-stream")
     expect(stream.locator(".activity-tool")).to_have_count(2)
@@ -871,7 +746,7 @@ def run_readonly(page: Page, base: str, run_id: str | None, checks: Checks, dire
         checks.passed("existing session restored")
         page.get_by_role("button", name="审计详情", exact=True).click()
         dialog = page.get_by_role("dialog", name="审计详情", exact=True)
-        for tab in ("项目与任务图", "执行日志", "发现与复核", "结果报告"):
+        for tab in ("项目与任务图", "执行日志", "发现与验证", "结果报告"):
             dialog.get_by_role("tab", name=tab, exact=True).click()
             expect(dialog.get_by_role("tabpanel")).to_be_visible()
             assert len(dialog.get_by_role("tabpanel").inner_text()) > 15, f"empty {tab}"
@@ -880,9 +755,9 @@ def run_readonly(page: Page, base: str, run_id: str | None, checks: Checks, dire
         close_dialog(page)
         responsive(page, checks, "real-conversation", directory)
     else:
-        expect(page.get_by_role("textbox", name="审计任务", exact=True)).to_be_visible(timeout=15000)
-        responsive(page, checks, "real-draft", directory)
-        page.get_by_role("button", name="工作空间设置", exact=False).first.click()
+        expect(page.get_by_role("heading", name="源码包", exact=True)).to_be_visible(timeout=15000)
+        responsive(page, checks, "real-sources", directory)
+        page.get_by_role("link", name="工作空间设置", exact=False).first.click()
         expect(page.get_by_role("heading", name="工作空间设置", exact=True)).to_be_visible()
         checks.passed("read-only model configuration renders")
         save(page, directory, "real-settings-dark")

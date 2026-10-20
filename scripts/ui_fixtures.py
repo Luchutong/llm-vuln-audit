@@ -9,7 +9,14 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 STAMP = "2026-10-20T08:30:00+00:00"
+PROJECT_ID = "smoke-project"
+OTHER_PROJECT_ID = "smoke-other-project"
+EMPTY_PROJECT_ID = "smoke-empty-project"
 SNAPSHOT_ID = "smoke-snapshot"
+NEWER_SNAPSHOT_ID = "smoke-snapshot-repacked"
+OTHER_SNAPSHOT_ID = "smoke-other-snapshot"
+LEDGER_ID = "ledger-upload-boundary"
+STALE_LEDGER_ID = "ledger-stale-conclusion"
 COMPLETED_ID = "smoke-completed"
 CREATED_ID = "smoke-created"
 ACTIVITY_ID = "smoke-live-activity"
@@ -41,6 +48,7 @@ def snapshot() -> dict[str, Any]:
                       "excluded": dependency or not php, "exclude_reason": "historical metadata" if dependency or not php else None,
                       "parse_errors": []})
     return {"id": SNAPSHOT_ID, "name": "审计样例源码.zip", "created_at": STAMP,
+            "project_id": PROJECT_ID, "content_key": "c" * 64, "target_profile": "unknown",
             "archive_sha256": "a" * 64, "source": "uploaded_zip", "immutable": True, "schema_version": 2,
             "warnings": ["1 files were skipped at import; see skipped_files for details"], "units": [], "files": files,
             "stats": {"files": 6, "text_files": 5, "binary_files": 1, "php_files": 3,
@@ -54,6 +62,7 @@ def snapshot() -> dict[str, Any]:
 
 def run(run_id: str = COMPLETED_ID, status: str = "completed") -> dict[str, Any]:
     return {"id": run_id, "snapshot_id": SNAPSHOT_ID, "snapshot_name": snapshot()["name"],
+            "project_id": PROJECT_ID, "project_name": "审计样例源码", "project_mode": "project",
             "scope": [], "scope_mode": "snapshot", "model": "ui-fixture-model",
             "model_profile": {"profile_id": "profile-environment", "model": "ui-fixture-model", "base_url": "http://fixture.invalid/v1"},
             "budgets": copy.deepcopy(BUDGET), "task_spec": copy.deepcopy(TASK), "status": status,
@@ -252,10 +261,45 @@ def profiles() -> list[dict[str, Any]]:
                 ("profile-secondary", "备用模型档案", "ui-secondary-model", "stored")])]
 
 
+def ledger_finding(ledger_id: str = LEDGER_ID) -> dict[str, Any]:
+    """Canonical content differs from its first run: detail must use this revision."""
+    value = finding(COMPLETED_ID)
+    value.update(id=ledger_id, project_id=PROJECT_ID, project_name="审计样例源码", revision=2,
+                 title="上传路径可绕过目录边界", summary="当前台账结论：路径规范化顺序可被绕过，写入范围超出固定目录。",
+                 origin_run_id=COMPLETED_ID, origin_finding_id=f"finding-{COMPLETED_ID}",
+                 last_run_id=COMPLETED_ID, last_finding_id=f"finding-{COMPLETED_ID}",
+                 discovered_at=STAMP, updated_at=STAMP, verification_status="verified", verification_verdict="confirmed",
+                 poc={"filename": "upload-proof.py", "language": "python", "script": "print('fixture proof')",
+                      "instructions": "仅在隔离测试环境执行。", "normal_input": "safe.txt", "attack_input": "../proof.txt",
+                      "expected_result": "写入测试目录外。"})
+    return value
+
+
+def verification_record(ledger_id: str = LEDGER_ID) -> dict[str, Any]:
+    """A valid proof from an early run remains visible after rediscovery."""
+    return {"id": "verification-early-run", "source": "poc_agent", "status": "verified", "verdict": "confirmed",
+            "execution_status": "success", "created_at": STAMP, "finding_id": f"finding-{COMPLETED_ID}",
+            "run_id": COMPLETED_ID, "project_finding_id": ledger_id, "finding_revision": 2,
+            "notes": "早期审计已在隔离靶场复现，后续任务只重新发现相同结论。", "modified_script": "",
+            "modification_notes": "", "target_version": "fixture-commit", "command": "python upload-proof.py",
+            "expected_result": "写入测试目录外。", "normal_observation": "普通文件写入限定目录。",
+            "attack_observation": "攻击输入写入目录外。", "browser_execution": False, "files": [], "jobs": []}
+
+
 @dataclass
 class MockAPI:
     """Strict router: unhandled API calls fail locally and never reach a real service."""
     snapshot_records: dict[str, dict[str, Any]] = field(default_factory=lambda: {SNAPSHOT_ID: snapshot()})
+    project_names: dict[str, str] = field(default_factory=lambda: {PROJECT_ID: "审计样例源码"})
+    ledger_records: dict[str, dict[str, Any]] = field(default_factory=lambda: {LEDGER_ID: ledger_finding()})
+    ledger_verifications: dict[str, list[dict[str, Any]]] = field(default_factory=lambda: {LEDGER_ID: [verification_record()]})
+    ledger_queries: list[dict[str, str]] = field(default_factory=list)
+    read_failures: dict[str, int] = field(default_factory=dict)
+    read_counts: dict[str, int] = field(default_factory=dict)
+    held_paths: set[str] = field(default_factory=set)
+    pending_reads: list[Any] = field(default_factory=list)
+    upload_result: dict[str, Any] | None = None
+    upload_project_reused: bool = True
     snapshot_read_failures: dict[str, int] = field(default_factory=dict)
     runs: dict[str, dict[str, Any]] = field(default_factory=lambda: {COMPLETED_ID: run()})
     findings: dict[str, dict[str, Any]] = field(default_factory=lambda: {COMPLETED_ID: finding(COMPLETED_ID)})
@@ -290,6 +334,60 @@ class MockAPI:
             self.expected_failures.add(route.request.url)
         route.fulfill(status=status, content_type="application/json", body=json.dumps(value, ensure_ascii=False))
 
+    def snapshot_summary(self, value: dict[str, Any]) -> dict[str, Any]:
+        return {key: value[key] for key in ("id", "name", "created_at", "archive_sha256", "source", "project_id")} | {
+            "file_count": len(value["files"]), "unit_count": 2, "warning_count": len(value["warnings"])}
+
+    def projects(self) -> list[dict[str, Any]]:
+        items = []
+        for project_id, name in self.project_names.items():
+            snapshots = [value for value in self.snapshot_records.values() if value.get("project_id") == project_id]
+            runs = [value for value in self.runs.values() if value.get("project_id") == project_id]
+            findings = [value for value in self.ledger_records.values() if value["project_id"] == project_id]
+            counts = {key: sum(value.get("verification_status") == key for value in findings)
+                      for key in ("verified", "rejected", "unverified", "inconclusive", "not_applicable", "environment_unavailable", "stale")}
+            counts.update(total=len(findings), open=sum(value["disposition"] == "open" for value in findings),
+                          withdrawn=sum(value["disposition"] in {"retracted", "duplicate", "superseded"} for value in findings))
+            latest = max(snapshots, key=lambda value: value["created_at"], default=None)
+            items.append({"id": project_id, "name": name, "content_key": project_id.ljust(64, "c"),
+                          "target_profile": "unknown", "created_at": STAMP, "updated_at": latest["created_at"] if latest else STAMP,
+                          "snapshot_count": len(snapshots), "run_count": len(runs),
+                          "active_run_count": sum(value["status"] in ACTIVE for value in runs),
+                          "latest_snapshot_id": latest["id"] if latest else None,
+                          "latest_run_id": runs[-1]["id"] if runs else None, "finding_counts": counts})
+        return items
+
+    def source_run(self, run_id: str | None) -> dict[str, Any] | None:
+        value = self.runs.get(run_id or "")
+        return {key: value.get(key) for key in ("id", "snapshot_id", "snapshot_name", "status", "created_at")} if value else None
+
+    def ledger_summary(self, value: dict[str, Any]) -> dict[str, Any]:
+        return copy.deepcopy(value) | {"project_name": self.project_names[value["project_id"]],
+            "origin_run": self.source_run(value.get("origin_run_id")), "last_run": self.source_run(value.get("last_run_id"))}
+
+    def ledger_detail(self, value: dict[str, Any]) -> dict[str, Any]:
+        sources = list(dict.fromkeys([value["origin_run_id"], value["last_run_id"]]))
+        history = []
+        for index, run_id in enumerate(sources):
+            source = self.source_run(run_id)
+            history.append({"run_id": run_id, "run_finding_id": value["origin_finding_id"] if index == 0 else value["last_finding_id"],
+                            "relation": "created" if index == 0 else "rediscovered", "revision": value["revision"], "created_at": STAMP,
+                            "snapshot_id": source["snapshot_id"] if source else None, "snapshot_name": source["snapshot_name"] if source else None,
+                            "run_status": source["status"] if source else None})
+        verifications = copy.deepcopy(self.ledger_verifications.get(value["id"], []))
+        return {"finding": copy.deepcopy(value), "project": next(item for item in self.projects() if item["id"] == value["project_id"]),
+                "origin_run": self.source_run(value["origin_run_id"]), "last_run": self.source_run(value["last_run_id"]),
+                "history": history, "verifications": verifications,
+                "current_verification": verifications[-1] if verifications and value["verification_status"] != "stale" else None,
+                "poc_finding_id": value["origin_finding_id"] if value.get("poc") else None,
+                "poc_download_path": f"/api/findings/{value['origin_finding_id']}/poc" if value.get("poc") else None}
+
+    def release_reads(self) -> None:
+        pending, self.pending_reads = self.pending_reads, []
+        self.held_paths.clear()
+        for route in pending:
+            self.handle(route)
+
     def config(self) -> dict[str, Any]:
         selected = next(item for item in self.model_profiles if item["id"] == self.selected_profile_id)
         public = copy.deepcopy(self.model_profiles)
@@ -317,7 +415,8 @@ class MockAPI:
         body = self.create_bodies[-1]
         created = run(CREATED_ID, "running")
         created.update(snapshot_id=body["snapshot_id"], snapshot_name=self.snapshot_records[body["snapshot_id"]]["name"],
-                       task_spec=body["task"], budgets=body["budgets"])
+                       project_id=self.snapshot_records[body["snapshot_id"]]["project_id"],
+                       task_spec=copy.deepcopy(TASK) | body["task"], budgets=body["budgets"])
         self.runs[CREATED_ID] = created
         self.extra_events[CREATED_ID] = []
         self.findings[CREATED_ID] = finding(CREATED_ID)
@@ -362,20 +461,31 @@ class MockAPI:
         url = urlsplit(request.url)
         path, query, method = url.path.removeprefix("/api"), parse_qs(url.query), request.method
         parts = path.strip("/").split("/")
+        if method == "GET":
+            self.read_counts[path] = self.read_counts.get(path, 0) + 1
+        if method == "GET" and path in self.held_paths:
+            self.pending_reads.append(route)
+            return
+        if method == "GET" and self.read_failures.get(path, 0):
+            self.read_failures[path] -= 1
+            self.json(route, {"detail": "模拟读取暂时失败，请重试"}, 503)
+            return
         if method == "GET" and path == "/config":
             self.json(route, self.config())
         elif parts[:2] == ["config", "profiles"]:
             self.profile_api(route, parts, method)
         elif method == "GET" and path == "/snapshots":
-            self.json(route, [{key: value[key] for key in ("id", "name", "created_at", "archive_sha256", "source")} |
-                             {"file_count": len(value["files"]), "unit_count": 2, "warning_count": len(value["warnings"])} for value in self.snapshot_records.values()])
+            self.json(route, [self.snapshot_summary(value) for value in self.snapshot_records.values()])
         elif method == "POST" and path == "/snapshots":
             self.upload_count += 1
             if self.fail_upload:
                 self.fail_upload = False
                 self.json(route, {"detail": "模拟 ZIP 导入失败，请重新选择"}, 422)
             else:
-                self.json(route, snapshot())
+                value = copy.deepcopy(self.upload_result or snapshot())
+                self.snapshot_records[value["id"]] = value
+                self.json(route, value | {"project": next(item for item in self.projects() if item["id"] == value["project_id"]),
+                                         "project_reused": self.upload_project_reused, "snapshot_reused": self.upload_result is None})
         elif method == "GET" and len(parts) == 2 and parts[0] == "snapshots" and parts[1] in self.snapshot_records:
             snapshot_id = parts[1]
             if self.snapshot_read_failures.get(snapshot_id, 0):
@@ -383,13 +493,53 @@ class MockAPI:
                 self.json(route, {"detail": "模拟快照读取暂时失败，请重试"}, 503)
             else:
                 self.json(route, self.snapshot_records[snapshot_id])
-        elif method == "GET" and path == f"/snapshots/{SNAPSHOT_ID}/source":
+        elif method == "GET" and len(parts) == 3 and parts[0] == "snapshots" and parts[1] in self.snapshot_records and parts[2] == "source":
+            snapshot_id = parts[1]
             start, end = int(query.get("start", ["1"])[0]), int(query.get("end", ["200"])[0])
             source_path = query.get("path", [SOURCE_PATH])[0]
-            self.source_requests.append({"path": source_path, "start": start, "end": end})
+            self.source_requests.append({"snapshot_id": snapshot_id, "path": source_path, "start": start, "end": end})
             assert 0 < end - start + 1 <= 400, "source request exceeds server's line window"
-            self.json(route, {"snapshot_id": SNAPSHOT_ID, "path": source_path, "sha256": "b" * 64,
+            self.json(route, {"snapshot_id": snapshot_id, "path": source_path, "sha256": "b" * 64,
                               "lines": [{"number": number, "text": "<?php" if number == 1 else "$name = $_GET['name'];" if number == 10 else "file_put_contents($base . $name, $content);" if number == 12 else f"// 原始源码第 {number} 行"} for number in range(start, end + 1)]})
+        elif method == "GET" and path == "/projects":
+            self.json(route, self.projects())
+        elif method == "GET" and parts[0] == "projects" and len(parts) >= 2:
+            project = next((item for item in self.projects() if item["id"] == parts[1]), None)
+            if project is None:
+                self.json(route, {"detail": "Project does not exist"}, 404)
+            elif len(parts) == 2:
+                self.json(route, project | {"snapshots": [self.snapshot_summary(item) for item in self.snapshot_records.values() if item.get("project_id") == parts[1]],
+                                           "runs": [item for item in self.runs.values() if item.get("project_id") == parts[1]],
+                                           "findings": [item for item in self.ledger_records.values() if item["project_id"] == parts[1]]})
+            elif parts[2] == "runs":
+                self.json(route, [item for item in self.runs.values() if item.get("project_id") == parts[1]])
+            elif parts[2] == "findings":
+                self.json(route, [item for item in self.ledger_records.values() if item["project_id"] == parts[1]])
+            else:
+                self.unexpected.append(f"{method} {path}")
+                self.json(route, {"detail": "Unhandled project fixture"}, 501)
+        elif method == "GET" and path == "/project-findings":
+            filters = {key: values[0] for key, values in query.items()}
+            self.ledger_queries.append(filters)
+            items = list(self.ledger_records.values())
+            for key in ("project_id", "severity", "verification_status"):
+                if filters.get(key):
+                    items = [item for item in items if item.get(key) == filters[key]]
+            disposition = filters.get("disposition", "")
+            if disposition and disposition != "all":
+                items = [item for item in items if item["disposition"] == disposition]
+            elif disposition != "all":
+                items = [item for item in items if item["disposition"] not in {"retracted", "duplicate", "superseded"}]
+            if filters.get("q"):
+                needle = filters["q"].casefold()
+                items = [item for item in items if needle in " ".join(str(item.get(key) or "") for key in ("title", "summary", "file_path", "project_name")).casefold()]
+            items.sort(key=lambda item: (item["updated_at"], item["id"]), reverse=True)
+            offset, limit = int(filters.get("offset", 0)), int(filters.get("limit", 25))
+            self.json(route, {"items": [self.ledger_summary(item) for item in items[offset:offset + limit]],
+                              "total": len(items), "offset": offset, "limit": limit})
+        elif method == "GET" and len(parts) == 2 and parts[0] == "project-findings":
+            value = self.ledger_records.get(parts[1])
+            self.json(route, self.ledger_detail(value) if value else {"detail": "Project finding does not exist"}, 200 if value else 404)
         elif method == "GET" and path == "/runs":
             self.json(route, list(reversed(list(self.runs.values()))))
         elif method == "POST" and path == "/runs":
@@ -403,7 +553,11 @@ class MockAPI:
             else:
                 self.respond_create(route)
         elif len(parts) == 2 and parts[0] == "runs" and method == "GET" and parts[1] in self.runs:
-            self.json(route, detail(self.runs[parts[1]], self.findings[parts[1]]) | copy.deepcopy(self.detail_overrides.get(parts[1], {})))
+            item = self.runs[parts[1]]
+            project = next((value for value in self.projects() if value["id"] == item.get("project_id")), None)
+            self.json(route, detail(item, self.findings[parts[1]]) | {"project": project,
+                "project_findings": [value for value in self.ledger_records.values() if value["project_id"] == item.get("project_id")],
+                "carried_findings": [], "finding_relations": []} | copy.deepcopy(self.detail_overrides.get(parts[1], {})))
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] in {"project-map", "project-overview"}:
             self.json(route, project_map(self.runs[parts[1]]))
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] in {"events", "event-log"}:
@@ -453,3 +607,47 @@ class MockAPI:
         else:
             self.unexpected.append(f"{method} {path}")
             self.json(route, {"detail": f"Unhandled UI fixture: {method} {path}"}, 501)
+
+
+def sources_api() -> MockAPI:
+    """Several source identities, re-zipped snapshots, and a paginated shared ledger."""
+    api = MockAPI(fail_create=False, fail_upload=False)
+    api.project_names.update({OTHER_PROJECT_ID: "另一个认证项目", EMPTY_PROJECT_ID: "尚未审计的源码"})
+    newer = snapshot()
+    newer.update(id=NEWER_SNAPSHOT_ID, name="审计样例源码-重新打包.zip", created_at="2026-10-20T09:30:00+00:00", archive_sha256="d" * 64)
+    other = snapshot()
+    other.update(id=OTHER_SNAPSHOT_ID, name="认证项目.zip", project_id=OTHER_PROJECT_ID,
+                 content_key="e" * 64, archive_sha256="e" * 64)
+    empty = snapshot()
+    empty.update(id="smoke-unreviewed-snapshot", name="未审计源码.zip", project_id=EMPTY_PROJECT_ID,
+                 content_key="f" * 64, archive_sha256="f" * 64)
+    api.snapshot_records.update({item["id"]: item for item in (newer, other, empty)})
+    rediscovered = run("smoke-rediscovered")
+    rediscovered.update(snapshot_id=NEWER_SNAPSHOT_ID, snapshot_name=newer["name"])
+    api.runs[rediscovered["id"]] = rediscovered
+    api.findings[rediscovered["id"]] = finding(rediscovered["id"])
+    api.findings[rediscovered["id"]]["project_finding_id"] = LEDGER_ID
+    api.findings[COMPLETED_ID]["project_finding_id"] = LEDGER_ID
+    api.ledger_records[LEDGER_ID].update(last_run_id=rediscovered["id"], last_finding_id=f"finding-{rediscovered['id']}",
+                                         updated_at="2026-10-20T10:30:00+00:00")
+    stale = ledger_finding(STALE_LEDGER_ID)
+    stale.update(title="结论修订后需要重新验证", severity="high", revision=3,
+                 verification_status="stale", verification_verdict=None, updated_at="2026-10-20T10:00:00+00:00",
+                 last_run_id=rediscovered["id"], last_finding_id=f"finding-{rediscovered['id']}")
+    api.ledger_records[STALE_LEDGER_ID] = stale
+    api.ledger_verifications[STALE_LEDGER_ID] = [verification_record(STALE_LEDGER_ID)]
+    for index in range(28):
+        item = ledger_finding(f"ledger-page-{index:02}")
+        item.update(title=f"待核查数据流 {index:02}", severity="unknown" if index == 27 else "low", verification_status="unverified", verification_verdict=None,
+                    poc=None, updated_at=f"2026-10-19T08:{index:02}:00+00:00")
+        api.ledger_records[item["id"]] = item
+    withdrawn = ledger_finding("ledger-withdrawn")
+    withdrawn.update(title="已撤回的历史推测", disposition="retracted", severity="high", verification_status="unverified", poc=None)
+    api.ledger_records[withdrawn["id"]] = withdrawn
+    other_finding = ledger_finding("ledger-other-project")
+    other_finding.update(project_id=OTHER_PROJECT_ID, project_name=api.project_names[OTHER_PROJECT_ID],
+                         title="认证边界缺少权限校验", severity="critical", verification_status="not_applicable", verification_verdict=None,
+                         origin_run_id="missing-historical-run", last_run_id="missing-historical-run", poc=None,
+                         evidence=[{"snapshot_id": "", "path": "src/auth.php", "start_line": 8, "end_line": 9}])
+    api.ledger_records[other_finding["id"]] = other_finding
+    return api

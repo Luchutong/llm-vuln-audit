@@ -1,8 +1,12 @@
 name: vuln-audit
 
-# One service: the source-audit application.  It accepts any PHP source archive through the
-# UI/API; no target, sample project or project-specific archive is mounted into the
-# container, and no target ships with this repository.
+# One audit application plus an optional, isolated POC environment.  The default profile
+# set comes from COMPOSE_PROFILES in .env: with `poc`, `docker compose up` also starts a
+# local DVWA target and the poc-runner container that executes model-written POCs.  Empty
+# COMPOSE_PROFILES keeps the original single-service audit stack.
+#
+# The app never receives the Docker socket.  The runner has no published port, no volume,
+# no route to the model endpoint and no route to the internet.
 
 services:
   app:
@@ -20,13 +24,122 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_THINKING: ${LLM_THINKING:-disabled}
+      # Empty URL disables automatic verification; the run still closes and every finding
+      # is reported as unverified.  .env.example points this at the Compose service.
+      POC_ENABLED: ${POC_ENABLED:-1}
+      POC_REQUIRED: ${POC_REQUIRED:-0}
+      POC_TARGET: ${POC_TARGET:-dvwa}
+      POC_RUNNER_URL: ${POC_RUNNER_URL:-}
+      POC_RUNNER_TOKEN: ${POC_RUNNER_TOKEN:-}
+      POC_RUNNER_ADDRS: ${POC_RUNNER_ADDRS:-}
+      POC_BROWSER: ${POC_BROWSER:-1}
+      POC_JOB_SECONDS: ${POC_JOB_SECONDS:-30}
+      POC_MAX_STEPS: ${POC_MAX_STEPS:-8}
+      POC_MAX_JOBS: ${POC_MAX_JOBS:-8}
+      POC_MAX_SECONDS: ${POC_MAX_SECONDS:-300}
+      POC_CONCURRENCY: ${POC_CONCURRENCY:-2}
     volumes:
       - audit-data:/app/data
     extra_hosts:
       # Lets the audit container reach a model endpoint published on the host.
       - "host.docker.internal:host-gateway"
+    networks:
+      default: {}
+      poc-control: {}
     restart: unless-stopped
     init: true
 
+  # ------------------------------------------------------------------ POC environment
+
+  dvwa-db:
+    # Pin by digest in production; the tag is only a readable default for a local lab.
+    image: ${DVWA_DB_IMAGE:-mariadb:10.11}
+    profiles: ["poc"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DVWA_DB_ROOT_PASSWORD:-dvwa-local-root}
+      MARIADB_DATABASE: dvwa
+      MARIADB_USER: dvwa
+      MARIADB_PASSWORD: ${DVWA_DB_PASSWORD:-dvwa-local-password}
+    volumes:
+      - dvwa-db-data:/var/lib/mysql
+    networks:
+      - dvwa-db-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  dvwa:
+    # Pin by digest in production, e.g. ghcr.io/digininja/dvwa@sha256:<digest>.
+    image: ${DVWA_IMAGE:-ghcr.io/digininja/dvwa:latest}
+    profiles: ["poc"]
+    environment:
+      DB_SERVER: dvwa-db
+      DB_DATABASE: dvwa
+      DB_USER: dvwa
+      DB_PASSWORD: ${DVWA_DB_PASSWORD:-dvwa-local-password}
+      DEFAULT_SECURITY_LEVEL: low
+      RECAPTCHA_PRIV_KEY: ""
+      RECAPTCHA_PUB_KEY: ""
+    depends_on:
+      dvwa-db:
+        condition: service_healthy
+    networks:
+      - dvwa-db-net
+      - poc-target
+    healthcheck:
+      # The DVWA image is PHP/Apache; use its PHP runtime rather than assuming curl.
+      test: ["CMD-SHELL", "php -r 'exit(@file_get_contents(\"http://127.0.0.1/login.php\") === false ? 1 : 0);'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  poc-runner:
+    build:
+      context: ./poc_runner
+      args:
+        INSTALL_BROWSER: ${POC_BROWSER:-1}
+    profiles: ["poc"]
+    environment:
+      POC_RUNNER_TOKEN: ${POC_RUNNER_TOKEN:-}
+      POC_RUNNER_CONCURRENCY: ${POC_CONCURRENCY:-2}
+      DVWA_URL: http://dvwa
+      DVWA_USER: admin
+      DVWA_PASSWORD: password
+    networks:
+      - poc-target
+      - poc-control
+    depends_on:
+      dvwa:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "10002:10002"
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    shm_size: 256m
+    restart: unless-stopped
+    init: true
+
+networks:
+  # app <-> runner only; no gateway to the outside.
+  poc-control:
+    internal: true
+  # runner <-> DVWA only; neither side can reach the internet through it.
+  poc-target:
+    internal: true
+  dvwa-db-net:
+    internal: true
+
 volumes:
   audit-data:
+  dvwa-db-data:

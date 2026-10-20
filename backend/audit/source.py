@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from tree_sitter import Language, Parser
 import tree_sitter_php
 
+from .projects import project_content_key, project_target_profile
+
 
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
@@ -578,6 +580,10 @@ class SourceRepository:
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "archive_sha256": digest,
                     "source": "uploaded_zip",
+                    # Project identity travels with the snapshot so the upload path can
+                    # bind it to the right project without re-reading the index.
+                    "content_key": project_content_key(files),
+                    "target_profile": project_target_profile(files),
                     "files": files,
                     "units": sorted(units, key=lambda item: (-item["priority"], item["file_path"], item["start_byte"])),
                     "warnings": warnings,

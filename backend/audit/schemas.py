@@ -15,17 +15,7 @@ CATEGORY_LABELS = {
 
 Conclusion = Literal["candidate", "no_candidate", "insufficient_context"]
 Severity = Literal["low", "medium", "high", "critical"]
-Verdict = Literal["confirmed", "rejected", "uncertain"]
 TaskOutcome = Literal["achieved", "continue", "no_evidence", "blocked"]
-ExecutionStatus = Literal[
-    "success",
-    "syntax_error",
-    "connection_failed",
-    "environment_mismatch",
-    "not_triggered",
-    "not_run",
-    "other_error",
-]
 
 _PLACEHOLDER_TEXT = {"", "无", "不适用", "n/a", "na", "none", "null", "todo", "待补充", "...", "…", "-", "—"}
 
@@ -477,9 +467,8 @@ class PlannerTaskUpdate(BaseModel):
     ``retract`` and ``duplicate`` are how a *finding* stops standing.  They move the
     finding's disposition and nothing else: its text, its evidence and its review history
     stay in the database and in the report, because "this was concluded and later
-    withdrawn" is itself part of the audit.  A conclusion a human has already confirmed or
-    rejected cannot be withdrawn this way; the disagreement is recorded as a contest
-    instead, and the human verdict keeps standing.
+    withdrawn" is itself part of the audit.  A legacy human verdict no longer vetoes a
+    withdrawal; it stays on the row as read-only history.
     """
 
     task_key: str = Field(min_length=3, max_length=96, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")
@@ -503,6 +492,42 @@ class PlannerTaskUpdate(BaseModel):
     )
 
 
+class PlannerProjectUpdate(BaseModel):
+    """A disposition change on the project's cross-run vulnerability ledger.
+
+    The ledger is the other axis from a run finding: a project row is the same
+    vulnerability across conversations, so it is addressed by its own id rather than
+    through a task of this run.  Only the three actions that change standing are
+    allowed -- there is no task state to cancel or reprioritise here.
+    """
+
+    project_finding_id: str = Field(
+        min_length=8,
+        max_length=64,
+        description="态势 project_findings 里的 id；必须属于本 run 所在项目",
+    )
+    action: Literal["retract", "duplicate", "reopen"]
+    rationale_summary: str = Field(min_length=3, max_length=1200)
+    related_project_finding_id: str | None = Field(
+        default=None,
+        max_length=64,
+        description="duplicate 专用：与本条重复的项目台账 id",
+    )
+
+
+class ReportNarrative(BaseModel):
+    """The Planner's prose for the final report.
+
+    Only the closure review (or a terminal proposal) may submit one.  It is prose about
+    evidence the host already holds -- it never introduces a finding, and the host still
+    renders every count, task and citation from its own records around it.
+    """
+
+    summary: str = Field(min_length=3, max_length=4000)
+    conclusion: str = Field(default="", max_length=8000)
+    limitations: list[str] = Field(default_factory=list, max_length=16)
+
+
 class PlannerDecision(BaseModel):
     """Structured output of the sole intent-generating agent.
 
@@ -520,6 +545,12 @@ class PlannerDecision(BaseModel):
     missing_context: list[str] = Field(default_factory=list, max_length=24)
     tasks: list[PlannerTaskProposal] = Field(default_factory=list, max_length=8)
     updates: list[PlannerTaskUpdate] = Field(default_factory=list, max_length=16)
+    # Dispositions on the project ledger.  Kept separate from `updates` because those are
+    # keyed by task, and a project row deliberately belongs to no single run's task.
+    project_updates: list[PlannerProjectUpdate] = Field(default_factory=list, max_length=16)
+    # Accepted only on a closure review or a terminal proposal; the host discards it
+    # elsewhere rather than sending the round back for a bookkeeping slip.
+    report: ReportNarrative | None = None
 
     @model_validator(mode="after")
     def _distinct_task_keys(self) -> "PlannerDecision":
@@ -598,9 +629,20 @@ class CreateRunRequest(BaseModel):
     # older client whose file selection is no longer honoured by this service.
     model_config = ConfigDict(extra="forbid")
 
-    snapshot_id: str
+    # Exactly one of the two identifies the audited project.  ``project_id`` starts a new
+    # conversation about an existing project (the latest snapshot of it is used);
+    # ``snapshot_id`` is the direct upload path and resolves the project the snapshot was
+    # bound to at import.
+    snapshot_id: str | None = None
+    project_id: str | None = None
     budgets: dict | None = None
     task: TaskSpec = Field(description="Goal-driven white-box audit task")
+
+    @model_validator(mode="after")
+    def _one_scope(self) -> "CreateRunRequest":
+        if bool(self.snapshot_id) == bool(self.project_id):
+            raise ValueError("snapshot_id 与 project_id 必须恰好提供一个")
+        return self
 
 
 def _model_profile_text(value: str, field_name: str, *, max_length: int) -> str:
@@ -740,17 +782,62 @@ class AttributionRequest(BaseModel):
     finding_id: str | None = None
 
 
-class VerificationRecord(BaseModel):
-    """The JSON portion of a multipart human-verification submission."""
+# Verification rows are written only by the POC agent (``audit/poc.py``) and read back
+# by the report; there is no request model for them any more, because the platform no
+# longer accepts a human verdict over HTTP.
 
-    execution_status: ExecutionStatus
-    verdict: Verdict
-    modified_script: str = ""
-    modification_notes: str = ""
-    target_version: str = ""
-    command: str = ""
-    expected_result: str = ""
-    normal_observation: str = ""
-    attack_observation: str = ""
+
+# --- automatic POC verification ----------------------------------------------------
+
+POC_STATUSES = (
+    "verified",
+    "rejected",
+    "inconclusive",
+    "not_applicable",
+    "environment_unavailable",
+)
+
+
+class PocArtifact(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    sha256: str = Field(default="", max_length=64)
+    size: int = Field(default=0, ge=0)
+
+
+class PocVerificationResult(BaseModel):
+    """What the POC agent hands back for one finding.
+
+    The host fact-checks this against the runner's own job records: a ``verified``
+    answer without a successful job, or an observation the runner never produced, is
+    downgraded to ``inconclusive`` rather than published as evidence.
+    """
+
+    status: Literal[
+        "verified",
+        "rejected",
+        "inconclusive",
+        "not_applicable",
+        "environment_unavailable",
+    ] = "inconclusive"
+    verdict: Literal["confirmed", "rejected", "uncertain"] = "uncertain"
+    summary: str = Field(default="", max_length=4000)
+    normal_observation: str = Field(default="", max_length=4000)
+    attack_observation: str = Field(default="", max_length=8000)
     browser_execution: bool = False
-    notes: str = ""
+    adapted_script: str = Field(default="", max_length=65536)
+    modification_notes: str = Field(default="", max_length=4000)
+    command: str = Field(default="", max_length=1000)
+    evidence_notes: str = Field(default="", max_length=4000)
+    artifacts: list[PocArtifact] = Field(default_factory=list, max_length=8)
+    jobs: list[str] = Field(default_factory=list, max_length=16)
+
+    @model_validator(mode="after")
+    def _coherent_verdict(self) -> "PocVerificationResult":
+        expected = {"verified": "confirmed", "rejected": "rejected"}
+        if self.status in expected and self.verdict != expected[self.status]:
+            # The status is the host-facing decision; a mismatched verdict is normalised
+            # rather than refused so the model is not sent around for a bookkeeping slip.
+            self.verdict = expected[self.status]
+        if self.status in {"not_applicable", "environment_unavailable"}:
+            self.verdict = "uncertain"
+        return self

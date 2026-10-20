@@ -18,6 +18,7 @@
 
 ```text
 {id,name,created_at,archive_sha256,source,immutable:true,schema_version:2,
+ content_key,project_id,target_profile,
  stats:{text_files,binary_files,php_files,dependency_tree_files,languages,skipped_count},
  files:[{path,sha256,size,line_count,kind,language,is_php,dependency_tree,
          excluded,exclude_reason,parse_errors}],
@@ -26,6 +27,38 @@
 ```
 
 `kind` 为 `text` 或 `binary`；`excluded` / `exclude_reason` 保留历史含义（`dependency_tree or not is_php`），不再决定可读性。二进制文件可以被导航列出，但读取会返回缺失上下文而不是内容。`skipped_files` 与 `excluded_files` 都是前 200 条加计数。
+
+`content_key` 是项目身份：由快照内全部 `kind="text"` 文件的「路径 + 文件 sha256」按路径排序后计算，`.zip` 的重新打包、条目顺序或二进制文件变化都不会改变它。`POST /snapshots` 的响应还带 `project`（项目记录）、`project_reused`（内容键已存在）与 `snapshot_reused`（同一归档字节已导入过，此时不会重新解压）。
+
+### 项目
+
+- `GET /projects` → 项目列表：`{id,name,content_key,target_profile,created_at,updated_at,snapshot_count,run_count,latest_snapshot_id,latest_run_id,finding_counts:{total,open,verified,rejected,withdrawn,unverified}}`。
+- `GET /projects/{id}` → 项目详情（含 `snapshots`、`runs`、`findings`）；`?include_findings=false` 省略完整台账，供源码包工作台按页加载漏洞，默认兼容原响应。
+- `GET /projects/{id}/findings` → 项目台账（跨运行的漏洞结论，见下）。
+- `GET /projects/{id}/runs` → 属于该项目的运行摘要。
+
+`target_profile` 目前是 `dvwa` 或 `unknown`；只有同时出现 DVWA 的关键文件与目录结构才判为 `dvwa`，自动验证也只覆盖这一类型。
+
+### 漏洞台账列表与详情
+
+- `GET /project-findings` → `{items,total,offset,limit}`，全局与包内漏洞列表共用；`project_id` 可选，指定不存在的项目返回 `404`。
+- 筛选参数为 `q`（标题、摘要、文件路径、项目名的字面子串，最多 200 字符）、`severity`（`critical/high/medium/low/unknown`）、`verification_status`（既有七种验证状态）、`disposition`。未指定处置时排除 `retracted/duplicate/superseded`；`disposition=all` 包含历史处置，其余值精确匹配（支持 `open/retracted/duplicate/superseded/contested`）。
+- `offset` 默认 `0`，`limit` 默认 `25`、最大 `100`；按 `updated_at DESC, id DESC` 稳定排序。`total` 是所有筛选条件之后、分页之前的数量。未知筛选值、负 offset 或越界 limit 返回 `422`。
+
+列表每行是当前项目台账的摘要：`{id,project_id,project_name,fingerprint,title,severity,summary,file_path,symbol,category,finding_kind,validation_state,disposition,disposition_reason,verification_status,verification_verdict,revision,origin_run_id,origin_finding_id,last_run_id,last_finding_id,discovered_at,updated_at,origin_run,last_run}`。不携带 POC、证据正文或验证历史。`origin_run` / `last_run` 是 `{id,snapshot_id,snapshot_name,status,created_at}`，对应首次发现及最近更新结论的实际运行；历史运行缺失时为 `null`。
+
+`GET /project-findings/{id}` 返回：
+
+```text
+{finding:完整当前台账,project:Project,origin_run,last_run,
+ history:[{run_id,run_finding_id,relation,revision,created_at,snapshot_id,snapshot_name,run_status}],
+ verifications:Verification[],current_verification:Verification|null,
+ poc_finding_id:string|null,poc_download_path:string|null}
+```
+
+`finding` 保留证据、漏洞链、POC、修复建议、处置和修订历史。源码引用按 `last_run.snapshot_id` 读取，不能使用项目最新上传快照代替实际审计来源。`history` 按关联时间倒序保留创建、重发现、更正、沿用、撤回及恢复关系，同一运行可有多条关系。`verifications` 包含整个台账及其关联运行发现上的记录（兼容早期人工记录），每条附真实 `run_id`；首次来源不等于当前结论。
+
+`current_verification` 按台账 `latest_verification_id` 与当前修订匹配：重发现可以沿用早期运行的有效验证；台账状态为 `stale` 时始终为 `null`，早期记录仅作为历史展示，不能计为当前已验证。当前 POC 与最近运行发现一致时，`poc_download_path` 为带 `/api` 前缀的原有 `/api/findings/{poc_finding_id}/poc`；没有匹配的下载来源时两字段为 `null`，内联台账 POC 仍可阅读。台账 ID 不存在返回 `404`。这些端点只读，不改变审计、归组或台账写入语义。
 
 ### 创建目标审计
 
@@ -48,6 +81,8 @@
 }
 ```
 
+`project_id` 与 `snapshot_id` 恰好给一个：给 `snapshot_id` 时运行继承该快照所属项目；给 `project_id` 时使用该项目最新的快照。两者都给或都不给返回 `422`。项目式运行在创建时冻结 `project_id`、`project_mode="project"`、项目台账基线（`project_baseline`，不含已撤回结论）与 `poc_policy`（不含 runner token），并发出 `project_findings_baseline_frozen`。
+
 请求体没有范围字段：快照中的所有可读文本文件都是审计范围（`Run.scope_mode="snapshot"`，`Run.scope` 为空）。`CreateRunRequest` 使用 `extra="forbid"`，携带历史 `scope` 字段的旧客户端会得到 `422 extra_forbidden` —— 这是有意的破坏性变更，请改为不发送该字段。请求只接受 `task` 模式，不能携带历史 `prompt_id`。任务文本、预算和**项目图**会在创建时冻结；项目图记录全部可读文本文件、符号、静态 include、调用点、模块聚合、高置信入口候选和未解析静态根，二进制文件另列 `binary_files`。入口候选与未解析根都只用于导航，不能作为发现证据或运行时路由事实。
 
 `TaskSpec`：
@@ -59,10 +94,10 @@
 
 `max_total_attempts` 默认 64、`max_planner_rounds` 默认 24。预算默认 `{responses:24, tools:96, seconds:1800}`、上限 `{responses:256, tools:2048, seconds:14400}`：预算刻意放松，因为一个在结构化决策之前就耗尽响应的 Planner 回合产不出任何任务，代价是整次运行而不是几次调用。要提前停下运行请用 `pause` / `cancel`，不要靠一个会在决策中途过期的预算。`GET /config` 的 `budget_limits.defaults` 返回当前默认值。
 
-`require_poc=false` 时，漏洞候选仍需明确利用前提、安全影响、风险等级与源码证据。设为 `true` 时，每条 `achieved` 漏洞发现都必须带可人工复核的 POC；服务不会执行 POC。安全结论与普通源码事实单独保存为排查记录，不计为漏洞，也不能使漏洞审计目标达成。
+`require_poc=false` 时，漏洞候选仍需明确利用前提、安全影响、风险等级与源码证据；收束前仍会尝试自动验证，但未验证或环境不可用不阻止 `met`。设为 `true` 时，每条支撑 `achieved` 的漏洞结论都必须是自动验证的 `verified`；环境不可用且要求验证时，运行以 `inconclusive` 收束并写明原因。安全结论与普通源码事实单独保存为排查记录，不计为漏洞，也不能使漏洞审计目标达成。
 
-- `GET /runs` → 运行摘要。
-- `GET /runs/{id}` → `{run,goal,planner,project_map,plans,tasks,observations,investigations,findings,source_observations,metrics}`。`findings` 为漏洞候选，`source_observations` 为独立的排查记录。Planner 运行的 `units` 与 `work_items` 为兼容字段且始终为空。`project_map` 在这里是**有界投影**（`stats`、入口候选、模块聚合、`binary_files`、`limitations` 等；不含 `files`/`symbols`/`includes`/`calls` 全量数组），以免整包快照让每次轮询变成数 MB JSON。`investigations` 是固定调查的无正文投影（见下）。
+- `GET /runs` → 运行摘要（含 `project_id`、`project_name`、`project_mode`、`poc_policy`）。
+- `GET /runs/{id}` → `{run,goal,planner,project,project_findings,carried_findings,report_narrative,verification_summary,verification_jobs,project_map,plans,tasks,observations,investigations,findings,source_observations,metrics}`。`findings` 为漏洞候选，`source_observations` 为独立的排查记录。`project_findings` 是实时项目台账的有界投影（排除已撤回结论，最多 200 条），本次冻结基线保存在 `run.project_baseline`；`carried_findings` 是本次没有重新取证、以沿用关系挂到本次运行的开放结论。`report_narrative` 是 Planner 在收束复核回合提交的 `{summary,conclusion,limitations}`（没有则为 `null`）。`verification_summary` 按状态计数，`verification_jobs` 是 runner 作业摘要。Planner 运行的 `units` 与 `work_items` 为兼容字段且始终为空。`project_map` 在这里是**有界投影**（`stats`、入口候选、模块聚合、`binary_files`、`limitations` 等；不含 `files`/`symbols`/`includes`/`calls` 全量数组），以免整包快照让每次轮询变成数 MB JSON。`investigations` 是固定调查的无正文投影（见下）。
 - `GET /runs/{id}/project-map` → 完整冻结项目图，供导出与深挖使用。注意 `architecture.modules[]` 的目录键是 `directory`：该数组里的每一项都是**目录**，而这份投影里其它叫 `path` 的字段都是文件。存储的完整项目图保留原始键名，`GET /runs/{id}` 与 `GET /runs/{id}/project-overview` 使用 `directory`。
 - `GET /runs/{id}/project-overview` → Planner 首轮看到的那份有界概览。
 - `POST /runs/{id}/cancel` → 取消排队、运行中或已暂停的任务。
@@ -131,19 +166,23 @@ TaskFinding {title,kind="source_observation",summary,evidence,
 
 `kind` 可为 `source_observation`、`data_flow`、`security_boundary`、`vulnerability` 或任务定义的其他短名称。同一动态任务可提交多条独立引用的发现；每条引用都要在快照内且已被该 worker 实际读取。
 
-### 结论的三个正交轴：证据、人工裁决、处置
+### 结论的三个正交轴：证据、自动验证、处置
 
 一条发现占据 `(run_id, unit_id, category)` 一个槽位，三个轴彼此独立：
 
 - `validation_state`：引用是否核实得了（`candidate` / `invalid_evidence`）。
-- `verdict`：人工是否复现（`confirmed` / `rejected` / `uncertain`，未裁决为 `null`）。
-- `disposition`：本次运行是否仍然主张它（`open` / `superseded` / `retracted` / `duplicate` / `contested`），附 `disposition_reason`、`disposition_by`（`planner` / `human`）、`disposition_at`。
+- `verification_status`：隔离靶场是否复现（`verified` / `rejected` / `inconclusive` / `not_applicable` / `environment_unavailable` / `unverified` / `stale`），附 `verification_verdict`（`confirmed` / `rejected` / `uncertain`）。它只由 POC Agent 在收束边界写入，HTTP 没有人工回填入口。
+- `disposition`：本次运行是否仍然主张它（`open` / `superseded` / `retracted` / `duplicate`；`contested` 仅为历史值），附 `disposition_reason`、`disposition_by`、`disposition_at`。
 
-重跑同一方向**不会替换行**：槽位被复用，`id`、`verdict`、`created_at` 与挂在该 `id` 上的人工 `verifications` 全部保留，只有内容列被更新，旧文本快照进 `superseded_summary` 并把 `revision` 加一。物理替换行会让 `id` 变化、让复核记录成为孤儿、让已记录的人工裁决丢失，所以它被明确取消。`revision` 是这条槽位第几次给出结论，`superseded_summary` 是它此前说过的内容（有上限），`derived_from_finding_id` 记录它是从哪条结论派生/重复而来。
+重跑同一方向**不会替换行**：槽位被复用，`id`、`created_at` 与挂在该 `id` 上的自动验证记录全部保留，只有内容列被更新，旧文本快照进 `superseded_summary` 并把 `revision` 加一。物理替换行会让 `id` 变化、让验证记录成为孤儿，所以它被明确取消。`revision` 是这条槽位第几次给出结论，`superseded_summary` 是它此前说过的内容（有上限），`derived_from_finding_id` 记录它是从哪条结论派生/重复而来。内容发生实质变化时，旧验证状态置为 `stale`——之前复现的是旧结论。
 
-Planner 可以更正已有结论：`updates` 的 `reopen` 把一条已结算任务放回 `ready`（`planner_task_reopened`，原 `planner_task_attempts` 行全部保留，新尝试只追加 `attempt=N+1`），`retract` / `duplicate` 把某条结论的处置标为撤回或重复。**软删除一律保留行**：撤回只是换处置并记下理由，行、证据、存档版本与复核记录都还在——把撤回的结论从结果里删掉，会让「本次没有发现」和「本次把发现撤回了」看起来一模一样。
+Planner 可以更正已有结论：`updates` 的 `reopen` 把一条已结算任务放回 `ready`（`planner_task_reopened`，原 `planner_task_attempts` 行全部保留，新尝试只追加 `attempt=N+1`），`retract` / `duplicate` 把某条结论的处置标为撤回或重复。**软删除一律保留行**：撤回只是换处置并记下理由，行、证据、存档版本与验证记录都还在——把撤回的结论从结果里删掉，会让「本次没有发现」和「本次把发现撤回了」看起来一模一样。
 
-**人工裁决是终局。** 人工已 `confirmed` / `rejected` 的结论不允许被 Planner 改处置，只会记为 `contested` 并发出 `finding_contested`（`disposition = 'contested'` 不计入「已撤回」）。收束时 `finalize_goal('met')` 只认 `disposition = 'open'` 的结论，所以被撤回的结论不再支撑「目标已达成」，但它仍然出现在报告与 `GET /runs/{id}` 里，单独成区。
+**自动验证的 `rejected` 不是删除。** 宿主不会用验证结果改写 `disposition`；Planner 在复核回合可以据此撤回，若没有撤回，该结论也不会支撑 `met`，报告将其列入「自动验证未通过」并留下 `planner_kept_rejected_finding` 记录。历史 `findings.verdict` 字段只读保留，不再参与处置判定。
+
+### 项目台账
+
+同一条漏洞跨运行只有一行，存在 `project_findings`：`fingerprint` 由「文件路径 + 符号 + 危险操作」的规范化哈希决定，措辞漂移时只在同一 `(file_path, symbol)` 候选里按危险操作 token 的唯一 Jaccard ≥ 0.6 合并。台账行记录 `revision`、`verification_status/verdict`、`latest_verification_id` 与 `origin_run_id/origin_finding_id`；`project_finding_runs` 记录 `rediscovered` / `corrected` / `carried` / `withdrawn` / `restored` 关系。已撤回的台账行不会因为再次发现自动恢复，Planner 必须显式 `reopen`。
 
 ## 执行轨迹
 
@@ -164,12 +203,19 @@ planner_investigation_pinned, planner_investigation_reused, planner_investigatio
 recon_started, recon_phase, recon_brief_prepared, recon_terminal, recon_skipped,
 finding_superseded, finding_retracted, finding_duplicate, finding_contested,
 finding_disposition_changed,
+project_findings_baseline_frozen, project_finding_created, project_finding_rediscovered,
+project_finding_corrected, project_finding_retracted, project_finding_duplicate,
+project_finding_reopened, project_finding_disposition_changed, project_finding_update_rejected,
+project_finding_merge_failed, carried_findings_recorded,
+poc_agent_phase, poc_verification_started, poc_job_started, poc_job_finished,
+poc_http_observed, poc_verification_recorded, poc_verification_skipped, poc_verification_unavailable,
+report_narrative_committed, planner_kept_rejected_finding,
 run_pause_requested, run_paused, run_resumed,
 audit_progress, agent_code, tool_call, tool_result, task_assessment, model_retry,
 run_completed, goal_unreachable, goal_inconclusive
 ```
 
-Planner 事件带 `plan_id`、`session_id`、`role=planner`；侦察事件带 `role=recon` 与同一 `plan_id`，其工具事件复用 `tool_call` / `tool_result` 但 `call_id` 前缀为 `recon-tool-`（Planner 是 `planner-tool-`），因此不会与 Planner 的工具跨度合并。worker 事件带 `task_id`、`task_key`、`worker_id`、`attempt`、`role=worker`。`tool_call` 和 `tool_result` 使用同一 `call_id` / `span_id` 配对，结果携带状态、受限预览、已读范围、用量和 `duration_ms`。`task_assessment` 包含 `outcome`、`summary`、`rationale`、`next_focus`、`missing_context` 和经解析的源码引用。
+Planner 事件带 `plan_id`、`session_id`、`role=planner`；侦察事件带 `role=recon` 与同一 `plan_id`，其工具事件复用 `tool_call` / `tool_result` 但 `call_id` 前缀为 `recon-tool-`（Planner 是 `planner-tool-`），因此不会与 Planner 的工具跨度合并。POC 验证事件带 `role=poc`、`finding_id`、`project_finding_id`；`poc_job_started` / `poc_job_finished` 另带 `job_id`、`language`、`exit_code`、`status`、`duration_ms` 与 `truncated`，`poc_verification_recorded` 带 `verification_id`、`status`、`verdict`、`jobs`、`artifacts`。worker 事件带 `task_id`、`task_key`、`worker_id`、`attempt`、`role=worker`。`tool_call` 和 `tool_result` 使用同一 `call_id` / `span_id` 配对，结果携带状态、受限预览、已读范围、用量和 `duration_ms`。`task_assessment` 包含 `outcome`、`summary`、`rationale`、`next_focus`、`missing_context` 和经解析的源码引用。
 
 模型请求、代码动作、进展和工具事件另带 `agent_invocation_id` 与 `request_index`，标识具体执行实例及模型请求序号；`request_index` 不表示 worker 的任务尝试次数。配对时应结合运行、角色、执行实例、阶段、任务与尝试上下文，不能仅凭 `call_id` 合并不同 Planner 回合或并行 worker。
 
@@ -195,18 +241,28 @@ Planner 事件带 `plan_id`、`session_id`、`role=planner`；侦察事件带 `r
 
 执行器的边界（进程内 `LocalPythonExecutor`，`additional_authorized_imports=["json"]`）：在库自带的基础模块（`re`、`math`、`collections`、`itertools`、`datetime`、`statistics`、`time`、`random`、`queue`、`stat`、`unicodedata`）之外，仅增加 JSON 数据解析；CodeAgent 和解释器使用同一授权列表。`os`、`sys`、`subprocess`、`socket`、`pathlib`、`io`、`shutil`、`multiprocessing`、`pty`、`builtins` 仍在解释器自己的危险清单里，连名字都取不到；`eval` / `exec` / `compile` / `globals` / `locals` / `__import__` 同样被禁，dunder 属性被拒。另有操作数上限（`1e7`）、`while` 迭代上限（`1e6`）与打印上限兜住跑飞的一步。
 
-**官方定性照抄在这里**：smolagents 自己写着 `LocalPythonExecutor`「is not a security sandbox: for isolated execution of untrusted code, use a remote executor」。本工具接受这一定性，因为它执行的是**模型写出的、只被授权调用宿主只读工具**的代码，而不是上传快照里的任何代码：沙箱里没有任何能读文件、发网络请求或起进程的能力，所有实际读取都必须经由宿主工具，并照旧受范围校验、pin、去重、读账本与 `budgets["tools"]` 约束。上传快照里的代码与 POC 从头到尾都不执行。另一条诚实的边界：解释器的墙钟上限由线程池实现，**杀不掉已经跑飞的线程**，它限制的是宿主愿意等多久（`policy.code_seconds`，默认 30s），所以取消时的等待上限是「一次请求 + 最多一个代码块的等待」，而不是「一次请求」。
+**官方定性照抄在这里**：smolagents 自己写着 `LocalPythonExecutor`「is not a security sandbox: for isolated execution of untrusted code, use a remote executor」。本工具接受这一定性，因为它执行的是**模型写出的、只被授权调用宿主只读工具**的代码，而不是上传快照里的任何代码：沙箱里没有任何能读文件、发网络请求或起进程的能力，所有实际读取都必须经由宿主工具，并照旧受范围校验、pin、去重、读账本与 `budgets["tools"]` 约束。上传快照里的代码从不执行；POC 也不在应用进程内运行，而是由隔离的 `poc-runner` 容器对着本地 DVWA 执行（见 `poc_runner/README.md`）。另一条诚实的边界：解释器的墙钟上限由线程池实现，**杀不掉已经跑飞的线程**，它限制的是宿主愿意等多久（`policy.code_seconds`，默认 30s），所以取消时的等待上限是「一次请求 + 最多一个代码块的等待」，而不是「一次请求」。
 
 终局校验仍在宿主这一侧：`final_answer(...)` 的载荷按当前阶段的结构（`PlannerDecision` / `GoalAssessment` / 本单元的三类结论）校验，不通过时**不结束阶段**，而是把拒绝理由作为一条 Observation 还给模型，让它在同一个循环里改正。这次拒绝照旧算一次纠正：`policy.output_corrections`（默认 2）的额度、`model_retry` 事件与「用尽后以 `invalid_output` 终止」的语义一字不变。
 
 一个行为变化：**worker 工具的参数错误**。旧实现里工具以 JSON schema 注册（`@agent.tool(sequential=True, retries=0)`），参数不符合 schema 就不再重试，直接结束当前读单元；现在工具就是 Python 函数，参数写错由解释器抛出的异常变成那一步的 Observation，模型看到错误后在同一循环里改正，读单元继续。这是变好了——一次笔误不再作废整个单元——但轨迹确实与旧记录不同：这类错误表现为一条带 `error` 的 `agent_code`，而不再以 `unit_incomplete` 收场。
 
-## 发现、人工复核与导出
+## 发现、自动验证与导出
 
-- `GET /findings/{id}` → 发现及人工复核记录。
+- `GET /findings/{id}` → 发现、只读的自动验证记录与历史人工记录（`source="poc_agent"` / `"legacy_human"`）。
 - `GET /findings/{id}/poc` → 原样下载已存 POC；没有 POC 时返回 404。
-- `POST /findings/{id}/verifications` → `multipart/form-data`，字段 `record`（JSON）和可选 `files`。带 POC 的漏洞发现确认或排除需要成功执行、环境、命令和对照观测；确认还需要附件。没有 POC 的通用源码发现可用人工复核说明确认或排除，无需伪造攻击执行记录；证据校验未通过的源码结论不能被确认。
 - `GET /runs/{id}/report?format=markdown|json|zip` → 审计报告、原始结果或证据包。
+
+验证记录由 POC Agent 在收束边界写入，没有 HTTP 提交入口。`Verification` 形如：
+
+```text
+{id,finding_id,source:"poc_agent"|"legacy_human",status,verdict,summary,
+ execution_status?,environment?,command?,normal_observation?,attack_observation?,
+ original_script?,modified_script?,target:{kind,base_url,security,authenticated},
+ agent:{model,phases,jobs,usage},artifacts:[{name,sha256,size}],created_at}
+```
+
+`status` 与 `verification_status` 同一取值集合；`rejected` 表示隔离靶场执行成功但未能复现，静态源码证据仍保留。历史人工记录只作审计轨迹，不再决定当前结论。证据包包含自动验证产物，以及每份验证的 `<verification-id>-runner-manifest.json`（目标、限额、job id、退出码、产物哈希）。
 
 Planner 目标任务的统计 `truth_status=planner_goal_not_comparable`、`evaluation=null`，进度字段表示动态任务前沿的结算状态，不会套用固定三类漏洞的 TP/FP/FN/TN 或 Recall 矩阵。
 

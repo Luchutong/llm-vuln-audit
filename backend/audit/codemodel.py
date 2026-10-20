@@ -60,6 +60,36 @@ _PROVIDER_ERRORS = frozenset({
 
 FINAL_ANSWER_ACCEPTED = "最终答案已通过宿主校验。"
 
+# What the model is told after a reply the loop could not parse.  It is fixed text, not
+# the framework's exception: that message quotes the whole model reply, and this run
+# never persists model prose.
+PARSE_CORRECTION = (
+    "上一条回复没有可解析的代码块。请只输出一个代码块：把本阶段的动作写成 Python 代码；"
+    "结束本阶段时在该代码块里调用 final_answer(...)，参数是普通 dict。代码块之外不要写结果。"
+)
+
+# The loop raises one class for "nothing usable in this reply"; the category is what the
+# durable event carries instead of the exception itself.
+PARSE_ERROR_CATEGORIES = {"AgentParsingError": "no_code_block"}
+
+
+def finish_reason(message: ChatMessage) -> str | None:
+    """The provider's ``finish_reason`` when the client kept the raw response.
+
+    ``ChatMessage.raw`` is the provider's own object or dict; it is optional, and its
+    absence must not turn a recorded response into a failure.
+    """
+    raw = getattr(message, "raw", None)
+    if raw is None:
+        return None
+    choices = raw.get("choices") if isinstance(raw, dict) else getattr(raw, "choices", None)
+    if not choices:
+        return None
+    first = choices[0]
+    reason = first.get("finish_reason") if isinstance(first, dict) else getattr(first, "finish_reason", None)
+    return str(reason)[:40] if reason else None
+
+
 
 class HostStop(BaseException):
     """A host decision to end this phase, carried across the agent loop untouched.
@@ -209,9 +239,23 @@ class PhaseGate:
         """
         return self._on_loop(lambda: self._accept(payload))
 
-    def record_response(self, message: ChatMessage) -> None:
+    def record_response(self, message: ChatMessage, *, max_output_tokens: int | None = None) -> None:
         """Count one answered request.  Failures are counted by ``before_model``."""
-        self._on_loop(lambda: self._record(message))
+        self._on_loop(lambda: self._record(message, max_output_tokens=max_output_tokens))
+
+    def record_parse_error(self, *, step: int, error: BaseException) -> None:
+        """Record a reply the loop could not parse, and make the next request a correction.
+
+        A reply with no code block used to leave no trace at all: the loop raised its own
+        parsing error, the step had no ``code_action``, and the recorder skipped it, so a
+        conclusion phase that answered three times in prose ended as "budget" with
+        nothing saying why.  Only the fixed category and hint are kept -- the framework
+        exception quotes the whole reply, which this run never persists.
+        """
+        category = PARSE_ERROR_CATEGORIES.get(type(error).__name__)
+        if category is None or self.closed:
+            return
+        self._on_loop(lambda: self._emit_parse_error(step=step, category=category))
 
     def report_progress(self, message: str) -> str:
         """Accept an explicit public update, never model response prose or reasoning."""
@@ -330,16 +374,46 @@ class PhaseGate:
         # they ran inside the framework's output validator.
         return self.validate(value) if self.validate is not None else value
 
-    async def _record(self, message: ChatMessage) -> None:
+    async def _record(self, message: ChatMessage, *, max_output_tokens: int | None = None) -> None:
         usage = getattr(message, "token_usage", None)
         self.execution.usage.add(
             requests=1,
             input_tokens=getattr(usage, "input_tokens", 0) or 0,
             output_tokens=getattr(usage, "output_tokens", 0) or 0,
         )
-        self.execution.emit({
+        content = message.content if isinstance(message.content, str) else str(message.content or "")
+        event = {
             "kind": "model_response",
             "phase": self.execution.phase,
+            # How much the model produced, beside the cap it was given: a reply that fills
+            # the cap is a truncation diagnosis, and a short reply that still failed to
+            # parse is a format one.
+            "output_chars": len(content),
+            "output_bytes": len(content.encode("utf-8")),
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+            "usage": self.execution.snapshot(),
+        }
+        if max_output_tokens:
+            event["max_output_tokens"] = int(max_output_tokens)
+        if finish := finish_reason(message):
+            event["finish_reason"] = finish
+        self.execution.emit(event)
+
+    async def _emit_parse_error(self, *, step: int, category: str) -> None:
+        # A callback can already be queued when the phase is closed; a parse error then
+        # has nothing to correct and must not reopen the gate.
+        if self.closed or self.published is not None:
+            return
+        # The next request is a correction: it is bounded by the same allowance a rejected
+        # final answer uses, and it tells the model exactly how to answer instead.
+        self.pending_correction = PARSE_CORRECTION
+        self.execution.emit({
+            "kind": "agent_parse_error",
+            "phase": self.execution.phase,
+            "step": step,
+            "request_index": self.execution.attempts,
+            "category": category,
+            "hint": PARSE_CORRECTION,
             "usage": self.execution.snapshot(),
         })
 
@@ -396,7 +470,7 @@ class AuditCodeModel(OpenAIModel):
             )
         except BaseException as exc:
             raise self.gate.failure(exc) from exc
-        self.gate.record_response(message)
+        self.gate.record_response(message, max_output_tokens=self.max_tokens)
         return message
 
     def _complete(self, messages, **kwargs) -> ChatMessage:

@@ -258,6 +258,135 @@ export interface SnapshotSummary {
   file_count: number;
   unit_count: number;
   warning_count: number;
+  project_id?: string | null;
+}
+/**
+ * A project is the audit identity of a source tree: every upload whose readable text
+ * files are identical lands on the same project, so runs under it share one ledger.
+ */
+export interface Project {
+  id: string;
+  name: string;
+  content_key: string;
+  target_profile: 'dvwa' | 'unknown' | string;
+  created_at: string;
+  updated_at: string;
+  latest_snapshot_id?: string | null;
+  latest_run_id?: string | null;
+  snapshot_count: number;
+  run_count: number;
+  finding_counts?: ProjectFindingCounts;
+  findings?: ProjectFinding[];
+  runs?: Run[];
+  snapshots?: SnapshotSummary[];
+}
+export interface ProjectFinding {
+  id: string;
+  project_id: string;
+  revision: number;
+  fingerprint: string;
+  title: string;
+  file_path: string;
+  symbol: string;
+  category: string;
+  finding_kind?: string;
+  severity: string;
+  summary: string;
+  disposition: FindingDisposition;
+  disposition_reason?: string | null;
+  verification_status: VerificationStatus;
+  verification_verdict?: Verdict | null;
+  origin_run_id: string;
+  last_run_id: string;
+  discovered_at: string;
+  updated_at: string;
+  /** Present on rows returned with a run bundle: how this run related to the ledger row. */
+  run_relation?: string;
+  run_relation_revision?: number;
+  already_known?: boolean;
+}
+/** The lightweight run identity returned by ledger reads; no execution payload. */
+export interface LedgerRunReference {
+  id: string;
+  snapshot_id: string;
+  snapshot_name: string;
+  status: RunStatus;
+  created_at: string;
+}
+export interface ProjectFindingListItem extends ProjectFinding {
+  project_name: string;
+  validation_state: Finding['validation_state'];
+  origin_finding_id: string;
+  last_finding_id: string;
+  origin_run: LedgerRunReference | null;
+  last_run: LedgerRunReference | null;
+}
+export interface ProjectFindingPage {
+  items: ProjectFindingListItem[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+/** Canonical content belongs to the ledger, even if its source run has changed. */
+export interface LedgerFinding extends ProjectFinding {
+  evidence: Evidence[];
+  input_source: string;
+  propagation: string;
+  dangerous_operation: string;
+  protection: string;
+  preconditions: string[];
+  missing_context: string[];
+  poc: POC | null;
+  remediation: string;
+  validation_state: Finding['validation_state'];
+  origin_finding_id: string;
+  last_finding_id: string;
+  disposition_by?: string | null;
+  disposition_at?: string | null;
+  superseded_summary: ArchivedRevision[];
+  latest_verification_id?: string | null;
+}
+export interface LedgerFindingRelation {
+  run_id: string;
+  run_finding_id: string | null;
+  relation: string;
+  revision: number;
+  created_at: string;
+  snapshot_id: string | null;
+  snapshot_name: string | null;
+  run_status: RunStatus | null;
+}
+export interface LedgerFindingDetail {
+  finding: LedgerFinding;
+  project: Project;
+  origin_run: LedgerRunReference | null;
+  last_run: LedgerRunReference | null;
+  history: LedgerFindingRelation[];
+  verifications: LedgerVerification[];
+  current_verification: LedgerVerification | null;
+  poc_finding_id: string | null;
+  /** A server-provided /api/findings/{actualRunFindingId}/poc path. */
+  poc_download_path: string | null;
+}
+export interface LedgerVerification extends Verification {
+  finding_id?: string;
+  run_id?: string | null;
+  project_finding_id?: string | null;
+  finding_revision?: number | null;
+}
+export interface ProjectFindingCounts {
+  total: number;
+  open: number;
+  verified: number;
+  rejected: number;
+  withdrawn: number;
+  unverified: number;
+  /** The remaining verification states are counted separately so an unavailable
+   * environment does not make the ledger look empty. */
+  inconclusive?: number;
+  not_applicable?: number;
+  environment_unavailable?: number;
+  stale?: number;
 }
 /**
  * Import-time counters. Unlike `ProjectMap.stats` these are not all numeric: `languages`
@@ -287,16 +416,42 @@ export interface Snapshot {
   excluded_files?: string[];
   stats?: SnapshotStats;
   immutable: boolean;
+  /** Set by every upload: the project this snapshot was bound to, by content key. */
+  project_id?: string | null;
+  project?: Project;
+  /** True when an identical archive was already imported. */
+  snapshot_reused?: boolean;
+  /** True when this source tree already had a project; the upload joined it. */
+  project_reused?: boolean;
 }
 export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string }
 /** Public provider identity frozen with a run. It deliberately has no credential. */
 export interface ModelProfileSnapshot { profile_id: string; model: string; base_url: string }
-export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number }
+export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number; project_id?: string | null; project_name?: string | null; project_mode?: 'project' | 'legacy'; poc_policy?: Record<string, unknown> }
+/** One execution the isolated runner performed for a verification record. */
+export interface VerificationJob {
+  id?: number | string;
+  verification_id: string;
+  finding_id: string;
+  job_id: string;
+  kind: 'script' | 'http' | 'browser' | string;
+  exit_code?: number | null;
+  duration_ms?: number | null;
+  created_at?: string;
+  request?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+}
 export interface POC { filename: string; language: string; script: string; instructions: string; normal_input: string; attack_input: string; expected_result: string }
 export type Verdict = 'confirmed' | 'rejected' | 'uncertain';
 export type Conclusion = 'candidate' | 'no_candidate' | 'insufficient_context';
 export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'not_triggered' | 'not_run' | 'other_error';
-export interface Verification { id?: string; created_at?: string; execution_status: ExecutionStatus; verdict: Verdict; original_script?: string; modified_script: string; modification_notes: string; target_version: string; command: string; expected_result: string; normal_observation: string; attack_observation: string; browser_execution: boolean; notes: string; files?: (string | {name?: string; filename?: string; path?: string; url?: string; stored?: string})[] }
+export type VerificationStatus = 'verified' | 'rejected' | 'inconclusive' | 'not_applicable' | 'environment_unavailable' | 'unverified' | 'stale';
+/** Where a verification row came from: the isolated POC agent, or a pre-migration human record. */
+export type VerificationSource = 'poc_agent' | 'legacy_human';
+export interface VerificationArtifact { name?: string; path?: string; sha256?: string; size?: number }
+export interface VerificationTarget { name?: string; base_url?: string; security?: string; version?: string; prepared_at?: string }
+export interface VerificationAgent { jobs?: string[]; summary?: string; reason?: string; usage?: Record<string, unknown>; policy?: Record<string, unknown> }
+export interface Verification { id?: string; created_at?: string; source?: VerificationSource; status?: VerificationStatus; execution_status?: ExecutionStatus; verdict?: Verdict; original_script?: string; modified_script: string; modification_notes: string; target_version: string; command: string; expected_result: string; normal_observation: string; attack_observation: string; browser_execution: boolean; notes: string; files?: (string | {name?: string; filename?: string; path?: string; url?: string; stored?: string})[]; target?: VerificationTarget; agent?: VerificationAgent; artifacts?: VerificationArtifact[] }
 export interface Finding {
   file_path: string;
   symbol: string;
@@ -305,11 +460,18 @@ export interface Finding {
   unit_end_line: number;
   validation_state: 'candidate' | 'invalid_evidence' | 'invalid_finding' | 'observation';
   validation_errors: string[]; id: string; run_id: string; unit_id?: string; task_id?: string; task_key?: string; fingerprint: string; category: string; finding_kind?: string; title: string; severity: string; summary: string; evidence: Evidence[]; input_source: string; propagation: string; dangerous_operation: string; protection: string; preconditions: string[]; missing_context: string[]; poc: POC | null; remediation: string; verdict?: Verdict; verifications: Verification[];
+  /** The POC agent's latest verdict, denormalised onto the finding for cheap listing. */
+  verification_status?: VerificationStatus;
+  verification_verdict?: Verdict | null;
+  /** Which project-ledger row this run finding was merged into, when it belongs to one. */
+  project_finding_id?: string | null;
+  /** `known` when the run rediscovered a ledger row instead of creating one. */
+  known_state?: 'new' | 'known' | string;
   /**
-   * Disposition is a third axis, independent of the evidence check and the human verdict:
-   * whether the run still claims this conclusion. A withdrawn conclusion stays in the
-   * response and in the report — the row, its evidence and its verifications are never
-   * deleted, because "this run changed its mind" is itself part of the record.
+   * Disposition is a third axis, independent of the evidence check and automatic
+   * verification: whether the run still claims this conclusion. A withdrawn conclusion
+   * stays in the response and in the report — the row, its evidence and its verifications
+   * are never deleted, because "this run changed its mind" is itself part of the record.
    */
   disposition: FindingDisposition;
   disposition_reason?: string | null;
@@ -381,6 +543,13 @@ export interface Attribution { id?: string; file_path: string; category: string;
 export interface RunDetail {
   run: Run;
   goal?: Goal | null;
+  /** The shared project ledger this run reasoned over; live, unlike the frozen baseline. */
+  project?: Project | null;
+  project_findings?: ProjectFinding[];
+  carried_findings?: ProjectFinding[];
+  report_narrative?: { summary?: string; conclusion?: string; limitations?: string[] } | null;
+  verification_summary?: Partial<Record<VerificationStatus, number>>;
+  verification_jobs?: VerificationJob[];
   planner?: PlannerState | null;
   project_map?: ProjectMap | null;
   plans?: PlanVersion[];

@@ -91,6 +91,11 @@ function roleOf(event: AuditEvent, payload: Record<string, unknown>): string {
   // Queuing is a host lifecycle event, before a Planner session exists.
   if (event.kind === 'planner_run_queued') return 'host';
   if (event.kind.startsWith('recon_')) return 'recon';
+  if (event.kind.startsWith('poc_')) return 'poc';
+  // Ledger merges happen inside the worker; Planner dispositions happen in a round.
+  if (event.kind === 'report_narrative_committed' || event.kind === 'planner_kept_rejected_finding'
+    || /^project_finding_(retracted|duplicate|reopened|disposition_changed|update_rejected)$/.test(event.kind)) return 'planner';
+  if (/^project_finding_(created|rediscovered|corrected|merge_failed)$/.test(event.kind)) return 'worker';
   if (event.task_id || payload.task_id || payload.work_id || event.unit_id
     || event.kind.startsWith('planner_task_') || event.kind.startsWith('task_work_')) return 'worker';
   if (event.kind.startsWith('planner_')) return 'planner';
@@ -163,7 +168,8 @@ export function normalizeTrace(events: AuditEvent[]): TraceEntry[] {
     context.requestIndex = requestIndex || requests.get(groupKey) || '';
     const previousPhase = phases.get(groupKey);
     const phase = first(payload.phase) || previousPhase?.name
-      || (role === 'planner' ? 'planner_prepare' : role === 'recon' ? 'recon_explore' : role === 'worker' ? 'task_prepare' : 'lifecycle');
+      || (role === 'planner' ? 'planner_prepare' : role === 'recon' ? 'recon_explore'
+        : role === 'poc' ? 'poc_execute' : role === 'worker' ? 'task_prepare' : 'lifecycle');
     const epoch = previousPhase ? previousPhase.epoch + Number(previousPhase.name !== phase) : 0;
     phases.set(groupKey, { name: phase, epoch });
     return { event, payload, context, groupKey, phase, phaseKey: JSON.stringify([groupKey, phase, epoch]) };
@@ -321,6 +327,14 @@ export function eventSummary(entry: TraceEntry): string {
   if (event.kind === 'audit_progress') return shortText(payload.message, 280) || '审计进展已记录';
   if (event.kind === 'model_request') return '正在调用模型';
   if (event.kind === 'model_response') return '模型响应已记录';
+  if (event.kind === 'agent_parse_error') {
+    const details = ['输出格式错误'];
+    if (payload.step !== undefined && payload.step !== null) details.push(`第 ${shortText(payload.step, 12)} 步`);
+    details.push(payload.category === 'no_code_block' ? '回复中没有可解析的代码块' : shortText(payload.category, 40) || '无法解析回复');
+    return details.join(' · ');
+  }
+  if (event.kind === 'poc_execution_finished') return `POC 执行阶段结束 · ${shortText(payload.reason, 40) || '未知原因'}`;
+  if (event.kind === 'poc_conclusion_failed') return `结论生成失败 · ${shortText(payload.reason, 40) || '未知原因'}`;
   if (event.kind === 'agent_phase') return '进入新阶段';
   if (event.kind === 'recon_phase') return '侦察阶段更新';
   if (event.kind === 'agent_code') {

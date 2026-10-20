@@ -279,6 +279,17 @@ test('phase replay cannot join a new result to a dangling invocation from an ear
   assert.equal(groupTrace(entries)[0].phases.length, 3);
 });
 
+test('a parse failure is summarized as an output-format problem, not an execution error', () => {
+  const [entry] = normalizeTrace([tool(1, 'agent_parse_error', {
+    phase: 'poc_conclude', step: 2, request_index: 2, category: 'no_code_block', hint: '宿主固定提示',
+  })]);
+  const summary = eventSummary(entry);
+  assert.match(summary, /输出格式错误/);
+  assert.match(summary, /第 2 步/);
+  assert.match(summary, /没有可解析的代码块/);
+  assert.doesNotMatch(summary, /宿主固定提示/);
+});
+
 test('code actions preserve saved code/log/error and phase final does not settle the audit', () => {
   const code = 'print("源码观察")\n'.repeat(500);
   const logs = '观察结果\n'.repeat(1000);

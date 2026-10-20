@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import time
 import uuid
@@ -11,10 +12,9 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -24,6 +24,8 @@ from .events import EventBus
 from .health import ModelHealth
 from .finding_policy import partition_findings, source_observations
 from .metrics import comparable_runs, prompt_diffs, summarise
+from .project_findings import backfill_project_ledger
+from .projects import ensure_project, ensure_projects
 from .prompts import DEFAULT_PROMPT_ID, builtin_prompt_records
 from .report import collect_evidence, render_json, render_markdown, render_zip
 from .schemas import (
@@ -33,7 +35,6 @@ from .schemas import (
     ModelProfileUpdateRequest,
     PromptCreateRequest,
     TruthRequest,
-    VerificationRecord,
 )
 from .source import MAX_LISTED_PATHS, SourceRepository
 from .worker import AuditWorker
@@ -50,16 +51,6 @@ def _iso() -> str:
 def _safe_name(value: str) -> str:
     cleaned = Path(value.replace("\\", "/")).name.strip()[:120]
     return "".join(ch for ch in cleaned if ch.isprintable() and ch not in '/\\:*?"<>|') or "upload.bin"
-
-
-def _required_verification_fields(record: VerificationRecord) -> list[str]:
-    labels = {
-        "target_version": "目标版本",
-        "command": "执行命令",
-        "normal_observation": "正常输入的实际观测",
-        "attack_observation": "攻击输入的实际观测",
-    }
-    return [label for field, label in labels.items() if not getattr(record, field).strip()]
 
 
 class Services:
@@ -80,6 +71,12 @@ class Services:
         if selected_profile is not None:
             self.settings.model = self.model_config_for_profile(selected_profile)
         self.repository = SourceRepository(settings.data_dir)
+        # Backfill is guarded by schema_meta and idempotent: an old data directory gains
+        # projects and a ledger exactly once, while a fresh one does nothing here.
+        if self.store.schema_meta("project_backfill_v1") != "done":
+            ensure_projects(self.store, self.repository)
+            backfill_project_ledger(self.store)
+            self.store.set_schema_meta("project_backfill_v1", "done")
         self.bus = EventBus(self.store)
         self.health = ModelHealth()
         saved_health = self.store.load_health()
@@ -167,6 +164,57 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PHP White-box Audit Workbench", version=VERSION, lifespan=lifespan)
 
 
+def _client_in_networks(client: str, entries) -> bool:
+    """True when a peer address matches one of the configured runner networks.
+
+    Invalid entries are ignored rather than raising: a typo in an optional hardening
+    list must not prevent the server from starting.
+    """
+    import ipaddress
+
+    try:
+        address = ipaddress.ip_address(client or "")
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    for entry in entries or ():
+        text = str(entry or "").strip()
+        if not text:
+            continue
+        try:
+            network = ipaddress.ip_network(text, strict=False)
+        except ValueError:
+            continue
+        if address in network:
+            return True
+    return False
+
+
+@app.middleware("http")
+async def reject_runner_clients(request: Request, call_next):
+    """Keep the POC runner away from the audit API.
+
+    Network isolation already places the runner on a private control network; this is
+    defence in depth for the one reachable service.  Requests from configured runner
+    addresses may only use the reserved ``/internal/poc`` prefix (none today) and are
+    refused on ``/api/*``.  The list is empty by default, so an ordinary local browser
+    keeps working even when the setting is not provided.
+    """
+    path = request.url.path
+    if path.startswith("/api/") and not path.startswith("/internal/poc/"):
+        state = getattr(request.app.state, "services", None)
+        poc = getattr(getattr(state, "settings", None), "poc", None)
+        entries = getattr(poc, "runner_addrs", ()) if poc is not None else ()
+        peer = request.client.host if request.client else ""
+        if entries and _client_in_networks(peer, entries):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "POC runner clients may not call the audit API"},
+            )
+    return await call_next(request)
+
+
 @app.exception_handler(RequestValidationError)
 async def redact_model_key_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
     """Keep an invalid browser-submitted API key out of FastAPI's 422 payload.
@@ -235,6 +283,57 @@ def _project_map_projection(run_id: str, project_map: dict | None) -> dict | Non
     }
 
 
+_VERIFICATION_STATUSES = (
+    "verified", "rejected", "inconclusive", "not_applicable",
+    "environment_unavailable", "unverified", "stale",
+)
+
+
+def _verification_summary(findings: list[dict]) -> dict:
+    summary = {status: 0 for status in _VERIFICATION_STATUSES}
+    for finding in findings:
+        status = str(finding.get("verification_status") or "unverified")
+        summary[status] = summary.get(status, 0) + 1
+    return summary
+
+
+def _project_projection(
+    state: Services, run: dict, findings: list[dict], relations: list[dict] | None = None
+) -> dict:
+    """The project half of a run bundle: ledger context, carried findings, verification.
+
+    Kept out of the run row itself because it is live: the ledger is shared, so a sibling
+    run may add to it while this run is still going.  ``project_baseline`` on the run is
+    the frozen view this run actually reasoned over.
+    """
+    project_id = str(run.get("project_id") or "")
+    project = state.store.get_project(project_id) if project_id else None
+    if project is None:
+        return {
+            "project": None,
+            "project_findings": [],
+            "carried_findings": [],
+            "verification_jobs": [],
+            "verification_summary": _verification_summary(findings),
+            # Narratives only exist for project-mode runs; a legacy run's report must not
+            # gain a section it never produced.
+            "report_narrative": {},
+        }
+    relations = relations if relations is not None else state.store.list_run_project_findings(run["id"])
+    return {
+        "project": project,
+        "project_findings": state.store.list_project_findings(
+            project_id, include_withdrawn=False, limit=200
+        ),
+        "carried_findings": [
+            row for row in relations if str(row.get("run_relation")) == "carried"
+        ],
+        "verification_jobs": state.store.list_run_verification_jobs(run["id"]),
+        "verification_summary": _verification_summary(findings),
+        "report_narrative": state.store.latest_plan_narrative(run["id"]),
+    }
+
+
 def _run_bundle(state: Services, run_id: str) -> dict:
     run = state.store.get_run(run_id)
     if run is None:
@@ -242,6 +341,9 @@ def _run_bundle(state: Services, run_id: str) -> dict:
     all_findings = state.store.list_findings(run_id)
     findings, _ = partition_findings(all_findings)
     truths = state.store.list_truths(run["snapshot_id"])
+    # One query serves both the metrics delta and the "carried" section; the ledger rows
+    # are the only record of which conclusions this run reused rather than reached.
+    relations = state.store.list_run_project_findings(run_id) if run.get("project_id") else []
     planner = state.store.get_planner_session(run_id)
     if planner is not None:
         tasks = state.store.list_tasks(run_id)
@@ -269,8 +371,10 @@ def _run_bundle(state: Services, run_id: str) -> dict:
             "findings": findings,
             "source_observations": audit_observations,
             "attributions": [],
-            "metrics": {**summarise(run, [], all_findings, truths, tasks=tasks),
+            "metrics": {**summarise(run, [], all_findings, truths, tasks=tasks,
+                                     project_relations=relations),
                         "source_observations": len(audit_observations)},
+            **_project_projection(state, run, all_findings, relations),
         }
     units = state.store.list_run_units(run_id)
     work_items = state.store.list_task_work_items(run_id)
@@ -283,8 +387,9 @@ def _run_bundle(state: Services, run_id: str) -> dict:
         "findings": findings,
         "source_observations": audit_observations,
         "attributions": state.store.list_attributions(run_id),
-        "metrics": {**summarise(run, units, all_findings, truths),
+        "metrics": {**summarise(run, units, all_findings, truths, project_relations=relations),
                     "source_observations": len(audit_observations)},
+        **_project_projection(state, run, all_findings, relations),
     }
 
 
@@ -306,6 +411,7 @@ def _config_payload(state: Services) -> dict:
         "budgets": state.settings.budgets,
         "budget_limits": {"defaults": DEFAULT_BUDGETS},
         "agent_policy": AgentPolicy().snapshot(),
+        "poc": state.settings.poc.public(),
         "worker": state.worker.status,
         "model_health": state.health.snapshot(),
         "version": VERSION,
@@ -478,14 +584,49 @@ async def check_config(request: Request) -> dict:
 
 @app.post("/api/snapshots")
 async def create_snapshot(request: Request, file: UploadFile = File(...)) -> dict:
+    """Import an uploaded project and bind it to its content-key project.
+
+    A byte-identical archive reuses the existing snapshot outright; a re-zipped archive
+    of the same tree becomes a new snapshot of the *same* project, because the project
+    identity is the indexed text content rather than the archive bytes.
+    """
     state = services(request)
     data = await file.read()
+    digest = hashlib.sha256(data).hexdigest()
+    existing = state.store.get_snapshot_by_archive_sha256(digest)
+    if existing is not None:
+        try:
+            snapshot = await asyncio.to_thread(state.repository.get_snapshot, existing["id"])
+        except (FileNotFoundError, ValueError):
+            snapshot = dict(existing)
+        project = state.store.get_project(existing["project_id"]) if existing.get("project_id") else None
+        if project is None:
+            # A snapshot from before projects existed, or one whose binding was lost:
+            # rebind it rather than leaving the upload path inconsistent.
+            snapshot, _ = ensure_project(state.store, snapshot)
+            project = state.store.get_project(snapshot["project_id"])
+        snapshot.setdefault("content_key", existing.get("content_key"))
+        snapshot.setdefault("target_profile", existing.get("target_profile") or "unknown")
+        return {
+            **snapshot,
+            "project_id": project["id"] if project else None,
+            "project": project,
+            "project_reused": True,
+            "snapshot_reused": True,
+        }
     try:
         snapshot = await asyncio.to_thread(state.repository.import_zip, data, file.filename or "upload.zip")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     state.store.add_snapshot(snapshot)
-    return snapshot
+    project, created = ensure_project(state.store, snapshot)
+    return {
+        **snapshot,
+        "project_id": project["id"],
+        "project": project,
+        "project_reused": not created,
+        "snapshot_reused": False,
+    }
 
 
 @app.get("/api/snapshots")
@@ -495,10 +636,19 @@ async def list_snapshots(request: Request) -> list[dict]:
 
 @app.get("/api/snapshots/{snapshot_id}")
 async def get_snapshot(request: Request, snapshot_id: str) -> dict:
+    state = services(request)
     try:
-        return services(request).repository.get_snapshot(snapshot_id)
+        # The immutable index is published before content-key project binding. Keep
+        # provenance in SQLite and enrich a response copy, never the cached/disk index.
+        snapshot = dict(state.repository.get_snapshot(snapshot_id))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Snapshot does not exist") from exc
+    stored = state.store.get_snapshot(snapshot_id)
+    if stored is not None:
+        for key in ("project_id", "content_key", "target_profile"):
+            if stored.get(key) is not None:
+                snapshot[key] = stored[key]
+    return snapshot
 
 
 @app.get("/api/snapshots/{snapshot_id}/source")
@@ -517,7 +667,156 @@ async def get_source(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+# --- projects ---------------------------------------------------------------
+
+
+def _project_detail(state: Services, project_id: str, *, include_findings: bool) -> dict:
+    project = state.store.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project does not exist")
+    detail = dict(project)
+    detail["runs"] = [run for run in state.store.list_runs() if run.get("project_id") == project_id]
+    detail["snapshots"] = [
+        row for row in state.store.list_snapshots() if row.get("project_id") == project_id
+    ]
+    if include_findings:
+        detail["findings"] = state.store.list_project_findings(project_id, include_withdrawn=True)
+    return detail
+
+
+@app.get("/api/projects")
+async def list_projects(request: Request) -> list[dict]:
+    return services(request).store.list_projects()
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project(request: Request, project_id: str, include_findings: bool = Query(True)) -> dict:
+    return _project_detail(services(request), project_id, include_findings=include_findings)
+
+
+@app.get("/api/projects/{project_id}/findings")
+async def list_project_findings(
+    request: Request,
+    project_id: str,
+    include_withdrawn: bool = Query(True),
+    limit: int = Query(200, ge=1, le=1000),
+) -> list[dict]:
+    state = services(request)
+    if state.store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project does not exist")
+    return state.store.list_project_findings(
+        project_id, include_withdrawn=include_withdrawn, limit=limit
+    )
+
+
+@app.get("/api/projects/{project_id}/runs")
+async def list_project_runs(request: Request, project_id: str) -> list[dict]:
+    state = services(request)
+    if state.store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project does not exist")
+    return [run for run in state.store.list_runs() if run.get("project_id") == project_id]
+
+
+@app.get("/api/project-findings")
+async def search_project_findings(
+    request: Request,
+    project_id: str | None = Query(None),
+    q: str | None = Query(None, max_length=200),
+    severity: str | None = Query(None, pattern="^(critical|high|medium|low|unknown)$"),
+    verification_status: str | None = Query(
+        None, pattern="^(verified|rejected|inconclusive|not_applicable|environment_unavailable|unverified|stale)$"
+    ),
+    disposition: str | None = Query(None, pattern="^(all|open|retracted|duplicate|superseded|contested)$"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+) -> dict:
+    state = services(request)
+    if project_id and state.store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project does not exist")
+    return state.store.search_project_findings(
+        project_id=project_id, q=q, severity=severity, verification_status=verification_status,
+        disposition=disposition, offset=offset, limit=limit,
+    )
+
+
+def _finding_run_source(run: dict | None) -> dict | None:
+    if run is None:
+        return None
+    return {key: run.get(key) for key in ("id", "snapshot_id", "snapshot_name", "status", "created_at")}
+
+
+@app.get("/api/project-findings/{project_finding_id}")
+async def get_project_finding(request: Request, project_finding_id: str) -> dict:
+    state = services(request)
+    finding = state.store.get_project_finding(project_finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="Project finding does not exist")
+    verifications = state.store.project_finding_verifications(project_finding_id)
+    # Rediscovery can keep a valid verification from an earlier run. A correction keeps
+    # that record as history, but it must not support the current canonical conclusion.
+    current_verification = next((
+        record for record in verifications
+        if record["id"] == finding.get("latest_verification_id")
+        and finding.get("verification_status") != "stale"
+        and (record.get("finding_revision") is None or record["finding_revision"] == finding["revision"])
+    ), None)
+    last_finding = state.store.get_finding(finding["last_finding_id"])
+    poc_finding_id = None
+    if (finding.get("poc") or {}).get("script") and last_finding is not None:
+        if last_finding.get("poc") == finding["poc"]:
+            poc_finding_id = last_finding["id"]
+    return {
+        "finding": finding,
+        "project": state.store.get_project(finding["project_id"]),
+        "origin_run": _finding_run_source(state.store.get_run(finding["origin_run_id"])),
+        "last_run": _finding_run_source(state.store.get_run(finding["last_run_id"])),
+        "history": state.store.project_finding_history(project_finding_id),
+        "verifications": verifications,
+        "current_verification": current_verification,
+        "poc_finding_id": poc_finding_id,
+        "poc_download_path": f"/api/findings/{poc_finding_id}/poc" if poc_finding_id else None,
+    }
+
+
 # --- runs -------------------------------------------------------------------
+
+
+def _resolve_run_scope(state: Services, payload: CreateRunRequest) -> tuple[dict, dict]:
+    """Resolve the one snapshot a run audits and the project that snapshot belongs to.
+
+    A project run uses the project's latest snapshot: the audit target is the project's
+    content, and the latest upload is the most recent reading of it.  A snapshot run still
+    works for embedding callers, and is bound to the snapshot's project (creating it if an
+    older database predates projects) so its findings join the same ledger.
+    """
+    if payload.project_id:
+        project = state.store.get_project(payload.project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project does not exist")
+        if not project.get("latest_snapshot_id"):
+            raise HTTPException(status_code=409, detail="该项目还没有可审计的快照，请先上传源码。")
+        try:
+            snapshot = state.repository.get_snapshot(project["latest_snapshot_id"])
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project snapshot does not exist") from exc
+        bound = snapshot.get("project_id")
+        if bound and bound != project["id"]:
+            raise HTTPException(
+                status_code=409, detail="快照所属项目与请求的项目不一致，请重新上传源码。"
+            )
+        if not bound:
+            ensure_project(state.store, snapshot)
+        return snapshot, state.store.get_project(project["id"]) or project
+
+    assert payload.snapshot_id is not None  # enforced by CreateRunRequest
+    try:
+        snapshot = state.repository.get_snapshot(payload.snapshot_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Snapshot does not exist") from exc
+    project = state.store.get_project(snapshot["project_id"]) if snapshot.get("project_id") else None
+    if project is None:
+        project, _ = ensure_project(state.store, snapshot)
+    return snapshot, project
 
 
 @app.post("/api/runs")
@@ -531,10 +830,7 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     tasks as evidence arrives.
     """
     state = services(request)
-    try:
-        snapshot = state.repository.get_snapshot(payload.snapshot_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Snapshot does not exist") from exc
+    snapshot, project = _resolve_run_scope(state, payload)
 
     budgets = clamp_budgets(payload.budgets)
     run_id = uuid.uuid4().hex
@@ -559,10 +855,19 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "model": frozen_model,
         "base_url": public_base_url() if callable(public_base_url) else str(getattr(active_model, "base_url", "") or ""),
     }
+    # The ledger is frozen at run start: a sibling run that discovers something later must
+    # not change what this run is trying to prove.  Withdrawn rows are excluded -- they are
+    # history, not standing conclusions.
+    baseline = state.store.list_project_findings(project["id"], include_withdrawn=False)
+    poc_policy = state.settings.poc.snapshot()
     run = {
         "id": run_id,
         "snapshot_id": snapshot["id"],
         "snapshot_name": snapshot["name"],
+        "project_id": project["id"],
+        "project_mode": "project",
+        "project_baseline": baseline,
+        "poc_policy": poc_policy,
         # The whole snapshot is the scope, so no explicit file list is stored. Downstream
         # code must branch on ``scope_mode`` (see ``runtime.allowed_paths_for_run``)
         # instead of reading this list directly.
@@ -581,6 +886,7 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "created_at": _iso(),
     }
     state.store.create_run(run)
+    state.store.touch_project_run(project["id"], run_id)
     state.store.create_planner_session(
         run_id,
         f"planner:{run_id[:12]}",
@@ -597,6 +903,13 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "project_map_stats": project_map.get("stats") or {},
         "max_planner_rounds": payload.task.max_planner_rounds,
         "model_profile": persisted["model_profile"],
+    })
+    state.bus.emit(run_id, None, "project_findings_baseline_frozen", {
+        "project_id": project["id"],
+        "project_name": project["name"],
+        "count": len(baseline),
+        "ids": [item["id"] for item in baseline][:64],
+        "verified": sum(1 for item in baseline if item.get("verification_status") == "verified"),
     })
     state.worker.notify()
     return persisted
@@ -820,125 +1133,6 @@ async def download_poc(request: Request, finding_id: str) -> Response:
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-@app.post("/api/findings/{finding_id}/verifications")
-async def add_verification(
-    request: Request,
-    finding_id: str,
-    record: str = Form(...),
-    files: list[UploadFile] = File(default=[]),
-) -> dict:
-    state = services(request)
-    finding = state.store.get_finding(finding_id)
-    if finding is None:
-        raise HTTPException(status_code=404, detail="Finding does not exist")
-    try:
-        payload = json.loads(record)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="record must be a JSON object") from exc
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="record must be a JSON object")
-    try:
-        verification = VerificationRecord.model_validate(payload)
-    except ValidationError as exc:
-        first = exc.errors(include_url=False)[0]
-        raise HTTPException(status_code=400, detail=f"record is invalid: {first['msg']}") from exc
-
-    verdict = verification.verdict
-    execution_status = verification.execution_status
-    has_upload = any(upload is not None and bool((upload.filename or "").strip()) for upload in files)
-    # A target task may return a neutral source fact (for example, an authentication
-    # boundary or configuration origin) with no POC. Requiring a fake attack command
-    # and control experiment to accept that review would reintroduce the legacy
-    # vulnerability template into a generic result. POC-bearing findings keep the
-    # stronger reproducibility gate below.
-    generic_source_review = (
-        (str(finding.get("category") or "").startswith("task_goal") or bool(finding.get("finding_kind")))
-        and not bool((finding.get("poc") or {}).get("script"))
-    )
-
-    # A confirmation claims that the vulnerability was reproduced, so it needs a
-    # successful run, both sides of the control experiment, enough environment detail
-    # to reproduce it, and an attachment. An exclusion also needs a successful run and
-    # observations; a failed POC is an uncertain result, never an automatic false positive.
-    if generic_source_review and verdict == "confirmed" and finding.get("validation_state") != "candidate":
-        raise HTTPException(
-            status_code=400,
-            detail="证据校验未通过的通用源码结论不能确认；请先补充可核验的源码引用或记录为驳回/待定",
-        )
-    if generic_source_review and verdict in ("confirmed", "rejected"):
-        if not verification.notes.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="通用源码结论的确认或排除需要填写人工复核说明",
-            )
-    elif verdict in ("confirmed", "rejected"):
-        if execution_status != "success":
-            label = "确认" if verdict == "confirmed" else "排除"
-            raise HTTPException(status_code=400, detail=f"执行未成功时不能{label}；请改用 uncertain 或补充决定性观测")
-        missing = _required_verification_fields(verification)
-        if missing:
-            raise HTTPException(status_code=400, detail=f"{verdict} 需要填写：{'、'.join(missing)}")
-    if verdict == "confirmed" and not generic_source_review and not has_upload:
-        raise HTTPException(status_code=400, detail="确认为漏洞时必须上传日志、截图或其他可复核证据")
-    if finding["category"] == "xss_r" and verdict == "confirmed" and not verification.browser_execution:
-        raise HTTPException(status_code=400, detail="反射型 XSS 确认需要浏览器执行证据")
-
-    verification_id = uuid.uuid4().hex
-    saved: list[dict] = []
-    written: list[Path] = []
-    try:
-        for index, upload in enumerate(files, 1):
-            if upload is None or not (upload.filename or "").strip():
-                continue
-            name = f"{verification_id[:8]}-{index:02d}-{_safe_name(upload.filename)}"
-            target = state.settings.evidence_dir / name
-            content = await upload.read()
-            if not content:
-                continue
-            await asyncio.to_thread(target.write_bytes, content)
-            written.append(target)
-            saved.append({"name": upload.filename, "stored": name, "url": f"/api/evidence/{name}"})
-    except Exception:
-        for path in written:
-            path.unlink(missing_ok=True)
-        raise
-    if verdict == "confirmed" and not generic_source_review and not saved:
-        raise HTTPException(status_code=400, detail="确认证据附件不能为空")
-
-    entry = {
-        "id": verification_id,
-        "finding_id": finding_id,
-        "created_at": _iso(),
-        "execution_status": execution_status,
-        "verdict": verdict,
-        "original_script": ((finding.get("poc") or {}).get("script") or ""),
-        "modified_script": verification.modified_script,
-        "modification_notes": verification.modification_notes,
-        "target_version": verification.target_version,
-        "command": verification.command,
-        "expected_result": verification.expected_result,
-        "normal_observation": verification.normal_observation,
-        "attack_observation": verification.attack_observation,
-        "browser_execution": verification.browser_execution,
-        "notes": verification.notes,
-        "files": saved,
-    }
-    try:
-        state.store.record_verification(entry)
-    except Exception:
-        for path in written:
-            path.unlink(missing_ok=True)
-        raise
-    state.bus.emit(
-        finding["run_id"],
-        finding["unit_id"],
-        "verification_recorded",
-        {"finding_id": finding_id, "verdict": verdict, "execution_status": execution_status},
-    )
-    return state.store.get_finding(finding_id)
 
 
 @app.get("/api/evidence/{name}")

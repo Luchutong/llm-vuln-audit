@@ -1,86 +1,55 @@
-"""POC delivery and human-verification gates without a live server or model."""
+"""POC delivery and automatic verification without a live server or model.
+
+There is no review endpoint any more: verification rows are written by the POC agent
+inside the worker.  What remains to pin on the HTTP surface is that the model's POC
+downloads byte-for-byte, that the human route is really gone (not merely unused), and
+that reading a finding returns its verification records as plain read-only data.
+"""
 from __future__ import annotations
 
 import asyncio
-import json
-from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException, UploadFile
 
 from audit import app as app_module
 
 
 class FakeStore:
-    def __init__(self, category: str = "sqli"):
+    def __init__(self):
         self.finding = {
             "id": "finding-1",
             "run_id": "run-1",
             "unit_id": "unit-1",
-            "category": category,
+            "category": "sqli",
             "poc": {
                 "filename": "poc.py",
                 "language": "python",
                 "script": "#!/usr/bin/env python3\nprint('original artifact')\n",
             },
+            "verification_status": "verified",
+            "verification_verdict": "confirmed",
+            "verifications": [{
+                "id": "v1",
+                "source": "poc_agent",
+                "status": "verified",
+                "verdict": "confirmed",
+                "execution_status": "success",
+                "target": {"name": "dvwa", "security": "low"},
+                "agent": {"jobs": ["job-1"]},
+                "artifacts": [{"name": "out.txt", "path": "v1-out.txt"}],
+            }],
         }
-        self.records: list[dict] = []
-        self.verdict: str | None = None
 
     def get_finding(self, finding_id: str):
         return self.finding if finding_id == self.finding["id"] else None
 
-    def add_verification(self, record: dict) -> None:
-        self.records.append(record)
-
-    def record_verification(self, record: dict) -> None:
-        self.records.append(record)
-        self.verdict = record["verdict"]
-
-    def set_finding_verdict(self, finding_id: str, verdict: str) -> None:
-        assert finding_id == self.finding["id"]
-        self.verdict = verdict
-
-
-class FakeBus:
-    def __init__(self):
-        self.events: list[tuple] = []
-
-    def emit(self, *args) -> None:
-        self.events.append(args)
-
 
 @pytest.fixture
-def state(tmp_path, monkeypatch):
-    store = FakeStore()
-    fake_state = SimpleNamespace(
-        store=store,
-        settings=SimpleNamespace(evidence_dir=tmp_path / "evidence"),
-        bus=FakeBus(),
-    )
-    fake_state.settings.evidence_dir.mkdir()
-    monkeypatch.setattr(app_module, "services", lambda request: fake_state)
-    return fake_state
-
-
-def record(**overrides) -> str:
-    payload = {
-        "verdict": "confirmed",
-        "execution_status": "success",
-        "target_version": "DVWA 2.5",
-        "command": "python poc.py http://127.0.0.1:4280",
-        "normal_observation": "The normal input rendered as text.",
-        "attack_observation": "The attack input produced the documented difference.",
-        "modified_script": "#!/usr/bin/env python3\nprint('original artifact')\n",
-        "browser_execution": False,
-    }
-    payload.update(overrides)
-    return json.dumps(payload)
-
-
-def upload(name: str, content: bytes = b"evidence") -> UploadFile:
-    return UploadFile(filename=name, file=BytesIO(content))
+def state(monkeypatch):
+    value = SimpleNamespace(store=FakeStore())
+    monkeypatch.setattr(app_module, "services", lambda request: value)
+    return value
 
 
 def test_poc_download_is_the_unmodified_model_artifact(state):
@@ -89,146 +58,22 @@ def test_poc_download_is_the_unmodified_model_artifact(state):
     assert not response.body.startswith(b"<?php")
 
 
-def test_confirmation_requires_a_successful_run_and_leaves_no_orphan_upload(state):
-    with pytest.raises(HTTPException) as raised:
-        asyncio.run(app_module.add_verification(
-            object(), "finding-1", record(execution_status="syntax_error"), [upload("failure.txt")]
-        ))
-    assert raised.value.status_code == 400
-    assert not state.store.records
-    assert list(state.settings.evidence_dir.iterdir()) == []
+def test_there_is_no_endpoint_that_accepts_a_human_verdict():
+    routes = {
+        (getattr(route, "path", ""), method)
+        for route in app_module.app.routes
+        for method in (getattr(route, "methods", None) or ())
+    }
+    assert not [item for item in routes if item[0].endswith("/verifications")]
+    assert ("/api/findings/{finding_id}", "GET") in routes
 
 
-def test_confirmation_requires_control_observations_and_attachment(state):
-    with pytest.raises(HTTPException) as missing_control:
-        asyncio.run(app_module.add_verification(
-            object(), "finding-1", record(normal_observation=""), [upload("proof.txt")]
-        ))
-    assert missing_control.value.status_code == 400
+def test_reading_a_finding_returns_its_verification_records_read_only(state):
+    found = asyncio.run(app_module.get_finding(object(), "finding-1"))
 
-    with pytest.raises(HTTPException) as missing_attachment:
-        asyncio.run(app_module.add_verification(object(), "finding-1", record(), []))
-    assert missing_attachment.value.status_code == 400
-
-    with pytest.raises(HTTPException) as empty_attachment:
-        asyncio.run(app_module.add_verification(object(), "finding-1", record(), [upload("empty.log", b"")]))
-    assert empty_attachment.value.status_code == 400
-    assert list(state.settings.evidence_dir.iterdir()) == []
-    assert not state.store.records
-
-
-def test_rejection_and_xss_confirmation_cannot_bypass_the_reproducibility_gate(state):
-    with pytest.raises(HTTPException) as rejected:
-        asyncio.run(app_module.add_verification(
-            object(), "finding-1", record(verdict="rejected", attack_observation=""), []
-        ))
-    assert rejected.value.status_code == 400
-
-    state.store.finding["category"] = "xss_r"
-    with pytest.raises(HTTPException) as xss:
-        asyncio.run(app_module.add_verification(
-            object(), "finding-1", record(), [upload("browser.log")]
-        ))
-    assert xss.value.status_code == 400
-    assert not state.store.records
-
-
-def test_generic_source_review_can_be_confirmed_without_a_poc_execution_or_attachment(state):
-    """A neutral goal result is reviewed as source evidence, not a fake exploit run."""
-    state.store.finding.update({
-        "category": "task_goal:1",
-        "finding_kind": "security_boundary",
-        "validation_state": "candidate",
-        "poc": None,
-    })
-    result = asyncio.run(app_module.add_verification(
-        object(),
-        "finding-1",
-        record(
-            execution_status="not_run",
-            target_version="",
-            command="",
-            normal_observation="",
-            attack_observation="",
-            modified_script="",
-            notes="人工检查了引用的源码行，结论与认证边界实现一致。",
-        ),
-        [],
-    ))
-
-    assert result is state.store.finding
-    assert state.store.verdict == "confirmed"
-    assert state.store.records[0]["execution_status"] == "not_run"
-    assert state.store.records[0]["files"] == []
-
-
-def test_generic_source_review_requires_a_written_review_reason(state):
-    state.store.finding.update({
-        "category": "task_goal:1",
-        "finding_kind": "source_observation",
-        "validation_state": "candidate",
-        "poc": None,
-    })
-    with pytest.raises(HTTPException, match="人工复核说明") as raised:
-        asyncio.run(app_module.add_verification(
-            object(),
-            "finding-1",
-            record(
-                execution_status="not_run",
-                target_version="",
-                command="",
-                normal_observation="",
-                attack_observation="",
-                modified_script="",
-                notes="",
-            ),
-            [],
-        ))
-    assert raised.value.status_code == 400
-    assert not state.store.records
-
-
-def test_invalid_generic_source_evidence_cannot_be_confirmed(state):
-    state.store.finding.update({
-        "category": "task_goal:1",
-        "finding_kind": "source_observation",
-        "validation_state": "invalid_evidence",
-        "poc": None,
-    })
-    with pytest.raises(HTTPException, match="证据校验未通过") as raised:
-        asyncio.run(app_module.add_verification(
-            object(),
-            "finding-1",
-            record(
-                execution_status="not_run",
-                target_version="",
-                command="",
-                normal_observation="",
-                attack_observation="",
-                modified_script="",
-                notes="这条记录没有可核验的源码引用。",
-            ),
-            [],
-        ))
-    assert raised.value.status_code == 400
-    assert not state.store.records
-
-
-def test_multipart_record_must_be_an_object_before_any_file_is_saved(state):
-    with pytest.raises(HTTPException) as raised:
-        asyncio.run(app_module.add_verification(object(), "finding-1", "[]", [upload("proof.txt")]))
-    assert raised.value.status_code == 400
-    assert list(state.settings.evidence_dir.iterdir()) == []
-
-
-def test_valid_confirmation_keeps_duplicate_named_attachments_distinct(state):
-    result = asyncio.run(app_module.add_verification(
-        object(), "finding-1", record(), [upload("run.log", b"one"), upload("run.log", b"two")]
-    ))
-    assert result is state.store.finding
-    assert state.store.verdict == "confirmed"
-    saved = state.store.records[0]["files"]
-    assert len(saved) == 2
-    assert saved[0]["stored"] != saved[1]["stored"]
-    assert (state.settings.evidence_dir / saved[0]["stored"]).read_bytes() == b"one"
-    assert (state.settings.evidence_dir / saved[1]["stored"]).read_bytes() == b"two"
+    assert found["verification_status"] == "verified"
+    record = found["verifications"][0]
+    assert record["source"] == "poc_agent"
+    assert record["status"] == "verified"
+    assert record["target"]["security"] == "low"
+    assert record["agent"]["jobs"] == ["job-1"]

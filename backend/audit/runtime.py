@@ -210,18 +210,28 @@ class Execution:
         self.emit({"kind": "agent_phase", "phase": phase, **details, "remaining_seconds": round(max(0, self.remaining()), 2)})
 
     def before_model(self, *, deadline: float, limit: int, correction: bool, reason: str | None = None) -> float:
+        """Open one model request, or stop the phase with the reason that ended it.
+
+        The checks run in the order the failure should be reported in: time, then the
+        correction allowance, then the request allowance.  A phase that kept producing
+        unparsable replies ends as ``invalid_output`` even if its request allowance is
+        also gone -- the format failure is the diagnosis worth keeping, while an ordinary
+        exhausted allowance stays ``budget``.  Nothing is counted unless the request is
+        actually about to be sent: a request refused here must not consume a correction.
+        """
         if self.remaining(deadline) <= 0:
             raise StopAudit("timeout", "单元或当前阶段的墙钟预算已到期")
+        if correction and self.corrections >= self.policy.output_corrections:
+            # A reply the host could not use at all is a format failure, not a budget
+            # one; the last refusal reason is the only trace of what went wrong, since
+            # no retry request follows it.
+            raise StopAudit(
+                "invalid_output",
+                "本单元的输出纠正重试已用尽" + (f"；最后一次拒绝：{reason[:300]}" if reason else ""),
+            )
         if self.attempts >= min(limit, self.budgets["responses"]):
             raise StopAudit("budget", "模型请求预算已用尽（包括纠正与失败请求）")
         if correction:
-            if self.corrections >= self.policy.output_corrections:
-                # The last rejection is what actually ended the round; carrying it here
-                # is the only place it survives, since no retry event follows.
-                raise StopAudit(
-                    "invalid_output",
-                    "本单元的输出纠正重试已用尽" + (f"；最后一次拒绝：{reason[:300]}" if reason else ""),
-                )
             self.corrections += 1
             # The rejection reason is the only record of *why* the previous output was
             # refused, and a round that dies here dies for the whole run.  Without it

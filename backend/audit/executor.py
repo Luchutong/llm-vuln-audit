@@ -29,15 +29,30 @@ from .runtime import AgentPolicy
 from .toolkit import FinalAnswerTool, build_tools
 
 PROMPT_FILE = Path(__file__).with_name("prompts") / "code_agent.yaml"
+POC_PROMPT_FILE = Path(__file__).with_name("prompts") / "code_agent_poc.yaml"
+POC_CONCLUDE_PROMPT_FILE = Path(__file__).with_name("prompts") / "code_agent_poc_conclude.yaml"
 # Tools return JSON navigation records. Parsing those records is an ordinary
 # in-memory operation, not access to the server filesystem or process environment.
 AUTHORIZED_DATA_IMPORTS = ["json"]
 
 
-@functools.lru_cache(maxsize=1)
-def prompt_templates() -> dict:
-    """The repository's own code-action prompt, parsed once."""
-    return yaml.safe_load(PROMPT_FILE.read_text(encoding="utf-8"))
+@functools.lru_cache(maxsize=3)
+def prompt_templates(kind: str = "audit") -> dict:
+    """This repository's own code-action prompt, parsed once per role.
+
+    ``audit`` is the frozen-snapshot surface every Planner/worker/recon phase acts on.
+    ``poc`` reads the same code-action contract but describes an agent whose only way to
+    touch the target is the isolated runner; the audit wording ("the tools read a frozen
+    snapshot", "use list_tree") would otherwise send it looking for tools it does not have.
+    ``poc_conclude`` is the same agent after every tool has been withdrawn: the execution
+    tutorial and the HTTP example are gone, so the only action left is handing in the
+    verdict.  Each cached dict is read-only after parsing and is never mutated per agent.
+    """
+    path = {
+        "poc": POC_PROMPT_FILE,
+        "poc_conclude": POC_CONCLUDE_PROMPT_FILE,
+    }.get(kind, PROMPT_FILE)
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def build_executor(policy: AgentPolicy) -> LocalPythonExecutor:
@@ -106,6 +121,11 @@ def step_recorder(model: AuditCodeModel) -> Callable[[ActionStep], None]:
     before the error, and those are the steps most worth having in the log.  The closing
     step and the loop's own last-chance request carry no code and are skipped.
 
+    A reply the loop could not parse has no ``code_action`` either, and used to be
+    skipped entirely -- a conclusion phase that answered in prose three times left no
+    trace of why it never submitted.  That step is recorded as a parse event instead, and
+    the phase's next request becomes a correction.
+
     The recorder reads the gate off the model rather than closing over the one its phase
     started with.  It is registered once, for the whole driver, and a phase boundary
     re-points the model; closing over the gate instead would leave the recorder writing
@@ -114,6 +134,8 @@ def step_recorder(model: AuditCodeModel) -> Callable[[ActionStep], None]:
 
     def record(step: ActionStep) -> None:
         if not step.code_action:
+            if step.error is not None:
+                model.gate.record_parse_error(step=step.step_number, error=step.error)
             return
         model.gate.record_code(
             step=step.step_number,
@@ -127,12 +149,18 @@ def step_recorder(model: AuditCodeModel) -> Callable[[ActionStep], None]:
 
 
 def build_agent(*, model: AuditCodeModel, gate: PhaseGate, tools: dict, instructions: str,
-                max_steps: int, name: str = "audit") -> CodeAgent:
-    """Build one driver's agent.  Its tools and gate are replaced at each phase boundary."""
+                max_steps: int, name: str = "audit",
+                templates: dict | None = None) -> CodeAgent:
+    """Build one driver's agent.  Its tools and gate are replaced at each phase boundary.
+
+    ``templates`` selects a role-specific prompt; ``None`` keeps the audit template every
+    existing caller already gets.  A caller that passes its own dict must not mutate it:
+    the cached templates are shared by every agent built from them.
+    """
     return CodeAgent(
         tools=list(tools.values()),
         model=model,
-        prompt_templates=prompt_templates(),
+        prompt_templates=templates if templates is not None else prompt_templates(),
         instructions=instructions,
         max_steps=max_steps,
         executor=build_executor(gate.execution.policy),
@@ -152,12 +180,21 @@ def build_agent(*, model: AuditCodeModel, gate: PhaseGate, tools: dict, instruct
     )
 
 
-def attach_phase(agent: CodeAgent, *, tools: dict, gate: PhaseGate, model: AuditCodeModel) -> None:
+def attach_phase(agent: CodeAgent, *, tools: dict, gate: PhaseGate, model: AuditCodeModel,
+                 instructions: str | None = None, templates: dict | None = None) -> None:
     """Move the agent to its next phase.
 
     The loop re-sends tools and variables at the start of every ``run``, and the system
     prompt is derived from ``self.tools`` on every read, so a phase boundary is exactly
-    this: the new table, the new gate, and the model pointed at it.
+    this: the new table, the new gate, the new instructions, and the model pointed at it.
+
+    ``instructions`` is optional for the drivers whose phases share one role text.  A
+    driver whose phases mean different things (the POC agent explores with tools and then
+    concludes without them) must pass it: the rendered system prompt is rebuilt from
+    ``agent.instructions`` and the current tool table on every read, so the conclusion
+    request carries the conclusion rules instead of the exploration rules.  ``templates``
+    does the same for the role text itself: the conclusion's template no longer teaches
+    ``run_poc`` or shows an HTTP call, because neither is available in that phase.
 
     The table has to be built for *this* gate: a tool carries the gate it was built with,
     and re-using the previous phase's table would send the new phase's calls to a gate that
@@ -169,6 +206,14 @@ def attach_phase(agent: CodeAgent, *, tools: dict, gate: PhaseGate, model: Audit
     stale = sorted(name for name, tool in tools.items() if tool.gate is not gate)
     assert not stale, f"这些工具还是上一个阶段的闸门，调用会被当作已结束的阶段拒绝：{stale}"
     agent.tools = dict(tools)
+    if templates is not None:
+        # The cached dictionaries are shared and read-only during rendering; assigning
+        # one to the agent does not mutate it.
+        agent.prompt_templates = templates
+    if instructions is not None:
+        # ``system_prompt`` is a read-only property that renders from these two fields;
+        # the next ``run`` reads it again, so no cached copy has to be invalidated.
+        agent.instructions = instructions
     model.attach(gate)
 
 

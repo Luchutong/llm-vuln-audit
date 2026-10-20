@@ -5,7 +5,7 @@ import type { RunDetail, Truth } from '../types';
 import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
 import { PlannerNavigation } from './Overview';
-import { SourceObservationsView } from './FindingsView';
+import { SourceObservationsView, VERIFICATION_LABELS } from './FindingsView';
 import { activeVulnerabilityFindings, vulnerabilityFindings } from '../results';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -336,9 +336,9 @@ function ReportFindings({ detail }: Pick<ReportViewProps, 'detail'>) {
           {findings.map((finding) => (
             <Disclosure key={finding.id} title={<span className="disclosure-heading"><span className={`chip chip-${finding.validation_state}`}>{finding.validation_state === 'candidate' ? '引用通过' : '引用不通过'}</span><span className="disclosure-preview">{finding.title}</span></span>}>
               <div className="grid">
-                <div className="small">{finding.finding_kind || finding.category || '源码观察'} · {finding.severity || '未分级'} · 人工结论：{finding.verdict || '待复核'}</div>
+                <div className="small">{finding.finding_kind || finding.category || '源码观察'} · {finding.severity || '未分级'} · {finding.verification_status ? `自动验证：${VERIFICATION_LABELS[finding.verification_status] ?? finding.verification_status}` : finding.verdict ? `历史人工结论：${finding.verdict}` : '自动验证：待验证'}</div>
                 <LongContent value={finding.summary} label="发现摘要" />
-                <LongContent value={{ 引用校验: finding.validation_state, 人工裁决: finding.verdict ?? '尚未复核', 结论处置: finding.disposition ?? 'open', 处置理由: finding.disposition_reason, 标注者: finding.disposition_by, 版本: finding.revision ?? 1, 派生自: finding.derived_from_finding_id }} label="结论的独立状态" />
+                <LongContent value={{ 引用校验: finding.validation_state, 自动验证: finding.verification_status ? VERIFICATION_LABELS[finding.verification_status] ?? finding.verification_status : '未验证', 验证结论: finding.verification_verdict, 结论处置: finding.disposition ?? 'open', 处置理由: finding.disposition_reason, 标注者: finding.disposition_by, 版本: finding.revision ?? 1, 派生自: finding.derived_from_finding_id }} label="结论的独立状态" />
                 {(finding.superseded_summary ?? []).length > 0 && <Disclosure title={`历史结论（${finding.superseded_summary.length}）`}><LongContent value={finding.superseded_summary} label="历史版本与引用" /></Disclosure>}
                 <LongContent value={sourceReferences(finding)} label="源码引用" />
                 <LongContent value={finding.missing_context} label="缺失上下文" />
@@ -416,12 +416,12 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
 
 function ReviewSummary({ detail }: Pick<ReportViewProps, 'detail'>) {
   const candidates = activeVulnerabilityFindings(detail);
-  const confirmed = candidates.filter((finding) => finding.verdict === 'confirmed').length;
-  const rejected = candidates.filter((finding) => finding.verdict === 'rejected').length;
-  const awaiting = candidates.filter((finding) => !finding.verdict).length;
-  return <section className="panel" aria-label="人工复核清单">
-    <div className="panel-head"><span className="panel-title">人工复核清单</span><span className="faint small">在「发现与复核」中记录结论和附件</span></div>
-    <div className="panel-body small">漏洞候选待复核 {awaiting} 条 · 确认漏洞 {confirmed} 条 · 排除漏洞 {rejected} 条；排查记录的历史复核单独保留。</div>
+  const verified = candidates.filter((finding) => finding.verification_status === 'verified').length;
+  const rejected = candidates.filter((finding) => finding.verification_status === 'rejected').length;
+  const pending = candidates.filter((finding) => !finding.verification_status || ['unverified', 'stale', 'inconclusive', 'environment_unavailable', 'not_applicable'].includes(finding.verification_status)).length;
+  return <section className="panel" aria-label="POC 自动验证清单">
+    <div className="panel-head"><span className="panel-title">POC 自动验证</span><span className="faint small">由隔离 runner 在 DVWA 靶场执行</span></div>
+    <div className="panel-body small">自动验证通过 {verified} 条 · 未通过 {rejected} 条 · 未验证或环境不可用 {pending} 条。未验证不等于排除；执行记录与产物见「发现与验证」。</div>
   </section>;
 }
 

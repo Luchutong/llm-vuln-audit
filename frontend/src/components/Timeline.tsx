@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Bot, CircleAlert, CircleCheck, CircleDot, Clock3, Code2, ScanSearch, Server, Wrench, Workflow } from 'lucide-react';
+import { Bot, CircleAlert, CircleCheck, CircleDot, Clock3, Code2, FlaskConical, ScanSearch, Server, Wrench, Workflow } from 'lucide-react';
 import type { AuditEvent, RunDetail } from '../types';
 import {
   currentTraceGroups, EMPTY_TRACE_FILTERS, eventSummary, filterTrace, groupTrace,
@@ -14,7 +14,7 @@ const LABELS: Record<string, string> = {
   run_cancelled: '运行取消', run_interrupted: '运行中断', run_completed: '队列结束',
   unit_started: '单元开始', unit_completed: '单元完成', unit_incomplete: '单元未完成',
   finding_created: '候选发现', finding_rejected_by_validation: '证据校验不通过',
-  verification_recorded: '人工结论记录', model_error: '模型错误', model_retry: '模型重试',
+  verification_recorded: '自动验证记录', model_error: '模型错误', model_retry: '模型重试',
   settle_started: '预算收尾', settled: '收尾判定', agent_phase: '阶段更新',
   tool_call: '工具调用', tool_result: '工具结果', model_request: '模型请求', model_response: '模型响应',
   audit_progress: '审计进展摘要',
@@ -36,7 +36,8 @@ const LABELS: Record<string, string> = {
   planner_task_completed: '动态任务完成', planner_task_exhausted: '动态任务方向耗尽',
   planner_task_blocked: '动态任务受阻', planner_task_cancelled: '动态任务取消',
   run_pause_requested: '暂停请求', run_paused: '运行已暂停', run_resumed: '运行已继续',
-  agent_code: '模型代码动作', planner_round_failed: '规划回合未产出可用决策',
+  agent_code: '模型代码动作', agent_parse_error: '输出格式错误',
+  planner_round_failed: '规划回合未产出可用决策',
   planner_coverage_prepared: '读取覆盖统计已准备', planner_situational_prepared: '本轮任务态势已准备',
   planner_decision_sanitized: '规划决策字段已清洗', planner_tools_withdrawn: '确认预算耗尽，工具已收回',
   planner_investigation_pinned: '调查结果已固定', planner_investigation_reused: '复用已固定调查',
@@ -46,6 +47,19 @@ const LABELS: Record<string, string> = {
   planner_task_reopened: '动态任务重新打开', planner_task_settled: '动态任务结算',
   finding_superseded: '结论被后续结论取代', finding_retracted: '结论被撤回',
   finding_duplicate: '结论被标记为重复', finding_contested: '结论存在争议', finding_disposition_changed: '结论处置变更',
+  poc_agent_phase: 'POC 验证阶段', poc_verification_started: 'POC 自动验证开始',
+  poc_job_started: '靶场作业开始', poc_job_finished: '靶场作业结束',
+  poc_http_observed: '靶场 HTTP 观测',
+  poc_verification_recorded: '自动验证结论记录', poc_verification_skipped: '自动验证跳过',
+  poc_verification_unavailable: '自动验证环境不可用',
+  poc_execution_finished: 'POC 执行阶段结束', poc_conclusion_failed: 'POC 结论生成失败',
+  project_findings_baseline_frozen: '项目台账基线已冻结',
+  project_finding_created: '写入项目台账', project_finding_rediscovered: '项目台账再次命中',
+  project_finding_corrected: '项目台账结论更正', project_finding_retracted: '台账结论撤回',
+  project_finding_duplicate: '台账结论判重', project_finding_reopened: '台账结论重新打开',
+  project_finding_disposition_changed: '台账结论处置变更', project_finding_update_rejected: '台账更新被拒绝',
+  carried_findings_recorded: '沿用项目既有结论', report_narrative_committed: 'Planner 结论摘要已提交',
+  planner_kept_rejected_finding: '自动验证未通过的结论仍被保留',
 };
 
 const PHASES: Record<string, string> = {
@@ -53,9 +67,10 @@ const PHASES: Record<string, string> = {
   poc: '生成验证用例', task_prepare: '准备审计任务', task_execute: '执行审计',
   planner_prepare: '准备规划', planner_explore: '探索项目结构', planner_decision: '生成与调整计划',
   planner_publish: '提交规划结果', recon_explore: '只读侦察',
+  poc_prepare: '准备隔离靶场', poc_execute: '执行 POC', poc_conclude: '汇总结论',
 };
 
-const ROLES: Record<string, string> = { planner: 'Planner', worker: 'Worker', recon: '侦察子 Agent', host: '运行服务' };
+const ROLES: Record<string, string> = { planner: 'Planner', worker: 'Worker', recon: '侦察子 Agent', poc: 'POC Agent', host: '运行服务' };
 const ERROR_STATUSES = new Set(['error', 'failed', 'timeout', 'invalid_arguments']);
 const STATUS_LABELS: Record<string, string> = {
   ok: '成功', success: '成功', completed: '完成', error: '失败', failed: '失败', timeout: '超时',
@@ -67,6 +82,7 @@ const STATUS_LABELS: Record<string, string> = {
 function contextLabel(context: TraceContext, names: Map<string, string>): string {
   if (context.role === 'planner') return context.round ? `第 ${context.round} 回合` : '任务规划';
   if (context.role === 'recon') return `${context.round ? `第 ${context.round} 回合 · ` : ''}项目侦察`;
+  if (context.role === 'poc') return 'POC 自动验证';
   if (context.task) return names.get(context.task) || context.taskKey || context.task.slice(0, 12);
   return context.role === 'host' ? '任务调度与状态' : '审计执行';
 }
@@ -93,7 +109,8 @@ function toolStatus(span: ToolSpan, active: boolean): { text: string; tone: stri
 }
 
 function RoleIcon({ role }: { role: string }) {
-  return role === 'planner' ? <Workflow size={16} /> : role === 'worker' ? <Bot size={16} /> : role === 'recon' ? <ScanSearch size={16} /> : <Server size={16} />;
+  return role === 'planner' ? <Workflow size={16} /> : role === 'worker' ? <Bot size={16} />
+    : role === 'recon' ? <ScanSearch size={16} /> : role === 'poc' ? <FlaskConical size={16} /> : <Server size={16} />;
 }
 
 function ToolCard({ span, active, names }: { span: ToolSpan; active: boolean; names: Map<string, string> }) {

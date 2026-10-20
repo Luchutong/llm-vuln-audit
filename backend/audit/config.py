@@ -216,6 +216,98 @@ def clamp_budgets(raw: object) -> dict:
     return result
 
 
+@dataclass(frozen=True)
+class PocSettings:
+    """Where and how automatically verified POCs are executed.
+
+    The only executor is the isolated ``poc-runner`` service: this process never runs a
+    POC script itself.  ``snapshot()`` is what a run freezes and what ``/api/config``
+    exposes, so it deliberately omits the bearer token and the runner's network
+    addresses -- neither is needed by the browser or by a report.
+    """
+
+    enabled: bool = True
+    required: bool = False
+    runner_url: str = ""
+    runner_token: str = ""
+    target: str = "dvwa"
+    job_seconds: int = 30
+    max_steps: int = 8
+    max_jobs: int = 8
+    max_seconds: int = 300
+    concurrency: int = 2
+    max_script_bytes: int = 32768
+    browser: bool = True
+    runner_addrs: tuple[str, ...] = ()
+
+    @classmethod
+    def from_environ(cls, environ: dict[str, str] | None = None) -> "PocSettings":
+        env = dict(os.environ if environ is None else environ)
+
+        def flag(name: str, default: bool) -> bool:
+            raw = (env.get(name) or "").strip().casefold()
+            if not raw:
+                return default
+            return raw in _TRUTHY
+
+        def number(name: str, default: int, low: int, high: int) -> int:
+            try:
+                value = int((env.get(name) or "").strip() or default)
+            except ValueError:
+                return default
+            return max(low, min(high, value))
+
+        addrs = tuple(
+            value.strip()
+            for value in (env.get("POC_RUNNER_ADDRS") or "").split(",")
+            if value.strip()
+        )
+        return cls(
+            enabled=flag("POC_ENABLED", True),
+            required=flag("POC_REQUIRED", False),
+            runner_url=(env.get("POC_RUNNER_URL") or "").strip().rstrip("/"),
+            runner_token=(env.get("POC_RUNNER_TOKEN") or "").strip(),
+            target=(env.get("POC_TARGET") or "dvwa").strip() or "dvwa",
+            job_seconds=number("POC_JOB_SECONDS", 30, 1, 120),
+            max_steps=number("POC_MAX_STEPS", 8, 1, 32),
+            max_jobs=number("POC_MAX_JOBS", 8, 1, 32),
+            max_seconds=number("POC_MAX_SECONDS", 300, 10, 3600),
+            concurrency=number("POC_CONCURRENCY", 2, 1, 8),
+            max_script_bytes=number("POC_MAX_SCRIPT_BYTES", 32768, 1024, 131072),
+            browser=flag("POC_BROWSER", True),
+            runner_addrs=addrs,
+        )
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.enabled and self.runner_url)
+
+    def snapshot(self) -> dict:
+        """The run-frozen policy: no credentials, no internal addresses."""
+        return {
+            "enabled": self.enabled,
+            "required": self.required,
+            "target": self.target,
+            "runner_configured": bool(self.runner_url),
+            "job_seconds": self.job_seconds,
+            "max_steps": self.max_steps,
+            "max_jobs": self.max_jobs,
+            "max_seconds": self.max_seconds,
+            "browser": self.browser,
+            "max_script_bytes": self.max_script_bytes,
+        }
+
+    def public(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "required": self.required,
+            "target": self.target,
+            "runner_configured": bool(self.runner_url),
+            "browser": self.browser,
+            "max_script_bytes": self.max_script_bytes,
+        }
+
+
 @dataclass
 class Settings:
     data_dir: Path
@@ -223,13 +315,18 @@ class Settings:
     budgets: dict = field(default_factory=lambda: dict(DEFAULT_BUDGETS))
     version: str = VERSION
     worker: str = WORKER_NAME
+    poc: PocSettings = field(default_factory=PocSettings)
 
     @classmethod
     def load(cls, environ: dict[str, str] | None = None) -> "Settings":
         env = os.environ if environ is None else environ
         data_dir = Path(env.get("AUDIT_DATA_DIR") or (Path(__file__).resolve().parent.parent / "data"))
         data_dir.mkdir(parents=True, exist_ok=True)
-        return cls(data_dir=data_dir, model=ModelConfig.from_environ(env))
+        return cls(
+            data_dir=data_dir,
+            model=ModelConfig.from_environ(env),
+            poc=PocSettings.from_environ(env),
+        )
 
     @property
     def db_path(self) -> Path:

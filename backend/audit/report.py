@@ -16,6 +16,7 @@ from pathlib import Path
 from .config import VERSION
 from .db import WITHDRAWN_FINDING_DISPOSITIONS
 from .finding_policy import is_vulnerability_finding, partition_findings, source_observations
+from .project_findings import PROJECT_SYMBOL
 from .runtime import AgentPolicy
 from .schemas import CATEGORY_LABELS
 
@@ -300,18 +301,19 @@ def _validation_text(finding: dict) -> str:
 
 
 # Standing is a third axis, beside the evidence check (did the citations hold up) and the
-# human verdict (does it reproduce).  A conclusion can be a well-evidenced candidate that the
-# Planner later took back, and a reviewer's verdict on it is not the Planner's to erase --
-# which is why ``contested`` is not a withdrawal.  None of these states deletes anything: the
-# row, its evidence, its archived revisions and its verification records all stay in the
-# report, because "this run changed its mind" is itself a fact about the run.
+# automatic verification (does it reproduce in the isolated target).  A conclusion can be a
+# well-evidenced candidate that the Planner later took back, and a verification result on it
+# is not the Planner's to erase -- which is why ``rejected`` is not a withdrawal.  None of
+# these states deletes anything: the row, its evidence, its archived revisions and its
+# verification records all stay in the report, because "this run changed its mind" is itself
+# a fact about the run.
 DISPOSITION_LABELS = {
     "retracted": "已被 Planner 撤回",
     "duplicate": "被 Planner 判定为与另一条结论重复",
     "superseded": "已被后续结论取代",
-    "contested": "Planner 存疑（人工结论为终局，本条结论继续有效）",
+    "contested": "历史存疑记录（旧版人工结论保留，本条结论按处置字段判定）",
 }
-DISPOSITION_BY_LABELS = {"planner": "Planner", "human": "人工"}
+DISPOSITION_BY_LABELS = {"planner": "Planner", "human": "人工（历史）"}
 # An archived revision is a pointer back to what the run used to claim, not a second copy of
 # the report; one paragraph per version is enough to see that the story changed.
 ARCHIVED_SUMMARY_CHARS = 400
@@ -325,9 +327,10 @@ def _split_by_standing(findings: list[dict]) -> tuple[list[dict], list[dict]]:
     """Split conclusions into the ones that still stand and the ones taken back.
 
     A withdrawn conclusion is listed separately rather than dropped: it stops counting as
-    something the run found, but a reader still needs to see it, both because the human
-    verdict it carries may outlive the withdrawal and because a run whose conclusions were
-    quietly removed between rounds looks identical to a run that never had them.
+    something the run found, but a reader still needs to see it, both because the
+    verification record it carries may outlive the withdrawal and because a run whose
+    conclusions were quietly removed between rounds looks identical to a run that never had
+    them.
     """
     return (
         [item for item in findings if not _is_withdrawn(item)],
@@ -362,6 +365,249 @@ def _disposition_text(finding: dict) -> str:
 def _clip(text: str, limit: int = ARCHIVED_SUMMARY_CHARS) -> str:
     collapsed = " ".join(str(text or "").split())
     return collapsed if len(collapsed) <= limit else collapsed[:limit] + "……"
+
+
+VERIFICATION_STATUS_LABELS = {
+    "verified": "已验证",
+    "rejected": "未通过",
+    "inconclusive": "未决",
+    "not_applicable": "不适用",
+    "environment_unavailable": "环境不可用",
+    "unverified": "未验证",
+    "stale": "源码已变更",
+}
+
+
+def verification_status_label(value: object, verdict: object = "") -> str:
+    """One status as the report writes it: a label, and the verdict when there is one."""
+    status = str(value or "unverified")
+    label = VERIFICATION_STATUS_LABELS.get(status, status)
+    return f"{label}（{verdict}）" if verdict else label
+
+
+def _finding_verification_label(finding: dict) -> str:
+    status = str(finding.get("verification_status") or "unverified")
+    verdict = finding.get("verification_verdict") or ""
+    if status == "unverified" and not verdict:
+        legacy = finding.get("verdict")
+        return f"未自动验证（历史人工结论：{legacy}）" if legacy else "未自动验证"
+    return verification_status_label(status, verdict)
+
+
+def _verification_source(record: dict) -> str:
+    return str(record.get("source") or "legacy_human")
+
+
+def _automatic_verification_section(finding: dict, records: list[dict]) -> list[str]:
+    """The POC agent's record: execution facts, not the model's prose alone."""
+    lines = [
+        "**自动验证记录**",
+        "",
+        "| 时间 | 状态 | 结论 | 目标 | 作业 | 说明 |",
+        "|---|---|---|---|---|---|",
+    ]
+    for record in records:
+        target = record.get("target") or {}
+        target_text = " / ".join(
+            part for part in (
+                str(target.get("name") or ""),
+                str(target.get("security") or ""),
+                str(target.get("version") or ""),
+            ) if part
+        ) or "—"
+        jobs = [str(item) for item in (record.get("agent") or {}).get("jobs") or []]
+        lines.append(
+            "| {created} | {status} | {verdict} | {target} | {jobs} | {notes} |".format(
+                created=record.get("created_at") or "—",
+                status=verification_status_label(record.get("status") or "unverified"),
+                verdict=record.get("verdict") or "—",
+                target=target_text.replace("|", "\\|"),
+                jobs=("、".join(f"`{job}`" for job in jobs[:4]) or "—"),
+                notes=(record.get("notes") or record.get("attack_observation") or "—").replace("|", "\\|").replace("\n", " "),
+            )
+        )
+    lines.append("")
+    for index, record in enumerate(records, 1):
+        details = verification_details(finding, record)
+        if details:
+            lines += [f"第 {index} 条自动验证记录的补充说明：", ""] + details + [""]
+    return lines
+
+
+def _historical_verification_section(
+    finding: dict, records: list[dict], *, legacy_labels: bool = False
+) -> list[str]:
+    """Human records kept read-only: the audit trail of an earlier process.
+
+    ``legacy_labels`` reproduces the exact wording a historical (non-project) run's report
+    was rendered with, so migrating the schema does not rewrite reports already exported.
+    """
+    if legacy_labels:
+        heading = "**人工验证记录**"
+        columns = "| 时间 | 执行状态 | 人工结论 | 命令 | 正常观测 | 攻击观测 |"
+        details_prefix = "第 {index} 条验证记录的补充说明："
+    else:
+        heading = "**历史人工记录（只读）**"
+        columns = "| 时间 | 执行状态 | 历史结论 | 命令 | 正常观测 | 攻击观测 |"
+        details_prefix = "第 {index} 条历史记录的补充说明："
+    lines = [
+        heading,
+        "",
+        columns,
+        "|---|---|---|---|---|---|",
+    ]
+    for record in records:
+        lines.append(
+            "| {created} | {status} | {verdict} | `{command}` | {normal} | {attack} |".format(
+                created=record.get("created_at") or "—",
+                status=record.get("execution_status") or "—",
+                verdict=record.get("verdict") or "—",
+                command=(record.get("command") or "—").replace("|", "\\|"),
+                normal=(record.get("normal_observation") or "—").replace("|", "\\|"),
+                attack=(record.get("attack_observation") or "—").replace("|", "\\|"),
+            )
+        )
+    lines.append("")
+    for index, record in enumerate(records, 1):
+        details = verification_details(finding, record)
+        if details:
+            lines += [details_prefix.format(index=index), ""] + details + [""]
+    return lines
+
+
+def _verification_section(finding: dict, *, legacy_labels: bool = False) -> list[str]:
+    records = list(finding.get("verifications") or [])
+    automatic = [item for item in records if _verification_source(item) == "poc_agent"]
+    historical = [item for item in records if _verification_source(item) != "poc_agent"]
+    lines: list[str] = []
+    if automatic and not legacy_labels:
+        lines += _automatic_verification_section(finding, automatic)
+    elif automatic:
+        # A legacy run never produced automatic records; if one somehow carries them, the
+        # old layout still lists them rather than dropping evidence on the floor.
+        lines += _historical_verification_section(finding, automatic, legacy_labels=True)
+    if historical:
+        lines += _historical_verification_section(finding, historical, legacy_labels=legacy_labels)
+    return lines
+
+
+def _unverified_section(bundle: dict, findings: list[dict]) -> list[str]:
+    """Say what was not checked, and that not-checked is not the same as absent."""
+    pending = [
+        item for item in findings
+        if str(item.get("verification_status") or "unverified") != "verified"
+    ]
+    summary = bundle.get("verification_summary") or {}
+    if not pending and not summary:
+        return []
+    counts = "；".join(
+        f"{verification_status_label(name)} {summary[name]}"
+        for name in ("verified", "rejected", "inconclusive", "not_applicable", "environment_unavailable", "unverified", "stale")
+        if int(summary.get(name) or 0)
+    )
+    lines = ["**未验证与验证未通过的发现**", ""]
+    lines.append(
+        "自动验证覆盖情况：" + (counts or "尚无记录")
+        + "。**未验证不等于排除**：它表示该结论还没有在隔离靶场中被实际执行，静态源码证据仍然成立。"
+    )
+    lines.append("")
+    if pending:
+        lines += ["| 发现 | 验证状态 | 说明 |", "|---|---|---|"]
+        for item in pending:
+            lines.append(
+                "| {title} | {status} | {summary} |".format(
+                    title=_md_cell(item.get("title")),
+                    status=_md_cell(_finding_verification_label(item)),
+                    summary=_md_cell(_pending_verification_reason(item)),
+                )
+            )
+        lines.append("")
+    return lines
+
+
+def _pending_verification_reason(finding: dict) -> str:
+    """Why this finding is not ``verified``, in the report's own words.
+
+    The status already says it; the reason says what it means for the reader.  Collapsing
+    every non-verified status into "not reproduced" would read a runner outage or a
+    non-DVWA target as evidence against the finding.
+    """
+    status = str(finding.get("verification_status") or "unverified")
+    return {
+        "rejected": "隔离靶场执行成功但未能复现；静态源码证据仍保留。",
+        "inconclusive": "隔离靶场未能给出决定性结果。",
+        "not_applicable": "目标不是受支持的 DVWA 环境，未执行自动验证。",
+        "environment_unavailable": "隔离靶场不可用，未执行自动验证。",
+        "stale": "源码或结论已变更，历史验证不再适用于当前版本。",
+        "unverified": "尚未执行自动验证。",
+    }.get(status, "尚未执行自动验证。")
+
+
+def _carried_section(bundle: dict) -> list[str]:
+    rows = bundle.get("carried_findings") or []
+    if not rows:
+        return []
+    lines = [
+        "### 项目既有发现（沿用）",
+        "",
+        "以下结论由同一项目的更早运行发现并记录，本次运行没有重新取证；它们不计入本次的新发现，"
+        "但属于本项目已记录的漏洞面。标注为已验证的结论可直接支撑后续运行的收束。",
+        "",
+        "| 标题 | 位置 | 风险 | 项目版本 | 验证状态 | 原始运行 | 发现时间 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        path = str(row.get("file_path") or "")
+        symbol = str(row.get("symbol") or "")
+        # Planner conclusions are filed under a sentinel symbol; it is an internal
+        # identity key, not a location a reader should see.
+        if symbol and symbol != PROJECT_SYMBOL:
+            location = f"{path}:{symbol}" if path else symbol
+        else:
+            location = path or "—"
+        lines.append(
+            "| {title} | {path} | {severity} | {revision} | {status} | `{origin}` | {discovered} |".format(
+                title=_md_cell(row.get("title")),
+                path=_md_cell(location),
+                severity=_md_cell(row.get("severity")),
+                revision=row.get("run_relation_revision") or row.get("revision") or "—",
+                status=_md_cell(verification_status_label(
+                    row.get("verification_status"), row.get("verification_verdict")
+                )),
+                origin=row.get("origin_run_id") or row.get("last_run_id") or "—",
+                discovered=row.get("discovered_at") or "—",
+            )
+        )
+    lines.append("")
+    return lines
+
+
+def _narrative_sections(narrative: object) -> dict[str, list[str]]:
+    """The Planner's prose, split by where the host renders it.
+
+    The host never asks the model for counts: the narrative is placed beside facts the
+    host computed, so a mistaken sentence cannot change what the report claims happened.
+    """
+    value = narrative if isinstance(narrative, dict) else {}
+    summary = str(value.get("summary") or "").strip()
+    conclusion = str(value.get("conclusion") or "").strip()
+    limitations = [str(item).strip() for item in value.get("limitations") or [] if str(item).strip()]
+    if not (summary or conclusion or limitations):
+        return {"header": [], "conclusion": [], "limitations": []}
+    header = [
+        "## 结论摘要",
+        "",
+        "> 以下叙述由 Planner 生成，只总结本报告已列出的证据与验证结果，不构成新发现；"
+        "统计、任务图与证据均由宿主从运行记录渲染。",
+        "",
+        summary or "—",
+        "",
+    ]
+    conclusion_lines = ["**Planner 结论**", "", conclusion, ""] if conclusion else []
+    limitation_lines: list[str] = []
+    if limitations:
+        limitation_lines = ["**Planner 声明的限制**", ""] + [f"- {item}" for item in limitations[:16]] + [""]
+    return {"header": header, "conclusion": conclusion_lines, "limitations": limitation_lines}
 
 
 def _archived_revision_lines(finding: dict) -> list[str]:
@@ -405,25 +651,25 @@ def _standing_bullet(finding: dict) -> list[str]:
 
 WITHDRAWN_HEADING = "### 已被 Planner 撤回 / 判为重复 / 存疑的结论（保留记录，不计入结论）"
 WITHDRAWN_LEAD = (
-    "下面这些结论的行、证据、存档版本与复核记录都保留着，只是不再计入本次运行的结论："
-    "Planner 更正方向时把它们撤回了、判定为与另一条重复，或对已经人工裁决的结论表示存疑。"
+    "下面这些结论的行、证据、存档版本与验证记录都保留着，只是不再计入本次运行的结论："
+    "Planner 更正方向时把它们撤回了、判定为与另一条重复，或对已有历史人工结论的条目表示存疑。"
     "把它们从报告里删掉，会让「本次没有发现」和「本次把发现撤回了」看起来一模一样。"
 )
 
 
-def _withdrawn_section(withdrawn: list[dict]) -> list[str]:
+def _withdrawn_section(withdrawn: list[dict], *, legacy_labels: bool = False) -> list[str]:
     """The third partition, rendered where a run can actually produce one."""
     if not withdrawn:
         return []
     doc = [WITHDRAWN_HEADING, "", WITHDRAWN_LEAD, ""]
     for index, finding in enumerate(withdrawn, 1):
-        doc.extend(_finding_block(finding, index))
+        doc.extend(_finding_block(finding, index, legacy_labels=legacy_labels))
     return doc
 
 
-def _finding_block(finding: dict, index: int) -> list[str]:
+def _finding_block(finding: dict, index: int, *, legacy_labels: bool = False) -> list[str]:
     if str(finding.get("category") or "").startswith("task_goal") or finding.get("finding_kind"):
-        return _task_finding_block(finding, index)
+        return _task_finding_block(finding, index, legacy_labels=legacy_labels)
     label = CATEGORY_LABELS.get(finding["category"], finding["category"])
     lines = [
         f"#### {index}. [{label}] {finding['title']}",
@@ -437,7 +683,7 @@ def _finding_block(finding: dict, index: int) -> list[str]:
         f"- 触发前提：{'；'.join(finding['preconditions']) or '—'}",
         f"- 缺失信息：{'；'.join(finding['missing_context']) or '—'}",
         f"- 后端校验：{_validation_text(finding)}",
-        f"- 人工结论：{finding.get('verdict') or '未裁决'}",
+        f"- 自动验证结论：{_finding_verification_label(finding)}",
         *_standing_bullet(finding),
         "",
         "**判断依据**",
@@ -466,27 +712,11 @@ def _finding_block(finding: dict, index: int) -> list[str]:
     if finding["remediation"]:
         lines += ["**修复建议**", "", finding["remediation"], ""]
     if finding.get("verifications"):
-        lines += ["**人工验证记录**", "", "| 时间 | 执行状态 | 人工结论 | 命令 | 正常观测 | 攻击观测 |", "|---|---|---|---|---|---|"]
-        for record in finding["verifications"]:
-            lines.append(
-                "| {created} | {status} | {verdict} | `{command}` | {normal} | {attack} |".format(
-                    created=record["created_at"],
-                    status=record["execution_status"],
-                    verdict=record["verdict"],
-                    command=(record["command"] or "—").replace("|", "\\|"),
-                    normal=(record["normal_observation"] or "—").replace("|", "\\|"),
-                    attack=(record["attack_observation"] or "—").replace("|", "\\|"),
-                )
-            )
-        lines.append("")
-        for index, record in enumerate(finding["verifications"], 1):
-            details = verification_details(finding, record)
-            if details:
-                lines += [f"第 {index} 条验证记录的补充说明：", ""] + details + [""]
+        lines += _verification_section(finding, legacy_labels=legacy_labels)
     return lines
 
 
-def _task_finding_block(finding: dict, index: int) -> list[str]:
+def _task_finding_block(finding: dict, index: int, *, legacy_labels: bool = False) -> list[str]:
     """Render a generic task result without inventing an attack-chain template."""
     kind = finding.get("finding_kind") or "source_observation"
     label = "漏洞候选" if is_vulnerability_finding(finding) else "排查记录"
@@ -495,7 +725,7 @@ def _task_finding_block(finding: dict, index: int) -> list[str]:
         "",
         f"- 证据行号：{_evidence_text(finding.get('evidence') or [])}",
         f"- 证据校验：{_validation_text(finding)}",
-        f"- 人工结论：{finding.get('verdict') or '未裁决'}",
+        f"- 自动验证结论：{_finding_verification_label(finding)}",
         *_standing_bullet(finding),
     ]
     if finding.get("severity") and finding.get("severity") not in {"unknown", "informational"}:
@@ -514,7 +744,7 @@ def _task_finding_block(finding: dict, index: int) -> list[str]:
     poc = finding.get("poc") or {}
     if poc:
         lines += [
-            "**POC（待人工授权环境验证）**",
+            "**POC（由 poc-runner 在隔离环境自动执行）**",
             "",
             f"- 文件名：`{poc.get('filename', '—')}`",
             f"- 原始脚本：`evidence/{original_poc_name(finding, poc)}`",
@@ -524,34 +754,48 @@ def _task_finding_block(finding: dict, index: int) -> list[str]:
     if finding.get("remediation"):
         lines += ["**建议**", "", finding["remediation"], ""]
     if finding.get("verifications"):
-        if poc:
-            lines += ["**POC 验证记录**", "", "| 时间 | 执行状态 | 人工结论 | 目标版本 | 说明 |", "|---|---|---|---|---|"]
-            for record in finding["verifications"]:
-                lines.append(
-                    "| {created} | {status} | {verdict} | {version} | {notes} |".format(
-                        created=record.get("created_at") or "—",
-                        status=record.get("execution_status") or "—",
-                        verdict=record.get("verdict") or "—",
-                        version=(record.get("target_version") or "—").replace("|", "\\|"),
-                        notes=(record.get("notes") or record.get("attack_observation") or "—").replace("|", "\\|"),
-                    )
-                )
+        if legacy_labels:
+            lines += _legacy_task_verification_lines(finding)
         else:
-            lines += ["**人工复核记录**", "", "| 时间 | 人工结论 | 复核环境或版本 | 说明 |", "|---|---|---|---|"]
-            for record in finding["verifications"]:
-                lines.append(
-                    "| {created} | {verdict} | {version} | {notes} |".format(
-                        created=record.get("created_at") or "—",
-                        verdict=record.get("verdict") or "—",
-                        version=(record.get("target_version") or "—").replace("|", "\\|"),
-                        notes=(record.get("notes") or "—").replace("|", "\\|"),
-                    )
-                )
-        lines.append("")
+            lines += _verification_section(finding)
     return lines
 
 
-def _source_observation_section(bundle: dict) -> list[str]:
+def _legacy_task_verification_lines(finding: dict) -> list[str]:
+    """The task-report verification tables exactly as historical exports wrote them."""
+    records = list(finding.get("verifications") or [])
+    if not records:
+        return []
+    poc = finding.get("poc") or {}
+    if poc:
+        lines = ["**POC 验证记录**", "", "| 时间 | 执行状态 | 人工结论 | 目标版本 | 说明 |", "|---|---|---|---|---|"]
+        for record in records:
+            lines.append(
+                "| {created} | {status} | {verdict} | {version} | {notes} |".format(
+                    created=record.get("created_at") or "—",
+                    status=record.get("execution_status") or "—",
+                    verdict=record.get("verdict") or "—",
+                    version=(record.get("target_version") or "—").replace("|", "\\|"),
+                    notes=(record.get("notes") or record.get("attack_observation") or "—").replace("|", "\\|"),
+                )
+            )
+        lines.append("")
+        return lines
+    lines = ["**人工复核记录**", "", "| 时间 | 人工结论 | 复核环境或版本 | 说明 |", "|---|---|---|---|"]
+    for record in records:
+        lines.append(
+            "| {created} | {verdict} | {version} | {notes} |".format(
+                created=record.get("created_at") or "—",
+                verdict=record.get("verdict") or "—",
+                version=(record.get("target_version") or "—").replace("|", "\\|"),
+                notes=(record.get("notes") or "—").replace("|", "\\|"),
+            )
+        )
+    lines.append("")
+    return lines
+
+
+def _source_observation_section(bundle: dict, *, legacy_labels: bool = False) -> list[str]:
     records = bundle.get("source_observations") or []
     if not records:
         return []
@@ -567,7 +811,7 @@ def _source_observation_section(bundle: dict) -> list[str]:
     ):
         lines += ["本历史运行沿用原有达标状态；按当前漏洞口径，排查记录不能证明已发现漏洞。", ""]
     for index, record in enumerate(records, 1):
-        lines.extend(_task_finding_block(record, index))
+        lines.extend(_task_finding_block(record, index, legacy_labels=legacy_labels))
     return lines
 
 
@@ -614,7 +858,27 @@ def verification_details(finding: dict, record: dict) -> list[str]:
     XSS, no trace that a browser ever ran the payload.
     """
     details: list[str] = []
-    if record.get("target_version"):
+    target = record.get("target") or {}
+    if isinstance(target, dict) and target:
+        described = " / ".join(
+            part for part in (
+                str(target.get("name") or ""),
+                str(target.get("base_url") or ""),
+                str(target.get("security") or ""),
+                str(target.get("version") or ""),
+            ) if part
+        )
+        if described:
+            details.append(f"- 目标环境：{described}")
+    if record.get("source") == "poc_agent":
+        status = verification_status_label(record.get("status") or "unverified", record.get("verdict"))
+        details.append(f"- 自动验证状态：{status}")
+        jobs = [str(item) for item in (record.get("agent") or {}).get("jobs") or []]
+        if jobs:
+            details.append("- runner 作业：" + "、".join(f"`{job}`" for job in jobs[:8]))
+        if record.get("command"):
+            details.append(f"- 执行命令：`{record['command']}`")
+    elif record.get("target_version"):
         details.append(f"- 目标环境：{record['target_version']}")
     if record.get("expected_result"):
         details.append(f"- 预期结果：{record['expected_result']}")
@@ -632,9 +896,16 @@ def verification_details(finding: dict, record: dict) -> list[str]:
             f"（{size} 字节，随证据包交付）"
         )
     attachments = [item for item in (record.get("files") or []) if item.get("stored")]
+    artifacts = [item for item in (record.get("artifacts") or []) if isinstance(item, dict) and item.get("path")]
     if attachments:
         listed = "、".join(f"`evidence/{item['stored']}`" for item in attachments)
         details.append(f"- 附件：{listed}")
+    if artifacts:
+        listed = "、".join(
+            f"`evidence/{item['path']}`（sha256 `{str(item.get('sha256') or '')[:12]}…`）"
+            for item in artifacts[:8]
+        )
+        details.append(f"- 运行产物：{listed}")
     if record.get("notes"):
         details.append(f"- 备注：{record['notes']}")
     return details
@@ -845,11 +1116,11 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
     ]
     if standing:
         for index, finding in enumerate(standing, 1):
-            doc.extend(_finding_block(finding, index))
+            doc.extend(_finding_block(finding, index, legacy_labels=True))
     elif not withdrawn:
         doc += ["本次没有保存目标发现。请结合第 3 节的工作项状态和执行轨迹判断这是不可达、未决还是尚未开始。", ""]
-    doc += _withdrawn_section(withdrawn)
-    doc += _source_observation_section(bundle)
+    doc += _withdrawn_section(withdrawn, legacy_labels=True)
+    doc += _source_observation_section(bundle, legacy_labels=True)
     doc += [
         "## 5. 结论限制与后续动作",
         "",
@@ -911,7 +1182,11 @@ def _render_task_markdown(bundle: dict) -> str:
         "cancelled": "已取消", "interrupted": "已中断", "failed": "失败", "running": "执行中", "pending": "等待执行",
     }
     state_label = terminal_labels.get(str(run.get("status")), str(run.get("status") or "—"))
-    poc_rule = "达成发现必须包含可人工复核的 POC。" if task.get("require_poc") else "不强制漏洞候选附带 POC；安全防护和普通源码事实只保留为排查记录，不能达成漏洞目标。"
+    poc_rule = (
+        "严格模式：目标只能以 POC Agent 在隔离靶场中实际复现的结论收束。"
+        if task.get("require_poc")
+        else "非严格模式：未验证的结论仍可收束，但被自动验证判为未通过的结论不算；安全防护和普通源码事实只保留为排查记录。"
+    )
     map_stats = project_map.get("stats") or {}
     doc: list[str] = [
         "# 项目级白盒审计报告",
@@ -924,6 +1199,10 @@ def _render_task_markdown(bundle: dict) -> str:
         f"- 预算：每个 Planner/worker 回合最多 {run['budgets'].get('responses')} 次模型响应、{run['budgets'].get('tools')} 次工具调用、{run['budgets'].get('seconds')} 秒",
         f"- 生成时间：{bundle.get('generated_at') or datetime.now(timezone.utc).isoformat()}",
         "",
+    ]
+    narrative = _narrative_sections(bundle.get("report_narrative"))
+    doc += narrative["header"]
+    doc += [
         "## 1. 目标与判定边界",
         "",
         f"- 审计目标：{task.get('objective', '—')}",
@@ -1004,11 +1283,14 @@ def _render_task_markdown(bundle: dict) -> str:
         f"{withdrawn_note}动态任务前沿结算进度：{metrics.get('task_coverage', 0)}。",
         "",
     ]
+    doc += narrative["conclusion"]
     if standing:
         for index, finding in enumerate(standing, 1):
             doc.extend(_finding_block(finding, index))
     elif not withdrawn:
         doc += ["尚无已保存的源码发现。请结合 Planner 回合、任务状态与缺失上下文判断当前结果。", ""]
+    doc += _unverified_section(bundle, candidates)
+    doc += _carried_section(bundle)
     doc += _withdrawn_section(withdrawn)
     doc += _source_observation_section(bundle)
     doc += ["## 6. 覆盖统计、固定调查与侦察简报", ""]
@@ -1020,9 +1302,15 @@ def _render_task_markdown(bundle: dict) -> str:
         "",
         "每轮 Planner 决策、任务创建/更新、依赖交接、worker 领取、工具调用、返回摘要、已读源码范围和尝试结果都先写入 SQLite 事件日志，再通过 SSE 推送。工作台的执行轨迹可按 Planner、worker、任务和尝试展开查看。",
         "",
-        "POC 只作为待人工授权环境验证的工件；系统不会执行它。对运行时依赖、动态路由、反射、动态 include 或外部服务产生的缺失信息，应结合人工验证记录补充，而不是将其解释为不存在。",
+        "POC 由独立 POC Agent 在隔离的 `poc-runner` 容器中对本地 DVWA 靶场执行；审计主进程不执行任何上传源码或 POC 脚本。"
+        "对运行时依赖、动态路由、反射、动态 include 或外部服务产生的缺失信息，应结合自动验证记录与缺失上下文补充，"
+        "而不是将其解释为不存在。",
         "",
     ]
+    if narrative["limitations"]:
+        doc += narrative["limitations"]
+    elif not narrative["header"]:
+        doc += ["本次运行未产出 Planner 叙述；以上结论均由宿主按运行记录渲染。", ""]
     return "\n".join(doc)
 
 
@@ -1505,7 +1793,7 @@ def render_markdown(bundle: dict) -> str:
     ]
     if candidates:
         for index, finding in enumerate(candidates, 1):
-            doc += _finding_block(finding, index)
+            doc += _finding_block(finding, index, legacy_labels=True)
     else:
         doc.append("本次运行未产生满足验收条件的目标发现。" if task else "本次运行未产生候选漏洞。")
     # Emitted even when empty, for the same reason as 6.5 below: an omitted section leaves a
@@ -1546,8 +1834,8 @@ def render_markdown(bundle: dict) -> str:
     # Unnumbered on purpose: a withdrawn conclusion only exists on a Planner-led run, which
     # is rendered by the task layouts above, so this block has no place in this chapter's
     # outline and would misnumber 6.5–6.7 as a chapter section for a run that has no Planner.
-    doc += _withdrawn_section(withdrawn)
-    doc += _source_observation_section(bundle)
+    doc += _withdrawn_section(withdrawn, legacy_labels=True)
+    doc += _source_observation_section(bundle, legacy_labels=True)
     # Always emitted, even with nothing to attribute: an omitted section renumbers 6.6 and 6.7
     # and reads as if the chapter were missing from the outline rather than empty. Silence here
     # also hides the two very different reasons the table can be empty — no mistakes, or nobody
@@ -1632,7 +1920,25 @@ def render_markdown(bundle: dict) -> str:
 
 
 def render_json(bundle: dict) -> str:
-    return json.dumps(_partition_bundle(bundle), ensure_ascii=False, indent=2, default=str)
+    value = dict(_partition_bundle(bundle))
+    run = value.get("run") or {}
+    # The policy the run froze, not the current one: an export must reproduce what was
+    # actually allowed when the POC agent ran.
+    value["verification_policy"] = run.get("poc_policy") or {}
+    value.setdefault("project", None)
+    value.setdefault("report_narrative", {})
+    value.setdefault("carried_findings", [])
+    findings = []
+    for finding in value.get("findings") or []:
+        item = dict(finding)
+        item["verification"] = {
+            "status": item.get("verification_status") or "unverified",
+            "verdict": item.get("verification_verdict"),
+            "records": list(item.get("verifications") or []),
+        }
+        findings.append(item)
+    value["findings"] = findings
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
 def safe_name(value: str) -> str:
@@ -1673,7 +1979,58 @@ def collect_evidence(bundle: dict, evidence_dir: Path) -> list[tuple[str, bytes]
                 path = Path(evidence_dir) / stored
                 if path.is_file():
                     files.append((item["stored"], path.read_bytes()))
+            # Runner artifacts are copied out of the isolated container as soon as the
+            # verdict is recorded, so the archive does not depend on the runner's TTL.
+            for item in record.get("artifacts") or []:
+                stored = safe_name(str(item.get("path") or ""))
+                path = Path(evidence_dir) / stored
+                if stored and path.is_file():
+                    files.append((stored, path.read_bytes()))
+            if _verification_source(record) == "poc_agent":
+                manifest = _runner_manifest(bundle, record)
+                files.append((f"{record['id']}-runner-manifest.json",
+                              json.dumps(manifest, ensure_ascii=False, indent=2, default=str).encode("utf-8")))
     return files
+
+
+def _runner_manifest(bundle: dict, record: dict) -> dict:
+    """What the isolated runner actually did, in a form a reviewer can re-check.
+
+    The report states the verdict; this file is the machine-readable account behind it --
+    target, limits, every job and the hash of every artifact -- so a reader does not have
+    to trust either the model or this report.
+    """
+    jobs = [
+        item for item in (bundle.get("verification_jobs") or [])
+        if str(item.get("verification_id") or "") == str(record.get("id") or "")
+    ]
+    return {
+        "schema": "poc-runner-manifest/v1",
+        "verification_id": record.get("id"),
+        "finding_id": record.get("finding_id"),
+        "project_finding_id": record.get("project_finding_id"),
+        "status": record.get("status"),
+        "verdict": record.get("verdict"),
+        "target": record.get("target") or {},
+        "policy": (record.get("agent") or {}).get("policy") or {},
+        "usage": (record.get("agent") or {}).get("usage") or {},
+        "jobs": [
+            {
+                "job_id": item.get("job_id"),
+                "kind": item.get("kind"),
+                "exit_code": item.get("exit_code"),
+                "duration_ms": item.get("duration_ms"),
+                "request": item.get("request") or {},
+                "result": {
+                    key: (item.get("result") or {}).get(key)
+                    for key in ("status", "exit_code", "duration_ms", "truncated", "timed_out")
+                },
+            }
+            for item in jobs
+        ],
+        "artifacts": record.get("artifacts") or [],
+        "generated_at": bundle.get("generated_at"),
+    }
 
 
 def render_zip(bundle: dict, evidence_files: list[tuple[str, bytes]]) -> bytes:
@@ -1685,10 +2042,12 @@ def render_zip(bundle: dict, evidence_files: list[tuple[str, bytes]]) -> bytes:
             archive.writestr(f"evidence/{name}", payload)
         archive.writestr(
             "evidence/README.txt",
-            "本目录保存三类证据：\n"
-            "  poc_<finding-id>_<filename>            模型给出的 POC 脚本原件（含 6.4 节保留但不计入统计的条目）；\n"
-            "  <verification-id>-adapted-<filename>   人工适配环境后的脚本，与其适配说明（report.md 6.3）对应；\n"
-            "  <verification-id>-<filename>           人工验证时上传的日志、截图等附件。\n"
+            "本目录保存以下证据：\n"
+            "  poc_<finding-id>_<filename>              模型给出的 POC 脚本原件；\n"
+            "  <verification-id>-adapted-<filename>     POC Agent 在隔离runner中实际执行的最后一份脚本；\n"
+            "  <verification-id>-runner-manifest.json   靶场、限额、每个作业的退出码与时间、产物哈希；\n"
+            "  <verification-id>-<filename>             runner 产物（截图、日志、脚本输出）；\n"
+            "  <verification-id>-<filename>             历史人工验证记录附带的附件（只读保留）。\n"
             "文件名前缀是发现 ID 或验证记录 ID，可在 report.md / result.json 中查到对应条目。\n",
         )
     return buffer.getvalue()

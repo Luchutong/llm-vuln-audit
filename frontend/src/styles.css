@@ -108,7 +108,7 @@ code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", M
 .composer-field textarea { display: block; border: 0; background: transparent; box-shadow: none !important; border-radius: 0; padding: 8px 0; font-size: 13px; min-height: 88px; max-height: 180px; line-height: 1.7; resize: vertical; width: 100%; }
 .composer-field textarea:focus { outline: none; }
 .composer-field textarea::placeholder { color: var(--ink-faint); opacity: .8; }
-.acceptance-field { border-top: 1px solid var(--line-soft); padding-top: 10px; margin-top: 3px; }
+.composer-fields .field-hint { padding-bottom: 5px; }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 7px; }
 .composer-tools { display: flex; align-items: center; gap: 3px; min-width: 0; flex-wrap: wrap; }
 .tool-button { display: inline-flex; align-items: center; gap: 6px; background: transparent; color: var(--ink-soft); border: 0; border-radius: 6px; padding: 7px; font-size: 11px; }
@@ -217,8 +217,8 @@ input::placeholder, textarea::placeholder { color: var(--ink-faint); }
 .stat-note { display: block; font-size: 10px; color: var(--ink-faint); }
 .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; line-height: 1.5; padding: 3px 7px; border-radius: 5px; border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink-soft); overflow-wrap: anywhere; max-width: 100%; }
 .chip-running, .chip-planning, .chip-dispatching, .chip-reviewing { color: var(--accent); background: var(--accent-soft); }
-.chip-confirmed, .chip-completed, .chip-succeeded, .chip-met, .chip-done, .chip-no_candidate { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 25%, transparent); }
-.chip-candidate, .chip-inconclusive, .chip-unreachable, .chip-exhausted, .chip-blocked, .chip-uncertain, .chip-insufficient_context { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 25%, transparent); }
+.chip-confirmed, .chip-completed, .chip-succeeded, .chip-met, .chip-done, .chip-no_candidate, .chip-verified { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 25%, transparent); }
+.chip-candidate, .chip-inconclusive, .chip-unreachable, .chip-exhausted, .chip-blocked, .chip-uncertain, .chip-insufficient_context, .chip-environment_unavailable, .chip-stale { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 25%, transparent); }
 .chip-failed, .chip-rejected, .chip-invalid_evidence, .chip-interrupted, .chip-incomplete, .sev-critical, .sev-high { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
 .sev-medium { color: var(--warn); background: var(--warn-bg); }
 .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--ink-faint); }

@@ -16,7 +16,7 @@ import pytest
 from pydantic import ValidationError
 
 from audit import worker as worker_module
-from audit.config import ModelConfig
+from audit.config import ModelConfig, PocSettings
 from audit.db import Store, now
 from audit.events import EventBus
 from audit.health import ModelHealth
@@ -186,7 +186,7 @@ def test_api_creation_freezes_a_project_map_not_a_static_source_queue(store, rep
     state = SimpleNamespace(
         repository=repository,
         store=store,
-        settings=SimpleNamespace(model=SimpleNamespace(label="test-model")),
+        settings=SimpleNamespace(model=SimpleNamespace(label="test-model"), poc=PocSettings()),
         bus=EventBus(store),
         worker=SimpleNamespace(notify=lambda: None),
     )
@@ -638,6 +638,42 @@ def test_historical_non_vulnerability_cannot_satisfy_goal(store, repository, kin
         store.finalize_goal(run["id"], "met", "安全观察不应使漏洞目标达成。")
     assert store.get_task_goal(run["id"])["status"] == "open"
     assert len(store.list_findings(run["id"])) == 1
+
+
+def _conclusion_finding(run: dict, finding_id: str = "finding-1") -> dict:
+    return {
+        "id": finding_id, "run_id": run["id"], "unit_id": "unit-1",
+        "fingerprint": finding_id, "category": "sqli", "finding_kind": "vulnerability",
+        "title": "id 参数拼接进 SQL 查询", "severity": "high",
+        "summary": "id 未经参数化直接拼接到查询。",
+        "evidence": [{"path": "public/index.php", "start_line": 1, "end_line": 4}],
+        "input_source": "GET id", "propagation": "直接拼接", "dangerous_operation": "SELECT ... WHERE id = '$id'",
+        "protection": "", "preconditions": [], "missing_context": [], "poc": None, "remediation": "",
+        "validation_state": "candidate", "created_at": now(),
+    }
+
+
+def test_strict_poc_mode_requires_a_verified_conclusion(store, repository):
+    """With ``require_poc`` a static conclusion cannot satisfy the goal."""
+    run, _ = create_planner_run(store, repository, task={**TASK, "require_poc": True})
+    store.add_finding(_conclusion_finding(run))
+
+    with pytest.raises(ValueError, match="validated vulnerability finding"):
+        store.finalize_goal(run["id"], "met", "静态结论尚不足以收束。", require_verified=True)
+
+    store.set_finding_verification_state("finding-1", "verified", "confirmed")
+    settled = store.finalize_goal(run["id"], "met", "隔离环境已复现。", require_verified=True)
+    assert settled["status"] == "met"
+
+
+def test_a_rejected_conclusion_never_closes_the_goal(store, repository):
+    """A finding the runner could not reproduce is not something to close on."""
+    run, _ = create_planner_run(store, repository)
+    store.add_finding(_conclusion_finding(run))
+    store.set_finding_verification_state("finding-1", "rejected", "rejected")
+
+    with pytest.raises(ValueError, match="validated vulnerability finding"):
+        store.finalize_goal(run["id"], "met", "自动验证未复现。")
 
 
 def test_mixed_worker_results_keep_only_vulnerabilities_in_findings(store, repository, monkeypatch):

@@ -22,6 +22,8 @@ from .events import EventBus
 from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
 from .finding_policy import is_vulnerability_finding
 from .health import ModelHealth
+from .poc import PocVerifier
+from .project_findings import canonical_fingerprint, ledger_record
 from .prompts import system_prompt
 from .source import SourceRepository
 from .runtime import AgentPolicy, allowed_paths_for_run, policy_from_snapshot
@@ -484,6 +486,12 @@ class AuditWorker:
         # ``continue`` covers both "I looked and the conclusion stands" and "run what is
         # still on the frontier", and only the decision itself tells the two apart.
         round_mutations = 0
+        # ``project_finding_id`` -> revision already sent to the POC agent this process.
+        # Verification happens at the closure boundary, where every standing conclusion is
+        # known and the next Planner round is the closure review that should see it.
+        verified_for: dict[str, int] = {}
+        poc_verifier = PocVerifier(store=self.store, bus=self.bus, settings=self.settings)
+        project_mode = str(run.get("project_mode") or "legacy") == "project"
 
         # A run that was paused and resumed re-enters here with its session, its round
         # number and its frontier exactly as they were.  The two events below describe a
@@ -554,14 +562,42 @@ class AuditWorker:
         async def finish_goal(state: str, basis: str, missing: list[str] | None = None) -> bool:
             """Persist a host-verified terminal goal and its public run state."""
             try:
-                settled = self.store.finalize_goal(run_id, state, basis, missing)
+                settled = self.store.finalize_goal(
+                    run_id, state, basis, missing,
+                    # Strict mode: the run may only close on a finding the isolated POC
+                    # runner actually reproduced, not on a static conclusion.
+                    require_verified=bool(task_spec.get("require_poc")),
+                )
             except ValueError as exc:
                 self.bus.emit(run_id, None, "planner_terminal_deferred", {
                     "state": state, "reason": str(exc), "basis_summary": basis,
                 })
                 return False
+            if state == "met":
+                # A Planner-driven closure (the common path) must record the project
+                # conclusions it stood on, not only the host-driven one below.  The call is
+                # idempotent, and a run that rediscovered nothing still needs these rows
+                # for its report's "carried" section.
+                record_carried()
             status_map = {"met": ("completed", "run_completed"), "unreachable": ("unreachable", "goal_unreachable"), "inconclusive": ("inconclusive", "goal_inconclusive")}
             run_status, event_kind = status_map[state]
+            if state == "met":
+                # The POC agent rejected these, the Planner chose not to retract them, and
+                # the host still excluded them from what the goal stands on.  Keep that
+                # divergence visible instead of silently dropping the conclusions.
+                kept_rejected = [
+                    item for item in self.store.list_findings(run_id)
+                    if item.get("validation_state") == "candidate"
+                    and is_vulnerability_finding(item)
+                    and str(item.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
+                    and str(item.get("verification_status") or "") == "rejected"
+                ]
+                if kept_rejected:
+                    self.bus.emit(run_id, None, "planner_kept_rejected_finding", {
+                        "finding_ids": [item["id"] for item in kept_rejected][:32],
+                        "count": len(kept_rejected),
+                        "note": "自动验证未通过，但 Planner 没有撤回；这些结论不支撑目标达成。",
+                    })
             self.store.update_run(run_id, status=run_status, finished_at=_now())
             self.bus.emit(run_id, None, event_kind, {
                 "goal_id": settled["id"],
@@ -653,6 +689,7 @@ class AuditWorker:
                 return "failed"
             tasks = list(decision.get("tasks") or [])
             updates = list(decision.get("updates") or [])
+            narrative = decision.get("report") if isinstance(decision.get("report"), dict) else None
             committed = self.store.finish_planner_round(
                 run_id,
                 plan["id"],
@@ -666,9 +703,54 @@ class AuditWorker:
                 # A revision extends the attempt allowance instead of spending it; the store
                 # applies this to both the task's own cap and the goal-wide one.
                 reopen_attempts=int(policy.reopen_attempts),
+                narrative=narrative,
             )
+            if narrative:
+                self.bus.emit(run_id, None, "report_narrative_committed", {
+                    "plan_id": plan["id"],
+                    "round": plan["round_no"],
+                    "revision": plan["revision"],
+                    "summary": str(narrative.get("summary") or "")[:300],
+                    "limitations": len(narrative.get("limitations") or []),
+                })
             queue = self.store.task_queue_state(run_id)
-            round_mutations = len(tasks) + len(updates)
+            # Project-ledger dispositions are applied after the round commits: they are not
+            # part of the task graph transaction, and a ledger write must not be able to
+            # roll back an otherwise valid frontier update.
+            project_updates = list(decision.get("project_updates") or [])
+            applied_projects = 0
+            for update in project_updates:
+                project_finding_id = str(update.get("project_finding_id") or "")
+                action = str(update.get("action") or "")
+                try:
+                    updated = self.store.set_project_finding_disposition(
+                        project_finding_id,
+                        action,
+                        str(update.get("rationale_summary") or ""),
+                        run_id=run_id,
+                    )
+                except ValueError:
+                    updated = None
+                if updated is None or str(updated.get("project_id")) != str(run.get("project_id") or ""):
+                    self.bus.emit(run_id, None, "project_finding_update_rejected", {
+                        "project_finding_id": project_finding_id,
+                        "action": action,
+                        "reason": "not in this run's project or unsupported action",
+                    })
+                    continue
+                applied_projects += 1
+                self.bus.emit(run_id, None, {
+                    "retract": "project_finding_retracted",
+                    "duplicate": "project_finding_duplicate",
+                    "reopen": "project_finding_reopened",
+                }.get(action, "project_finding_disposition_changed"), {
+                    "project_finding_id": project_finding_id,
+                    "action": action,
+                    "disposition": updated.get("disposition"),
+                    "revision": int(updated.get("revision") or 1),
+                    "reason": update.get("rationale_summary"),
+                })
+            round_mutations = len(tasks) + len(updates) + applied_projects
             self.bus.emit(run_id, None, "planner_round_committed", {
                 "plan_id": plan["id"],
                 "round": plan["round_no"],
@@ -678,6 +760,7 @@ class AuditWorker:
                 "next_action": decision.get("next_action"),
                 "task_count": len(tasks),
                 "updates": updates,
+                "project_updates": project_updates,
                 "queue": queue,
             })
             # A correction is worth its own event: it is the moment the run decided an earlier
@@ -698,8 +781,8 @@ class AuditWorker:
                         "reason": str(update.get("rationale_summary") or ""),
                     })
                 elif action in {"retract", "duplicate"}:
-                    # What was asked for and what was written can differ -- a conclusion a
-                    # human already decided is only contested -- so the event is read back
+                    # What was asked for and what was written can differ (retract and
+                    # duplicate are normalized in the store), so the event is read back
                     # off the row instead of being assumed from the action.
                     finding = self.store.get_finding(str(update.get("finding_key") or ""))
                     if finding is None:
@@ -819,6 +902,7 @@ class AuditWorker:
                         agent_invocation_id=invocation_id,
                         allowed_paths=allowed_paths_for_run(run),
                         dependency_handoffs=dependency_handoffs,
+                        known_findings=list((run.get("project_baseline") or [])[:8]),
                         peer_trace_search=search_peer_traces,
                         peer_trace_read=get_peer_trace,
                         config=model_config,
@@ -898,9 +982,9 @@ class AuditWorker:
         def standing_conclusions() -> list[dict]:
             """The conclusions this run's goal is satisfied by, counted the way the host counts them.
 
-            The same filter ``Store.finalize_goal`` applies: evidence that survived validation
-            and that no Planner round has taken back.  Rejected citations, a retracted or
-            duplicated conclusion, and a conclusion a human already judged are all things the
+            The same filter ``Store.finalize_goal`` applies: evidence that survived validation,
+            that no Planner round has taken back, and that the POC agent did not reject.
+            Rejected citations and a retracted or duplicated conclusion are all things the
             run must not be closed on.
             """
             return [
@@ -909,7 +993,42 @@ class AuditWorker:
                 if item.get("validation_state") == "candidate"
                 and is_vulnerability_finding(item)
                 and str(item.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
+                and str(item.get("verification_status") or "") != "rejected"
             ]
+
+        def standing_baseline() -> list[dict]:
+            """Verified project conclusions this run inherited rather than re-discovered.
+
+            Frozen at run start, so a sibling run cannot move this run's goalposts.  Only
+            ``verified`` rows count: an unverified project finding is a lead, not a
+            conclusion, and a run may not close on it without doing any work.
+            """
+            run_row = self.store.get_run(run_id) or {}
+            return [
+                item
+                for item in run_row.get("project_baseline") or []
+                if str(item.get("disposition") or "open") == "open"
+                and str(item.get("verification_status") or "") == "verified"
+            ]
+
+        def record_carried() -> None:
+            """Mark the project conclusions this run reused without re-finding them."""
+            run_row = self.store.get_run(run_id) or {}
+            project_id = str(run_row.get("project_id") or "")
+            if not project_id:
+                return
+            try:
+                count = self.store.record_carried_findings(project_id, run_id)
+            except Exception as exc:  # pragma: no cover - reporting only
+                self.bus.emit(run_id, None, "carried_findings_failed", {
+                    "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                })
+                return
+            if count:
+                self.bus.emit(run_id, None, "carried_findings_recorded", {
+                    "project_id": project_id,
+                    "count": count,
+                })
 
         def conclusion_state() -> tuple:
             """What a review round would be looking at: the settled frontier and every conclusion.
@@ -975,7 +1094,8 @@ class AuditWorker:
             # both whether a worker may start another direction and whether the host reviews
             # before it closes.  The hold is only meaningful while one of them exists.
             standing = standing_conclusions()
-            if closing and not standing:
+            inherited = standing_baseline()
+            if closing and not (standing or inherited):
                 closing = False
             if (queue["ready"] or queue["running"]) and not closing:
                 await run_worker_wave()
@@ -989,7 +1109,28 @@ class AuditWorker:
             # direction, retract a conclusion, call one a duplicate) would be unreachable for
             # exactly the conclusions that matter.  Costs one model call per closure point; a
             # review that changes nothing closes the run on the next pass instead of repeating.
-            if standing and (closing or not queue["active"]):
+            if (standing or inherited) and (closing or not queue["active"]):
+                # Automatic verification runs here rather than after every worker wave: it
+                # is the one point where every standing conclusion is already known and the
+                # next round is the closure review that should read the verdicts.  A verdict
+                # can remove a conclusion from the standing set, so both sets are re-read.
+                if project_mode and standing and not stop.is_set():
+                    await poc_verifier.verify_standing(
+                        run_id,
+                        standing,
+                        verified_for,
+                        model_config=model_config,
+                        should_stop=stop.is_set,
+                    )
+                    standing = standing_conclusions()
+                    inherited = standing_baseline()
+                    if closing and not (standing or inherited):
+                        closing = False
+                    if not (standing or inherited):
+                        # Every conclusion the host would have closed on was executed and
+                        # not reproduced.  Nothing is left to review or close on, so go back
+                        # to planning instead of deferring ``met`` forever.
+                        continue
                 signature = conclusion_state()
                 if (
                     reviewed_for != signature
@@ -1009,10 +1150,18 @@ class AuditWorker:
                 # Either the review already ran against this exact state, or there is no round
                 # left to run one in. A conclusion the host can verify satisfies the goal on its
                 # own; a later Planner-round limit must not recast it as "unreachable".
-                await finish_goal(
+                settled = await finish_goal(
                     "met",
                     "前沿已结算，并保留至少一条通过源码证据校验、未被撤回的 worker 发现。",
                 )
+                if not settled and task_spec.get("require_poc"):
+                    # Strict mode refused the closure because nothing standing was
+                    # reproduced.  Leaving the goal open here would leave the run
+                    # ``running`` with no work left, so settle honestly instead.
+                    await finish_goal(
+                        "inconclusive",
+                        "严格模式要求已验证结论；自动验证未提供可支撑收束的已复现结果。",
+                    )
                 return
             # A hard shared worker cap is an execution limit, not evidence that the
             # objective is absent. Keep the result reviewable as inconclusive.
@@ -1085,12 +1234,66 @@ class AuditWorker:
                 "revision": written["revision"],
                 "previous_revision": written["revision"] - 1,
             })
+        project = self._merge_project_finding(run_id, finding_id, prepared)
+        if project is not None:
+            payload.update({
+                "project_finding_id": project["project_finding_id"],
+                "project_revision": project["revision"],
+                "project_relation": project["action"],
+                # A conclusion the ledger already holds is not a new discovery; the
+                # report counts it under rediscovery and spends no "new findings" credit
+                # on it.  A correction still is news.
+                "known_state": "known" if project["action"] == "rediscovered" else "new",
+            })
         self.bus.emit(
             run_id,
             unit_id,
             "finding_created" if prepared["candidate"] else "finding_rejected_by_validation",
             payload,
         )
+
+    def _merge_project_finding(self, run_id: str, finding_id: str, prepared: dict) -> dict | None:
+        """Fold a validated vulnerability into its project's ledger.
+
+        Only a candidate vulnerability is ledger material: an observation, an invalid
+        citation or a finding whose kind/severity disqualified it stays run-local.  The
+        ledger write is best-effort by design -- losing a ledger row must not lose the run
+        finding that is already persisted and reported.
+        """
+        record = prepared.get("record") or {}
+        if not prepared.get("candidate") or not prepared.get("vulnerability"):
+            return None
+        run = self.store.get_run(run_id)
+        project_id = str((run or {}).get("project_id") or "")
+        if not project_id:
+            return None
+        anchor = prepared.get("anchor") or {}
+        entry = ledger_record(record)
+        entry["file_path"] = str(anchor.get("file_path") or entry["file_path"])
+        entry["symbol"] = str(anchor.get("symbol") or entry["symbol"])
+        entry["fingerprint"] = canonical_fingerprint(
+            entry["file_path"], entry["symbol"], entry["dangerous_operation"]
+        )
+        try:
+            merged = self.store.merge_project_finding(project_id, run_id, entry)
+            self.store.link_finding_project(
+                finding_id, merged["project_finding_id"], merged["revision"]
+            )
+        except Exception as exc:  # pragma: no cover - defensive: never lose the run finding
+            self.bus.emit(run_id, None, "project_finding_merge_failed", {
+                "finding_id": finding_id,
+                "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+            })
+            return None
+        self.bus.emit(run_id, None, f"project_finding_{merged['action']}", {
+            "finding_id": finding_id,
+            "project_finding_id": merged["project_finding_id"],
+            "project_id": project_id,
+            "revision": merged["revision"],
+            "disposition": merged["disposition"],
+            "title": record.get("title"),
+        })
+        return merged
 
     def _build_planner_findings(self, run: dict, planner_task: dict, outcome: dict) -> list[dict]:
         """Adapt generic finding validation to a task that spans several source files."""
@@ -1099,11 +1302,48 @@ class AuditWorker:
         virtual_unit = {
             "unit_id": planner_task["id"],
             "file_path": str(anchor.get("path") or "<project>"),
-            "symbol": str(planner_task.get("title") or planner_task.get("task_key") or "<planner task>"),
+            # The task title is a *direction*, not a location.  Filing ledger rows under
+            # it would make every run's wording of the same direction a different
+            # vulnerability, so the anchor comes from the finding's own evidence.
+            "symbol": "<project>",
+            "virtual": True,
             "start_line": int(anchor.get("start_line") or 1),
             "end_line": int(anchor.get("end_line") or 1),
         }
         return self._build_goal_findings(run, virtual_unit, outcome)
+
+    def _finding_anchor(self, run: dict, unit: dict, evidence: list[dict]) -> tuple[str, str]:
+        """The (path, symbol) a finding is filed under.
+
+        A file/slice unit already names its own anchor.  A Planner task spans several
+        files, so its finding is filed where its first validated citation points; the
+        symbol is looked up in the frozen project map, and ``<project>`` is used when the
+        citation is outside any indexed symbol rather than inventing one.
+        """
+        path = str(unit.get("file_path") or "")
+        symbol = str(unit.get("symbol") or "")
+        if not unit.get("virtual"):
+            return path, symbol
+        first = next((item for item in evidence if isinstance(item, dict) and item.get("path")), None)
+        if first is None:
+            return path, "<project>"
+        path = str(first.get("path") or path)
+        line = int(first.get("start_line") or 0)
+        return path, self._symbol_at(run["id"], path, line) or "<project>"
+
+    def _symbol_at(self, run_id: str, path: str, line: int) -> str:
+        project_map = self.store.get_project_map(run_id) or {}
+        best: tuple[int, str] | None = None
+        for item in project_map.get("symbols") or []:
+            if not isinstance(item, dict) or item.get("path") != path:
+                continue
+            start = int(item.get("start_line") or 0)
+            end = int(item.get("end_line") or 0)
+            if start <= line <= end:
+                span = end - start
+                if best is None or span < best[0]:
+                    best = (span, str(item.get("name") or ""))
+        return best[1] if best else ""
 
     async def _execute_goal_task(self, run: dict) -> None:
         """Coordinate a durable, shared task queue with bounded concurrent workers.
@@ -1505,13 +1745,22 @@ class AuditWorker:
             # single task result retains ``task_goal``; additional results get stable
             # per-item category slots while their user-facing type lives in finding_kind.
             category = "task_goal" if len(payloads) == 1 else f"task_goal:{index}"
+            anchor_path, anchor_symbol = self._finding_anchor(run, unit, evidence)
+            dangerous_operation = str(payload.get("dangerous_operation") or "")
             finding = {
                 "id": finding_id,
                 "run_id": run["id"],
                 "unit_id": unit["unit_id"],
-                "fingerprint": fingerprint(
-                    "task_goal", unit["file_path"], unit["symbol"],
-                    f"{kind}|{title}|{payload.get('evidence') or ''}",
+                # The ledger identity is built from the finding's own anchor and sink, so
+                # a second run -- or the same direction worded differently -- lands on
+                # the same project row instead of a new vulnerability.
+                "fingerprint": (
+                    canonical_fingerprint(anchor_path, anchor_symbol, dangerous_operation)
+                    if vulnerability
+                    else fingerprint(
+                        "task_goal", unit["file_path"], unit["symbol"],
+                        f"{kind}|{title}|{payload.get('evidence') or ''}",
+                    )
                 ),
                 "category": category,
                 "finding_kind": kind,
@@ -1535,6 +1784,8 @@ class AuditWorker:
             prepared.append({
                 "record": finding,
                 "candidate": candidate,
+                "vulnerability": vulnerability,
+                "anchor": {"file_path": anchor_path, "symbol": anchor_symbol},
                 "event": {
                     "finding_id": finding_id,
                     "category": category,
@@ -1572,8 +1823,8 @@ class AuditWorker:
                 "id": finding_id,
                 "run_id": run["id"],
                 "unit_id": unit["unit_id"],
-                "fingerprint": fingerprint(
-                    category, unit["file_path"], unit["symbol"], check.dangerous_operation
+                "fingerprint": canonical_fingerprint(
+                    unit["file_path"], unit["symbol"], check.dangerous_operation
                 ),
                 "category": category,
                 "title": title_for(category, unit["file_path"], unit["symbol"]),
@@ -1610,5 +1861,14 @@ class AuditWorker:
             )
             stored.append(
                 {"finding_id": finding_id, "category": category, "invalid_evidence": bool(problems)}
+            )
+            self._merge_project_finding(
+                run["id"], finding_id,
+                {
+                    "record": finding,
+                    "candidate": state == "candidate",
+                    "vulnerability": True,
+                    "anchor": {"file_path": unit["file_path"], "symbol": unit["symbol"]},
+                },
             )
         return stored

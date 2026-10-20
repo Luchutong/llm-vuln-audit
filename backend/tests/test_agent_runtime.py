@@ -864,6 +864,60 @@ def test_goal_executor_returns_achieved_only_with_exact_source_evidence(monkeypa
     assert all(event["span_id"] and event["duration_ms"] >= 0 for event in results)
 
 
+def test_planner_task_allows_more_than_four_requests_before_its_assessment(monkeypatch):
+    """A bundled worker must still be able to hand in a conclusion after exploring.
+
+    Live project runs spent all four requests on reading the bundle, ended with
+    ``budget`` and requeued the same task until it was blocked.  The allowance follows
+    the run's response budget now, so five exploratory steps and the assessment fit.
+    """
+    payload = {
+        "outcome": "achieved",
+        "summary": "找到用户输入直达查询的位置。",
+        "reasoning": "a.php 第 3 行把请求参数直接拼入查询。",
+        "next_focus": "",
+        "missing_context": [],
+        "finding": {
+            "title": "未参数化的查询",
+            "kind": "vulnerability",
+            "severity": "high",
+            "summary": "请求参数在 a.php 中直接拼入查询。",
+            "evidence": "a.php:3-3",
+            "input_source": "$_GET['x']",
+            "propagation": "参数直接传入查询",
+            "dangerous_operation": "mysqli_query（a.php:3）",
+            "protection": "未见参数绑定",
+            "preconditions": "通过包含该文件的入口提供 x 参数",
+            "remediation": "改用参数绑定。",
+        },
+    }
+    script = [call("find_files", pattern=f"missing-{index}") for index in range(5)] + [final_answer(payload)]
+    factory = ModelFactory(script)
+    monkeypatch.setattr(agent, "build_code_model", factory)
+    result = asyncio.run(agent.pursue_task_work(
+        repository=Repository(),
+        snapshot_id="s1",
+        snapshot_name="demo.zip",
+        unit=UNIT,
+        task={
+            "objective": "确认请求参数是否直达查询。",
+            "success_criteria": "保存一处带原始行号的查询证据。",
+            "max_iterations": 3,
+            "max_total_attempts": 8,
+            "max_workers": 2,
+            "stop_on_achieved": True,
+            "require_poc": False,
+        },
+        attempt=1,
+        config=CONFIG,
+        budgets={"responses": 24, "tools": 16, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5),
+    ))
+
+    assert result["outcome"] == "achieved", result
+    assert len(factory.built().requests) == 6
+
+
 def test_goal_executor_requeues_model_failure_instead_of_calling_it_missing_context(monkeypatch):
     """A dead endpoint is retryable, so the item goes back to the queue rather than `blocked`."""
     factory = ModelFactory(Always([provider_error(503, "temporary outage")]))

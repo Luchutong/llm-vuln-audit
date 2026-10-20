@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .evidence import seen_ranges
 from .finding_policy import is_vulnerability_finding
+from .project_findings import pick_merge_candidate
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -399,6 +400,107 @@ CREATE TABLE IF NOT EXISTS model_selection (
     selected_profile_id TEXT,
     updated_at TEXT NOT NULL
 );
+
+-- A project is one body of indexed source text, identified by ``content_key`` rather
+-- than by an upload: re-zipping the same tree lands on the same project.  Runs belong
+-- to a project, so a second conversation about the same source starts from what the
+-- first one already established.
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    content_key TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    latest_snapshot_id TEXT,
+    latest_run_id TEXT,
+    snapshot_count INTEGER NOT NULL DEFAULT 0,
+    run_count INTEGER NOT NULL DEFAULT 0,
+    target_profile TEXT NOT NULL DEFAULT 'unknown',
+    content_schema INTEGER NOT NULL DEFAULT 1
+);
+
+-- The project's vulnerability ledger: one row per vulnerability, no matter how many
+-- runs rediscovered it.  Run-local ``findings`` remain the audit trail; this row is
+-- the canonical conclusion a later run starts from.
+CREATE TABLE IF NOT EXISTS project_findings (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    category TEXT NOT NULL,
+    finding_kind TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    input_source TEXT NOT NULL,
+    propagation TEXT NOT NULL,
+    dangerous_operation TEXT NOT NULL,
+    protection TEXT NOT NULL,
+    preconditions TEXT NOT NULL,
+    missing_context TEXT NOT NULL,
+    poc TEXT NOT NULL,
+    remediation TEXT NOT NULL,
+    validation_state TEXT NOT NULL DEFAULT 'candidate',
+    disposition TEXT NOT NULL DEFAULT 'open',
+    disposition_reason TEXT,
+    disposition_by TEXT,
+    disposition_at TEXT,
+    revision INTEGER NOT NULL DEFAULT 1,
+    superseded_summary TEXT NOT NULL DEFAULT '[]',
+    origin_run_id TEXT NOT NULL,
+    origin_finding_id TEXT NOT NULL,
+    last_run_id TEXT NOT NULL,
+    last_finding_id TEXT NOT NULL,
+    discovered_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    verification_status TEXT NOT NULL DEFAULT 'unverified',
+    verification_verdict TEXT,
+    latest_verification_id TEXT,
+    UNIQUE (project_id, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_project_findings_project ON project_findings(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_findings_anchor ON project_findings(project_id, file_path, symbol);
+
+-- How a project finding entered or reappeared in each run: first discovery, a later
+-- rediscovery, a correction, a withdrawal, a restoration, or a carried-forward row.
+CREATE TABLE IF NOT EXISTS project_finding_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    project_finding_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    run_finding_id TEXT,
+    relation TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    UNIQUE (project_finding_id, run_id, relation, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_project_finding_runs_run ON project_finding_runs(run_id, created_at);
+
+-- One row per POC runner job, kept apart from ``verifications`` so a report can replay
+-- exactly what was executed without re-parsing prose.
+CREATE TABLE IF NOT EXISTS poc_verification_jobs (
+    id TEXT PRIMARY KEY,
+    verification_id TEXT NOT NULL,
+    finding_id TEXT NOT NULL,
+    project_finding_id TEXT,
+    run_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    request TEXT NOT NULL DEFAULT '{}',
+    result TEXT NOT NULL DEFAULT '{}',
+    exit_code INTEGER,
+    duration_ms INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_poc_verification_jobs_verification ON poc_verification_jobs(verification_id, created_at);
+
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 RUN_TERMINAL = ("completed", "unreachable", "inconclusive", "cancelled", "interrupted", "failed")
@@ -479,21 +581,19 @@ MAX_TASK_FILES = 24
 REOPENABLE_TASK_STATES = ("completed", "blocked", "exhausted", "cancelled", "skipped")
 
 # The third axis of a finding, orthogonal to ``validation_state`` (is the evidence sound?)
-# and ``verdict`` (did a human reproduce it?): is this conclusion still standing?  Nothing
-# is ever deleted -- a withdrawn conclusion keeps its row, its verifications and its text,
-# so "this was concluded and later withdrawn" stays readable.
+# and ``verification_status`` (did the isolated runner reproduce it?): is this conclusion
+# still standing?  Nothing is ever deleted -- a withdrawn conclusion keeps its row, its
+# verifications and its text, so "this was concluded and later withdrawn" stays readable.
+# ``contested`` is a historical value only: it recorded a Planner disagreeing with a human
+# verdict, and no code path produces it now that human verdicts are no longer accepted.
 FINDING_DISPOSITIONS = ("open", "superseded", "retracted", "duplicate", "contested")
 # Dispositions under which a conclusion no longer stands: it keeps its row, its text and
 # its verifications, and it still appears in the report, but it is not evidence a run may
-# close on.  ``contested`` is deliberately not one of them: a contest records the Planner
-# disagreeing with a verdict a human already recorded, and a human verdict is terminal, so
-# the conclusion stays standing until the human revisits it.
+# close on.
 WITHDRAWN_FINDING_DISPOSITIONS = ("retracted", "duplicate", "superseded")
 # SQL form of the same predicate, so the one place that filters in a query cannot drift
 # from the one place that filters in Python.  The values are internal literals.
 _WITHDRAWN_SQL = "(" + ", ".join(f"'{item}'" for item in WITHDRAWN_FINDING_DISPOSITIONS) + ")"
-# A human verdict is terminal.  The Planner may still disagree, but only visibly.
-HUMAN_DECIDED_VERDICTS = ("confirmed", "rejected")
 # How many earlier revisions of one finding slot are kept verbatim in
 # ``superseded_summary``.  Older ones are dropped from the snapshot, not from history: the
 # attempt rows in ``planner_task_attempts`` are the durable record.
@@ -614,9 +714,22 @@ class Store:
     # Additive migrations so a database written by an earlier build keeps working.
     _ADDED_COLUMNS = {
         "run_units": {"unit_json": "TEXT NOT NULL DEFAULT '{}'"},
+        "snapshots": {
+            # The project identity is derived from indexed text content, not from the
+            # archive bytes; ``project_id`` is the row it belongs to.
+            "content_key": "TEXT",
+            "project_id": "TEXT",
+            "target_profile": "TEXT NOT NULL DEFAULT 'unknown'",
+        },
         "runs": {
             "agent_policy": "TEXT",
             "task_spec": "TEXT",
+            # A run created before projects existed keeps ``legacy`` so its report and
+            # metrics render exactly as they did; new runs are ``project`` runs.
+            "project_id": "TEXT",
+            "project_mode": "TEXT NOT NULL DEFAULT 'legacy'",
+            "project_baseline": "TEXT NOT NULL DEFAULT '[]'",
+            "poc_policy": "TEXT NOT NULL DEFAULT '{}'",
             "model_profile": "TEXT NOT NULL DEFAULT '{}'",
             # "snapshot" means the whole immutable snapshot is in scope and the run
             # stores no explicit file list.  Older rows default to "explicit" so their
@@ -641,6 +754,27 @@ class Store:
             "disposition_reason": "TEXT",
             "disposition_by": "TEXT",
             "disposition_at": "TEXT",
+            # The project ledger row this run finding maps to, and which canonical
+            # revision it was matched against.
+            "project_finding_id": "TEXT",
+            "project_revision": "INTEGER",
+            # Denormalised from the latest automatic verification so the Planner's
+            # bounded situation and the report do not need a join per finding.
+            "verification_status": "TEXT NOT NULL DEFAULT 'unverified'",
+            "verification_verdict": "TEXT",
+        },
+        "planner_plans": {
+            # The final report narrative the Planner wrote on its closure review.
+            "narrative": "TEXT NOT NULL DEFAULT '{}'",
+        },
+        "verifications": {
+            "source": "TEXT NOT NULL DEFAULT 'legacy_human'",
+            "status": "TEXT NOT NULL DEFAULT ''",
+            "agent": "TEXT NOT NULL DEFAULT '{}'",
+            "target": "TEXT NOT NULL DEFAULT '{}'",
+            "artifacts": "TEXT NOT NULL DEFAULT '[]'",
+            "project_finding_id": "TEXT",
+            "finding_revision": "INTEGER",
         },
         # How many times a settled direction has been re-opened for correction, per task and
         # per run.  Counted in the database rather than read back out of events: the counters
@@ -676,9 +810,23 @@ class Store:
     # --- snapshots ---------------------------------------------------------
 
     def add_snapshot(self, snapshot: dict) -> None:
+        """Insert or refresh one snapshot row without losing its project binding.
+
+        This used to be ``INSERT OR REPLACE``, which deletes the old row and writes a new
+        one: any column the caller did not supply -- now ``content_key`` and
+        ``project_id`` -- would silently become NULL on a re-import.
+        """
         self._write(
-            "INSERT OR REPLACE INTO snapshots (id, name, created_at, archive_sha256, source,"
-            " file_count, unit_count, warning_count) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO snapshots (id, name, created_at, archive_sha256, source, file_count,"
+            " unit_count, warning_count, content_key, project_id, target_profile)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(id) DO UPDATE SET name = excluded.name, archive_sha256 = excluded.archive_sha256,"
+            " source = excluded.source, file_count = excluded.file_count,"
+            " unit_count = excluded.unit_count, warning_count = excluded.warning_count,"
+            " content_key = COALESCE(excluded.content_key, snapshots.content_key),"
+            " project_id = COALESCE(excluded.project_id, snapshots.project_id),"
+            " target_profile = CASE WHEN excluded.target_profile = 'unknown'"
+            " THEN snapshots.target_profile ELSE excluded.target_profile END",
             (
                 snapshot["id"],
                 snapshot["name"],
@@ -688,8 +836,17 @@ class Store:
                 len(snapshot.get("files", [])),
                 len(snapshot.get("units", [])),
                 len(snapshot.get("warnings", [])),
+                snapshot.get("content_key"),
+                snapshot.get("project_id"),
+                snapshot.get("target_profile") or "unknown",
             ),
         )
+
+    def get_snapshot_by_archive_sha256(self, digest: str) -> dict | None:
+        row = self._row(
+            "SELECT * FROM snapshots WHERE archive_sha256 = ? ORDER BY created_at LIMIT 1", (digest,)
+        )
+        return dict(row) if row else None
 
     def list_snapshots(self) -> list[dict]:
         return [dict(row) for row in self._rows("SELECT * FROM snapshots ORDER BY created_at DESC")]
@@ -697,6 +854,524 @@ class Store:
     def get_snapshot(self, snapshot_id: str) -> dict | None:
         row = self._row("SELECT * FROM snapshots WHERE id = ?", (snapshot_id,))
         return dict(row) if row else None
+
+    # --- projects ----------------------------------------------------------
+
+    def add_project(self, project: dict) -> None:
+        stamp = project.get("created_at") or now()
+        self._write(
+            "INSERT INTO projects (id, content_key, name, created_at, updated_at, target_profile,"
+            " content_schema) VALUES (?,?,?,?,?,?,?)"
+            " ON CONFLICT(content_key) DO NOTHING",
+            (
+                project["id"],
+                project["content_key"],
+                project["name"],
+                stamp,
+                stamp,
+                project.get("target_profile") or "unknown",
+                int(project.get("content_schema") or 1),
+            ),
+        )
+
+    def get_project(self, project_id: str) -> dict | None:
+        row = self._row("SELECT * FROM projects WHERE id = ?", (project_id,))
+        return self._project_dict(row) if row else None
+
+    def get_project_by_content_key(self, content_key: str) -> dict | None:
+        row = self._row("SELECT * FROM projects WHERE content_key = ?", (content_key,))
+        return self._project_dict(row) if row else None
+
+    def list_projects(self) -> list[dict]:
+        return [
+            self._project_dict(row)
+            for row in self._rows("SELECT * FROM projects ORDER BY updated_at DESC, created_at DESC")
+        ]
+
+    def _project_dict(self, row: sqlite3.Row) -> dict:
+        project = dict(row)
+        counts = self._row(
+            "SELECT COUNT(*) AS total,"
+            " SUM(CASE WHEN disposition = 'open' THEN 1 ELSE 0 END) AS open_count,"
+            " SUM(CASE WHEN verification_status = 'verified' THEN 1 ELSE 0 END) AS verified,"
+            " SUM(CASE WHEN verification_status = 'rejected' THEN 1 ELSE 0 END) AS rejected,"
+            " SUM(CASE WHEN verification_status = 'unverified' OR verification_status = '' THEN 1 ELSE 0 END) AS unverified,"
+            # Every other status is counted explicitly: a ledger full of
+            # ``environment_unavailable`` rows used to report zero unverified and zero
+            # verified, which made the project look as if it had no recorded conclusions.
+            " SUM(CASE WHEN verification_status = 'inconclusive' THEN 1 ELSE 0 END) AS inconclusive,"
+            " SUM(CASE WHEN verification_status = 'not_applicable' THEN 1 ELSE 0 END) AS not_applicable,"
+            " SUM(CASE WHEN verification_status = 'environment_unavailable' THEN 1 ELSE 0 END)"
+            " AS environment_unavailable,"
+            " SUM(CASE WHEN verification_status = 'stale' THEN 1 ELSE 0 END) AS stale,"
+            " SUM(CASE WHEN disposition IN ('retracted','duplicate') THEN 1 ELSE 0 END) AS withdrawn"
+            " FROM project_findings WHERE project_id = ?",
+            (project["id"],),
+        )
+        project["finding_counts"] = {
+            "total": int(counts["total"] or 0) if counts else 0,
+            "open": int(counts["open_count"] or 0) if counts else 0,
+            "verified": int(counts["verified"] or 0) if counts else 0,
+            "rejected": int(counts["rejected"] or 0) if counts else 0,
+            "unverified": int(counts["unverified"] or 0) if counts else 0,
+            "inconclusive": int(counts["inconclusive"] or 0) if counts else 0,
+            "not_applicable": int(counts["not_applicable"] or 0) if counts else 0,
+            "environment_unavailable": int(counts["environment_unavailable"] or 0) if counts else 0,
+            "stale": int(counts["stale"] or 0) if counts else 0,
+            "withdrawn": int(counts["withdrawn"] or 0) if counts else 0,
+        }
+        return project
+
+    def attach_snapshot_project(
+        self,
+        snapshot_id: str,
+        project_id: str,
+        content_key: str,
+        target_profile: str,
+        *,
+        created_at: str | None = None,
+    ) -> None:
+        """Bind a snapshot to its project and refresh the project's denormalised counters."""
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                stamp = now()
+                self._db.execute(
+                    "UPDATE snapshots SET content_key = ?, project_id = ?, target_profile = ? WHERE id = ?",
+                    (content_key, project_id, target_profile, snapshot_id),
+                )
+                self._db.execute(
+                    "UPDATE projects SET latest_snapshot_id = ?,"
+                    " snapshot_count = (SELECT COUNT(*) FROM snapshots WHERE project_id = ?),"
+                    " target_profile = CASE WHEN ? <> 'unknown' THEN ? ELSE target_profile END,"
+                    " updated_at = ? WHERE id = ?",
+                    (snapshot_id, project_id, target_profile, target_profile, stamp, project_id),
+                )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+
+    def touch_project_run(self, project_id: str, run_id: str) -> None:
+        self._write(
+            "UPDATE projects SET latest_run_id = ?,"
+            " run_count = (SELECT COUNT(*) FROM runs WHERE project_id = ?), updated_at = ?"
+            " WHERE id = ?",
+            (run_id, project_id, now(), project_id),
+        )
+
+    # --- project findings --------------------------------------------------
+
+    def list_project_findings(
+        self,
+        project_id: str,
+        *,
+        include_withdrawn: bool = True,
+        limit: int | None = None,
+    ) -> list[dict]:
+        clause = "" if include_withdrawn else f" AND disposition NOT IN {_WITHDRAWN_SQL}"
+        sql = (
+            "SELECT * FROM project_findings WHERE project_id = ?" + clause
+            + " ORDER BY updated_at DESC, discovered_at DESC"
+        )
+        params: list[Any] = [project_id]
+        if limit:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        return [self._project_finding_dict(row) for row in self._rows(sql, params)]
+
+    def get_project_finding(self, project_finding_id: str) -> dict | None:
+        row = self._row("SELECT * FROM project_findings WHERE id = ?", (project_finding_id,))
+        return self._project_finding_dict(row) if row else None
+
+    def search_project_findings(
+        self, *, project_id: str | None = None, q: str | None = None,
+        severity: str | None = None, verification_status: str | None = None,
+        disposition: str | None = None, offset: int = 0, limit: int = 25,
+    ) -> dict:
+        """Page canonical conclusions without fetching every project's full ledger."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        for column, value in (
+            ("project_id", project_id), ("severity", severity),
+            ("verification_status", verification_status),
+        ):
+            if value:
+                clauses.append(f"pf.{column} = ?")
+                params.append(value)
+        if disposition and disposition != "all":
+            clauses.append("pf.disposition = ?")
+            params.append(disposition)
+        elif disposition != "all":
+            clauses.append(f"pf.disposition NOT IN {_WITHDRAWN_SQL}")
+        if q and q.strip():
+            # Search text is literal: filenames containing '_' or '%' are common.
+            needle = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            clauses.append("(" + " OR ".join(
+                f"{column} LIKE ? ESCAPE '\\'"
+                for column in ("pf.title", "pf.summary", "pf.file_path", "p.name")
+            ) + ")")
+            params.extend([f"%{needle}%"] * 4)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        joins = " FROM project_findings pf JOIN projects p ON p.id = pf.project_id"
+        with self._lock:
+            count = self._row("SELECT COUNT(*) AS total" + joins + where, params)
+            rows = self._rows(
+                "SELECT pf.id, pf.project_id, pf.fingerprint, pf.title, pf.severity, pf.summary,"
+                " pf.file_path, pf.symbol, pf.category, pf.finding_kind, pf.validation_state,"
+                " pf.disposition, pf.disposition_reason, pf.verification_status, pf.verification_verdict,"
+                " pf.revision, pf.origin_run_id, pf.origin_finding_id, pf.last_run_id, pf.last_finding_id,"
+                " pf.discovered_at, pf.updated_at, p.name AS project_name,"
+                " origin.id AS origin_source_id, origin.snapshot_id AS origin_snapshot_id,"
+                " origin.snapshot_name AS origin_snapshot_name, origin.status AS origin_status,"
+                " origin.created_at AS origin_created_at,"
+                " latest.id AS last_source_id, latest.snapshot_id AS last_snapshot_id,"
+                " latest.snapshot_name AS last_snapshot_name, latest.status AS last_status,"
+                " latest.created_at AS last_created_at"
+                + joins + " LEFT JOIN runs origin ON origin.id = pf.origin_run_id"
+                " LEFT JOIN runs latest ON latest.id = pf.last_run_id" + where
+                + " ORDER BY pf.updated_at DESC, pf.id DESC LIMIT ? OFFSET ?",
+                [*params, limit, offset],
+            )
+        items = []
+        for row in rows:
+            item = dict(row)
+            for prefix in ("origin", "last"):
+                source_id = item.pop(f"{prefix}_source_id")
+                source = {"id": source_id}
+                for name in ("snapshot_id", "snapshot_name", "status", "created_at"):
+                    source[name] = item.pop(f"{prefix}_{name}")
+                item[f"{prefix}_run"] = source if source_id else None
+            items.append(item)
+        return {"items": items, "total": int(count["total"] if count else 0), "offset": offset, "limit": limit}
+
+    def project_finding_history(self, project_finding_id: str) -> list[dict]:
+        return [dict(row) for row in self._rows(
+            "SELECT relation.run_id, relation.run_finding_id, relation.relation, relation.revision,"
+            " relation.created_at, r.snapshot_id, r.snapshot_name, r.status AS run_status"
+            " FROM project_finding_runs relation LEFT JOIN runs r ON r.id = relation.run_id"
+            " WHERE relation.project_finding_id = ? ORDER BY relation.created_at DESC, relation.id DESC",
+            (project_finding_id,),
+        )]
+
+    def project_finding_verifications(self, project_finding_id: str) -> list[dict]:
+        """Include older linked run records, even if their verification predates projects."""
+        rows = self._rows(
+            "SELECT v.*, COALESCE(f.run_id, (SELECT relation.run_id FROM project_finding_runs relation"
+            " WHERE relation.project_finding_id = ? AND relation.run_finding_id = v.finding_id"
+            " ORDER BY relation.id DESC LIMIT 1)) AS run_id"
+            " FROM verifications v LEFT JOIN findings f ON f.id = v.finding_id"
+            " WHERE v.project_finding_id = ? OR f.project_finding_id = ?"
+            " OR EXISTS (SELECT 1 FROM project_finding_runs relation"
+            " WHERE relation.project_finding_id = ? AND relation.run_finding_id = v.finding_id)"
+            " OR EXISTS (SELECT 1 FROM project_findings pf WHERE pf.id = ?"
+            " AND (v.id = pf.latest_verification_id OR v.finding_id = pf.origin_finding_id"
+            " OR v.finding_id = pf.last_finding_id))"
+            " ORDER BY v.created_at DESC, v.id DESC",
+            [project_finding_id] * 5,
+        )
+        return [self._verification_dict(row) for row in rows]
+
+    @staticmethod
+    def _project_finding_dict(row: sqlite3.Row) -> dict:
+        item = dict(row)
+        for key, fallback in (
+            ("evidence", []),
+            ("preconditions", []),
+            ("missing_context", []),
+            ("superseded_summary", []),
+        ):
+            item[key] = _loads(item.get(key), fallback)
+        item["poc"] = _loads(item.get("poc"), None)
+        item["already_known"] = True
+        item["paths"] = sorted({
+            str(ref.get("path"))
+            for ref in item["evidence"]
+            if isinstance(ref, dict) and ref.get("path")
+        })[:6]
+        return item
+
+    @staticmethod
+    def _project_content_signature(item: dict) -> tuple:
+        """What counts as "the same conclusion" across runs.
+
+        Wording of title/summary is deliberately excluded: a model rewording its own
+        finding every round must not count as a correction.  The anchors, the severity,
+        the sink and the cited line ranges are the facts a change of mind would move.
+        """
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
+        ranges = tuple(sorted(
+            (str(ref.get("path")), int(ref.get("start_line") or 0), int(ref.get("end_line") or 0))
+            for ref in evidence
+            if isinstance(ref, dict)
+        ))
+        return (
+            str(item.get("severity") or ""),
+            str(item.get("dangerous_operation") or ""),
+            str(item.get("input_source") or ""),
+            str(item.get("propagation") or ""),
+            ranges,
+            bool(item.get("poc")),
+        )
+
+    def merge_project_finding(self, project_id: str, run_id: str, finding: dict) -> dict:
+        """Upsert one run finding into the project ledger inside one transaction.
+
+        Returns ``{"action": "created"|"rediscovered"|"corrected", "project_finding_id",
+        "revision", "disposition"}``.
+        """
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                stamp = now()
+                row = self._db.execute(
+                    "SELECT * FROM project_findings WHERE project_id = ? AND fingerprint = ?",
+                    (project_id, finding["fingerprint"]),
+                ).fetchone()
+                if row is None:
+                    candidates = self._db.execute(
+                        "SELECT * FROM project_findings WHERE project_id = ? AND file_path = ? AND symbol = ?",
+                        (project_id, finding["file_path"], finding["symbol"]),
+                    ).fetchall()
+                    match = pick_merge_candidate(finding, [dict(item) for item in candidates])
+                    if match is not None:
+                        row = self._db.execute(
+                            "SELECT * FROM project_findings WHERE id = ?", (match["id"],)
+                        ).fetchone()
+                if row is None:
+                    project_finding_id = uuid.uuid4().hex
+                    self._db.execute(
+                        "INSERT INTO project_findings (id, project_id, fingerprint, file_path, symbol, category,"
+                        " finding_kind, title, severity, summary, evidence, input_source, propagation,"
+                        " dangerous_operation, protection, preconditions, missing_context, poc, remediation,"
+                        " validation_state, disposition, revision, superseded_summary, origin_run_id,"
+                        " origin_finding_id, last_run_id, last_finding_id, discovered_at, updated_at,"
+                        " verification_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            project_finding_id, project_id, finding["fingerprint"], finding["file_path"],
+                            finding["symbol"], finding.get("category") or "task_goal",
+                            finding.get("finding_kind", ""), finding["title"], finding["severity"],
+                            finding["summary"], _dumps(finding.get("evidence") or []),
+                            finding.get("input_source", ""), finding.get("propagation", ""),
+                            finding.get("dangerous_operation", ""), finding.get("protection", ""),
+                            _dumps(finding.get("preconditions") or []),
+                            _dumps(finding.get("missing_context") or []),
+                            _dumps(finding.get("poc")) if finding.get("poc") else "null",
+                            finding.get("remediation", ""), finding.get("validation_state", "candidate"),
+                            "open", 1, "[]", run_id, finding["id"], run_id, finding["id"], stamp, stamp,
+                            "unverified",
+                        ),
+                    )
+                    relation = "created"
+                    revision = 1
+                    disposition = "open"
+                else:
+                    previous = self._project_finding_dict(row)
+                    same = self._project_content_signature(previous) == self._project_content_signature(finding)
+                    revision = int(previous["revision"] or 1) + (0 if same else 1)
+                    relation = "rediscovered" if same else "corrected"
+                    superseded = previous["superseded_summary"]
+                    if not same:
+                        superseded = (superseded + [{
+                            "revision": int(previous["revision"] or 1),
+                            "title": previous["title"],
+                            "severity": previous["severity"],
+                            "summary": previous["summary"],
+                            "dangerous_operation": previous["dangerous_operation"],
+                            "evidence": previous["evidence"],
+                            "replaced_at": stamp,
+                        }])[-MAX_SUPERSEDED_SUMMARIES:]
+                    self._db.execute(
+                        "UPDATE project_findings SET fingerprint = ?, file_path = ?, symbol = ?, category = ?,"
+                        " finding_kind = ?, title = ?, severity = ?, summary = ?, evidence = ?,"
+                        " input_source = ?, propagation = ?, dangerous_operation = ?, protection = ?,"
+                        " preconditions = ?, missing_context = ?, poc = ?, remediation = ?,"
+                        " validation_state = ?, revision = ?, superseded_summary = ?, last_run_id = ?,"
+                        " last_finding_id = ?, updated_at = ?,"
+                        " verification_status = CASE WHEN ? THEN 'stale' ELSE verification_status END,"
+                        " verification_verdict = CASE WHEN ? THEN NULL ELSE verification_verdict END"
+                        " WHERE id = ?",
+                        (
+                            finding["fingerprint"], finding["file_path"], finding["symbol"],
+                            finding.get("category") or "task_goal", finding.get("finding_kind", ""),
+                            finding["title"], finding["severity"], finding["summary"],
+                            _dumps(finding.get("evidence") or []), finding.get("input_source", ""),
+                            finding.get("propagation", ""), finding.get("dangerous_operation", ""),
+                            finding.get("protection", ""), _dumps(finding.get("preconditions") or []),
+                            _dumps(finding.get("missing_context") or []),
+                            _dumps(finding.get("poc")) if finding.get("poc") else "null",
+                            finding.get("remediation", ""), finding.get("validation_state", "candidate"),
+                            revision, _dumps(superseded), run_id, finding["id"], stamp,
+                            0 if same else 1, 0 if same else 1, previous["id"],
+                        ),
+                    )
+                    project_finding_id = previous["id"]
+                    disposition = previous["disposition"]
+                self._db.execute(
+                    "INSERT OR IGNORE INTO project_finding_runs (project_id, project_finding_id, run_id,"
+                    " run_finding_id, relation, revision, created_at) VALUES (?,?,?,?,?,?,?)",
+                    (project_id, project_finding_id, run_id, finding["id"], relation, revision, stamp),
+                )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+        return {
+            "action": relation,
+            "project_finding_id": project_finding_id,
+            "revision": revision,
+            "disposition": disposition,
+        }
+
+    def record_carried_findings(self, project_id: str, run_id: str) -> int:
+        """Attach every still-standing project finding this run did not rediscover."""
+        with self._lock:
+            cursor = self._db.execute(
+                "INSERT OR IGNORE INTO project_finding_runs (project_id, project_finding_id, run_id,"
+                " run_finding_id, relation, revision, created_at)"
+                " SELECT project_id, id, ?, NULL, 'carried', revision, ? FROM project_findings"
+                f" WHERE project_id = ? AND disposition NOT IN {_WITHDRAWN_SQL}"
+                " AND id NOT IN (SELECT project_finding_id FROM project_finding_runs WHERE run_id = ?)",
+                (run_id, now(), project_id, run_id),
+            )
+            return int(cursor.rowcount or 0)
+
+    def set_project_finding_disposition(
+        self,
+        project_finding_id: str,
+        action: str,
+        reason: str,
+        *,
+        run_id: str = "",
+        by: str = "planner",
+    ) -> dict | None:
+        """Apply a Planner disposition to the canonical ledger row.
+
+        A withdrawal is recorded, never erased: the row, its history and its verifications
+        stay, and a rediscovery does not silently restore it -- ``reopen`` does that.
+        """
+        mapping = {"retract": "retracted", "duplicate": "duplicate", "reopen": "open"}
+        disposition = mapping.get(action)
+        if disposition is None:
+            raise ValueError(f"unsupported project finding action: {action}")
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM project_findings WHERE id = ?", (project_finding_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            stamp = now()
+            self._db.execute(
+                "UPDATE project_findings SET disposition = ?, disposition_reason = ?, disposition_by = ?,"
+                " disposition_at = ?, updated_at = ? WHERE id = ?",
+                (disposition, reason, by, stamp, stamp, project_finding_id),
+            )
+            if run_id:
+                self._db.execute(
+                    "INSERT OR IGNORE INTO project_finding_runs (project_id, project_finding_id, run_id,"
+                    " run_finding_id, relation, revision, created_at) VALUES (?,?,?,NULL,?,?,?)",
+                    (
+                        row["project_id"], project_finding_id, run_id,
+                        "restored" if disposition == "open" else "withdrawn",
+                        int(row["revision"] or 1), stamp,
+                    ),
+                )
+        return self.get_project_finding(project_finding_id)
+
+    def link_finding_project(self, finding_id: str, project_finding_id: str, revision: int) -> None:
+        self._write(
+            "UPDATE findings SET project_finding_id = ?, project_revision = ? WHERE id = ?",
+            (project_finding_id, int(revision), finding_id),
+        )
+
+    def set_finding_verification_state(self, finding_id: str, status: str, verdict: str | None) -> None:
+        self._write(
+            "UPDATE findings SET verification_status = ?, verification_verdict = ? WHERE id = ?",
+            (status, verdict, finding_id),
+        )
+
+    def set_project_finding_verification(
+        self, project_finding_id: str, status: str, verdict: str | None, verification_id: str | None
+    ) -> None:
+        self._write(
+            "UPDATE project_findings SET verification_status = ?, verification_verdict = ?,"
+            " latest_verification_id = ? WHERE id = ?",
+            (status, verdict, verification_id, project_finding_id),
+        )
+
+    def add_poc_verification_job(self, job: dict) -> None:
+        self._write(
+            "INSERT INTO poc_verification_jobs (id, verification_id, finding_id, project_finding_id,"
+            " run_id, job_id, kind, request, result, exit_code, duration_ms, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                job["id"], job["verification_id"], job["finding_id"], job.get("project_finding_id"),
+                job["run_id"], job["job_id"], job["kind"], _dumps(job.get("request") or {}),
+                _dumps(job.get("result") or {}), job.get("exit_code"), job.get("duration_ms"),
+                job.get("created_at") or now(),
+            ),
+        )
+
+    def list_poc_verification_jobs(self, verification_id: str) -> list[dict]:
+        rows = self._rows(
+            "SELECT * FROM poc_verification_jobs WHERE verification_id = ? ORDER BY created_at, id",
+            (verification_id,),
+        )
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["request"] = _loads(item.get("request"), {})
+            item["result"] = _loads(item.get("result"), {})
+            result.append(item)
+        return result
+
+    def list_run_project_findings(self, run_id: str, relation: str | None = None) -> list[dict]:
+        """Ledger rows this run touched, with the relation that connects them.
+
+        A row can legitimately appear more than once (a correction after a rediscovery),
+        so results are ordered newest-first rather than deduplicated: the report wants the
+        history, and callers that only want carried rows pass ``relation='carried'``.
+        """
+        clause = " AND pfr.relation = ?" if relation else ""
+        params: list[Any] = [run_id]
+        if relation:
+            params.append(relation)
+        rows = self._rows(
+            "SELECT pf.*, pfr.relation AS run_relation, pfr.revision AS run_relation_revision,"
+            " pfr.run_finding_id AS run_finding_id"
+            " FROM project_finding_runs AS pfr"
+            " JOIN project_findings AS pf ON pf.id = pfr.project_finding_id"
+            f" WHERE pfr.run_id = ?{clause}"
+            " ORDER BY pf.updated_at DESC, pf.discovered_at DESC",
+            params,
+        )
+        return [self._project_finding_dict(row) for row in rows]
+
+    def list_run_verification_jobs(self, run_id: str) -> list[dict]:
+        rows = self._rows(
+            "SELECT * FROM poc_verification_jobs WHERE run_id = ? ORDER BY created_at, id",
+            (run_id,),
+        )
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["request"] = _loads(item.get("request"), {})
+            item["result"] = _loads(item.get("result"), {})
+            result.append(item)
+        return result
+
+    # --- schema metadata ---------------------------------------------------
+
+    def schema_meta(self, key: str) -> str | None:
+        row = self._row("SELECT value FROM schema_meta WHERE key = ?", (key,))
+        return str(row["value"]) if row else None
+
+    def set_schema_meta(self, key: str, value: str) -> None:
+        self._write(
+            "INSERT INTO schema_meta (key, value, updated_at) VALUES (?,?,?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, now()),
+        )
 
     # --- runs --------------------------------------------------------------
 
@@ -714,7 +1389,8 @@ class Store:
             try:
                 self._db.execute(
                     "INSERT INTO runs (id, snapshot_id, snapshot_name, scope, scope_mode, prompt_id, prompt_label,"
-                    " prompt_text, model, model_profile, budgets, status, created_at, agent_policy, task_spec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " prompt_text, model, model_profile, budgets, status, created_at, agent_policy, task_spec,"
+                    " project_id, project_mode, project_baseline, poc_policy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         run["id"],
                         run["snapshot_id"],
@@ -731,6 +1407,10 @@ class Store:
                         run["created_at"],
                         _dumps(run["agent_policy"]) if run.get("agent_policy") else None,
                         _dumps(run["task_spec"]) if run.get("task_spec") else None,
+                        run.get("project_id"),
+                        str(run.get("project_mode") or "legacy"),
+                        _dumps(run.get("project_baseline") or []),
+                        _dumps(run.get("poc_policy") or {}),
                     ),
                 )
                 if units:
@@ -785,6 +1465,17 @@ class Store:
         run["budgets"] = _loads(run.get("budgets"), {})
         run["agent_policy"] = _loads(run.get("agent_policy"), {"version": "legacy"})
         run["model_profile"] = _model_profile_snapshot(_loads(run.get("model_profile"), {}))
+        # Project runs start from a frozen snapshot of the ledger; legacy runs have no
+        # project and render exactly as they did before the ledger existed.
+        run["project_mode"] = str(run.get("project_mode") or "legacy")
+        run["project_baseline"] = _loads(run.get("project_baseline"), [])
+        run["poc_policy"] = _loads(run.get("poc_policy"), {})
+        if run.get("project_id"):
+            project = self._row("SELECT name, content_key, target_profile FROM projects WHERE id = ?", (run["project_id"],))
+            if project is not None:
+                run["project_name"] = project["name"]
+                run["project_content_key"] = project["content_key"]
+                run["target_profile"] = project["target_profile"]
         task_spec = _loads(run.get("task_spec"), None)
         # Task runs created before the total-cap field was introduced still have a
         # durable goal row migrated with this default. Reflect the same frozen value
@@ -1603,6 +2294,7 @@ class Store:
         ):
             value[key] = _loads(value.get(key), fallback)
         value["usage"] = _loads(value.get("usage"), None)
+        value["narrative"] = _loads(value.get("narrative"), {})
         return value
 
     @staticmethod
@@ -1958,7 +2650,8 @@ class Store:
         rows = self._rows(
             "SELECT id, unit_id, category, finding_kind, title, severity, summary, evidence,"
             " validation_state, verdict, disposition, disposition_reason, revision,"
-            " derived_from_finding_id, created_at FROM findings WHERE run_id = ?"
+            " derived_from_finding_id, project_finding_id, verification_status,"
+            " verification_verdict, created_at FROM findings WHERE run_id = ?"
             " ORDER BY created_at, id LIMIT ?",
             (run_id, int(limit)),
         )
@@ -1980,6 +2673,12 @@ class Store:
                 "disposition_reason": row["disposition_reason"],
                 "revision": int(row["revision"] or 1),
                 "derived_from_finding_id": row["derived_from_finding_id"],
+                "project_finding_id": row["project_finding_id"],
+                # The automatic POC verdict travels with the conclusion: a review round
+                # that cannot see "this was executed and did not reproduce" would keep
+                # stand on it, which is exactly the decision the verification exists for.
+                "verification_status": row["verification_status"] or "unverified",
+                "verification_verdict": row["verification_verdict"],
                 "paths": sorted(_cited_paths([{"evidence": row["evidence"]}]))[:6],
                 "created_at": row["created_at"],
             }
@@ -2025,9 +2724,46 @@ class Store:
                 "missing_context": result.get("missing_context", []) if isinstance(result, dict) else [],
                 "error": task.get("error"),
             })
+        run = self.get_run(run_id) or {}
+        project = self.get_project(run["project_id"]) if run.get("project_id") else None
+        project_findings = []
+        verification_summary = {
+            "verified": 0, "rejected": 0, "inconclusive": 0, "not_applicable": 0,
+            "environment_unavailable": 0, "unverified": 0, "stale": 0,
+        }
+        if project is not None:
+            project_findings = self.list_project_findings(
+                project["id"], include_withdrawn=False, limit=40
+            )
+            for row in self._rows(
+                "SELECT verification_status, COUNT(*) AS total FROM project_findings"
+                " WHERE project_id = ? GROUP BY verification_status",
+                (project["id"],),
+            ):
+                status = str(row["verification_status"] or "unverified")
+                verification_summary[status] = int(row["total"] or 0)
         return {
             "goal": goal,
             "planner": self.get_planner_session(run_id),
+            # The project this conversation belongs to, and the ledger it started from.
+            # ``already_known`` is part of every entry so a round cannot mistake a
+            # rediscovery for new evidence.
+            "project": (
+                {
+                    "id": project["id"],
+                    "name": project["name"],
+                    "content_key": project["content_key"],
+                    "target_profile": project["target_profile"],
+                }
+                if project is not None else None
+            ),
+            "project_findings": project_findings,
+            "verification_summary": verification_summary,
+            "project_baseline_ids": [
+                str(item.get("project_finding_id") or item.get("id") or "")
+                for item in (run.get("project_baseline") or [])
+                if isinstance(item, dict)
+            ][:80],
             # The frozen project map is passed to the Planner separately each round;
             # echoing it here would deserialize a whole-project structure for nothing.
             "tasks": compact_tasks,
@@ -2316,6 +3052,7 @@ class Store:
         usage: dict | None = None,
         error: str | None = None,
         reopen_attempts: int = 1,
+        narrative: dict | None = None,
     ) -> list[dict]:
         """Commit a Planner decision and its validated frontier mutation atomically."""
         tasks = list(tasks or [])
@@ -2474,11 +3211,13 @@ class Store:
                 self._refresh_planner_task_states_tx(run_id, goal_id, stamp)
                 self._db.execute(
                     "UPDATE planner_plans SET status = ?, goal_state = ?, basis_summary = ?, next_action = ?, "
-                    "missing_context = ?, task_snapshot = ?, updates = ?, usage = ?, error = ?, finished_at = ? WHERE id = ?",
+                    "missing_context = ?, task_snapshot = ?, updates = ?, usage = ?, error = ?, narrative = ?,"
+                    " finished_at = ? WHERE id = ?",
                     (
                         "failed" if error else "completed", goal_state, basis_summary, next_action,
                         _dumps(missing_context or []), _dumps(tasks), _dumps(updates),
-                        _dumps(usage) if usage is not None else None, error, stamp, plan_id,
+                        _dumps(usage) if usage is not None else None, error,
+                        _dumps(narrative) if narrative else "{}", stamp, plan_id,
                     ),
                 )
                 session_state = "failed" if error else "dispatching"
@@ -2491,6 +3230,16 @@ class Store:
                 self._db.execute("ROLLBACK")
                 raise
         return self.list_tasks(run_id)
+
+    def latest_plan_narrative(self, run_id: str) -> dict:
+        """The most recent report narrative the Planner committed for this run."""
+        row = self._row(
+            "SELECT narrative FROM planner_plans WHERE run_id = ? AND narrative <> '{}'"
+            " ORDER BY revision DESC LIMIT 1",
+            (run_id,),
+        )
+        value = _loads(row["narrative"], {}) if row else {}
+        return value if isinstance(value, dict) else {}
 
     def apply_plan(self, run_id: str, plan_id: str, tasks: list[dict], updates: list[dict]) -> list[dict]:
         """Compatibility spelling for callers that pre-compute a Planner decision."""
@@ -2648,8 +3397,17 @@ class Store:
         state: str,
         basis_summary: str,
         missing_context: list[str] | None = None,
+        *,
+        require_verified: bool = False,
     ) -> dict:
-        """Host-enforced terminal state for the only goal in a Planner run."""
+        """Host-enforced terminal state for the only goal in a Planner run.
+
+        ``require_verified`` turns the POC policy's strict mode into a closure rule: with
+        it, only a finding the isolated runner actually reproduced can satisfy the goal.
+        Without it an unverified finding still counts -- but one the runner executed and
+        could *not* reproduce never does, and a project's existing verified conclusions
+        count for a new run that did not have to rediscover them.
+        """
         if state not in {"met", "unreachable", "inconclusive"}:
             raise ValueError("unsupported Planner terminal state")
         with self._lock:
@@ -2661,17 +3419,45 @@ class Store:
                     raise ValueError("Planner run has no goal/session")
                 queue = self.task_queue_state(run_id)
                 if state == "met":
-                    # "Standing" means valid evidence that nobody has withdrawn.  A finding
-                    # the Planner retracted, replaced or marked as a duplicate is still in
-                    # the database -- and still in the report -- but it is not something to
+                    # "Standing" means valid evidence that nobody has withdrawn and that
+                    # automatic verification did not reject.  A finding the Planner
+                    # retracted, replaced or marked as a duplicate is still in the
+                    # database -- and still in the report -- but it is not something to
                     # close a run on.
                     candidates = self._db.execute(
-                        "SELECT finding_kind, category, severity FROM findings WHERE run_id = ? AND validation_state = 'candidate'"
-                        f" AND disposition NOT IN {_WITHDRAWN_SQL}",
+                        "SELECT finding_kind, category, severity, verification_status FROM findings"
+                        f" WHERE run_id = ? AND validation_state = 'candidate'"
+                        f" AND disposition NOT IN {_WITHDRAWN_SQL}"
+                        " AND COALESCE(verification_status, '') <> 'rejected'",
                         (run_id,),
                     ).fetchall()
-                    if not any(is_vulnerability_finding(dict(item)) for item in candidates):
-                        raise ValueError("Planner cannot mark a goal met without a validated vulnerability finding")
+                    standing = any(is_vulnerability_finding(dict(item)) for item in candidates)
+                    if standing and require_verified:
+                        standing = any(
+                            is_vulnerability_finding(dict(item))
+                            and str(item["verification_status"] or "") == "verified"
+                            for item in candidates
+                        )
+                    if not standing:
+                        run_row = self._db.execute(
+                            "SELECT project_id, project_mode FROM runs WHERE id = ?", (run_id,)
+                        ).fetchone()
+                        # A new conversation about a project starts from what earlier ones
+                        # already established.  Only *verified* ledger conclusions carry:
+                        # otherwise a project with one unchecked finding would close every
+                        # later run before it read anything.
+                        if run_row is not None and run_row["project_mode"] == "project" and run_row["project_id"]:
+                            carried = self._db.execute(
+                                "SELECT 1 FROM project_findings WHERE project_id = ?"
+                                f" AND disposition NOT IN {_WITHDRAWN_SQL}"
+                                " AND verification_status = 'verified' LIMIT 1",
+                                (run_row["project_id"],),
+                            ).fetchone()
+                            standing = carried is not None
+                    if not standing:
+                        raise ValueError(
+                            "Planner cannot mark a goal met without a validated vulnerability finding"
+                        )
                 elif state == "unreachable":
                     if queue["active"] or queue["blocked"] or not queue["total"]:
                         raise ValueError("unreachable requires exhausted evidence paths without blockers")
@@ -2853,28 +3639,25 @@ class Store:
         review history are left exactly as they are, so a withdrawal is recorded rather
         than erased.  The row stays in the database and in the report.
 
-        A verdict a human recorded is terminal, so ``retract`` and ``duplicate`` cannot
-        take such a conclusion out of the run: the same intent is written as a contest
-        instead, and the finding keeps standing as evidence the goal can close on.  That
-        rule lives here rather than in the model-facing validator so that every caller --
-        including a maintenance import -- gets it.
+        A withdrawal always takes effect.  The controller removed the human-verdict
+        terminal rule along with the HTTP review path: a historical ``findings.verdict``
+        is read-only evidence of how the conclusion was once reviewed, not a veto over
+        the Planner's current account of it.
         """
         key = str(update.get("finding_key") or "")
         row = self._db.execute(
-            "SELECT id, unit_id, verdict FROM findings WHERE id = ? AND run_id = ?", (key, run_id)
+            "SELECT id, unit_id FROM findings WHERE id = ? AND run_id = ?", (key, run_id)
         ).fetchone()
         if row is None or str(row["unit_id"]) != str(task_id):
             # A finding of another direction is not this update's to move.  The validator
             # refuses this before it reaches the store; the check is repeated because the
             # store is also called outside the model path.
             return
-        wanted = "duplicate" if str(update.get("action")) == "duplicate" else "retracted"
-        contested = str(row["verdict"] or "") in HUMAN_DECIDED_VERDICTS
-        disposition = "contested" if contested else wanted
+        disposition = "duplicate" if str(update.get("action")) == "duplicate" else "retracted"
         related = str(update.get("related_finding_key") or "")
         # Lineage is only recorded when it points at a conclusion that exists: a dangling
         # "derived from" would be worse than none at all.
-        if contested or not related:
+        if not related:
             source = None
         elif self._db.execute(
             "SELECT 1 FROM findings WHERE id = ? AND run_id = ?", (related, run_id)
@@ -2902,8 +3685,7 @@ class Store:
 
         Only the disposition columns move -- the same column-level setter shape ARTEX uses
         for findings.  A withdrawn conclusion keeps its row, its text and its verifications,
-        so the withdrawal is recorded rather than erased.  A disposition a human already
-        decided through a verification is handled by the caller, not here.
+        so the withdrawal is recorded rather than erased.
         """
         if disposition not in FINDING_DISPOSITIONS:
             raise ValueError(f"unsupported finding disposition: {disposition}")
@@ -2958,7 +3740,9 @@ class Store:
             anchor = next((item for item in source_refs or [] if isinstance(item, dict) and item.get("path")), {})
             first_evidence = next((item for item in finding["evidence"] if item.get("path")), {})
             finding["file_path"] = first_evidence.get("path") or anchor.get("path") or ""
-            finding["symbol"] = planner_task["title"]
+            # The task title is a direction, not a location: filing it here made two
+            # runs' wordings of the same direction look like different anchors.
+            finding["symbol"] = str(first_evidence.get("symbol") or "<project>")
             finding["unit_start_line"] = int(anchor.get("start_line") or first_evidence.get("start_line") or 0)
             finding["unit_end_line"] = int(anchor.get("end_line") or first_evidence.get("end_line") or 0)
             finding["task_id"] = planner_task["id"]
@@ -2993,8 +3777,9 @@ class Store:
         self._db.execute(
             "INSERT INTO verifications (id, finding_id, created_at, execution_status, verdict,"
             " original_script, modified_script, modification_notes, target_version, command,"
-            " expected_result, normal_observation, attack_observation, browser_execution, notes, files)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " expected_result, normal_observation, attack_observation, browser_execution, notes, files,"
+            " source, status, agent, target, artifacts, project_finding_id, finding_revision)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 record["id"],
                 record["finding_id"],
@@ -3012,6 +3797,13 @@ class Store:
                 1 if record["browser_execution"] else 0,
                 record["notes"],
                 _dumps(record.get("files", [])),
+                str(record.get("source") or "legacy_human"),
+                str(record.get("status") or ""),
+                _dumps(record.get("agent") or {}),
+                _dumps(record.get("target") or {}),
+                _dumps(record.get("artifacts") or []),
+                record.get("project_finding_id"),
+                record.get("finding_revision"),
             ),
         )
 
@@ -3019,13 +3811,30 @@ class Store:
         with self._lock:
             self._insert_verification(record)
 
-    def record_verification(self, record: dict) -> None:
-        """Commit the verification and the finding's current verdict together."""
+    def record_automatic_verification(self, record: dict) -> None:
+        """Commit a POC-agent verdict and both copies of its status.
+
+        The run finding keeps its own row (the audit trail is per run), while the
+        project ledger row carries the latest verdict across runs.  ``findings.verdict``
+        is deliberately not written: it is the legacy human field and stays read-only.
+        """
         with self._lock:
             self._db.execute("BEGIN")
             try:
                 self._insert_verification(record)
-                self._db.execute("UPDATE findings SET verdict = ? WHERE id = ?", (record["verdict"], record["finding_id"]))
+                self._db.execute(
+                    "UPDATE findings SET verification_status = ?, verification_verdict = ? WHERE id = ?",
+                    (record.get("status") or "unverified", record.get("verdict") or None,
+                     record["finding_id"]),
+                )
+                project_finding_id = record.get("project_finding_id")
+                if project_finding_id:
+                    self._db.execute(
+                        "UPDATE project_findings SET verification_status = ?, verification_verdict = ?,"
+                        " latest_verification_id = ? WHERE id = ?",
+                        (record.get("status") or "unverified", record.get("verdict") or None,
+                         record["id"], project_finding_id),
+                    )
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -3035,20 +3844,19 @@ class Store:
         rows = self._rows(
             "SELECT * FROM verifications WHERE finding_id = ? ORDER BY created_at", (finding_id,)
         )
-        result = []
-        for row in rows:
-            record = dict(row)
-            record["browser_execution"] = bool(record["browser_execution"])
-            record["files"] = _loads(record.get("files"), [])
-            result.append(record)
-        return result
+        return [self._verification_dict(row) for row in rows]
 
-    def latest_verdict(self, finding_id: str) -> str | None:
-        row = self._row(
-            "SELECT verdict FROM verifications WHERE finding_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
-            (finding_id,),
-        )
-        return row["verdict"] if row else None
+    @staticmethod
+    def _verification_dict(row: sqlite3.Row) -> dict:
+        record = dict(row)
+        record["browser_execution"] = bool(record["browser_execution"])
+        record["files"] = _loads(record.get("files"), [])
+        record["source"] = str(record.get("source") or "legacy_human")
+        record["status"] = str(record.get("status") or "")
+        record["agent"] = _loads(record.get("agent"), {})
+        record["target"] = _loads(record.get("target"), {})
+        record["artifacts"] = _loads(record.get("artifacts"), [])
+        return record
 
     # --- events ------------------------------------------------------------
 

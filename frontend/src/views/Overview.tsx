@@ -45,7 +45,10 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
   const withdrawn = findings.filter((finding) => ['superseded', 'retracted', 'duplicate'].includes(finding.disposition));
   const candidateCount = candidates.length;
   const withdrawnCount = withdrawn.length;
-  const awaitingReview = candidates.filter((finding) => !finding.verdict).length;
+  const awaitingReview = candidates.filter((finding) => (finding.verification_status ?? 'unverified') === 'unverified').length;
+  const verified = candidates.filter((finding) => finding.verification_status === 'verified').length;
+  const unavailable = candidates.filter((finding) => finding.verification_status === 'environment_unavailable').length;
+  const carried = detail.carried_findings ?? [];
   const counts = tasks.reduce<Record<string, number>>((result, task) => {
     result[task.state] = (result[task.state] ?? 0) + 1;
     return result;
@@ -59,7 +62,7 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
       <div className="grid stats-grid">
         <Stat value={`${planner?.current_round ?? 0}/${planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'}`} label="Planner 回合" note={`版本 ${planner?.current_revision ?? 0}`} />
         <Stat value={`${metrics.terminal_tasks ?? 0}/${metrics.total_tasks ?? tasks.length}`} label="已结算动态任务" note={`执行中 ${metrics.active_tasks ?? counts.running ?? 0}`} />
-        <Stat value={candidateCount} label="有效漏洞候选" note={`待复核 ${awaitingReview} · 已撤回/取代/判重 ${withdrawnCount} · 排查记录 ${observationCount}`} />
+        <Stat value={candidateCount} label="有效漏洞候选" note={`待自动验证 ${awaitingReview} · 已验证 ${verified}${unavailable ? ` · 环境不可用 ${unavailable}` : ''} · 已撤回/取代/判重 ${withdrawnCount} · 排查记录 ${observationCount}`} />
         <Stat value={toolCalls || run.usage.tool_calls} label="只读工具调用" note={`模型响应 ${run.usage.requests}`} />
         <Stat value={mapStats.files ?? scopeFileCount(run, projectMap)} label="项目图文件" note={`${mapStats.symbols ?? 0} 个符号`} />
         <Stat value={plannerEvents} label="Planner 轨迹事件" note="可在执行轨迹展开" />
@@ -77,6 +80,24 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
           <div className="field"><span className="field-label">边界</span><span className="small">{scopeLabel(run, projectMap)}</span></div>
         </div>
       </section>
+
+      {(detail.project || carried.length > 0) && <section className="panel" aria-label="项目与既有发现">
+        <div className="panel-head">
+          <div className="panel-title">项目 · {detail.project?.name ?? run.project_name ?? '未命名项目'}</div>
+          <span className="chip">{detail.project?.target_profile === 'dvwa' ? 'DVWA 靶场' : detail.project?.target_profile ?? run.project_mode ?? 'legacy'}</span>
+        </div>
+        <div className="grid detail-fields panel-body">
+          <div className="field"><span className="field-label">项目台账</span><span className="small">
+            {detail.project ? `${detail.project.run_count} 次审计 · ${detail.project.snapshot_count} 份快照 · 已有 ${detail.project_findings?.length ?? 0} 条结论` : '本次运行不属于项目台账'}
+          </span></div>
+          {detail.project?.finding_counts && <div className="field"><span className="field-label">台账验证状态</span><span className="small">
+            {`已验证 ${detail.project.finding_counts.verified} · 未通过 ${detail.project.finding_counts.rejected} · 环境不可用 ${detail.project.finding_counts.environment_unavailable ?? 0} · 未验证 ${detail.project.finding_counts.unverified}`}
+          </span></div>}
+          {carried.length > 0 && <div className="field"><span className="field-label">沿用上次运行的结论</span><span className="small">
+            {carried.length} 条，本次没有重新取证；它们不计入本次新发现，详见发现页与报告。
+          </span></div>}
+        </div>
+      </section>}
 
       <PlannerNavigation detail={detail} />
 

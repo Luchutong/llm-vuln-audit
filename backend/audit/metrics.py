@@ -28,6 +28,7 @@ def summarise(
     truths: list[dict],
     *,
     tasks: list[dict] | None = None,
+    project_relations: list[dict] | None = None,
 ) -> dict:
     total_units = len(units)
     completed = [unit for unit in units if unit["status"] == "completed"]
@@ -79,6 +80,8 @@ def summarise(
         "incomplete_units": len(incomplete),
         "pending_units": len(pending),
     }
+    if run.get("project_id"):
+        metrics.update(_project_metrics(run, candidates, findings, project_relations or []))
 
     # Planner v2 has no static per-file queue. Its meaningful progress measure is
     # the durable task frontier, so do not present a task count as source coverage.
@@ -271,6 +274,51 @@ def _conclusion(unit: dict, category: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _project_metrics(
+    run: dict, candidates: list[dict], findings: list[dict], relations: list[dict]
+) -> dict:
+    """Project-axis counts: what this run discovered, rediscovered, or merely reused.
+
+    The run-local ``candidates`` count answers "what did this conversation conclude".
+    It does not answer "how much of this is new to the project": a rediscovery is still a
+    conclusion of this run, but it is not a new vulnerability.  The relation rows are the
+    only place that distinction is recorded, so it is counted from them.
+    """
+    by_relation: dict[str, set[str]] = {}
+    for row in relations:
+        relation = str(row.get("run_relation") or "")
+        identifier = str(row.get("id") or "")
+        if relation and identifier:
+            by_relation.setdefault(relation, set()).add(identifier)
+    created = by_relation.get("created", set())
+    corrected = by_relation.get("corrected", set())
+    rediscovered = by_relation.get("rediscovered", set()) - created - corrected
+    carried = by_relation.get("carried", set()) - created - corrected - rediscovered
+    statuses: dict[str, int] = {}
+    for finding in candidates:
+        status = str(finding.get("verification_status") or "unverified")
+        statuses[status] = statuses.get(status, 0) + 1
+    sources: dict[str, int] = {}
+    for finding in findings:
+        for verification in finding.get("verifications") or []:
+            if not isinstance(verification, dict):
+                continue
+            source = str(verification.get("source") or "legacy_human")
+            sources[source] = sources.get(source, 0) + 1
+    return {
+        "project_id": str(run.get("project_id") or ""),
+        "new_findings": len(created),
+        "corrected_findings": len(corrected),
+        "rediscovered_findings": len(rediscovered),
+        "carried_findings": len(carried),
+        "verified_findings": statuses.get("verified", 0),
+        "rejected_findings": statuses.get("rejected", 0),
+        "unverified_findings": statuses.get("unverified", 0) + statuses.get("stale", 0),
+        "verification_statuses": statuses,
+        "verdict_sources": sources,
+    }
+
+
 def comparable_runs(runs: list[dict]) -> dict:
     """Decide whether runs may be compared with each other.
 
@@ -282,7 +330,13 @@ def comparable_runs(runs: list[dict]) -> dict:
     reasons: list[str] = []
     first = runs[0]
     for other in runs[1:]:
-        if other["snapshot_id"] != first["snapshot_id"]:
+        # Project runs are comparable across snapshots of the *same content*: re-zipping
+        # changes bytes and the snapshot id, but not the project.  Legacy runs keep the
+        # stricter snapshot comparison.
+        if first.get("project_id") and other.get("project_id"):
+            if other["project_id"] != first["project_id"]:
+                reasons.append("项目不同")
+        elif other["snapshot_id"] != first["snapshot_id"]:
             reasons.append("快照不同")
         if sorted(other["scope"]) != sorted(first["scope"]):
             reasons.append("审计范围不同")

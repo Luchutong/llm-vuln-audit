@@ -54,8 +54,14 @@ def call(name: str, **args) -> str:
 
 
 def final_answer(payload: Any) -> str:
-    """One scripted step that hands the phase its answer.  A string is written verbatim."""
-    body = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+    """One scripted step that hands the phase its answer.
+
+    The payload is rendered as a Python literal, so a text phase's ``"done"`` answer
+    becomes ``final_answer("done")`` and a dict becomes a dict literal.  A raw string
+    used to be interpolated unquoted, which turned every text answer into a NameError
+    in the interpreter -- a broken test, not a broken phase.
+    """
+    body = json.dumps(payload, ensure_ascii=False)
     return code(f"final_answer({body})")
 
 

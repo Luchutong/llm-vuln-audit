@@ -298,3 +298,102 @@ def test_a_closed_phase_refuses_further_callbacks():
         raise AssertionError("已关闭的阶段仍然受理了工具调用")
 
     assert asyncio.run(scenario()) == "cancelled"
+
+
+# --- replies the loop could not parse -----------------------------------------------
+
+
+def test_a_reply_without_a_code_block_is_recorded_and_corrected():
+    """The library's parse failure used to leave no trace at all.
+
+    A step with no ``code_action`` was skipped by the recorder, so a conclusion phase that
+    answered in prose three times ended as ``budget`` with nothing saying why.  The step is
+    now a durable ``agent_parse_error``, and the next request is a bounded correction.
+    """
+    host = Host()
+    outcome = Phase(host, output_model=Answer).play([
+        "这里先说明结论：该漏洞成立。",
+        code('final_answer({"note": "done"})'),
+    ])
+
+    assert outcome.failure is None
+    assert outcome.gate.published == Answer(note="done")
+    parse_errors = host.events_of("agent_parse_error")
+    assert len(parse_errors) == 1
+    event = parse_errors[0]
+    assert event["phase"] == "planner_explore"
+    assert event["step"] == 1
+    # The request that produced the unparsable reply, not the correction that follows it.
+    assert event["request_index"] == 1
+    assert event["category"] == "no_code_block"
+    assert "代码块" in event["hint"]
+    assert host.execution.corrections == 1
+    retries = host.events_of("model_retry")
+    assert len(retries) == 1 and retries[0]["reason"] == event["hint"]
+    # A reply with no code is not a code action: nothing was executed, so no action is
+    # recorded for that step (only the corrected submission that follows is).
+    assert all(entry.get("step") != 1 for entry in host.events_of("agent_code"))
+    # The fixed hint is the retry's reason, which is what the durable event carries; the
+    # framework's own parse message still reaches the model as the step's error.
+    assert len(outcome.model.requests) == 2
+
+
+def test_a_spent_correction_allowance_is_invalid_output_and_sends_no_request():
+    host = Host(policy=AgentPolicy(output_corrections=1))
+    outcome = Phase(host, output_model=Answer, limit=6).play([
+        "散文一。", "散文二。", "散文三。",
+    ])
+
+    assert outcome.reason() == "invalid_output"
+    assert outcome.gate.published is None
+    # Two replies were sent, then the second correction was refused before a third request.
+    assert len(outcome.model.requests) == 2
+    assert host.execution.corrections == 1
+    assert len(host.events_of("agent_parse_error")) == 2
+
+
+def test_an_ordinary_spent_allowance_is_still_budget():
+    """Only an exhausted *correction* allowance is a format failure."""
+    host = Host()
+    outcome = Phase(host, output_model=Answer, limit=2).play([
+        code("print('one')"), code("print('two')"), code('final_answer({"note": "n"})'),
+    ])
+
+    assert outcome.reason() == "budget"
+    assert host.execution.corrections == 0
+    assert host.events_of("agent_parse_error") == []
+
+
+def test_an_open_code_fence_is_completed_by_the_loop_and_still_parses():
+    host = Host()
+    outcome = Phase(host, output_model=Answer).play([
+        '<code>\nfinal_answer({"note": "n"})',  # no closing tag; the loop appends it
+    ])
+
+    assert outcome.failure is None
+    assert outcome.gate.published == Answer(note="n")
+    assert host.events_of("agent_parse_error") == []
+
+
+def test_a_parse_failure_never_persists_the_reply_that_caused_it():
+    """The framework's exception quotes the whole reply; the event carries fixed text only."""
+    marker = "PRIVATE_MODEL_REPLY_MARKER"
+    host = Host()
+    Phase(host, output_model=Answer).play([
+        f"报告如下：{marker}", code('final_answer({"note": "n"})'),
+    ])
+
+    persisted = json.dumps(host.events, ensure_ascii=False)
+    assert marker not in persisted
+    assert all(marker not in str(event.get("hint") or "") for event in host.events_of("agent_parse_error"))
+
+
+def test_a_response_event_records_the_reply_size_against_its_cap():
+    host = Host()
+    outcome = Phase(host, output_model=Answer).play([code('final_answer({"note": "n"})')])
+
+    event = host.events_of("model_response")[0]
+    assert event["output_chars"] == len(outcome.model.outputs[0])
+    assert event["output_bytes"] >= event["output_chars"]
+    assert event["output_tokens"] == 8
+    assert event["max_output_tokens"] == 1024

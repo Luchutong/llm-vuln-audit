@@ -1,17 +1,17 @@
 """What a run may do to a conclusion it has already written down.
 
 Three axes are involved and they must not be confused with one another.  The evidence
-check says whether the citations held up.  The human verdict says whether the weakness
-reproduces.  Standing -- the disposition -- says whether the run still claims the
-conclusion at all.  A conclusion can be a perfectly well-evidenced candidate that the
-Planner later retracted, and none of these moves may erase anything: ARTEX writes a
-follow-up rather than an update (blind INSERT plus column-level setters, soft delete with
-a reason), and this file pins the same shape here.
+check says whether the citations held up.  Automatic verification says whether the
+isolated runner reproduced the weakness.  Standing -- the disposition -- says whether the
+run still claims the conclusion at all.  A conclusion can be a perfectly well-evidenced
+candidate that the Planner later retracted, and none of these moves may erase anything:
+ARTEX writes a follow-up rather than an update (blind INSERT plus column-level setters,
+soft delete with a reason), and this file pins the same shape here.
 
 The failure this replaced is concrete.  Re-running a direction used to go through
-``INSERT OR REPLACE``, which gave the slot a new ``id``: every human verification bound to
-the old row became an orphan and the reviewer's verdict vanished, so re-running a
-direction silently threw away the review of it.
+``INSERT OR REPLACE``, which gave the slot a new ``id``: every verification bound to the
+old row became an orphan and the review vanished, so re-running a direction silently threw
+away the record of it.
 """
 from __future__ import annotations
 
@@ -272,12 +272,12 @@ def test_lineage_is_never_written_to_a_conclusion_that_does_not_exist(store, rep
     assert row["derived_from_finding_id"] is None
 
 
-def test_a_human_verdict_is_terminal_so_a_round_can_only_contest_it(store, repository):
-    """The disagreement is recorded; the conclusion keeps standing.
+def test_a_historical_verdict_does_not_veto_a_planner_retraction(store, repository):
+    """A withdrawal always takes effect, whatever an old human record said.
 
-    Recording it as a withdrawal instead would let a Planner undo a person's reproduction
-    result, and -- because a withdrawn conclusion no longer closes a goal -- would leave a
-    run unable to finish on evidence a human had already confirmed.
+    Human verdicts are no longer accepted; ``findings.verdict`` survives only as a
+    read-only trace of how the conclusion was once reviewed.  Letting it veto the
+    Planner would revive the terminal-verdict rule through a column nothing can update.
     """
     run, _ = create_planner_run(store, repository)
     task = dispatch_one(store, run)
@@ -286,15 +286,16 @@ def test_a_human_verdict_is_terminal_so_a_round_can_only_contest_it(store, repos
 
     round_with(
         store, run, task_key="entry-flow", action="retract", finding_key=written["finding_id"],
-        rationale_summary="人工结论可能基于被修改过的环境。",
+        rationale_summary="历史结论基于已被重置的环境。",
     )
 
     row = store.get_finding(written["finding_id"])
-    assert row["disposition"] == "contested"
+    assert row["disposition"] == "retracted"
+    assert row["disposition"] in WITHDRAWN_FINDING_DISPOSITIONS
+    # The historical verdict is left exactly where it was: read-only, not erased.
     assert row["verdict"] == "confirmed"
-    assert row["disposition"] not in WITHDRAWN_FINDING_DISPOSITIONS
-    # Still enough to close the run on.
-    assert store.finalize_goal(run["id"], "met", "有已核验且未被撤回的结论。")["status"] == "met"
+    with pytest.raises(ValueError, match="without a validated vulnerability finding"):
+        store.finalize_goal(run["id"], "met", "以已被撤回的结论收束。")
 
 
 def test_a_withdrawn_conclusion_cannot_close_the_goal(store, repository):

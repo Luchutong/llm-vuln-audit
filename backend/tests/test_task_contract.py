@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from pydantic_ai import ModelRetry
 
 from audit.agent import _validate_planner_decision
+from audit.config import PocSettings
 from audit.db import Store
 from audit.events import EventBus
 from audit.schemas import (
@@ -350,7 +351,7 @@ def test_whole_snapshot_scope_is_frozen_including_dependency_trees(tmp_path):
         state = SimpleNamespace(
             repository=repository,
             store=store,
-            settings=SimpleNamespace(model=SimpleNamespace(label="test-model")),
+            settings=SimpleNamespace(model=SimpleNamespace(label="test-model"), poc=PocSettings()),
             bus=EventBus(store),
             worker=SimpleNamespace(notify=lambda: None),
         )

@@ -146,6 +146,7 @@ def test_the_round_is_told_the_frontier_settled_work_findings_and_pins(monkeypat
     assert situation["findings"][0]["paths"] == ["src/bootstrap.php"]
     assert situation["counts"] == {
         "frontier": 1, "settled": 2, "findings": 1, "observations": 0, "pinned_investigations": 2,
+        "project_findings": 0,
     }
     assert "允许本轮派出 0 个任务" in situation["dispatch_rule"] or "0 个任务" in situation["dispatch_rule"]
 
@@ -377,3 +378,55 @@ def test_observations_are_trimmed_structurally_with_true_totals():
     assert bounded["counts"]["observations"] == 30
     assert bounded["observations"][-1]["title"] == "排查依据29"
     assert len(json.dumps(bounded, ensure_ascii=False).encode("utf-8")) < 5 * 1024
+
+
+def test_the_project_ledger_and_verification_state_travel_with_the_situation():
+    """A new conversation must see what the project already concluded, and how sure it is."""
+    context = {
+        "goal": {"id": "goal-1", "status": "open"},
+        "tasks": [],
+        "findings": [],
+        "project": {
+            "id": "project-1", "name": "DVWA", "content_key": "abc",
+            "target_profile": "dvwa",
+        },
+        "project_findings": [{
+            "id": "pf-1", "revision": 2, "title": "SQL 注入", "file_path": "vulnerabilities/sqli/index.php",
+            "symbol": "index", "severity": "high", "disposition": "open",
+            "verification_status": "verified", "verification_verdict": "confirmed",
+            "origin_run_id": "run-1", "paths": ["vulnerabilities/sqli/index.php"],
+        }],
+        "verification_summary": {"verified": 1},
+    }
+
+    situation = agent._planner_situation(context)
+
+    assert situation["project"]["name"] == "DVWA"
+    assert situation["project_findings"][0]["already_known"] is True
+    assert situation["project_findings"][0]["verification_status"] == "verified"
+    assert situation["verification_summary"] == {"verified": 1}
+    assert situation["counts"]["project_findings"] == 1
+    # A verified project conclusion is grounds for a closure review, with the frontier quiet.
+    assert situation["closure_review"] is True
+    assert "project_updates" in situation["notice"]
+
+
+def test_ledger_trimming_keeps_verified_and_rejected_rows_over_unverified_leads():
+    rows = [
+        {
+            "id": f"pf-{number}", "title": "台账结论" * 20, "file_path": "src/app.php",
+            "symbol": "handle", "severity": "high", "disposition": "open",
+            "verification_status": "verified" if number == 0 else (
+                "rejected" if number == 1 else "unverified"
+            ),
+        }
+        for number in range(30)
+    ]
+    situation = agent._planner_situation({"tasks": [], "project_findings": rows})
+
+    bounded = agent._bound_situation(situation, limit=4 * 1024)
+
+    kept = {item["id"] for item in bounded["project_findings"]}
+    assert {"pf-0", "pf-1"}.issubset(kept)
+    assert bounded["omitted"]["project_findings"] > 0
+    assert bounded["counts"]["project_findings"] == 30

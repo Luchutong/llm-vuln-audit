@@ -118,6 +118,39 @@ test('public projection omits model internals and deduplicates replayed events',
   assert.doesNotMatch(textOf(items), /PRIVATE_CODE_MARKER|PRIVATE_LOG_MARKER|PRIVATE_CONTEXT_MARKER/);
 });
 
+test('a parse error is a format message, never a code action or a leaked reply', () => {
+  const items = projectActivity([
+    event(1, 'model_request'),
+    event(2, 'model_response', { output_chars: 120, output_bytes: 120, output_tokens: 40, max_output_tokens: 4096 }),
+    event(3, 'agent_parse_error', {
+      phase: 'poc_conclude', step: 1, request_index: 2, category: 'no_code_block',
+      hint: 'HOST_PARSE_HINT', text: 'PRIVATE_MODEL_PROSE_MARKER',
+    }),
+  ], detail());
+  const message = messages(items).find((item) => item.title === '输出格式错误');
+  assert.ok(message, textOf(items));
+  assert.equal(message.tone, 'warning');
+  assert.match(message.text, /第 1 步回复没有可解析的代码块/);
+  assert.match(message.secondary || '', /不是代码执行失败/);
+  assert.equal(items.filter((item) => item.type === 'tool').length, 0);
+  assert.doesNotMatch(textOf(items), /HOST_PARSE_HINT|PRIVATE_MODEL_PROSE_MARKER/);
+});
+
+test('an early POC execution stop and a failed conclusion are shown to the reader', () => {
+  const items = projectActivity([
+    event(1, 'poc_execution_finished', { role: 'poc', phase: 'poc_execute', reason: 'budget', jobs: 7, scripts: 7 }),
+    event(2, 'poc_conclusion_failed', {
+      role: 'poc', phase: 'poc_conclude', reason: 'invalid_output',
+      message: '结论阶段结束，但没有提交可校验的 final_answer',
+    }),
+  ], detail('completed'));
+  const text = textOf(items);
+  assert.match(text, /执行阶段以 budget 结束/);
+  assert.match(text, /7 次 runner 作业/);
+  assert.ok(messages(items).some((item) => item.title === '结论生成失败'));
+  assert.match(text, /没有提交可校验的 final_answer/);
+});
+
 test('pagination retains a long-running older tool alongside the latest public activity', () => {
   const events = [tool(1, 'tool_call')];
   for (let index = 2; index < 70; index++) {

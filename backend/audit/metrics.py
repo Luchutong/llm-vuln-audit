@@ -10,6 +10,7 @@ Two rules shape everything here:
 from __future__ import annotations
 
 from .db import WITHDRAWN_FINDING_DISPOSITIONS
+from .finding_policy import is_vulnerability_finding
 from .schemas import CATEGORIES
 
 INCOMPLETE_STATUSES = ("incomplete", "failed", "skipped")
@@ -33,6 +34,8 @@ def summarise(
     incomplete = [unit for unit in units if unit["status"] in INCOMPLETE_STATUSES]
     pending = [unit for unit in units if unit["status"] in ("pending", "running")]
 
+    source_observations = sum(not is_vulnerability_finding(item) for item in findings)
+    findings = [item for item in findings if is_vulnerability_finding(item)]
     # A withdrawn conclusion is not a candidate: the Planner retracted it, replaced it or
     # called it a duplicate of another one.  It is still counted, in its own bucket, because
     # "how often did this run take something back" is a fact about the run, not noise --
@@ -62,6 +65,7 @@ def summarise(
     metrics = {
         "candidates": len(distinct),
         "candidate_findings": len(candidates),
+        "source_observations": source_observations,
         "withdrawn_findings": len(withdrawn),
         "discarded_candidates": len(discarded),
         "confirmed": len(confirmed),

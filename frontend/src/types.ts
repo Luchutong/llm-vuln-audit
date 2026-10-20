@@ -37,6 +37,7 @@ export interface GoalAssessment {
   missing_context?: string[];
   finding?: GoalFinding | null;
   findings?: GoalFinding[];
+  observations?: { title: string; kind?: string; summary: string; evidence: string }[];
   attempt?: number;
   terminal_reason?: string;
   retry_exhausted?: boolean;
@@ -302,7 +303,7 @@ export interface Finding {
   line: number;
   unit_start_line: number;
   unit_end_line: number;
-  validation_state: 'candidate' | 'invalid_evidence';
+  validation_state: 'candidate' | 'invalid_evidence' | 'invalid_finding' | 'observation';
   validation_errors: string[]; id: string; run_id: string; unit_id?: string; task_id?: string; task_key?: string; fingerprint: string; category: string; finding_kind?: string; title: string; severity: string; summary: string; evidence: Evidence[]; input_source: string; propagation: string; dangerous_operation: string; protection: string; preconditions: string[]; missing_context: string[]; poc: POC | null; remediation: string; verdict?: Verdict; verifications: Verification[];
   /**
    * Disposition is a third axis, independent of the evidence check and the human verdict:
@@ -320,6 +321,8 @@ export interface Finding {
   superseded_summary: ArchivedRevision[];
   /** The finding this one grew out of, when a correction was recorded as a derivation. */
   derived_from_finding_id?: string | null;
+  /** Worker attempt that produced a source observation, when available. */
+  attempt?: number;
 }
 
 export type FindingDisposition = 'open' | 'superseded' | 'retracted' | 'duplicate' | 'contested';
@@ -352,6 +355,7 @@ export interface Metrics {
   candidates: number;
   candidate_findings: number;
   withdrawn_findings?: number;
+  source_observations?: number;
   discarded_candidates: number;
   confirmed: number;
   rejected: number;
@@ -390,6 +394,8 @@ export interface RunDetail {
    */
   investigations?: InvestigationOverview;
   findings: Finding[];
+  /** Source-backed investigation records, kept separate from vulnerability candidates. */
+  source_observations?: Finding[];
   metrics: Metrics;
   attributions: Attribution[];
   // Kept optional so historical records can still be decoded; Planner views never use

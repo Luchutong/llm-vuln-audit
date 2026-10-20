@@ -186,6 +186,26 @@ class FinalAnswerTool(Tool):
         return kwargs
 
 
+class ProgressTool(Tool):
+    """A status control channel, separate from source tools and their budgets."""
+
+    name = "report_progress"
+    description = (
+        "在同一代码块的源码工具调用前，向用户提交一句公开审计进展（当前检查重点或下一步动作）。"
+        "不要输出内部逐步推理、隐藏思维链或未经验证的漏洞结论；这不是证据或最终评估。"
+        "每次模型响应最多保存一条，最多280字符；无需为此单独发起一次模型响应。"
+    )
+    inputs = {"message": {"type": "string", "description": "一句简短、面向用户的公开工作进展。"}}
+    output_type = "string"
+
+    def __init__(self, gate: Any):
+        super().__init__()
+        self.gate = gate
+
+    def forward(self, message: str) -> str:
+        return self.gate.report_progress(message)
+
+
 def build_tools(specs, gate, *, final_answer: Any = None) -> dict[str, Tool]:
     """Build one phase's tool table, final answer included.
 
@@ -198,12 +218,13 @@ def build_tools(specs, gate, *, final_answer: Any = None) -> dict[str, Tool]:
     names = [item.name for item in specs]
     duplicated = sorted({name for name in names if names.count(name) > 1})
     assert not duplicated, f"工具注册表里有重复的名字：{duplicated}"
-    shadowed = sorted(set(names) & (set(BASE_PYTHON_TOOLS) | {"final_answer"}))
+    shadowed = sorted(set(names) & (set(BASE_PYTHON_TOOLS) | {"final_answer", "report_progress"}))
     assert not shadowed, (
         f"工具名已被解释器内置实现或本阶段的 final_answer 占用，模型根本调不到宿主：{shadowed}"
     )
     tools: dict[str, Tool] = {item.name: HostTool(item, gate) for item in specs}
     tools["final_answer"] = final_answer or FinalAnswerTool(gate)
+    tools["report_progress"] = ProgressTool(gate)
     return tools
 
 
@@ -301,6 +322,24 @@ WORKER_TOOLS: tuple[ToolSpec, ...] = (
         "get_context",
         "Read owning class, includes, related functions/callers, and unresolved dependencies for this unit.",
     ),
+)
+
+# Goal workers must be able to discover snapshot paths before trying to read them.
+# Reuse the Planner's signatures and ProjectIndex implementation, with the worker's
+# own frozen scope. Workers do not have the Planner's durable investigation pins.
+WORKER_NAVIGATION_TOOLS = tuple(
+    ToolSpec(
+        name=item.name,
+        description=(
+            "Return JSON paths and metadata within this worker's frozen snapshot scope. "
+            + ("List directories and files below a project-relative directory. " if item.name == "list_tree"
+               else "Find files by name, glob or substring. ")
+            + "Parse with json.loads; paths are navigation only, not source evidence. "
+            "Read actual source lines before citing them; retain this result to avoid duplicate calls."
+        ),
+        args=item.args,
+    )
+    for item in PLANNER_TOOLS if item.name in {"list_tree", "find_files"}
 )
 
 PEER_TRACE_TOOLS: tuple[ToolSpec, ...] = (

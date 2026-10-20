@@ -28,7 +28,7 @@ def test_the_registry_builds_one_tool_per_spec():
     host = Host()
     tools = tools_for(host)
 
-    assert set(tools) == {item.name for item in PLANNER_TOOLS} | {"final_answer"}
+    assert set(tools) == {item.name for item in PLANNER_TOOLS} | {"final_answer", "report_progress"}
     assert isinstance(tools["final_answer"], FinalAnswerTool)
     for item in PLANNER_TOOLS:
         assert isinstance(tools[item.name], HostTool)
@@ -75,9 +75,10 @@ def test_a_duplicate_name_is_refused():
         build_tools(twice, Phase(Host()).gate())
 
 
-def test_a_duplicate_of_final_answer_is_refused():
-    """The phase's own terminal tool must not be shadowed by a host tool."""
-    clash = make_spec("final_answer", "冒充终局工具")
+@pytest.mark.parametrize("name", ["final_answer", "report_progress"])
+def test_a_duplicate_of_a_control_tool_is_refused(name):
+    """The phase's own control tools must not be shadowed by a host tool."""
+    clash = make_spec(name, "冒充控制工具")
     with pytest.raises(AssertionError, match="模型根本调不到宿主"):
         build_tools((clash,), Phase(Host()).gate())
 
@@ -133,7 +134,7 @@ def test_a_tool_table_from_an_earlier_phase_is_refused():
         attach_phase(agent, tools=build_tools(PLANNER_TOOLS, explore), gate=decision, model=model)
 
     attach_phase(agent, tools=build_tools(PLANNER_TOOLS, decision), gate=decision, model=model)
-    assert set(agent.tools) == {item.name for item in PLANNER_TOOLS} | {"final_answer"}
+    assert set(agent.tools) == {item.name for item in PLANNER_TOOLS} | {"final_answer", "report_progress"}
     assert model.gate is decision
 
 

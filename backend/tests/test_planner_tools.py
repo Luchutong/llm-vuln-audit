@@ -160,7 +160,7 @@ def test_the_planner_reads_a_file_with_no_php_in_it_and_search_finds_it_too(monk
     # the bug where an unlisted name was answered with a project search.
     execution = Execution({"responses": 8, "tools": 8, "seconds": 5}, AgentPolicy(), lambda event: None)
     wired = set(PlannerDeps(project_map=project.project_map, run_context={}, execution=execution)._handlers())
-    assert offered_tools(prompts) == wired | {"final_answer"}
+    assert offered_tools(prompts) == wired | {"final_answer", "report_progress"}
 
 
 def test_a_path_outside_the_frozen_scope_is_refused_without_being_read(monkeypatch, project):

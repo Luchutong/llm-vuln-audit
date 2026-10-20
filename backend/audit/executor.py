@@ -29,6 +29,9 @@ from .runtime import AgentPolicy
 from .toolkit import FinalAnswerTool, build_tools
 
 PROMPT_FILE = Path(__file__).with_name("prompts") / "code_agent.yaml"
+# Tools return JSON navigation records. Parsing those records is an ordinary
+# in-memory operation, not access to the server filesystem or process environment.
+AUTHORIZED_DATA_IMPORTS = ["json"]
 
 
 @functools.lru_cache(maxsize=1)
@@ -40,7 +43,7 @@ def prompt_templates() -> dict:
 def build_executor(policy: AgentPolicy) -> LocalPythonExecutor:
     """The interpreter a phase's code runs in.
 
-    ``additional_authorized_imports`` is empty, which leaves the library's own base set:
+    ``additional_authorized_imports`` adds JSON data parsing to the library's base set:
     ``re``, ``math``, ``collections``, ``itertools``, ``datetime``, ``statistics``,
     ``time``, ``random``, ``queue``, ``stat``, ``unicodedata`` -- enough to filter and
     count lines, and nothing that can reach the filesystem, the network or a process.
@@ -52,7 +55,7 @@ def build_executor(policy: AgentPolicy) -> LocalPythonExecutor:
     the block runs.  A runaway block therefore delays the phase by at most this much.
     """
     return LocalPythonExecutor(
-        additional_authorized_imports=[],
+        additional_authorized_imports=list(AUTHORIZED_DATA_IMPORTS),
         max_print_outputs_length=policy.code_output_bytes,
         timeout_seconds=policy.code_seconds,
     )
@@ -133,9 +136,8 @@ def build_agent(*, model: AuditCodeModel, gate: PhaseGate, tools: dict, instruct
         instructions=instructions,
         max_steps=max_steps,
         executor=build_executor(gate.execution.policy),
-        # The library's base imports are the only ones; the run executes the model's own
-        # code and must not hand it any way to reach the host.
-        additional_authorized_imports=[],
+        # Parsing tool JSON is allowed; host IO modules remain unavailable.
+        additional_authorized_imports=list(AUTHORIZED_DATA_IMPORTS),
         # Both of these would spend a model request on something the host already does.
         planning_interval=None,
         provide_run_summary=False,

@@ -213,6 +213,10 @@ class PhaseGate:
         """Count one answered request.  Failures are counted by ``before_model``."""
         self._on_loop(lambda: self._record(message))
 
+    def report_progress(self, message: str) -> str:
+        """Accept an explicit public update, never model response prose or reasoning."""
+        return self._on_loop(lambda: self._progress(message))
+
     def record_code(self, *, step: int, code: str, logs: str | None,
                     is_final: bool, error: str | None = None) -> None:
         """Record one code action durably.
@@ -283,6 +287,19 @@ class PhaseGate:
             return await self.dispatch(name, args)
         except StopAudit as stop:
             raise HostStop(stop) from None
+
+    async def _progress(self, message: str) -> str:
+        # A callback can already be queued when drive_phase closes the gate.
+        # Recheck on its owning loop so a late interpreter cannot publish afterward.
+        if self.closed:
+            raise HostStop(StopAudit("cancelled", "本阶段已经结束，宿主不再受理模型侧的动作"))
+        if self.published is not None:
+            return "本阶段已结束，未新增进展。"
+        try:
+            accepted = self.execution.report_progress(message, deadline=self.deadline)
+        except StopAudit as stop:
+            raise HostStop(stop) from None
+        return "公开进展已保存。" if accepted else "未新增进展，请继续当前审计动作。"
 
     async def _accept(self, payload: Any) -> str:
         if self.published is not None:

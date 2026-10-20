@@ -12,6 +12,7 @@ STAMP = "2026-10-20T08:30:00+00:00"
 SNAPSHOT_ID = "smoke-snapshot"
 COMPLETED_ID = "smoke-completed"
 CREATED_ID = "smoke-created"
+ACTIVITY_ID = "smoke-live-activity"
 SOURCE_PATH = "src/upload.php"
 OBJECTIVE = "检查上传入口到文件写入的安全边界并提供源码证据。"
 CRITERIA = "引用输入来源、传播路径和敏感操作的原始行号；无法确认时说明缺失上下文。"
@@ -62,7 +63,7 @@ def run(run_id: str = COMPLETED_ID, status: str = "completed") -> dict[str, Any]
 
 def finding(run_id: str) -> dict[str, Any]:
     return {"id": f"finding-{run_id}", "run_id": run_id, "task_id": "task-upload", "task_key": "upload-boundary",
-            "fingerprint": "fixture-fingerprint", "category": "task_goal", "finding_kind": "source_observation",
+            "fingerprint": "fixture-fingerprint", "category": "task_goal", "finding_kind": "vulnerability",
             "title": "上传路径写入边界需要人工复核", "severity": "medium",
             "summary": "输入路径到文件写入的可达关系已定位。" + "需要结合部署配置核对前置条件。" * 45,
             "file_path": SOURCE_PATH, "symbol": "upload", "line": 12, "unit_start_line": 1, "unit_end_line": 40,
@@ -76,6 +77,27 @@ def finding(run_id: str) -> dict[str, Any]:
             "disposition_reason": None, "disposition_by": None, "disposition_at": None, "derived_from_finding_id": None,
             "superseded_summary": [{"revision": 1, "title": "先前的上传路径观察", "summary": "此前尚未核对认证依赖。",
                                     "evidence": [], "disposition": "open", "created_at": STAMP}]}
+
+
+def source_observations(run_id: str) -> list[dict[str, Any]]:
+    historical = finding(run_id)
+    historical.update(id=f"observation-{run_id}", finding_kind="data_flow", severity="informational",
+                      title="上传路径已规范化，没有目录穿越证据", summary="写入前使用 basename 规范化文件名，已检查路径未构成目录穿越漏洞。",
+                      verdict="confirmed", poc=None, input_source="请求参数 name", propagation="参数传入 basename 后写入固定目录。",
+                      protection="basename 路径规范化", remediation="", missing_context=[],
+                      superseded_summary=[{"revision": 1, "title": "早期路径观察", "summary": "最初尚未核对路径规范化。", "evidence": []}],
+                      verifications=[{"id": "observation-review", "created_at": STAMP, "verdict": "confirmed", "execution_status": "not_run",
+                                      "notes": "历史人工排查记录：已核对 basename 防护，原始记录保留。", "target_version": "fixture-commit",
+                                      "command": "", "modified_script": "", "normal_observation": "", "attack_observation": "",
+                                      "files": [{"name": "历史代码评审.txt", "url": "/api/evidence/historical-review.txt"}]}])
+    # A projected worker-attempt observation has a source location and attempt identity.
+    current = {"id": f"observation:{run_id}:1:0", "run_id": run_id, "task_id": "task-upload", "task_key": "upload-boundary", "attempt": 1,
+               "title": "已确认上传入口的认证边界", "summary": "上传处理器前执行会话认证，未发现认证绕过证据。", "category": "audit_observation",
+               "file_path": "src/auth.php", "line": 8, "unit_start_line": 8, "unit_end_line": 9,
+               "finding_kind": "security_boundary", "severity": "informational", "validation_state": "observation", "validation_errors": [],
+               "evidence": [{"snapshot_id": SNAPSHOT_ID, "path": "src/auth.php", "start_line": 8, "end_line": 9}],
+               "verdict": None, "verifications": []}
+    return [historical, current]
 
 
 def project_map(item: dict[str, Any]) -> dict[str, Any]:
@@ -119,8 +141,9 @@ def detail(item: dict[str, Any], observed: dict[str, Any]) -> dict[str, Any]:
                                    {"id": "investigation-smoke", "round_no": 1, "revision": 1, "kind": "recon", "tool": "investigate_project",
                                     "topic": "定位上传入口", "topic_key": "upload-entry", "args": {"question": "定位上传入口"}, "payload": None,
                                     "payload_bytes": 3000, "files_read": [], "usage": {}, "status": "active", "created_at": STAMP}]},
-            "findings": [copy.deepcopy(observed)], "units": [], "goals": [], "work_items": [], "attributions": [],
+            "findings": [copy.deepcopy(observed)], "source_observations": source_observations(item["id"]), "units": [], "goals": [], "work_items": [], "attributions": [],
             "metrics": {"candidates": candidate, "candidate_findings": candidate, "discarded_candidates": 0, "withdrawn_findings": int(withdrawn),
+                        "source_observations": 2,
                         "confirmed": int(observed["verdict"] == "confirmed"), "rejected": 0, "uncertain": int(observed["verdict"] != "confirmed"),
                         "awaiting_verification": 0, "audit_coverage": float(done), "task_coverage": float(done), "verification_coverage": 0,
                         "total_units": 0, "completed_units": 0, "incomplete_units": 0, "pending_units": 0, "total_tasks": 1,
@@ -132,11 +155,70 @@ def event(run_id: str, number: int, kind: str, payload: dict[str, Any]) -> dict[
     payload = copy.deepcopy(payload)
     role = payload.setdefault("role", "planner" if kind.startswith("planner_") else "host" if kind.startswith("run_") else "worker")
     if role in {"planner", "recon"}:
-        payload.update(plan_id="plan-smoke", session_id="session-smoke")
+        payload.setdefault("plan_id", "plan-smoke")
+        payload.setdefault("session_id", "session-smoke")
     if role == "worker":
-        payload.update(task_id="task-upload", task_key="upload-boundary", worker_id="worker-1", attempt=1)
-    return {"id": number, "run_id": run_id, "unit_id": "task-upload" if role == "worker" else None,
+        for key, value in {"task_id": "task-upload", "task_key": "upload-boundary", "worker_id": "worker-1", "attempt": 1}.items():
+            payload.setdefault(key, value)
+    return {"id": number, "run_id": run_id, "unit_id": payload.get("task_id") if role == "worker" else None,
             "kind": kind, "payload": payload, "created_at": STAMP}
+
+
+def activity_events(run_id: str = ACTIVITY_ID) -> list[dict[str, Any]]:
+    """Ordered activity replay; the smoke runner releases each frame explicitly."""
+    worker_a = {"role": "worker", "task_id": "task-upload", "task_key": "upload-boundary",
+                "worker_id": "worker-a", "attempt": 1, "agent_invocation_id": "fixture-invocation-a", "request_index": 1}
+    worker_b = {**worker_a, "task_id": "task-auth", "task_key": "auth-boundary",
+                "worker_id": "worker-b", "agent_invocation_id": "fixture-invocation-b"}
+    retry = {**worker_a, "attempt": 2, "agent_invocation_id": "fixture-invocation-retry"}
+    path = "src/上传处理与认证边界/" + "无空格路径" * 16 + ".php"
+    items = [
+        event(run_id, 1, "run_started", {"role": "host"}),
+        event(run_id, 2, "planner_round_started", {"role": "planner", "round": 1}),
+        event(run_id, 3, "audit_progress", {"role": "planner", "agent_invocation_id": "fixture-planner",
+              "request_index": 1, "source": "agent", "message": "先检查上传入口的路径处理，再核对认证边界和文件写入。"}),
+        event(run_id, 4, "tool_call", {**worker_a, "tool": "read_source", "call_id": "reused-call", "span_id": "explore:reused-call",
+              "phase": "explore", "args": {"path": SOURCE_PATH, "start": 10, "end": 12, "context": LONG_VALUE}}),
+        event(run_id, 5, "tool_call", {**worker_b, "tool": "read_source", "call_id": "reused-call", "span_id": "explore:reused-call",
+              "phase": "explore", "args": {"path": path, "start": 8, "end": 9}}),
+        event(run_id, 6, "tool_result", {**worker_b, "tool": "read_source", "call_id": "reused-call", "span_id": "explore:reused-call",
+              "phase": "explore", "status": "ok", "preview": "WORKER_B_RETURN：认证入口拒绝未登录请求。", "duration_ms": 12}),
+        event(run_id, 7, "tool_result", {**worker_a, "tool": "read_source", "call_id": "reused-call", "span_id": "explore:reused-call",
+              "phase": "explore", "status": "ok", "preview": "WORKER_A_RETURN：路径值进入文件写入调用。", "new_lines": 3, "duration_ms": 21}),
+        event(run_id, 8, "audit_progress", {**worker_a, "source": "agent", "message": "已定位文件写入点，接下来排查是否存在可利用的路径绕过。"}),
+        event(run_id, 9, "tool_call", {**worker_a, "tool": "search_code", "call_id": "missing-search",
+              "args": {"query": "canonicalize_path"}}),
+        event(run_id, 10, "tool_result", {**worker_a, "tool": "search_code", "call_id": "missing-search", "status": "error",
+              "error": "模拟检索暂时失败，请缩小搜索范围后重试。", "preview": "Error: 模拟检索暂时失败", "duration_ms": 5}),
+        event(run_id, 11, "planner_task_requeued", {**worker_a, "state": "ready", "summary": "补读安全边界后继续核对。"}),
+        event(run_id, 12, "audit_progress", {**retry, "source": "agent", "message": "第二次尝试只补读路径规范化相关源码，不重复已确认的认证检查。"}),
+        event(run_id, 13, "tool_call", {**retry, "tool": "read_source", "call_id": "reused-call", "span_id": "explore:reused-call",
+              "phase": "explore", "args": {"path": SOURCE_PATH, "start": 24, "end": 28}}),
+        event(run_id, 14, "tool_result", {**retry, "tool": "read_source", "call_id": "reused-call", "span_id": "explore:reused-call",
+              "phase": "explore", "status": "ok", "preview": "RETRY_RETURN：补读了目录约束和文件名规范化代码。", "duration_ms": 9}),
+    ]
+    for index in range(65):
+        number = 15 + index * 3
+        items.extend([
+            event(run_id, number, "audit_progress", {**retry, "request_index": index + 2,
+                  "message": f"第 {index + 1} 个排查方向已核对：继续比较输入路径、权限边界和部署条件。"}),
+            event(run_id, number + 1, "tool_call", {**retry, "request_index": index + 2, "tool": "search_code",
+                  "call_id": f"history-{index}", "args": {"query": f"upload_boundary_{index}"}}),
+            event(run_id, number + 2, "tool_result", {**retry, "request_index": index + 2, "tool": "search_code",
+                  "call_id": f"history-{index}", "status": "ok", "preview": f"方向 {index + 1} 已读取相关源码。", "duration_ms": 3}),
+        ])
+    for index in range(6):
+        number = items[-1]["id"] + 1
+        items.extend([
+            event(run_id, number, "tool_call", {**retry, "request_index": 68, "tool": "search_code",
+                  "call_id": f"batch-history-{index}", "args": {"query": f"deployment_boundary_{index}"}}),
+            event(run_id, number + 1, "tool_result", {**retry, "request_index": 68, "tool": "search_code",
+                  "call_id": f"batch-history-{index}", "status": "ok", "preview": "已核对部署条件引用。", "duration_ms": 2}),
+        ])
+    items.append(event(run_id, items[-1]["id"] + 1, "audit_progress", {
+        **retry, "request_index": 69, "message": "源码路径与认证边界已核对，正在汇总部署条件和仍需人工复核的风险。",
+    }))
+    return items
 
 
 def events(run_id: str, large: bool = False) -> list[dict[str, Any]]:
@@ -177,6 +259,7 @@ class MockAPI:
     snapshot_read_failures: dict[str, int] = field(default_factory=dict)
     runs: dict[str, dict[str, Any]] = field(default_factory=lambda: {COMPLETED_ID: run()})
     findings: dict[str, dict[str, Any]] = field(default_factory=lambda: {COMPLETED_ID: finding(COMPLETED_ID)})
+    detail_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     model_profiles: list[dict[str, Any]] = field(default_factory=profiles)
     selected_profile_id: str = "profile-environment"
     # Only hashes are retained to test omission/clearing. Real encryption is covered by backend tests.
@@ -184,6 +267,7 @@ class MockAPI:
     profile_requests: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     config_responses: list[dict[str, Any]] = field(default_factory=list)
     extra_events: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    event_overrides: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     upload_count: int = 0
     create_count: int = 0
     cancel_count: int = 0
@@ -319,12 +403,12 @@ class MockAPI:
             else:
                 self.respond_create(route)
         elif len(parts) == 2 and parts[0] == "runs" and method == "GET" and parts[1] in self.runs:
-            self.json(route, detail(self.runs[parts[1]], self.findings[parts[1]]))
+            self.json(route, detail(self.runs[parts[1]], self.findings[parts[1]]) | copy.deepcopy(self.detail_overrides.get(parts[1], {})))
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] in {"project-map", "project-overview"}:
             self.json(route, project_map(self.runs[parts[1]]))
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] in {"events", "event-log"}:
             run_id, after = parts[1], int(query.get("after", ["0"])[0])
-            items = events(run_id, run_id == COMPLETED_ID) + self.extra_events.get(run_id, [])
+            items = self.event_overrides.get(run_id, events(run_id, run_id == COMPLETED_ID)) + self.extra_events.get(run_id, [])
             if parts[2] == "event-log":
                 self.event_queries.append((run_id, after))
                 batch = [item for item in items if item["id"] > after][:2000]
@@ -353,7 +437,7 @@ class MockAPI:
             extra.append(event(item["id"], 12 + len(extra), {"pause": "run_paused", "resume": "run_resumed", "cancel": "run_cancelled"}[action], {"reason": f"user_{action}"}))
             self.json(route, copy.deepcopy(item))
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] == "report" and method == "GET":
-            self.json(route, detail(self.runs[parts[1]], self.findings[parts[1]]))
+            self.json(route, detail(self.runs[parts[1]], self.findings[parts[1]]) | copy.deepcopy(self.detail_overrides.get(parts[1], {})))
         elif len(parts) == 3 and parts[0] == "findings" and parts[2] == "verifications" and method == "POST":
             self.verification_count += 1
             item = next(value for value in self.findings.values() if value["id"] == parts[1])

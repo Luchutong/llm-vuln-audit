@@ -8,9 +8,9 @@ import { Disclosure } from '../components/Disclosure';
 
 const EMPTY_TASK: TaskSpec = { objective: '', success_criteria: '', max_iterations: 3, max_total_attempts: 64, max_planner_rounds: 24, max_workers: 2, stop_on_achieved: true, require_poc: false };
 const EXAMPLES = [
-  { title: '追踪危险数据流', description: '从请求入口追踪到敏感文件操作', objective: '追踪上传入口到文件写入操作，确认是否存在未经路径规范化的可达写入路径。', criteria: '给出从外部输入到文件写入的完整数据流、触发前提和原始源码行号；未能确认时说明已覆盖路径及缺失上下文。' },
-  { title: '检查认证边界', description: '核查管理路由的访问控制', objective: '审计项目中的管理路由，确认是否存在无需认证即可访问敏感管理功能的路径。', criteria: '列出路由定义、认证中间件和敏感操作的源码证据，说明可达条件；无法判定时明确需要补充的上下文。' },
-  { title: '核验安全配置', description: '定位会话与 Cookie 配置来源', objective: '确认会话 Cookie 的 Secure、HttpOnly 和 SameSite 配置来源及其覆盖关系。', criteria: '引用原始源码行号说明配置值、默认值及覆盖顺序；运行时配置缺失时保留为未决，不假定安全。' },
+  { title: '追踪危险数据流', description: '查找任意文件写入或危险上传漏洞', objective: '审计文件上传入口，查找可被外部输入触发的任意文件写入、路径穿越或危险文件上传漏洞。', criteria: '漏洞候选需给出输入到敏感操作的完整数据流、可利用前提、安全影响、风险等级及原始源码行号；防护有效或未确认的路径只记入排查记录，缺失上下文保留为未决。' },
+  { title: '检查认证边界', description: '查找管理功能的认证与授权绕过', objective: '审计项目中的管理路由，查找无需认证或越权访问敏感管理功能的漏洞。', criteria: '漏洞候选需给出路由、认证授权链与敏感操作的源码证据，并说明绕过条件、安全影响及风险等级；正确防护只记入排查记录，无法判定时明确缺失上下文。' },
+  { title: '查找配置缺陷', description: '检查会话与 Cookie 的可利用风险', objective: '审计会话与 Cookie 配置，查找可导致会话泄露、劫持或跨站请求风险的可利用配置缺陷。', criteria: '核对配置来源、覆盖关系及实际使用入口；漏洞候选需给出利用前提、安全影响、风险等级和源码行号。安全配置只记入排查记录，运行时配置缺失时保留为未决。' },
 ];
 function clamp(value: string, minimum: number, maximum: number) { return Math.max(minimum, Math.min(maximum, Math.trunc(Number(value) || minimum))); }
 
@@ -102,8 +102,8 @@ export function TaskView({ snapshots, config, seed, onOpenRun, onChanged }: { sn
     <div className="draft-intro">
       <div className="welcome-symbol"><ShieldCheck size={30} /></div>
       <span className="eyebrow">YOUR CODE. YOUR EVIDENCE.</span>
-      <h1>{seed ? '开始新的审计方向' : '从一个问题，开始源码审计。'}</h1>
-      <p>上传完整项目，告诉我审计目标。<br />从规划、工具调用到源码证据，完整过程随时可查。</p>
+      <h1>{seed ? '开始新的漏洞审计方向' : '从一个问题，开始漏洞审计。'}</h1>
+      <p>上传完整项目，定义漏洞审计目标。<br />从规划、工具调用到漏洞证据，完整过程随时可查。</p>
       <div className="example-grid">{EXAMPLES.map((example, index) => <button type="button" key={example.title} className="example-card" disabled={busy} onClick={() => { setTask((value) => ({ ...value, objective: example.objective, success_criteria: example.criteria })); objectiveRef.current?.focus(); }}><span className="example-number">0{index + 1}</span><strong>{example.title}</strong><span>{example.description}</span><ArrowUp size={14} /></button>)}</div>
     </div>
     <div className="composer-wrap">
@@ -118,7 +118,7 @@ export function TaskView({ snapshots, config, seed, onOpenRun, onChanged }: { sn
         {attachmentError && <div className="composer-error" role="alert"><FileArchive size={16} /><span>{attachmentError}</span><button type="button" className="text-button" onClick={() => fileInput.current?.click()}>重新选择</button></div>}
         <div className="composer-fields">
           <label className="composer-field"><span>审计任务 <span className="faint">/ 你想查清什么</span></span><textarea ref={objectiveRef} aria-label="审计任务" rows={2} maxLength={4000} disabled={starting} value={task.objective} onChange={(event) => setTask((value) => ({ ...value, objective: event.target.value }))} placeholder="例如：追踪文件上传入口，检查是否存在任意文件写入路径…" /></label>
-          <label className="composer-field acceptance-field"><span>验收目标 <span className="faint">/ 什么样的结果算完成</span></span><textarea aria-label="验收目标" rows={2} maxLength={4000} disabled={starting} value={task.success_criteria} onChange={(event) => setTask((value) => ({ ...value, success_criteria: event.target.value }))} placeholder="例如：提供完整数据流、触发前提，以及可复核的源码行号…" /></label>
+          <label className="composer-field acceptance-field"><span>验收目标 <span className="faint">/ 什么样的漏洞证据算完成</span></span><textarea aria-label="验收目标" rows={2} maxLength={4000} disabled={starting} value={task.success_criteria} onChange={(event) => setTask((value) => ({ ...value, success_criteria: event.target.value }))} placeholder="例如：漏洞需提供利用前提、安全影响、风险等级与原始源码行号；安全结论仅保留排查记录…" /></label>
         </div>
         {error && <div className="composer-error" role="alert">{error}</div>}
         <div className="composer-toolbar"><div className="composer-tools">

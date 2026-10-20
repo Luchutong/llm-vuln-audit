@@ -17,6 +17,7 @@ const LABELS: Record<string, string> = {
   verification_recorded: '人工结论记录', model_error: '模型错误', model_retry: '模型重试',
   settle_started: '预算收尾', settled: '收尾判定', agent_phase: '阶段更新',
   tool_call: '工具调用', tool_result: '工具结果', model_request: '模型请求', model_response: '模型响应',
+  audit_progress: '审计进展摘要',
   exploration_stopped: '探索停止', category_completed: '类别完成', category_incomplete: '类别未完成',
   unit_checkpoint: '结果检查点', agent_terminal: '单元终止原因',
   task_coordinator_started: '目标协调开始', task_plan_created: '目标执行计划',
@@ -194,7 +195,7 @@ function TraceGroupCard({ group, current, names, running }: {
   const codeCount = group.entries.filter((entry) => entry.event.kind === 'agent_code').length;
   const lastPhase = group.entries[group.entries.length - 1]?.phaseKey;
   const role = ROLES[group.context.role] ?? shortText(group.context.role, 30);
-  return <Disclosure key={`${group.key}:${current}`} className={`trace-group${current ? ' trace-group-current' : ''}`} defaultOpen={current} title={
+  return <Disclosure className={`trace-group${current ? ' trace-group-current' : ''}`} defaultOpen={current} title={
     <span className="trace-group-title">
       <span className="trace-item-primary"><RoleIcon role={group.context.role} /><span className="trace-role">{role}</span><span>{shortText(contextLabel(group.context, names), 80)}</span>
         {group.context.attempt && <span className="trace-meta">第 {shortText(group.context.attempt, 12)} 次尝试</span>}
@@ -204,7 +205,7 @@ function TraceGroupCard({ group, current, names, running }: {
   }>
     <div className="trace-phases">{group.phases.map((phase) => {
       const phaseCurrent = current && phase.key === lastPhase;
-      return <Disclosure key={`${phase.key}:${phaseCurrent}`} className="trace-phase" defaultOpen={phaseCurrent} title={
+      return <Disclosure key={phase.key} className="trace-phase" defaultOpen={phaseCurrent} title={
         <span className="trace-phase-title"><span>{PHASES[phase.name] ?? shortText(phase.name, 60)}</span>
           <span className="trace-meta">{phase.rows.length} 项活动{phaseCurrent ? ' · 当前阶段' : ''}</span>
         </span>
@@ -262,7 +263,7 @@ export function Timeline({ events, detail, compact = false }: { events: AuditEve
       <span className="trace-counts">{tools.length} 次工具活动 · {codeCount} 个代码动作 · {allGroups.filter((group) => group.context.role === 'worker').length} 个工作轮次 · {events.length} 条事件{state === 'paused' ? ' · 已暂停，可继续' : ''}</span>
     </div>
     <Disclosure className="trace-filter-panel" title={`筛选轨迹 · ${matching.length} 条匹配`} defaultOpen={!compact}>{controls}</Disclosure>
-    <div className="trace-groups">{groups.length ? groups.map((group) => <TraceGroupCard key={`${group.key}:${currentGroups.has(group.key)}`} group={group} current={currentGroups.has(group.key)} names={names} running={running} />)
+    <div className="trace-groups">{groups.length ? groups.map((group) => <TraceGroupCard key={group.key} group={group} current={currentGroups.has(group.key)} names={names} running={running} />)
       : <div className="trace-empty">没有符合筛选条件的事件。</div>}</div>
     <div className="trace-footer">
       <span className="trace-meta">显示最近 {visible.length} / {matching.length} 条事件 · 配对的调用与结果共同展示</span>

@@ -5,6 +5,8 @@ import type { RunDetail, Truth } from '../types';
 import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
 import { PlannerNavigation } from './Overview';
+import { SourceObservationsView } from './FindingsView';
+import { activeVulnerabilityFindings, vulnerabilityFindings } from '../results';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
@@ -43,7 +45,8 @@ export function ReportView(props: ReportViewProps) {
 }
 
 function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
-  const { run, metrics, findings, attributions } = detail;
+  const { run, metrics, attributions } = detail;
+  const findings = vulnerabilityFindings(detail);
   const projectMap = detail.project_map;
   const [truths, setTruths] = useState<Truth[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -273,6 +276,7 @@ function LegacyReportView({ runId, detail, onChanged }: ReportViewProps) {
         </div>
       </div>
 
+      <SourceObservationsView detail={detail} snapshotId={run.snapshot_id} />
       <div className="panel">
         <div className="panel-head">
           <span className="panel-title">本次运行的问题清单</span>
@@ -321,13 +325,14 @@ function sourceReferences(detail: RunDetail['findings'][number]) {
 }
 
 function ReportFindings({ detail }: Pick<ReportViewProps, 'detail'>) {
-  const findings = detail.findings;
+  const findings = vulnerabilityFindings(detail);
   const valid = findings.filter((finding) => finding.validation_state === 'candidate').length;
   return (
-    <section className="panel" aria-label="报告证据化结果">
-      <div className="panel-head"><span className="panel-title">证据化结果</span><span className="faint small">{valid} 条引用通过 · {findings.length - valid} 条无效记录</span></div>
+    <>
+    <section className="panel" aria-label="报告漏洞候选">
+      <div className="panel-head"><span className="panel-title">漏洞候选与源码证据</span><span className="faint small">{valid} 条引用通过 · {findings.length - valid} 条无效记录</span></div>
       <div className="panel-body">
-        {findings.length === 0 ? <div className="empty">尚无发现。</div> : <Disclosure title={`查看报告发现（${findings.length}）`}>
+        {findings.length === 0 ? <div className="empty">尚无漏洞候选。请结合排查记录、审计覆盖与缺失上下文判断当前结果。</div> : <Disclosure title={`查看报告漏洞候选（${findings.length}）`}>
           {findings.map((finding) => (
             <Disclosure key={finding.id} title={<span className="disclosure-heading"><span className={`chip chip-${finding.validation_state}`}>{finding.validation_state === 'candidate' ? '引用通过' : '引用不通过'}</span><span className="disclosure-preview">{finding.title}</span></span>}>
               <div className="grid">
@@ -343,11 +348,13 @@ function ReportFindings({ detail }: Pick<ReportViewProps, 'detail'>) {
         </Disclosure>}
       </div>
     </section>
+    <SourceObservationsView detail={detail} snapshotId={detail.run.snapshot_id} />
+    </>
   );
 }
 
 function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
-  const { run, findings, metrics } = detail;
+  const { run, metrics } = detail;
   const projectMap = detail.project_map;
   const task = run.task_spec;
   const goal = detail.goal ?? detail.goals?.[0];
@@ -402,21 +409,25 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
       </section>
       <PlannerNavigation detail={detail} />
       <ReportFindings detail={detail} />
-      <ReviewSummary detail={detail} confirmed={findings.filter((finding) => finding.verdict === 'confirmed').length} rejected={findings.filter((finding) => finding.verdict === 'rejected').length} />
+      <ReviewSummary detail={detail} />
     </div>
   );
 }
 
-function ReviewSummary({ detail, confirmed, rejected }: Pick<ReportViewProps, 'detail'> & { confirmed: number; rejected: number }) {
+function ReviewSummary({ detail }: Pick<ReportViewProps, 'detail'>) {
+  const candidates = activeVulnerabilityFindings(detail);
+  const confirmed = candidates.filter((finding) => finding.verdict === 'confirmed').length;
+  const rejected = candidates.filter((finding) => finding.verdict === 'rejected').length;
+  const awaiting = candidates.filter((finding) => !finding.verdict).length;
   return <section className="panel" aria-label="人工复核清单">
     <div className="panel-head"><span className="panel-title">人工复核清单</span><span className="faint small">在「发现与复核」中记录结论和附件</span></div>
-    <div className="panel-body small">待复核 {detail.metrics.awaiting_verification} 条 · 确认 {confirmed} 条 · 驳回 {rejected} 条</div>
+    <div className="panel-body small">漏洞候选待复核 {awaiting} 条 · 确认漏洞 {confirmed} 条 · 排除漏洞 {rejected} 条；排查记录的历史复核单独保留。</div>
   </section>;
 }
 
 /** Historical target queue report retained only for old stored runs. */
 function LegacyTargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
-  const { run, findings, metrics, units = [] } = detail;
+  const { run, units = [] } = detail;
   const projectMap = detail.project_map;
   const task = run.task_spec;
   const goals = detail.goals ?? [];
@@ -463,7 +474,7 @@ function LegacyTargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
           })}
         </Disclosure>}</div>
       </section>
-      <ReviewSummary detail={detail} confirmed={findings.filter((finding) => finding.verdict === 'confirmed').length} rejected={findings.filter((finding) => finding.verdict === 'rejected').length} />
+      <ReviewSummary detail={detail} />
     </div>
   );
 }

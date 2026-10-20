@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .config import VERSION
 from .db import WITHDRAWN_FINDING_DISPOSITIONS
+from .finding_policy import is_vulnerability_finding, partition_findings, source_observations
 from .runtime import AgentPolicy
 from .schemas import CATEGORY_LABELS
 
@@ -287,6 +288,10 @@ def _evidence_text(evidence: list[dict]) -> str:
 def _validation_text(finding: dict) -> str:
     """Say what actually happened to the citations, including the partial case."""
     problems = finding.get("validation_errors") or []
+    if finding.get("validation_state") == "observation":
+        return "排查依据（不作漏洞判定）"
+    if finding.get("validation_state") == "invalid_finding":
+        return "存在可核验引用，但未满足漏洞候选要求——" + "；".join(problems)
     if finding.get("validation_state") == "candidate":
         if not problems:
             return "通过"
@@ -484,8 +489,9 @@ def _finding_block(finding: dict, index: int) -> list[str]:
 def _task_finding_block(finding: dict, index: int) -> list[str]:
     """Render a generic task result without inventing an attack-chain template."""
     kind = finding.get("finding_kind") or "source_observation"
+    label = "漏洞候选" if is_vulnerability_finding(finding) else "排查记录"
     lines = [
-        f"#### {index}. [目标发现 / {kind}] {finding['title']}",
+        f"#### {index}. [{label} / {kind}] {finding['title']}",
         "",
         f"- 证据行号：{_evidence_text(finding.get('evidence') or [])}",
         f"- 证据校验：{_validation_text(finding)}",
@@ -543,6 +549,39 @@ def _task_finding_block(finding: dict, index: int) -> list[str]:
                 )
         lines.append("")
     return lines
+
+
+def _source_observation_section(bundle: dict) -> list[str]:
+    records = bundle.get("source_observations") or []
+    if not records:
+        return []
+    lines = [
+        "### 排查记录（不计入漏洞）", "",
+        f"共 {len(records)} 条源码观察、防护说明或待补充风险信息，保留为排查依据，不计入漏洞候选或漏洞确认数量，也不能据此判定整个项目安全。", "",
+    ]
+    findings = bundle.get("findings") or []
+    if (bundle.get("run") or {}).get("status") == "completed" and not any(
+        item.get("validation_state") == "candidate" and
+        str(item.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
+        for item in findings
+    ):
+        lines += ["本历史运行沿用原有达标状态；按当前漏洞口径，排查记录不能证明已发现漏洞。", ""]
+    for index, record in enumerate(records, 1):
+        lines.extend(_task_finding_block(record, index))
+    return lines
+
+
+def _partition_bundle(bundle: dict) -> dict:
+    """Keep API and direct historical report exports on the same result boundary."""
+    findings = bundle.get("findings") or []
+    vulnerabilities, _ = partition_findings(findings)
+    records = list(bundle.get("source_observations") or [])
+    known_ids = {item.get("id") for item in records if item.get("id")}
+    for record in source_observations(findings, bundle.get("tasks") or bundle.get("work_items") or []):
+        if record.get("id") not in known_ids:
+            records.append(record)
+            known_ids.add(record.get("id"))
+    return {**bundle, "findings": vulnerabilities, "source_observations": records}
 
 
 def adapted_script_name(finding: dict, record: dict) -> str:
@@ -716,7 +755,7 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
     poc_rule = (
         "达成结果要求附带可人工复核的 POC；缺少 POC 的 achieved 输出会被要求纠正，不能达成目标。"
         if task.get("require_poc")
-        else "本任务允许源码事实、配置、架构或边界结论不附带 POC；若发现是漏洞，仍可附带 POC 供人工验证。"
+        else "本任务不强制漏洞候选附带 POC；安全防护和普通源码事实只保留为排查记录，不构成漏洞发现。"
     )
     doc: list[str] = [
         "# 项目源码目标审计报告",
@@ -810,6 +849,7 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
     elif not withdrawn:
         doc += ["本次没有保存目标发现。请结合第 3 节的工作项状态和执行轨迹判断这是不可达、未决还是尚未开始。", ""]
     doc += _withdrawn_section(withdrawn)
+    doc += _source_observation_section(bundle)
     doc += [
         "## 5. 结论限制与后续动作",
         "",
@@ -871,7 +911,7 @@ def _render_task_markdown(bundle: dict) -> str:
         "cancelled": "已取消", "interrupted": "已中断", "failed": "失败", "running": "执行中", "pending": "等待执行",
     }
     state_label = terminal_labels.get(str(run.get("status")), str(run.get("status") or "—"))
-    poc_rule = "达成发现必须包含可人工复核的 POC。" if task.get("require_poc") else "源码事实、边界与架构结论可不附带 POC；漏洞发现仍可提供 POC 供人工验证。"
+    poc_rule = "达成发现必须包含可人工复核的 POC。" if task.get("require_poc") else "不强制漏洞候选附带 POC；安全防护和普通源码事实只保留为排查记录，不能达成漏洞目标。"
     map_stats = project_map.get("stats") or {}
     doc: list[str] = [
         "# 项目级白盒审计报告",
@@ -970,6 +1010,7 @@ def _render_task_markdown(bundle: dict) -> str:
     elif not withdrawn:
         doc += ["尚无已保存的源码发现。请结合 Planner 回合、任务状态与缺失上下文判断当前结果。", ""]
     doc += _withdrawn_section(withdrawn)
+    doc += _source_observation_section(bundle)
     doc += ["## 6. 覆盖统计、固定调查与侦察简报", ""]
     doc.extend(
         _observation_block(bundle.get("observations") or [], bundle.get("investigations") or {})
@@ -986,6 +1027,7 @@ def _render_task_markdown(bundle: dict) -> str:
 
 
 def render_markdown(bundle: dict) -> str:
+    bundle = _partition_bundle(bundle)
     run = bundle["run"]
     # Planner v2 runs carry a durable session and dynamic task graph.  Older goal
     # records predate those tables and remain exportable through their historical
@@ -1505,6 +1547,7 @@ def render_markdown(bundle: dict) -> str:
     # is rendered by the task layouts above, so this block has no place in this chapter's
     # outline and would misnumber 6.5–6.7 as a chapter section for a run that has no Planner.
     doc += _withdrawn_section(withdrawn)
+    doc += _source_observation_section(bundle)
     # Always emitted, even with nothing to attribute: an omitted section renumbers 6.6 and 6.7
     # and reads as if the chapter were missing from the outline rather than empty. Silence here
     # also hides the two very different reasons the table can be empty — no mistakes, or nobody
@@ -1589,7 +1632,7 @@ def render_markdown(bundle: dict) -> str:
 
 
 def render_json(bundle: dict) -> str:
-    return json.dumps(bundle, ensure_ascii=False, indent=2, default=str)
+    return json.dumps(_partition_bundle(bundle), ensure_ascii=False, indent=2, default=str)
 
 
 def safe_name(value: str) -> str:
@@ -1613,7 +1656,8 @@ def collect_evidence(bundle: dict, evidence_dir: Path) -> list[tuple[str, bytes]
     re-run when questioning the rejection.
     """
     files: list[tuple[str, bytes]] = []
-    for finding in bundle.get("findings") or []:
+    bundle = _partition_bundle(bundle)
+    for finding in [*(bundle.get("findings") or []), *(bundle.get("source_observations") or [])]:
         poc = finding.get("poc") or {}
         script = poc.get("script")
         if script:

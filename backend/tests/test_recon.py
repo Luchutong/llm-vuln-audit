@@ -15,7 +15,7 @@ from audit import agent, recon
 from audit.config import ModelConfig
 from audit.runtime import AgentPolicy
 from audit.source import SourceRepository
-from tests.code_model import ModelFactory, call, final_answer
+from tests.code_model import ModelFactory, call, code, final_answer
 
 CONFIG = ModelConfig(model="test", base_url="https://example.invalid", api_key="private-test-key")
 
@@ -110,6 +110,26 @@ def recon_run(monkeypatch, script, project):
     return result, events, factory
 
 
+def test_recon_can_parse_navigation_json_without_budget_text_corrupting_it(monkeypatch, project):
+    result, events, factory = recon_run(monkeypatch, [code('''
+import json
+paths = json.loads(find_files(pattern='bootstrap.php'))
+path = paths['matches'][0]['path']
+listing = json.loads(list_tree(path='src'))
+assert path == listing['files_here'][0]['path']
+outline = json.loads(file_summary(path=path))
+print(read_file(path=path, start=1, end=3))
+final_answer({'summary': '已确认入口与引导文件，下一步应由 worker 核对数据库调用。',
+ 'reading_plan': [{'path': path, 'start_line': 1, 'end_line': 3, 'why': '引导文件包含数据库调用。'}]})
+''')], project)
+    assert result["status"] == "completed", result
+    assert result["usage"]["requests"] == 1
+    assert result["usage"]["tool_calls"] == 4
+    assert len(factory.prompts) == 1
+    assert result["files_examined"] == ["src/bootstrap.php"]
+    assert not [event for event in events if event["kind"] == "agent_code" and event.get("error")]
+
+
 def test_recon_brief_drops_everything_the_host_cannot_confirm(monkeypatch, project):
     """A hallucinated path costs one entry, not a retry: the rest of the brief is usable."""
     script = [
@@ -197,11 +217,11 @@ def test_recon_failure_leaves_the_planner_round_alive(monkeypatch, project):
 def test_recon_requests_and_spans_stay_out_of_the_planner(monkeypatch, project):
     """Recon spends its own budget, and its tool spans never merge with the Planner's."""
     factory = ModelFactory({"planner_decision": [
-        call("investigate_project", question="数据库访问集中在哪？"),
+        code('report_progress("准备侦察数据库访问入口。")\nprint(investigate_project(question="数据库访问集中在哪？"))'),
         final_answer(planner_decision_payload()),
     ]})
     recon_factory = ModelFactory([
-        call("grep", query="PDO"),
+        code('report_progress("定位数据库访问所在文件。")\nprint(grep(query="PDO"))'),
         final_answer({
             "summary": "数据库访问集中在 src/bootstrap.php 的 db() 函数。",
             "entry_candidates": [{"path": "public/index.php", "start_line": 1, "end_line": 3, "why": "入口"}],
@@ -245,6 +265,16 @@ def test_recon_requests_and_spans_stay_out_of_the_planner(monkeypatch, project):
     ]
     assert planner_tools and all(event["call_id"].startswith("planner-tool-") for event in planner_tools)
     assert {event["call_id"] for event in recon_tools}.isdisjoint({event["call_id"] for event in planner_tools})
+    planner_id = planner_terminal["agent_invocation_id"]
+    recon_ids = {event["agent_invocation_id"] for event in recon_tools}
+    assert len(recon_ids) == 1 and planner_id not in recon_ids
+    assert all(event["parent_agent_invocation_id"] == planner_id for event in recon_tools)
+    updates = [event for event in events if event["kind"] == "audit_progress"]
+    assert len(updates) == 2
+    assert updates[0]["agent_invocation_id"] == planner_id
+    assert updates[1]["agent_invocation_id"] in recon_ids
+    assert updates[1]["role"] == "recon"
+    assert all(event["request_index"] == 1 for event in updates)
 
 
 def test_a_second_reconnaissance_call_in_the_same_round_is_refused(monkeypatch, project):

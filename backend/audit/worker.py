@@ -20,6 +20,7 @@ from .config import ModelConfig, Settings
 from .db import WITHDRAWN_FINDING_DISPOSITIONS, Store
 from .events import EventBus
 from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
+from .finding_policy import is_vulnerability_finding
 from .health import ModelHealth
 from .prompts import system_prompt
 from .source import SourceRepository
@@ -34,6 +35,46 @@ MODEL_FAILURE_REASONS = frozenset(("model_error", "request_timeout"))
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalise_task_findings(outcome: dict) -> dict:
+    """Keep source observations in the attempt without treating them as vulnerabilities.
+
+    The host repeats this boundary even when an integration bypasses the model schema,
+    including older workers which returned safe data-flow facts as achieved findings.
+    A malformed vulnerability stays a finding so it fails validation rather than being
+    quietly re-labelled as a safe observation.
+    """
+    result = dict(outcome.get("result") or {})
+    payloads = result.get("findings")
+    if not isinstance(payloads, list):
+        payloads = []
+    else:
+        payloads = list(payloads)
+    legacy = result.get("finding")
+    if isinstance(legacy, dict) and legacy not in payloads:
+        payloads.insert(0, legacy)
+    observations = list(result.get("observations") or [])
+    findings = []
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        kind = str(payload.get("kind") or payload.get("finding_kind") or "source_observation").strip().casefold()
+        if kind in {"source_observation", "data_flow", "security_boundary"}:
+            observations.append({
+                "title": str(payload.get("title") or "源码观察"),
+                "kind": kind,
+                "summary": str(payload.get("summary") or ""),
+                "evidence": str(payload.get("evidence") or ""),
+            })
+        else:
+            findings.append(payload)
+    result.update(finding=findings[0] if findings else None, findings=findings, observations=observations)
+    if outcome.get("outcome") == "achieved" and not findings and observations:
+        result.update(outcome="no_evidence", terminal_reason="source_observations_only")
+        # Preserve the model call's successful terminal reason for health accounting.
+        return {**outcome, "outcome": "no_evidence", "result": result}
+    return {**outcome, "result": result}
 
 
 class AuditWorker:
@@ -254,6 +295,7 @@ class AuditWorker:
                 return
 
             self.store.mark_unit_running(run_id, unit["unit_id"])
+            invocation_id = uuid.uuid4().hex
             self.bus.emit(
                 run_id,
                 unit["unit_id"],
@@ -264,6 +306,7 @@ class AuditWorker:
                     "start_line": unit["start_line"],
                     "end_line": unit["end_line"],
                     "priority": unit["priority"],
+                    "agent_invocation_id": invocation_id, "request_index": 0,
                 },
             )
 
@@ -275,6 +318,8 @@ class AuditWorker:
                 # model advances to another graph node or receives another tool result.
                 kind = event.get("kind", "agent_event")
                 payload = {key: value for key, value in event.items() if key != "kind"}
+                payload.setdefault("agent_invocation_id", invocation_id)
+                payload.setdefault("request_index", 0)
                 self.bus.emit(run_id, unit["unit_id"], kind, payload)
                 for key in checkpoint:
                     if key in event:
@@ -300,6 +345,7 @@ class AuditWorker:
                 budgets=run["budgets"],
                 policy=policy_from_snapshot(run["agent_policy"]) if run.get("agent_policy", {}).get("version") == "whitebox-2" else AgentPolicy(),
                 on_event=record,
+                agent_invocation_id=invocation_id,
             )
 
             remaining_checks = {name: check for name, check in outcome.get("checks", {}).items() if name not in saved_categories}
@@ -327,7 +373,8 @@ class AuditWorker:
                     unit["unit_id"],
                     "unit_incomplete",
                     {"reason": outcome["incomplete"], "error": outcome["error"], "usage": outcome["usage"],
-                     "settled_categories": partial},
+                     "settled_categories": partial, "agent_invocation_id": invocation_id,
+                     "request_index": outcome["usage"].get("model_attempts", outcome["usage"].get("requests", 0))},
                 )
                 # A request-level timeout means the provider did not produce an answer.
                 # It must count toward the same breaker as connection/HTTP failures;
@@ -378,6 +425,8 @@ class AuditWorker:
                     "usage": outcome["usage"],
                     "findings": stored,
                     "exploration_incomplete": partial,
+                    "agent_invocation_id": invocation_id,
+                    "request_index": outcome["usage"].get("model_attempts", outcome["usage"].get("requests", 0)),
                 },
             )
 
@@ -530,9 +579,11 @@ class AuditWorker:
             plan = self.store.begin_planner_round(run_id, session["session_id"])
             if plan is None:
                 return "no_round"
+            invocation_id = uuid.uuid4().hex
             self.bus.emit(run_id, None, "planner_round_started", {
                 "plan_id": plan["id"], "round": plan["round_no"], "revision": plan["revision"],
                 "session_id": session["session_id"],
+                "agent_invocation_id": invocation_id, "request_index": 0,
             })
 
             def record(event: dict) -> None:
@@ -545,7 +596,11 @@ class AuditWorker:
                     "plan_id": plan["id"],
                     "session_id": session["session_id"],
                     "role": str(event.get("role") or "planner"),
+                    "planner_round": plan["round_no"],
+                    "revision": plan["revision"],
                 })
+                payload.setdefault("agent_invocation_id", invocation_id)
+                payload.setdefault("request_index", 0)
                 self.bus.emit(run_id, None, kind, payload)
 
             context = self.store.list_planner_context(run_id, project_map=project_map)
@@ -566,6 +621,7 @@ class AuditWorker:
                 pins=self.store,
                 run_id=run_id,
                 plan_id=plan["id"],
+                agent_invocation_id=invocation_id,
                 on_event=record,
             )
             failed = await account_model_result(outcome, "Planner")
@@ -702,6 +758,7 @@ class AuditWorker:
                         return
                     attempt = int(planner_task["attempts"]) + 1
                     task_id = planner_task["id"]
+                    invocation_id = uuid.uuid4().hex
                     self.bus.emit(run_id, task_id, "planner_task_started", {
                         "task_id": task_id,
                         "task_key": planner_task["task_key"],
@@ -713,6 +770,7 @@ class AuditWorker:
                         "max_attempts": planner_task["max_attempts"],
                         "dependencies": planner_task["dependencies"],
                         "context_spec": planner_task["context_spec"],
+                        "agent_invocation_id": invocation_id, "request_index": 0,
                     })
 
                     def record(event: dict) -> None:
@@ -725,6 +783,8 @@ class AuditWorker:
                             "attempt": attempt,
                             "role": "worker",
                         })
+                        payload.setdefault("agent_invocation_id", invocation_id)
+                        payload.setdefault("request_index", 0)
                         self.bus.emit(run_id, task_id, kind, payload)
 
                     # ARTEX lets a worker build on other workers' durable activity.
@@ -756,6 +816,7 @@ class AuditWorker:
                         planner_task=planner_task,
                         run_task=task_spec,
                         attempt=attempt,
+                        agent_invocation_id=invocation_id,
                         allowed_paths=allowed_paths_for_run(run),
                         dependency_handoffs=dependency_handoffs,
                         peer_trace_search=search_peer_traces,
@@ -765,11 +826,12 @@ class AuditWorker:
                         policy=policy,
                         on_event=record,
                     )
+                    outcome = _normalise_task_findings(outcome)
                     prepared_findings: list[dict] = []
                     if outcome["outcome"] == "achieved":
                         prepared_findings = self._build_planner_findings(run, planner_task, outcome)
                         if not any(item["candidate"] for item in prepared_findings):
-                            message = "Planner worker 的发现未通过持久化证据校验，不能满足目标"
+                            message = "Planner worker 未提交风险等级明确且通过证据校验的漏洞，不能满足目标"
                             outcome = {
                                 **outcome,
                                 "outcome": "blocked",
@@ -845,6 +907,7 @@ class AuditWorker:
                 item
                 for item in self.store.list_findings(run_id)
                 if item.get("validation_state") == "candidate"
+                and is_vulnerability_finding(item)
                 and str(item.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
             ]
 
@@ -982,6 +1045,7 @@ class AuditWorker:
                     continue
                 if not any(
                     item.get("validation_state") == "candidate"
+                    and is_vulnerability_finding(item)
                     and str(item.get("disposition") or "open") not in WITHDRAWN_FINDING_DISPOSITIONS
                     for item in self.store.list_findings(run_id)
                 ):
@@ -1190,6 +1254,7 @@ class AuditWorker:
                         )
                         continue
 
+                    invocation_id = uuid.uuid4().hex
                     self.bus.emit(
                         run_id,
                         unit["unit_id"],
@@ -1202,6 +1267,7 @@ class AuditWorker:
                             "focus": work.get("focus") or "",
                             "file_path": unit["file_path"],
                             "symbol": unit["symbol"],
+                            "agent_invocation_id": invocation_id, "request_index": 0,
                         },
                     )
 
@@ -1216,6 +1282,8 @@ class AuditWorker:
                             # trace unambiguous even when workers interleave.
                             "attempt": int(work["attempt"]) + 1,
                         })
+                        payload.setdefault("agent_invocation_id", invocation_id)
+                        payload.setdefault("request_index", 0)
                         self.bus.emit(run_id, unit["unit_id"], kind, payload)
 
                     outcome = await pursue_task_work(
@@ -1225,6 +1293,7 @@ class AuditWorker:
                         unit=unit,
                         task=task,
                         attempt=int(work["attempt"]) + 1,
+                        agent_invocation_id=invocation_id,
                         focus=work.get("focus") or "",
                         allowed_paths=allowed_paths_for_run(run),
                         config=model_config,
@@ -1236,6 +1305,7 @@ class AuditWorker:
                         ),
                         on_event=record,
                     )
+                    outcome = _normalise_task_findings(outcome)
 
                     # The agent validates its own citations against the exact source
                     # ledger.  Persisting repeats the validation with snapshot bounds;
@@ -1244,7 +1314,7 @@ class AuditWorker:
                     if outcome["outcome"] == "achieved":
                         prepared_findings = self._build_goal_findings(run, unit, outcome)
                         if not any(item["candidate"] for item in prepared_findings):
-                            message = "目标发现未通过持久化证据校验，不能满足任务验收条件"
+                            message = "目标发现须为风险等级明确且通过证据校验的漏洞，才能满足任务验收条件"
                             outcome = {
                                 **outcome,
                                 "outcome": "blocked",
@@ -1423,7 +1493,10 @@ class AuditWorker:
                 known_paths=file_lines,
             )
             evidence, problems = validate_evidence(cited, file_lines, ranges)
-            candidate = bool(evidence)
+            vulnerability = is_vulnerability_finding(payload)
+            candidate = bool(evidence) and vulnerability
+            if not vulnerability:
+                problems.append("A vulnerability kind and a low/medium/high/critical risk level are required")
             finding_id = uuid.uuid4().hex
             raw_preconditions = str(payload.get("preconditions") or "").strip()
             kind = str(payload.get("kind") or "source_observation").strip() or "source_observation"
@@ -1443,7 +1516,7 @@ class AuditWorker:
                 "category": category,
                 "finding_kind": kind,
                 "title": title,
-                "severity": str(payload.get("severity") or "informational"),
+                "severity": str(payload.get("severity") or "unknown"),
                 "summary": str(payload.get("summary") or ""),
                 "evidence": evidence,
                 "input_source": str(payload.get("input_source") or ""),
@@ -1454,7 +1527,7 @@ class AuditWorker:
                 "missing_context": list(result.get("missing_context") or []),
                 "poc": payload.get("poc"),
                 "remediation": str(payload.get("remediation") or ""),
-                "validation_state": "candidate" if candidate else "invalid_evidence",
+                "validation_state": "candidate" if candidate else ("invalid_evidence" if not evidence else "invalid_finding"),
                 "validation_errors": problems,
                 "verdict": None,
                 "created_at": _now(),

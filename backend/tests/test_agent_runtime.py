@@ -805,6 +805,7 @@ def test_goal_executor_returns_achieved_only_with_exact_source_evidence(monkeypa
         "missing_context": [],
         "finding": {
             "title": "未编码的请求参数输出",
+            "kind": "vulnerability",
             "severity": "high",
             "summary": "请求参数在 a.php 中直接输出。",
             "evidence": "a.php:3-3",
@@ -900,6 +901,7 @@ def test_goal_executor_does_not_accept_achieved_without_the_required_poc(monkeyp
         "missing_context": [],
         "finding": {
             "title": "未编码的请求参数输出",
+            "kind": "vulnerability",
             "severity": "high",
             "summary": "请求参数在 a.php 中直接输出。",
             "evidence": "a.php:3-3",
@@ -940,8 +942,8 @@ def test_goal_executor_does_not_accept_achieved_without_the_required_poc(monkeyp
     assert len(factory.built().requests) == 1 + AgentPolicy().output_corrections
 
 
-def test_goal_executor_allows_a_source_fact_goal_without_poc_when_explicitly_disabled(monkeypatch):
-    """The POC gate is configurable for non-vulnerability source facts."""
+def test_goal_executor_allows_a_vulnerability_without_poc_when_explicitly_disabled(monkeypatch):
+    """An evidence-backed vulnerability does not require a POC unless requested."""
     factory = ModelFactory(Always([final_answer({
         "outcome": "achieved",
         "summary": "已确认输出点缺少 HTML 上下文编码。",
@@ -950,6 +952,7 @@ def test_goal_executor_allows_a_source_fact_goal_without_poc_when_explicitly_dis
         "missing_context": [],
         "finding": {
             "title": "未编码的请求参数输出",
+            "kind": "vulnerability",
             "severity": "medium",
             "summary": "请求参数在 a.php 中直接输出。",
             "evidence": "a.php:3-3",
@@ -987,6 +990,96 @@ def test_goal_executor_allows_a_source_fact_goal_without_poc_when_explicitly_dis
     assert len(factory.built().requests) == 1
 
 
+def run_audit_assessment(monkeypatch, payload):
+    """Exercise schema and host evidence validation with a controlled worker answer."""
+    factory = ModelFactory(Always([final_answer(payload)]))
+    monkeypatch.setattr(agent, "build_code_model", factory)
+    events = []
+    result = asyncio.run(agent.pursue_task_work(
+        repository=Repository(), snapshot_id="s1", snapshot_name="demo.zip", unit=UNIT,
+        task={
+            "objective": "查找用户输入导致的可达漏洞风险。",
+            "success_criteria": "至少一处带源码证据和明确等级的漏洞风险。",
+            "require_poc": True,
+        },
+        attempt=1, config=CONFIG,
+        budgets={"responses": 8, "tools": 16, "seconds": 2},
+        policy=AgentPolicy(request_seconds=0.5), on_event=events.append,
+    ))
+    return result, events, factory
+
+
+def test_safe_source_observation_is_saved_without_becoming_an_achieved_finding(monkeypatch):
+    observation = {
+        "title": "输入到输出的数据流",
+        "kind": "data_flow",
+        "summary": "当前源码行将请求参数传给输出语句，尚未核实响应上下文。",
+        "evidence": "a.php:3-3",
+    }
+    result, events, factory = run_audit_assessment(monkeypatch, {
+        "outcome": "no_evidence",
+        "summary": "当前方向尚未证明可操作的漏洞。",
+        "reasoning": "已读取输入和输出语句，仍缺少决定风险的响应上下文。",
+        "observations": [observation],
+    })
+
+    assert result["outcome"] == "no_evidence", result
+    assert result["result"]["observations"] == [observation]
+    assert result["result"]["finding"] is None
+    assert result["result"]["findings"] == []
+    assessment = next(event for event in events if event["kind"] == "task_assessment")
+    assert assessment["observations"] == [observation]
+    assert assessment["evidence"]["findings"] == []
+    assert assessment["evidence"]["observations"][0]["title"] == observation["title"]
+    assert assessment["evidence"]["references"] == [{"path": "a.php", "start_line": 3, "end_line": 3}]
+    assert len(factory.built().requests) == 1
+    assert any("绝不能放入 findings" in prompt for prompt in factory.prompts)
+
+
+@pytest.mark.parametrize("evidence", ["a.php:2-2", "unseen.php:1-3"])
+def test_observations_cannot_claim_source_lines_the_worker_did_not_read(monkeypatch, evidence):
+    result, events, _ = run_audit_assessment(monkeypatch, {
+        "outcome": "no_evidence",
+        "summary": "文件名规范化阻止当前目录穿越路径。",
+        "reasoning": "结论声称由规范化处理的源码行支持。",
+        "observations": [{
+            "title": "目录穿越方向已排除",
+            "kind": "security_boundary",
+            "summary": "写入前对输入文件名进行规范化处理。",
+            "evidence": evidence,
+        }],
+    })
+
+    assert result["outcome"] == "continue", result
+    assert result["terminal_reason"] == "invalid_output"
+    assert result["result"]["observations"] == []
+    assert not any(event["kind"] == "task_assessment" for event in events)
+
+
+@pytest.mark.parametrize("finding", [
+    {"kind": "security_boundary"},
+    {"kind": "data_flow", "severity": "low"},
+    {"kind": "vulnerability"},
+])
+def test_a_safe_or_ungraded_claim_cannot_be_accepted_as_a_vulnerability(monkeypatch, finding):
+    result, events, _ = run_audit_assessment(monkeypatch, {
+        "outcome": "achieved",
+        "summary": "已确认源码中的文件名规范化措施。",
+        "reasoning": "文件名进入写入语句前已清理目录部分。",
+        "finding": {
+            "title": "文件名经过规范化处理",
+            "summary": "源码对写入路径的文件名进行规范化处理。",
+            "evidence": "a.php:3-3",
+            **finding,
+        },
+    })
+
+    assert result["outcome"] == "continue", result
+    assert result["terminal_reason"] == "invalid_output"
+    assert result["result"]["findings"] == []
+    assert not any(event["kind"] == "task_assessment" for event in events)
+
+
 def test_goal_executor_persists_host_observed_scope_limits_with_the_assessment(monkeypatch):
     """Out-of-scope dependency notes are durable even if the model omits them."""
     class ScopeLimitedRepository(Repository):
@@ -999,16 +1092,17 @@ def test_goal_executor_persists_host_observed_scope_limits_with_the_assessment(m
             }
 
     factory = ModelFactory({"task_execute": [final_answer({
-        "outcome": "achieved",
+        "outcome": "no_evidence",
         "summary": "已确认当前函数读取请求参数并输出。",
         "reasoning": "结论仅来自当前单元中已显示的请求参数与输出语句。",
         "next_focus": "",
         "missing_context": [],
-        "finding": {
+        "observations": [{
             "title": "请求参数输出位置",
+            "kind": "data_flow",
             "summary": "当前函数将请求参数传给输出语句。",
             "evidence": "a.php:3-3",
-        },
+        }],
     })]})
     monkeypatch.setattr(agent, "build_code_model", factory)
     events: list[dict] = []
@@ -1033,7 +1127,9 @@ def test_goal_executor_persists_host_observed_scope_limits_with_the_assessment(m
         on_event=events.append,
     ))
 
-    assert result["outcome"] == "achieved", result
+    assert result["outcome"] == "no_evidence", result
+    assert result["result"]["findings"] == []
+    assert result["result"]["observations"][0]["kind"] == "data_flow"
     assert any("无法解析的依赖" in note for note in result["result"]["missing_context"])
     assessment = next(event for event in events if event["kind"] == "task_assessment")
     assert assessment["missing_context"] == result["result"]["missing_context"]
@@ -1056,17 +1152,17 @@ def test_planner_worker_preloads_a_multi_file_bundle_when_no_tools_are_available
             }
 
     factory = ModelFactory({"task_execute": [final_answer({
-        "outcome": "achieved",
+        "outcome": "no_evidence",
         "summary": "已读取入口与输出文件中的数据流。",
         "reasoning": "入口读取请求参数，另一文件将同一变量输出，两个行号均已展示。",
         "next_focus": "",
         "missing_context": [],
-        "finding": {
+        "observations": [{
             "title": "跨文件请求参数输出",
             "kind": "data_flow",
             "summary": "请求参数在入口读取后进入输出文件。",
             "evidence": "a.php:3-3; b.php:2-2",
-        },
+        }],
     })]})
     monkeypatch.setattr(agent, "build_code_model", factory)
     events: list[dict] = []
@@ -1095,7 +1191,9 @@ def test_planner_worker_preloads_a_multi_file_bundle_when_no_tools_are_available
         on_event=events.append,
     ))
 
-    assert result["outcome"] == "achieved", result
+    assert result["outcome"] == "no_evidence", result
+    assert result["result"]["findings"] == []
+    assert result["result"]["observations"][0]["evidence"] == "a.php:3-3; b.php:2-2"
     assert any("文件: a.php" in message and "3 | $value = $_GET['x'];" in message for message in factory.prompts)
     assert any("b.php:2 | echo $value;" in message for message in factory.prompts)
     assert {item["path"] for item in result["seen"]} == {"a.php", "b.php"}
@@ -1108,7 +1206,13 @@ def test_planner_worker_can_search_a_bounded_peer_trace_as_an_untrusted_lead(mon
     searches: list[str] = []
     tables = offered_tools(monkeypatch)
     factory = ModelFactory({"task_execute": [
-        call("search_peer_traces", query="auth"),
+        code('import json\n'
+             'peers = json.loads(search_peer_traces(query="auth"))\n'
+             'assert peers["traces"][0]["event_id"] == 19\n'
+             'print(peers["notice"])\n'
+             'detail = json.loads(get_peer_trace(task_key="entry-auth"))\n'
+             'assert detail["task_key"] == "entry-auth"\n'
+             'assert detail["traces"] == []'),
         final_answer({
             "outcome": "no_evidence",
             "summary": "同行记录提供了认证线索，但当前任务未取得决定性行号。",
@@ -1155,6 +1259,9 @@ def test_planner_worker_can_search_a_bounded_peer_trace_as_an_untrusted_lead(mon
 
     assert result["outcome"] == "no_evidence", result
     assert searches == ["auth"]
+    assert result["usage"]["requests"] == 2
+    assert result["usage"]["tool_calls"] == 2
+    assert not [event for event in events if event["kind"] == "agent_code" and event.get("error")]
     # The worker is offered the peer tools only when the run really has traces to search.
     assert {"search_peer_traces", "get_peer_trace"} <= tables[0]
     assert any(

@@ -308,7 +308,7 @@ def test_a_withdrawn_conclusion_cannot_close_the_goal(store, repository):
         rationale_summary="重跑证明该入口只接受白名单文件名。",
     )
 
-    with pytest.raises(ValueError, match="without a validated source finding"):
+    with pytest.raises(ValueError, match="without a validated vulnerability finding"):
         store.finalize_goal(run["id"], "met", "以现有结论收束。")
     assert store.get_task_goal(run["id"])["status"] == "open"
 

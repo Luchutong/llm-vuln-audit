@@ -17,6 +17,7 @@ from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from .evidence import seen_ranges
+from .finding_policy import is_vulnerability_finding
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -541,6 +542,25 @@ def _cited_paths(findings: Any) -> set[str]:
             if path:
                 found.add(path)
     return found
+
+
+def _compact_source_observations(result: dict) -> list[dict]:
+    """Carry bounded ruled-out paths and source facts into later audit work."""
+    observations = [item for item in result.get("observations") or [] if isinstance(item, dict)]
+    observations.extend(
+        item for item in result.get("findings") or []
+        if isinstance(item, dict) and not is_vulnerability_finding(item)
+    )
+    compact = []
+    for item in observations[:8]:
+        evidence = item.get("evidence") or ""
+        compact.append({
+            "title": str(item.get("title") or "")[:240],
+            "kind": str(item.get("kind") or item.get("finding_kind") or "source_observation")[:120],
+            "summary": str(item.get("summary") or "")[:1200],
+            "evidence": evidence[:2000] if isinstance(evidence, str) else evidence[:8] if isinstance(evidence, list) else "",
+        })
+    return compact
 
 
 def _public_base_url(value: object) -> str:
@@ -1307,8 +1327,13 @@ class Store:
         if outcome not in {"achieved", "continue", "no_evidence", "blocked"}:
             raise ValueError(f"unsupported task outcome: {outcome}")
         finding_records = list(findings or ([] if finding is None else [finding]))
-        if outcome == "achieved" and not finding_records:
-            raise ValueError("achieved task work requires a validated finding")
+        if outcome == "achieved" and (
+            not finding_records or any(
+                item.get("validation_state") != "candidate" or not is_vulnerability_finding(item)
+                for item in finding_records
+            )
+        ):
+            raise ValueError("achieved task work requires a validated vulnerability finding")
 
         goal_met = False
         finding_ids: list[str] = []
@@ -1996,6 +2021,7 @@ class Store:
                 "files": sorted({path for path in declared if path})[:MAX_TASK_FILES],
                 "summary": result.get("summary") if isinstance(result, dict) else "",
                 "basis_summary": result.get("reasoning") if isinstance(result, dict) else "",
+                "observations": _compact_source_observations(result) if isinstance(result, dict) else [],
                 "missing_context": result.get("missing_context", []) if isinstance(result, dict) else [],
                 "error": task.get("error"),
             })
@@ -2037,7 +2063,7 @@ class Store:
                 value["preview"] = value["preview"][:1600]
             return value
         if kind == "task_assessment":
-            return {
+            value = {
                 key: data.get(key)
                 for key in (
                     "outcome", "summary", "rationale", "next_focus", "missing_context",
@@ -2045,6 +2071,9 @@ class Store:
                 )
                 if key in data
             }
+            if "observations" in data:
+                value["observations"] = _compact_source_observations({"observations": data.get("observations")})
+            return value
         if kind == "planner_context_prepared":
             return {
                 key: data.get(key)
@@ -2088,11 +2117,11 @@ class Store:
             result = result if isinstance(result, dict) else {}
             findings = []
             for finding in result.get("findings") or []:
-                if not isinstance(finding, dict):
+                if not isinstance(finding, dict) or not is_vulnerability_finding(finding):
                     continue
                 findings.append({
                     key: finding.get(key)
-                    for key in ("title", "kind", "summary", "evidence")
+                    for key in ("title", "kind", "severity", "summary", "evidence")
                     if finding.get(key) not in (None, "")
                 })
             handoffs.append({
@@ -2105,6 +2134,7 @@ class Store:
                 "next_focus": result.get("next_focus") or "",
                 "missing_context": result.get("missing_context") or [],
                 "findings": findings[:8],
+                "observations": _compact_source_observations(result),
                 "error": item["error"],
             })
         return handoffs
@@ -2635,13 +2665,13 @@ class Store:
                     # the Planner retracted, replaced or marked as a duplicate is still in
                     # the database -- and still in the report -- but it is not something to
                     # close a run on.
-                    candidate = self._db.execute(
-                        "SELECT 1 FROM findings WHERE run_id = ? AND validation_state = 'candidate'"
-                        f" AND disposition NOT IN {_WITHDRAWN_SQL} LIMIT 1",
+                    candidates = self._db.execute(
+                        "SELECT finding_kind, category, severity FROM findings WHERE run_id = ? AND validation_state = 'candidate'"
+                        f" AND disposition NOT IN {_WITHDRAWN_SQL}",
                         (run_id,),
-                    ).fetchone()
-                    if candidate is None:
-                        raise ValueError("Planner cannot mark a goal met without a validated source finding")
+                    ).fetchall()
+                    if not any(is_vulnerability_finding(dict(item)) for item in candidates):
+                        raise ValueError("Planner cannot mark a goal met without a validated vulnerability finding")
                 elif state == "unreachable":
                     if queue["active"] or queue["blocked"] or not queue["total"]:
                         raise ValueError("unreachable requires exhausted evidence paths without blockers")

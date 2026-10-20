@@ -215,11 +215,11 @@ class PocBundle(BaseModel):
 
 
 class TaskSpec(BaseModel):
-    """A user-defined source-analysis target, frozen with the run that executes it."""
+    """A user-defined white-box vulnerability target, frozen with its run."""
 
-    objective: str = Field(min_length=8, max_length=2000, description="What the agents should establish from the selected source")
+    objective: str = Field(min_length=8, max_length=2000, description="Vulnerability risks the agents should investigate in the selected source")
     success_criteria: str = Field(
-        default="在所选源码中找到至少一处能由原始行号证据支撑的目标相关发现。",
+        default="在所选源码中找到至少一处由原始行号证据支撑、具有明确风险等级和触发条件的目标相关漏洞风险。",
         min_length=8,
         max_length=2000,
         description="Observable condition that lets the coordinator mark the goal reached",
@@ -241,7 +241,7 @@ class TaskSpec(BaseModel):
     stop_on_achieved: bool = Field(default=True, description="Stop queued work once an evidence-backed result reaches the goal")
     require_poc: bool = Field(
         default=False,
-        description="Require achieved results to include manually reviewable POCs; normally off for source facts and non-exploit tasks",
+        description="Require vulnerability findings to include manually reviewable POCs when enabled",
     )
 
     @field_validator("objective", "success_criteria")
@@ -251,25 +251,14 @@ class TaskSpec(BaseModel):
 
 
 class TaskFinding(BaseModel):
-    """A source-backed result for a user-defined task.
-
-    Unlike the fixed vulnerability checklist, a task may establish an architectural
-    fact, map a data flow, identify a security boundary, or report a vulnerability.
-    The common contract is therefore deliberately small: a concrete conclusion and
-    source citations.  Vulnerability-oriented fields remain available when they add
-    meaning, but they are never required for a general source-analysis task.
-    """
+    """An actionable, source-backed vulnerability, separate from audit observations."""
 
     title: str = Field(min_length=3, max_length=240, description="Short, concrete result title")
-    kind: str = Field(
-        default="source_observation",
-        min_length=3,
-        max_length=120,
-        description="Result type such as source_observation, data_flow, security_boundary, or vulnerability",
+    kind: Literal["vulnerability"] = Field(
+        description="Must explicitly identify an actionable vulnerability; neutral or safe facts belong in observations",
     )
-    severity: Severity | None = Field(
-        default=None,
-        description="Impact level when the result is a vulnerability or risk; omit for neutral source facts",
+    severity: Severity = Field(
+        description="Required vulnerability impact level: low, medium, high, or critical",
     )
     summary: str = Field(
         min_length=8,
@@ -304,6 +293,20 @@ class GoalFinding(TaskFinding):
     """
 
 
+class TaskObservation(BaseModel):
+    """Cited audit context or a ruled-out direction, never a vulnerability finding."""
+
+    title: str = Field(min_length=3, max_length=240)
+    kind: Literal["source_observation", "data_flow", "security_boundary"]
+    summary: str = Field(min_length=8, max_length=4000)
+    evidence: str = Field(min_length=3, max_length=2000, description="Displayed source citations as path:start-end")
+
+    @field_validator("title", "summary", "evidence")
+    @classmethod
+    def _concrete_observation_text(cls, value: str, info) -> str:
+        return _meaningful_text(value, info.field_name)
+
+
 class GoalAssessment(BaseModel):
     """One bounded executor pass over a source work item.
 
@@ -323,10 +326,13 @@ class GoalAssessment(BaseModel):
     missing_context: list[str] = Field(default_factory=list)
     # ``finding`` was the original single-result field.  Keep it for existing
     # clients and normalise it into ``findings`` below.  One work item can now
-    # surface several independently cited results, which matters for broad source
-    # goals such as mapping all authentication boundaries in a function.
+    # surface several independently cited vulnerabilities.
     finding: TaskFinding | None = None
     findings: list[TaskFinding] = Field(default_factory=list)
+    observations: list[TaskObservation] = Field(
+        default_factory=list,
+        description="Source facts, data flows, and security protections or ruled-out risks; these never satisfy the vulnerability goal",
+    )
 
     @model_validator(mode="after")
     def _outcome_has_the_required_payload(self) -> "GoalAssessment":
@@ -341,7 +347,7 @@ class GoalAssessment(BaseModel):
         self.finding = normalised[0] if normalised else None
 
         if self.outcome == "achieved" and not normalised:
-            raise ValueError("achieved requires an evidence-backed finding")
+            raise ValueError("achieved requires an evidence-backed vulnerability finding; observations cannot satisfy the goal")
         if self.outcome != "achieved" and normalised:
             raise ValueError("only achieved may attach a finding")
         if self.outcome == "continue":

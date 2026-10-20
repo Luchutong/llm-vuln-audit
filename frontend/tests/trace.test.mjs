@@ -328,3 +328,61 @@ test('coverage, pinned reuse and budget withdrawal summaries remain bounded and 
   assert.match(eventSummary(entries[3]), /导航线索/);
   assert.ok(entries.every((entry) => !eventSummary(entry).includes('{')));
 });
+
+test('explicit execution IDs isolate clipped recon history without relying on its start marker', () => {
+  const recon = (id, kind, invocation, preview) => tool(id, kind, {
+    role: 'recon', task_id: null, worker_id: null, attempt: null,
+    session_id: 'planner-session', plan_id: 'plan-a', phase: 'recon_explore',
+    agent_invocation_id: invocation, request_index: 1, preview,
+  });
+  const entries = normalizeTrace([
+    recon(1, 'tool_call', 'recon-one'), recon(2, 'tool_call', 'recon-two'),
+    recon(3, 'tool_result', 'recon-two', 'second'), recon(4, 'tool_result', 'recon-one', 'first'),
+  ]);
+  const spans = pairToolCalls(entries);
+  assert.equal(spans.length, 2);
+  assert.equal(spans[0].result.payload.preview, 'first');
+  assert.equal(spans[1].result.payload.preview, 'second');
+  assert.equal(spans[0].context.invocationId, 'recon-one');
+  assert.notEqual(spans[0].key, spans[1].key);
+});
+
+test('model request ordinals remain separate from worker attempts and repeated span IDs', () => {
+  const source = [
+    tool(1, 'model_request', { agent_invocation_id: 'worker-run', request_index: 8, attempt: 3 }),
+    tool(2, 'tool_call', { agent_invocation_id: 'worker-run', request_index: 8, attempt: 3 }),
+    tool(3, 'model_request', { agent_invocation_id: 'worker-run', request_index: 9, attempt: 3 }),
+    tool(4, 'tool_call', { agent_invocation_id: 'worker-run', request_index: 9, attempt: 3 }),
+    tool(5, 'tool_result', { agent_invocation_id: 'worker-run', request_index: 9, attempt: 3, preview: 'new step' }),
+  ];
+  const entries = normalizeTrace(source);
+  assert.equal(entries[0].context.attempt, '3');
+  assert.equal(entries[0].context.requestIndex, '8');
+  assert.equal(groupTrace(entries).length, 1);
+  const spans = pairToolCalls(entries);
+  assert.equal(spans.length, 2);
+  assert.equal(spans[0].result, undefined);
+  assert.equal(spans[1].result.payload.preview, 'new step');
+});
+
+test('old worker logs infer model steps without treating the task retry as a request ordinal', () => {
+  const entries = normalizeTrace([
+    tool(1, 'model_request', { attempt: 3 }), tool(2, 'tool_call', { attempt: 3 }),
+    tool(3, 'tool_result', { attempt: 3 }), tool(4, 'model_request', { attempt: 3 }),
+    tool(5, 'tool_call', { attempt: 3 }), tool(6, 'tool_result', { attempt: 3 }),
+  ]);
+  assert.ok(entries.every((entry) => entry.context.attempt === '3'));
+  assert.deepEqual(entries.map((entry) => entry.context.requestIndex), ['1', '1', '1', '2', '2', '2']);
+  assert.equal(pairToolCalls(entries).length, 2);
+});
+
+test('duplicate persisted frames never duplicate a tool row or public progress paragraph', () => {
+  const progress = tool(1, 'audit_progress', { message: '正在核对上传入口与文件名处理。', agent_invocation_id: 'worker-run', request_index: 1 });
+  const call = tool(2, 'tool_call', { agent_invocation_id: 'worker-run', request_index: 1 });
+  const result = tool(3, 'tool_result', { agent_invocation_id: 'worker-run', request_index: 1 });
+  const entries = normalizeTrace([progress, call, progress, result, call, result]);
+  assert.equal(entries.length, 3);
+  assert.equal(pairToolCalls(entries).length, 1);
+  assert.equal(eventSummary(entries[0]), '正在核对上传入口与文件名处理。');
+  assert.equal(normalizeTrace([progress, { ...progress, run_id: 'another-run' }]).length, 2);
+});

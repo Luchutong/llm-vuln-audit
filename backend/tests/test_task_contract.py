@@ -1,4 +1,4 @@
-"""Contracts for generic findings and Planner frontier decisions."""
+"""Contracts for vulnerability findings, audit observations, and Planner decisions."""
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +19,7 @@ from audit.schemas import (
     PlannerDecision,
     PlannerSourceRef,
     TaskFinding,
+    TaskObservation,
 )
 from audit.source import SourceRepository
 
@@ -60,38 +61,57 @@ def planner_task(key: str = "entry-flow", **changes) -> dict:
     return payload
 
 
-def test_task_finding_accepts_a_source_fact_without_attack_template_fields():
-    finding = TaskFinding(
+def test_source_facts_are_audit_observations_without_vulnerability_template_fields():
+    observation = TaskObservation(
         title="认证状态读取边界",
+        kind="security_boundary",
         summary="认证函数从 session 读取用户标识并据此决定后续分支。",
         evidence="src/auth.php:3-8",
     )
 
-    assert finding.kind == "source_observation"
-    assert finding.severity is None
-    assert finding.input_source == ""
-    assert finding.dangerous_operation == ""
+    assert observation.kind == "security_boundary"
+    assert "severity" not in observation.model_dump()
+
+
+@pytest.mark.parametrize("changes", [{}, {"kind": "data_flow", "severity": "low"}, {"kind": "vulnerability"}, {"severity": "high"}, {"kind": "vulnerability", "severity": None}, {"kind": "vulnerability", "severity": "informational"}])
+def test_task_finding_requires_explicit_vulnerability_kind_and_severity(changes):
+    with pytest.raises(ValidationError):
+        TaskFinding(
+            title="认证状态读取边界",
+            summary="认证函数从 session 读取用户标识并据此决定后续分支。",
+            evidence="src/auth.php:3-8",
+            **changes,
+        )
+
+
+def test_vulnerability_poc_remains_optional_without_the_run_requirement():
+    finding = TaskFinding(
+        title="未鉴权的账户资料读取",
+        kind="vulnerability",
+        severity="medium",
+        summary="请求参数选择账户记录后直接返回资料，读取路径没有认证检查。",
+        evidence="src/auth.php:3-8",
+    )
     assert finding.poc is None
-    assert finding.remediation == ""
 
 
 def test_goal_assessment_keeps_multiple_independently_cited_results():
     assessment = GoalAssessment(
         outcome="achieved",
-        summary="当前项目方向确认了认证边界和会话数据流。",
+        summary="当前项目方向确认了两个有独立证据的漏洞。",
         reasoning="两个结论分别由列出的源码行号支持。",
         findings=[
             {
-                "title": "认证状态读取边界",
-                "kind": "security_boundary",
-                "summary": "认证函数从 session 读取用户标识并据此决定后续分支。",
+                "title": "会话认证绕过风险",
+                "kind": "vulnerability",
+                "severity": "high",
+                "summary": "会话缺少用户标识时仍进入敏感处理分支，造成认证绕过。",
                 "evidence": "src/auth.php:3-5",
-                "protection": "会话用户标识是认证状态的输入边界。",
             },
             {
-                "title": "认证后的用户数据流",
-                "kind": "data_flow",
-                "summary": "认证后的用户标识被传入账户查询函数以加载账户资料。",
+                "title": "账户资料越权读取风险",
+                "kind": "vulnerability",
+                "summary": "客户端传入的用户标识被用于查询资料，未与会话用户绑定。",
                 "evidence": "src/auth.php:5-8",
                 "severity": "low",
                 "propagation": "session 用户标识传入账户查询函数。",
@@ -99,9 +119,28 @@ def test_goal_assessment_keeps_multiple_independently_cited_results():
         ],
     )
 
-    assert [item.kind for item in assessment.findings] == ["security_boundary", "data_flow"]
+    assert [item.kind for item in assessment.findings] == ["vulnerability", "vulnerability"]
     assert assessment.finding is not None
-    assert assessment.finding.title == "认证状态读取边界"
+    assert assessment.finding.title == "会话认证绕过风险"
+
+
+def test_safe_observations_do_not_satisfy_the_goal():
+    payload = {
+        "summary": "文件名已规范化，当前路径未证实目录穿越漏洞。",
+        "reasoning": "写入目标来自 basename 处理后的文件名，原始路径未直接使用。",
+        "observations": [{
+            "title": "文件名经过路径规范化",
+            "kind": "security_boundary",
+            "summary": "写入前使用 basename 去除输入路径的目录部分。",
+            "evidence": "src/upload.php:3-8",
+        }],
+    }
+    assessment = GoalAssessment(outcome="no_evidence", **payload)
+    assert len(assessment.observations) == 1
+    assert assessment.findings == []
+    assert assessment.finding is None
+    with pytest.raises(ValidationError, match="observations cannot satisfy"):
+        GoalAssessment(outcome="achieved", **payload)
 
 
 def test_run_request_has_one_public_planner_mode():

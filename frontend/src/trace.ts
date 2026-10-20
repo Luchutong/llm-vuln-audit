@@ -11,6 +11,10 @@ export interface TraceContext {
   worker: string;
   attempt: string;
   invocation: string;
+  /** Explicit execution identity; legacy recon records use invocation as a fallback. */
+  invocationId: string;
+  /** A model request ordinal, separate from a worker's task attempt. */
+  requestIndex: string;
 }
 
 export interface TraceEntry {
@@ -105,7 +109,13 @@ export function normalizeTrace(events: AuditEvent[]): TraceEntry[] {
   const plannerContext = new Map<string, { session: string; plan: string; round: string }>();
   const reconInvocations = new Map<string, string>();
   const phases = new Map<string, { name: string; epoch: number }>();
-  return [...events].sort((a, b) => a.id - b.id).map((event) => {
+  const requests = new Map<string, string>();
+  const unique = new Map<string, AuditEvent>();
+  for (const event of events) {
+    const key = JSON.stringify([event.run_id, event.id]);
+    if (!unique.has(key)) unique.set(key, event);
+  }
+  return [...unique.values()].sort((a, b) => a.id - b.id).map((event) => {
     const payload = payloadOf(event);
     const role = roleOf(event, payload);
     const previous = plannerContext.get(event.run_id);
@@ -120,7 +130,8 @@ export function normalizeTrace(events: AuditEvent[]): TraceEntry[] {
       if (!round && plan === previous?.plan) round = previous?.round ?? '';
       plannerContext.set(event.run_id, { session, plan, round });
     }
-    let invocation = '';
+    const invocationId = scalar(payload.agent_invocation_id);
+    let invocation = invocationId;
     if (role === 'recon') {
       session ||= previous?.session ?? '';
       plan ||= previous?.plan ?? '';
@@ -130,7 +141,7 @@ export function normalizeTrace(events: AuditEvent[]): TraceEntry[] {
         reconInvocations.set(owner, `recon:${event.id}`);
       }
       // Multiple reconnaissance calls within one plan reset their tool/step IDs.
-      invocation = reconInvocations.get(owner) ?? '';
+      invocation ||= reconInvocations.get(owner) ?? '';
     }
     const context: TraceContext = {
       run: event.run_id, role, session, plan, round,
@@ -139,9 +150,17 @@ export function normalizeTrace(events: AuditEvent[]): TraceEntry[] {
       worker: scalar(payload.worker_id),
       // Planner/recon model_request.attempt counts requests, not worker retries.
       attempt: first(event.attempt, ['planner', 'recon'].includes(role) && event.kind === 'model_request' ? undefined : payload.attempt),
-      invocation,
+      invocation, invocationId, requestIndex: '',
     };
     const groupKey = traceGroupKey(context);
+    // New events carry this ordinal on every activity. Legacy requests are counted
+    // within their existing scope: payload.attempt on workers is a task retry count.
+    let requestIndex = scalar(payload.request_index);
+    if (!requestIndex && event.kind === 'model_request') {
+      requestIndex = String(Number(requests.get(groupKey) || 0) + 1);
+    }
+    if (requestIndex) requests.set(groupKey, requestIndex);
+    context.requestIndex = requestIndex || requests.get(groupKey) || '';
     const previousPhase = phases.get(groupKey);
     const phase = first(payload.phase) || previousPhase?.name
       || (role === 'planner' ? 'planner_prepare' : role === 'recon' ? 'recon_explore' : role === 'worker' ? 'task_prepare' : 'lifecycle');
@@ -153,6 +172,8 @@ export function normalizeTrace(events: AuditEvent[]): TraceEntry[] {
 
 function invocationMatches(call: TraceEntry, result: TraceEntry): boolean {
   if (call.groupKey !== result.groupKey || call.phaseKey !== result.phaseKey) return false;
+  if (call.context.requestIndex && result.context.requestIndex
+    && call.context.requestIndex !== result.context.requestIndex) return false;
   const callSpan = scalar(call.payload.span_id);
   const resultSpan = scalar(result.payload.span_id);
   if (callSpan && resultSpan) return callSpan === resultSpan;
@@ -297,6 +318,7 @@ export function currentTraceGroups(groups: TraceGroup[], running: boolean): Set<
 
 export function eventSummary(entry: TraceEntry): string {
   const { payload, event, context } = entry;
+  if (event.kind === 'audit_progress') return shortText(payload.message, 280) || '审计进展已记录';
   if (event.kind === 'model_request') return '正在调用模型';
   if (event.kind === 'model_response') return '模型响应已记录';
   if (event.kind === 'agent_phase') return '进入新阶段';

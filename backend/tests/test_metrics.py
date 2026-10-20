@@ -151,6 +151,23 @@ def test_no_truth_set_means_uncomputable():
     assert metrics["evaluation"] is None
 
 
+def test_safe_source_observations_are_excluded_from_vulnerability_counts():
+    safe = {
+        **finding("safe", "safe.php", "task_goal"),
+        "finding_kind": "data_flow", "severity": "high", "verdict": "confirmed",
+    }
+    unsafe = {
+        **finding("unsafe", "vuln.php", "task_goal"),
+        "finding_kind": "vulnerability", "severity": "medium",
+    }
+    metrics = summarise({**RUN, "task_spec": {"objective": "审计漏洞"}}, [], [safe, unsafe], [])
+    assert metrics["candidates"] == 1
+    assert metrics["candidate_findings"] == 1
+    assert metrics["confirmed"] == 0
+    assert metrics["awaiting_verification"] == 1
+    assert metrics["source_observations"] == 1
+
+
 def test_a_candidate_outside_the_truth_set_is_named_rather_than_scored():
     # The truth set covers sqli on this file; the candidate is an XSS on the same file.
     # It cannot be a hit (no truth says so) and it cannot be a false alarm (no truth says

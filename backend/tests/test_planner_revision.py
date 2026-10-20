@@ -209,7 +209,8 @@ def validate(decision, priors, *, policy=None, run_reopens: int = 0, findings=No
         policy=policy or AgentPolicy(),
         # The duplicate guard only compares directions that concluded something, so the
         # default here is a run whose entry direction already has a finding.
-        findings=[{"id": "f-1", "paths": ["public/index.php"]}] if findings is None else findings,
+        findings=[{"id": "f-1", "finding_kind": "vulnerability", "severity": "high",
+                   "paths": ["public/index.php"]}] if findings is None else findings,
         run_reopens=run_reopens,
     )
 

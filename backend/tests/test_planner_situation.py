@@ -145,7 +145,7 @@ def test_the_round_is_told_the_frontier_settled_work_findings_and_pins(monkeypat
     assert [item["id"] for item in situation["findings"]] == ["f-1"]
     assert situation["findings"][0]["paths"] == ["src/bootstrap.php"]
     assert situation["counts"] == {
-        "frontier": 1, "settled": 2, "findings": 1, "pinned_investigations": 2,
+        "frontier": 1, "settled": 2, "findings": 1, "observations": 0, "pinned_investigations": 2,
     }
     assert "允许本轮派出 0 个任务" in situation["dispatch_rule"] or "0 个任务" in situation["dispatch_rule"]
 
@@ -329,7 +329,51 @@ def test_a_conclusion_that_cannot_close_the_run_is_not_reviewed():
         {"disposition": "retracted"},
         {"disposition": "duplicate"},
         {"disposition": "superseded"},
+        {"finding_kind": "security_boundary", "severity": "informational"},
+        {"finding_kind": "data_flow", "severity": "low"},
+        {"severity": "informational"},
     ):
         situation = agent._planner_situation(closure_context(findings=[{**base, **override}]))
         assert situation["closure_review"] is False, override
         assert "收束前复核" not in situation["notice"], override
+
+
+def test_historical_safe_records_and_new_observations_remain_visible_without_counting_as_findings():
+    context = closure_context()
+    context["tasks"][0]["id"] = "entry-read"
+    observation = {
+        "title": "文件名规范化处理",
+        "kind": "security_boundary",
+        "summary": "输入路径在进入文件写入前使用 basename 取得文件名。",
+        "evidence": "src/bootstrap.php:2-3",
+    }
+    context["tasks"][0]["result"]["observations"] = [observation]
+    context["findings"][0].update(finding_kind="source_observation", severity="informational")
+
+    situation = agent._planner_situation(context)
+    history = agent._planner_task_results(context)
+    for block in (situation, history):
+        assert block["findings"] == []
+        assert len(block["observations"]) == 2
+        historical, current = block["observations"]
+        assert historical["id"] == "f-1"
+        assert historical["task_key"] == "entry-read"
+        assert current["evidence"] == observation["evidence"]
+        assert current["summary"] == observation["summary"]
+    assert situation["closure_review"] is False
+    assert situation["counts"]["observations"] == 2
+    assert "goal_state=met" not in situation["notice"]
+
+
+def test_observations_are_trimmed_structurally_with_true_totals():
+    situation = agent._planner_situation({
+        "tasks": [{"task_key": "read-upload", "state": "completed", "observations": [{
+            "title": f"排查依据{number}", "kind": "data_flow", "summary": "排查说明" * 160,
+            "evidence": "src/upload.php:1-20",
+        } for number in range(30)]}],
+    })
+    bounded = agent._bound_situation(situation, limit=4 * 1024)
+    assert bounded["omitted"]["observations"] > 0
+    assert bounded["counts"]["observations"] == 30
+    assert bounded["observations"][-1]["title"] == "排查依据29"
+    assert len(json.dumps(bounded, ensure_ascii=False).encode("utf-8")) < 5 * 1024

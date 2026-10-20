@@ -457,6 +457,58 @@ def test_evidence_backed_worker_finding_closes_a_stop_on_achieved_run(store, rep
     assert rounds == [1, 2]
 
 
+def test_parallel_worker_retries_keep_invocations_and_request_indexes_in_the_durable_log(store, repository, monkeypatch):
+    run, _ = create_planner_run(store, repository)
+    worker = make_worker(store, repository)
+    attempts = []
+
+    async def fake_plan(**kwargs):
+        kwargs["on_event"]({"kind": "audit_progress", "message": "维护待查漏洞方向。", "request_index": 1})
+        return {
+            "decision": {
+                "goal_state": "continue" if kwargs["round_no"] == 1 else "unreachable",
+                "basis_summary": "初次派发两个独立方向，结算后确认未证实漏洞。",
+                "next_action": "", "missing_context": [], "updates": [],
+                "tasks": [proposal("entry-flow"), proposal("sink-flow", path="src/files.php", end=5)]
+                if kwargs["round_no"] == 1 else [],
+            },
+            "usage": {"requests": 1}, "terminal_reason": "completed", "error": None, "status": None,
+        }
+
+    async def fake_pursue(**kwargs):
+        task = kwargs["planner_task"]
+        attempts.append((task["task_key"], kwargs["attempt"], kwargs["agent_invocation_id"]))
+        for event in (
+            {"kind": "model_request", "attempt": 2, "request_index": 2},
+            {"kind": "audit_progress", "message": "追踪当前输入路径。", "request_index": 2},
+            {"kind": "tool_call", "tool": "read_source", "call_id": "tool-0001", "request_index": 2},
+            {"kind": "tool_result", "tool": "read_source", "call_id": "tool-0001", "request_index": 2},
+        ):
+            kwargs["on_event"](event)
+        await asyncio.sleep(0)
+        return worker_outcome("continue" if kwargs["attempt"] == 1 else "no_evidence")
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
+    monkeypatch.setattr(worker_module, "pursue_planner_task", fake_pursue)
+    asyncio.run(worker._execute(run))
+
+    assert {(key, attempt) for key, attempt, _ in attempts} == {
+        ("entry-flow", 1), ("entry-flow", 2), ("sink-flow", 1), ("sink-flow", 2),
+    }
+    assert len({invocation for _, _, invocation in attempts}) == 4
+    events = store.list_events(run["id"], limit=1000)
+    for key, attempt, invocation in attempts:
+        activity = [event for event in events if event["payload"].get("agent_invocation_id") == invocation]
+        assert {event["kind"] for event in activity} >= {"planner_task_started", "model_request", "audit_progress", "tool_call", "tool_result"}
+        assert all(event["payload"]["task_key"] == key for event in activity)
+        assert all(event["payload"]["attempt"] == attempt for event in activity)
+        request = next(event for event in activity if event["kind"] == "model_request")
+        assert request["payload"]["request_index"] == 2
+    planner_updates = [event for event in events if event["kind"] == "audit_progress" and event["payload"].get("role") == "planner"]
+    assert len(planner_updates) == 2
+    assert len({event["payload"]["agent_invocation_id"] for event in planner_updates}) == 2
+
+
 def test_stop_on_achieved_false_finishes_the_current_frontier_then_marks_met(store, repository, monkeypatch):
     task = {**TASK, "stop_on_achieved": False}
     run, _ = create_planner_run(store, repository, task=task)
@@ -497,7 +549,8 @@ def test_stop_on_achieved_false_finishes_the_current_frontier_then_marks_met(sto
 
     seen = [{"path": "public/index.php", "start_line": 1, "end_line": 4}]
     found = {
-        "title": "入口路径事实", "kind": "data_flow", "summary": "入口将参数传给 handle。",
+        "title": "未经限制的文件读取", "kind": "vulnerability", "severity": "high",
+        "summary": "入口将未经限制的路径参数传给文件读取函数。",
         "evidence": "public/index.php:4-4",
     }
 
@@ -515,6 +568,146 @@ def test_stop_on_achieved_false_finishes_the_current_frontier_then_marks_met(sto
     assert store.get_task_goal(run["id"])["status"] == "met"
     # Both directions ran (nothing was held back) and the review is what closed the run.
     assert rounds == [1, 2]
+
+
+def test_safe_worker_observation_does_not_stop_the_remaining_frontier(store, repository, monkeypatch):
+    run, _ = create_planner_run(store, repository, task={**TASK, "max_workers": 1})
+    worker = make_worker(store, repository)
+    worker_keys = []
+
+    async def fake_plan(**kwargs):
+        return {
+            "decision": {
+                "goal_state": "continue" if kwargs["round_no"] == 1 else "unreachable",
+                "basis_summary": "继续核对文件读取风险，安全的入口事实不能满足漏洞目标。",
+                "next_action": "等待两个方向结算。",
+                "missing_context": [],
+                "tasks": [{**proposal("safe-direction"), "priority": 90}, proposal("remaining-direction")]
+                if kwargs["round_no"] == 1 else [],
+                "updates": [],
+            },
+            "usage": {"requests": 1, "tool_calls": 0},
+            "error": None, "status": None, "terminal_reason": "completed",
+        }
+
+    async def fake_pursue(**kwargs):
+        key = kwargs["planner_task"]["task_key"]
+        worker_keys.append(key)
+        if key == "safe-direction":
+            # Simulate an older worker bypassing the stricter schema.
+            return worker_outcome("achieved", finding={
+                "title": "认证入口限制已生效", "kind": "security_boundary",
+                "summary": "入口的访问权限检查拒绝不具备认证状态的请求。",
+                "evidence": "public/index.php:1-4",
+            }, seen=[{"path": "public/index.php", "start_line": 1, "end_line": 4}])
+        return worker_outcome("no_evidence")
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
+    monkeypatch.setattr(worker_module, "pursue_planner_task", fake_pursue)
+    asyncio.run(worker._execute(run))
+
+    assert worker_keys == ["safe-direction", "remaining-direction"]
+    assert store.list_findings(run["id"]) == []
+    assert store.get_run(run["id"])["status"] == "unreachable"
+    assert store.get_task_goal(run["id"])["status"] == "unreachable"
+    task = next(item for item in store.list_tasks(run["id"]) if item["task_key"] == "safe-direction")
+    result = task["attempt_history"][0]["result"]
+    assert result["outcome"] == "no_evidence"
+    assert result["findings"] == []
+    assert result["observations"][0]["kind"] == "security_boundary"
+    assert not any(event["kind"] == "finding_created" for event in store.list_events(run["id"]))
+
+
+@pytest.mark.parametrize("kind,severity", [
+    ("source_observation", "informational"), ("data_flow", "high"),
+    ("vulnerability", "informational"), ("vulnerability", "unknown"),
+])
+def test_historical_non_vulnerability_cannot_satisfy_goal(store, repository, kind, severity):
+    run, _ = create_planner_run(store, repository)
+    store.add_finding({
+        "id": "historical-observation", "run_id": run["id"], "unit_id": "historical-unit",
+        "fingerprint": "historical-observation", "category": "task_goal", "finding_kind": kind,
+        "title": "入口只接受固定文件名", "severity": severity,
+        "summary": "路径已被规范化且限制在允许的目录内，未发现可控路径穿越。",
+        "evidence": [{"path": "public/index.php", "start_line": 1, "end_line": 4}],
+        "input_source": "", "propagation": "", "dangerous_operation": "", "protection": "",
+        "preconditions": [], "missing_context": [], "poc": None, "remediation": "",
+        "validation_state": "candidate", "created_at": now(),
+    })
+    with pytest.raises(ValueError, match="validated vulnerability finding"):
+        store.finalize_goal(run["id"], "met", "安全观察不应使漏洞目标达成。")
+    assert store.get_task_goal(run["id"])["status"] == "open"
+    assert len(store.list_findings(run["id"])) == 1
+
+
+def test_mixed_worker_results_keep_only_vulnerabilities_in_findings(store, repository, monkeypatch):
+    run, _ = create_planner_run(store, repository)
+    worker = make_worker(store, repository)
+
+    async def fake_plan(**kwargs):
+        return {
+            "decision": {
+                "goal_state": "continue" if kwargs["round_no"] == 1 else "met",
+                "basis_summary": "审计发现了未经限制的敏感文件读取。",
+                "next_action": "", "missing_context": [],
+                "tasks": [proposal("entry-flow")] if kwargs["round_no"] == 1 else [],
+                "updates": [],
+            },
+            "usage": {"requests": 1, "tool_calls": 0},
+            "error": None, "status": None, "terminal_reason": "completed",
+        }
+
+    async def fake_pursue(**kwargs):
+        value = worker_outcome("achieved", finding={
+            "title": "未经限制的敏感文件读取", "kind": "vulnerability", "severity": "high",
+            "summary": "处理函数将请求参数拼接至文件读取路径，缺少目录边界校验。",
+            "evidence": "src/files.php:2-4",
+        }, seen=[{"path": "src/files.php", "start_line": 1, "end_line": 5}])
+        value["result"]["findings"].append({
+            "title": "入口权限检查生效", "kind": "security_boundary",
+            "summary": "权限检查只允许具有管理员会话的请求进入处理函数。",
+            "evidence": "src/files.php:3-3",
+        })
+        return value
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
+    monkeypatch.setattr(worker_module, "pursue_planner_task", fake_pursue)
+    asyncio.run(worker._execute(run))
+    findings = store.list_findings(run["id"])
+    assert len(findings) == 1 and findings[0]["finding_kind"] == "vulnerability"
+    task = store.list_tasks(run["id"])[0]
+    assert task["result"]["observations"][0]["kind"] == "security_boundary"
+    assert store.get_task_goal(run["id"])["status"] == "met"
+
+
+@pytest.mark.parametrize("severity", [None, "informational", "unknown"])
+def test_vulnerability_without_a_risk_level_cannot_pass_host_validation(store, repository, severity):
+    run, _ = create_planner_run(store, repository)
+    worker = make_worker(store, repository)
+    payload = {
+        "title": "待确定影响的文件读取", "kind": "vulnerability", "severity": severity,
+        "summary": "此返回宣称存在文件读取漏洞，但没有给出有效的风险等级。",
+        "evidence": "public/index.php:4-4",
+    }
+    outcome = worker_outcome("achieved", finding=payload,
+        seen=[{"path": "public/index.php", "start_line": 1, "end_line": 4}])
+    normalised = worker_module._normalise_task_findings(outcome)
+    assert normalised["outcome"] == "achieved"
+    assert normalised["result"]["observations"] == []
+    prepared = worker._build_planner_findings(run, {"id": "test-task", **proposal("entry-flow")}, normalised)
+    assert len(prepared) == 1 and not prepared[0]["candidate"]
+    assert prepared[0]["record"]["validation_state"] == "invalid_finding"
+    assert store.get_task_goal(run["id"])["status"] == "open"
+
+
+def test_legacy_queue_cannot_be_marked_achieved_with_a_source_observation(store, repository):
+    run, _ = create_planner_run(store, repository)
+    with pytest.raises(ValueError, match="requires a validated vulnerability finding"):
+        store.resolve_task_work("legacy-work", outcome="achieved", result={}, usage=None, seen=[], findings=[{
+            "finding_kind": "source_observation", "severity": "high", "validation_state": "candidate",
+        }])
+    assert store.get_task_goal(run["id"])["status"] == "open"
+    assert store.list_findings(run["id"]) == []
 
 
 def test_blocked_frontier_cannot_be_finalized_as_unreachable(store, repository):
@@ -571,7 +764,8 @@ def test_planner_can_defer_and_later_resume_a_not_started_task(store, repository
     assert resumed["state"] == "ready"
 
 
-def test_dependency_handoff_and_peer_trace_search_are_durable_and_bounded(store, repository):
+@pytest.mark.parametrize("legacy_observation", [False, True])
+def test_dependency_handoff_and_peer_trace_search_are_durable_and_bounded(store, repository, legacy_observation):
     """Workers can reuse public peer activity without treating it as source proof."""
     run, _ = create_planner_run(store, repository)
     session = store.get_planner_session(run["id"])
@@ -599,6 +793,11 @@ def test_dependency_handoff_and_peer_trace_search_are_durable_and_bounded(store,
             "attempt": 1, "role": "worker",
         },
     )
+    observation = {
+        "title": "入口调用数据流", "kind": "data_flow",
+        "summary": "入口将路径参数交给文件处理函数；是否形成漏洞仍需检查目标函数。",
+        "evidence": "public/index.php:4-4",
+    }
     store.resolve_task_attempt(
         predecessor["id"], "worker-1", outcome="no_evidence",
         result={
@@ -606,12 +805,16 @@ def test_dependency_handoff_and_peer_trace_search_are_durable_and_bounded(store,
             "reasoning": "入口文件包含 files.php 并将请求参数传给 handle。",
             "next_focus": "读取 readfile 前的路径校验。",
             "missing_context": [],
-            "findings": [],
+            "findings": [observation] if legacy_observation else [],
+            "observations": [] if legacy_observation else [observation],
         },
         usage={"requests": 1}, seen=[],
     )
     dependent = next(item for item in store.list_tasks(run["id"]) if item["task_key"] == "sink-flow")
     assert dependent["state"] == "ready"
+    context = store.list_planner_context(run["id"])
+    compact = next(item for item in context["tasks"] if item["task_key"] == "entry-flow")
+    assert compact["observations"] == [observation]
 
     handoffs = store.get_planner_dependency_handoffs(dependent["id"])
     assert handoffs == [
@@ -625,6 +828,7 @@ def test_dependency_handoff_and_peer_trace_search_are_durable_and_bounded(store,
             "next_focus": "读取 readfile 前的路径校验。",
             "missing_context": [],
             "findings": [],
+            "observations": [observation],
             "error": None,
         }
     ]
@@ -645,6 +849,21 @@ def test_dependency_handoff_and_peer_trace_search_are_durable_and_bounded(store,
     assert store.get_planner_worker_trace(
         run["id"], exclude_task_id=predecessor["id"], task_key="entry-flow",
     ) == []
+
+
+def test_peer_assessment_keeps_bounded_source_observations():
+    payload = Store._public_worker_trace_payload("task_assessment", {
+        "outcome": "no_evidence", "summary": "该方向没有证实漏洞。",
+        "observations": [{
+            "title": "有效目录边界", "kind": "security_boundary", "summary": "边界有效。" * 1000,
+            "evidence": "src/files.php:2-4", "private_metadata": "must not be handed off",
+        }] * 20,
+        "private_reasoning": "must not be handed off",
+    })
+    assert len(payload["observations"]) == 8
+    assert len(payload["observations"][0]["summary"]) == 1200
+    assert payload["observations"][0]["evidence"] == "src/files.php:2-4"
+    assert "must not be handed off" not in str(payload)
 
 
 def test_planner_metrics_use_frontier_progress_not_static_file_coverage():

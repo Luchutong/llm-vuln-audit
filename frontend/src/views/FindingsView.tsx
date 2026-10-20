@@ -4,16 +4,17 @@ import type { Evidence, Finding, RunDetail } from '../types';
 import { SourceViewer } from '../components/SourceViewer';
 import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
+import { isVulnerabilityFinding, sourceObservations, vulnerabilityFindings } from '../results';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
   xss_r: '反射型 XSS',
   command_injection: '命令注入',
-  task_goal: '目标发现',
+  task_goal: '漏洞候选',
 };
 
 function categoryLabel(category: string | null | undefined) {
-  if (category?.startsWith('task_goal')) return '目标发现';
+  if (category?.startsWith('task_goal')) return '漏洞候选';
   return CATEGORY_LABELS[category ?? ''] ?? (category ? `任务类别：${category}` : '未标注类别');
 }
 
@@ -27,7 +28,7 @@ function isGenericSourceFinding(finding: Finding): boolean {
 }
 
 function verdictLabel(finding: Finding, verdict: string | null | undefined): string {
-  if (isGenericSourceFinding(finding)) {
+  if (!isVulnerabilityFinding(finding)) {
     if (verdict === 'confirmed') return '确认结论';
     if (verdict === 'rejected') return '驳回结论';
     return '待定';
@@ -133,36 +134,33 @@ function evidenceRangeLabel(references: Evidence[]): string {
   return references.map((reference) => `${reference.start_line}-${reference.end_line}`).join('、');
 }
 
-function auditUnitLocation(finding: Pick<Finding, 'file_path' | 'unit_start_line' | 'unit_end_line' | 'task_id' | 'task_key'>): string {
-  const source = `${finding.file_path}:${finding.unit_start_line}-${finding.unit_end_line}`;
+function auditUnitLocation(finding: Pick<Finding, 'file_path' | 'unit_start_line' | 'unit_end_line' | 'task_id' | 'task_key' | 'attempt'>): string {
+  const source = finding.file_path ? `${finding.file_path}:${finding.unit_start_line}-${finding.unit_end_line}` : '';
   if (finding.task_id) {
-    return `动态任务：${finding.task_key || finding.task_id.slice(0, 8)} · 来源：${source}`;
+    return `动态任务：${finding.task_key || finding.task_id.slice(0, 8)}${finding.attempt !== undefined ? ` · 第 ${finding.attempt} 次尝试` : ''}${source ? ` · 来源：${source}` : ''}`;
   }
-  return `审计单元：${source}`;
+  return source ? `审计单元：${source}` : '未提供审计单元；可展开下方源码引用。';
 }
 
 /**
  * Findings and the human verification gate.
  *
- * A candidate here is a claim, not a final result. POC-bearing vulnerability candidates
- * need a reproducible execution record; a source fact such as a boundary or configuration
- * origin is instead accepted or rejected through a documented human code review.
+ * A vulnerability candidate is a claim, not a final result. POC-bearing candidates
+ * retain their execution gate; source observations and their old reviews are read-only.
  */
 export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDetail; snapshotId: string; onChanged: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);
 
-  const findings = detail.findings;
+  const findings = vulnerabilityFindings(detail);
   const current = findings.find((finding) => finding.id === selected) ?? findings[0] ?? null;
 
-  if (!findings.length) {
-    return <div className="empty">这次运行没有产生候选发现。<br />动态任务状态和审计依据请在「概览」与「执行轨迹」中查看。</div>;
-  }
-
   return (
+    <div className="grid">
+    {!findings.length ? <div className="empty">这次运行尚无漏洞候选。排查记录单独列在下方。<br />没有候选不代表整个项目安全，请结合审计覆盖与缺失上下文判断。</div> : (
     <div className="finding-layout">
       <div className="panel">
         <div className="panel-head">
-          <span className="panel-title">候选发现</span>
+          <span className="panel-title">漏洞候选</span>
           <span className="faint small">{findings.length}</span>
         </div>
         <div style={{ maxHeight: 620, overflowY: 'auto' }}>
@@ -199,25 +197,44 @@ export function FindingsView({ detail, snapshotId, onChanged }: { detail: RunDet
 
       {current && <FindingDetail key={current.id} finding={current} snapshotId={snapshotId} onChanged={onChanged} />}
     </div>
+    )}
+    <SourceObservationsView detail={detail} snapshotId={snapshotId} />
+    </div>
   );
 }
 
-function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; snapshotId: string; onChanged: () => void }) {
+/** Original source facts and prior human reviews stay readable without becoming vulnerabilities. */
+export function SourceObservationsView({ detail, snapshotId }: { detail: RunDetail; snapshotId: string }) {
+  const observations = sourceObservations(detail);
+  return <section className="panel" aria-label="排查记录（非漏洞）">
+    <div className="panel-head"><span className="panel-title">排查记录（非漏洞）</span><span className="faint small">{observations.length} 条</span></div>
+    <div className="panel-body grid">
+      <p className="small muted">源码行为、防护措施和未形成漏洞候选的结论保存在这里，不计入漏洞数量或漏洞目标达标结果。历史原文、源码引用、版本和人工记录均保留；历史任务状态沿用当时的判定。</p>
+      {!observations.length ? <p className="small faint">尚无排查记录。</p> : <Disclosure title={`查看排查记录（${observations.length}）`}>
+        {observations.map((observation) => <Disclosure key={observation.id} title={<span className="disclosure-heading"><span className="chip">排查记录</span><span className="disclosure-preview">{observation.title}</span></span>}>
+          <FindingDetail finding={observation} snapshotId={snapshotId} onChanged={() => {}} observation />
+        </Disclosure>)}
+      </Disclosure>}
+    </div>
+  </section>;
+}
+
+function FindingDetail({ finding, snapshotId, onChanged, observation = false }: { finding: Finding; snapshotId: string; onChanged: () => void; observation?: boolean }) {
   const poc = finding.poc;
   const evidenceGroups = groupEvidence(finding.evidence);
   const genericSourceFinding = isGenericSourceFinding(finding);
   return (
     <div className="grid">
-      <section className="panel" aria-label="发现详情">
+      <section className="panel" aria-label={observation ? '排查记录详情' : '漏洞候选详情'}>
         <div className="panel-head">
           <div>
             <div className="panel-title">{finding.title}</div>
-            <div className="faint small">{categoryLabel(finding.category)}{finding.finding_kind ? ` · ${finding.finding_kind}` : ''}</div>
+            <div className="faint small">{observation ? '排查记录' : categoryLabel(finding.category)}{finding.finding_kind ? ` · ${finding.finding_kind}` : ''}</div>
           </div>
           <div className="row">
-            <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>
+            {!observation && <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>}
             <span className={`chip chip-${finding.validation_state}`}>
-              {finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}
+              {observation ? (finding.validation_state === 'invalid_evidence' ? '引用不通过' : '排查依据') : finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}
             </span>
             {finding.verdict && <span className={`chip chip-${finding.verdict}`}>{verdictLabel(finding, finding.verdict)}</span>}
             {dispositionLabel(finding) && <span className="chip chip-paused">{dispositionLabel(finding)}</span>}
@@ -225,13 +242,14 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
           </div>
         </div>
         <div className="panel-body grid">
-          <p className="small muted">引用校验、人工裁决与结论处置分别保留；Planner 的撤回或争议不会改写人工裁决。</p>
+          <p className="small muted">{observation ? '此记录用于追溯排查过程，不构成漏洞确认或项目安全保证。历史人工裁决原样保留。' : '源码引用通过只表示证据可核验，漏洞是否成立仍需复核。Planner 的撤回或争议不会改写人工裁决。'}</p>
           <LongContent value={auditUnitLocation(finding)} label="审计来源" />
-          <LongContent value={finding.summary} label={genericSourceFinding ? '审计依据' : '分析依据'} />
-          {finding.validation_errors.length > 0 && (
+          <LongContent value={finding.summary} label={observation ? '排查原文' : '分析依据'} />
+          {observation && <Disclosure title="查看原始排查记录"><LongContent value={finding} label="原始排查记录" /></Disclosure>}
+          {(finding.validation_errors ?? []).length > 0 && (
             <Disclosure title={`引用校验说明（${finding.validation_errors.length}）`}>
               <div className="error-box">
-                {finding.validation_state === 'candidate' ? '无法核实的引用已剔除，剩余引用支撑此候选。' : '引用全部无法核实，此候选不计入可信发现。'}
+                {observation ? '此记录未形成有效漏洞候选，校验说明与原文保留供排查。' : finding.validation_state === 'candidate' ? '无法核实的引用已剔除，剩余引用支撑此候选。' : '引用全部无法核实，此候选不计入可信发现。'}
                 <LongContent value={finding.validation_errors} label="引用校验问题" />
               </div>
             </Disclosure>
@@ -241,16 +259,16 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
             <Chain label={genericSourceFinding ? '数据或控制流' : '传播路径'} value={finding.propagation} />
             <Chain label="敏感操作" value={finding.dangerous_operation} />
             <Chain label="边界或防护" value={finding.protection || '无'} />
-            <Chain label="前置条件" value={finding.preconditions.join('；') || '无'} />
-            <Chain label="缺失上下文" value={finding.missing_context.join('；') || '无'} />
+            <Chain label="前置条件" value={(finding.preconditions ?? []).join('；') || '无'} />
+            <Chain label="缺失上下文" value={(finding.missing_context ?? []).join('；') || '无'} />
             <Chain label="修复建议" value={finding.remediation} />
           </Disclosure>
         </div>
       </section>
 
-      <section className="panel" aria-label="证据源码">
+      <section className="panel" aria-label={observation ? '排查依据源码' : '证据源码'}>
         <div className="panel-head">
-          <span className="panel-title">证据源码</span>
+            <span className="panel-title">{observation ? '排查依据源码' : '证据源码'}</span>
           <span className="faint small">{evidenceGroups.length} 个文件 · {finding.evidence.length} 处引用</span>
         </div>
         <div className="panel-body">
@@ -291,13 +309,13 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
         </section>
       )}
 
-      <section className="panel" aria-label={genericSourceFinding ? '人工复核' : '人工验证'}>
+      <section className="panel" aria-label={observation ? '历史人工记录' : genericSourceFinding ? '人工复核' : '人工验证'}>
         <div className="panel-head">
-          <span className="panel-title">{genericSourceFinding ? '人工复核' : '人工验证'}</span>
-          <span className="faint small">{finding.verifications.length} 条记录</span>
+          <span className="panel-title">{observation ? '历史人工记录（只读）' : genericSourceFinding ? '人工复核' : '人工验证'}</span>
+          <span className="faint small">{(finding.verifications ?? []).length} 条记录</span>
         </div>
         <div className="panel-body grid">
-          {finding.verifications.length > 0 && <Disclosure title={`查看历史记录（${finding.verifications.length}）`}>
+          {(finding.verifications ?? []).length > 0 && <Disclosure title={`查看历史记录（${finding.verifications.length}）`}>
             {finding.verifications.map((record, index) => (
               <Disclosure key={record.id ?? index} title={<span className="disclosure-heading"><span className={`chip chip-${record.verdict}`}>{verdictLabel(finding, record.verdict)}</span><span className="faint small">{record.created_at?.slice(0, 19).replace('T', ' ')}</span></span>}>
                 {!genericSourceFinding && <div className="small">{EXECUTION_LABELS[record.execution_status] ?? record.execution_status}{record.browser_execution ? ' · 含浏览器执行证据' : ''}</div>}
@@ -307,6 +325,7 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
                 <Chain label="对照观测" value={record.normal_observation || ''} />
                 <Chain label="改动说明" value={record.modification_notes || ''} />
                 <Chain label="备注" value={record.notes || ''} />
+                {observation && <LongContent value={record} label="历史人工记录原文" />}
                 {(record.files ?? []).length > 0 && <div className="row small">
                   <span>证据附件：</span>
                   {(record.files ?? []).map((file, fileIndex) => {
@@ -320,9 +339,10 @@ function FindingDetail({ finding, snapshotId, onChanged }: { finding: Finding; s
               </Disclosure>
             ))}
           </Disclosure>}
-          <Disclosure title={genericSourceFinding ? '记录一次人工复核' : '记录一次人工验证'}>
+          {observation && !(finding.verifications ?? []).length && <p className="small faint">没有历史人工记录。</p>}
+          {!observation && <Disclosure title={genericSourceFinding ? '记录一次人工复核' : '记录一次人工验证'}>
             <VerificationForm finding={finding} onRecorded={onChanged} />
-          </Disclosure>
+          </Disclosure>}
         </div>
       </section>
       <Lineage finding={finding} />
@@ -433,9 +453,9 @@ function VerificationForm({ finding, onRecorded }: { finding: Finding; onRecorde
           <select value={form.verdict} onChange={(event) => set('verdict', event.target.value as FormState['verdict'])}>
             <option value="uncertain">{genericSourceFinding ? '待定' : '无法确定'}</option>
             {(!genericSourceFinding || finding.validation_state === 'candidate') && (
-              <option value="confirmed">{genericSourceFinding ? '确认结论' : '确认漏洞'}</option>
+              <option value="confirmed">确认漏洞</option>
             )}
-            <option value="rejected">{genericSourceFinding ? '驳回结论' : '排除（误报）'}</option>
+            <option value="rejected">排除（误报）</option>
           </select>
         </label>
         {!genericSourceFinding && (

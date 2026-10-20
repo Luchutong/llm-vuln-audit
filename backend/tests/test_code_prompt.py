@@ -83,16 +83,39 @@ def test_the_prompt_says_where_reasoning_may_go(prompt):
     assert "代码块之外只写一句话的 Thought" in prompt
 
 
+def test_the_prompt_separates_vulnerabilities_from_audit_observations(prompt):
+    assert 'kind="vulnerability"' in prompt
+    assert "observations" in prompt
+    assert "不计为漏洞" in prompt
+
+
 def test_the_prompt_lists_the_phase_tools_and_nothing_else():
     full = prompt_for()
     for item in PLANNER_TOOLS:
         assert f"def {item.name}(" in full
     assert "def final_answer(" in full
+    assert "def report_progress(message: string) -> string:" in full
 
     one, _, _ = build(specs=(PLANNER_TOOLS[5],))
     listed = one.system_prompt
     assert "def read_source(path: string, start: integer, end: integer) -> string:" in listed
     assert "def list_tree(" not in listed
+    assert "导航示例" not in listed
+
+
+def test_the_navigation_example_can_run_against_the_declared_json_contract():
+    example = prompt_for().split("导航示例", 1)[1].split("<code>", 1)[1].split("</code>", 1)[0]
+    host = Host({
+        "list_tree": '{"files_here":[]}',
+        "find_files": '{"matches":[{"path":"src/upload.php"}]}',
+    })
+    outcome = Phase(host, specs=PLANNER_TOOLS, output_model=Answer).play([
+        code(example + "\nfinal_answer({'note':'navigation example completed'})"),
+    ])
+    assert outcome.failure is None
+    assert outcome.gate.published == Answer(note="navigation example completed")
+    assert "src/upload.php" in outcome.codes[0]["logs"]
+    assert not outcome.codes[0]["error"]
 
 
 def test_the_phase_instructions_land_in_their_slot():
@@ -143,8 +166,9 @@ def test_the_interpreter_limits_come_from_the_policy():
 
     assert agent.python_executor.max_print_outputs_length == 1234
     assert agent.python_executor.timeout_seconds == 7
-    # Nothing beyond the library's own base modules: the run does not widen the interpreter.
-    assert agent.additional_authorized_imports == []
+    # JSON is pure data parsing for the structured navigation tool results.
+    assert agent.additional_authorized_imports == ["json"]
+    assert agent.python_executor.additional_authorized_imports == ["json"]
     assert agent.code_block_tags == ("<code>", "</code>")
 
 
@@ -193,7 +217,7 @@ def test_a_phase_boundary_is_a_new_tool_table_and_a_new_gate():
     assert explore.published == Answer(note="explore")
     assert publish.published == Answer(note="publish")
     # The tool table is the phase's, not the previous phase's.
-    assert set(agent.tools) == {"final_answer"}
+    assert set(agent.tools) == {"final_answer", "report_progress"}
     assert model.gate is publish
     # The variable the exploration phase defined is still there, and the publish phase's
     # own prompt is what that request carried.

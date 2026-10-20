@@ -2,6 +2,7 @@ import { scopeFileCount, scopeLabel } from '../types';
 import type { AuditEvent, PlannerTask, RunDetail } from '../types';
 import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
+import { activeVulnerabilityFindings, sourceObservations, vulnerabilityFindings } from '../results';
 
 const GOAL_LABELS: Record<string, string> = {
   open: '探索中', met: '已达成', unreachable: '不可达', inconclusive: '未决',
@@ -38,10 +39,13 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
   const projectMap = detail.project_map;
   const plans = detail.plans ?? [];
   const tasks = detail.tasks ?? [];
-  const findings = detail.findings ?? [];
+  const findings = vulnerabilityFindings(detail);
+  const candidates = activeVulnerabilityFindings(detail);
+  const observationCount = sourceObservations(detail).length;
   const withdrawn = findings.filter((finding) => ['superseded', 'retracted', 'duplicate'].includes(finding.disposition));
-  const candidateCount = metrics.candidate_findings ?? findings.filter((finding) => finding.validation_state === 'candidate' && !['superseded', 'retracted', 'duplicate'].includes(finding.disposition)).length;
-  const withdrawnCount = metrics.withdrawn_findings ?? withdrawn.length;
+  const candidateCount = candidates.length;
+  const withdrawnCount = withdrawn.length;
+  const awaitingReview = candidates.filter((finding) => !finding.verdict).length;
   const counts = tasks.reduce<Record<string, number>>((result, task) => {
     result[task.state] = (result[task.state] ?? 0) + 1;
     return result;
@@ -55,7 +59,7 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
       <div className="grid stats-grid">
         <Stat value={`${planner?.current_round ?? 0}/${planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'}`} label="Planner 回合" note={`版本 ${planner?.current_revision ?? 0}`} />
         <Stat value={`${metrics.terminal_tasks ?? 0}/${metrics.total_tasks ?? tasks.length}`} label="已结算动态任务" note={`执行中 ${metrics.active_tasks ?? counts.running ?? 0}`} />
-        <Stat value={candidateCount} label="有效证据化发现" note={`待复核 ${metrics.awaiting_verification} · 已撤回/取代/判重 ${withdrawnCount}`} />
+        <Stat value={candidateCount} label="有效漏洞候选" note={`待复核 ${awaitingReview} · 已撤回/取代/判重 ${withdrawnCount} · 排查记录 ${observationCount}`} />
         <Stat value={toolCalls || run.usage.tool_calls} label="只读工具调用" note={`模型响应 ${run.usage.requests}`} />
         <Stat value={mapStats.files ?? scopeFileCount(run, projectMap)} label="项目图文件" note={`${mapStats.symbols ?? 0} 个符号`} />
         <Stat value={plannerEvents} label="Planner 轨迹事件" note="可在执行轨迹展开" />

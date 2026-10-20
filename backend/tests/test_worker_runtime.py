@@ -2,6 +2,8 @@ import asyncio
 import threading
 from types import SimpleNamespace
 
+import pytest
+
 from audit import agent, worker as worker_module
 from audit.config import ModelConfig
 from audit.db import Store
@@ -57,6 +59,45 @@ def request_timeout_outcome():
         "status": None,
         "result": {"terminal_reason": "request_timeout"},
     }
+
+
+@pytest.mark.parametrize("incomplete", [False, True])
+def test_legacy_unit_lifecycle_and_internal_events_share_one_invocation(tmp_path, monkeypatch, incomplete):
+    store = Store(tmp_path / "audit.db")
+    add_run(store, "legacy-invocation", count=2)
+    worker = make_worker(store)
+
+    async def controlled(**kwargs):
+        for event in (
+            {"kind": "model_request", "attempt": 1, "request_index": 1},
+            {"kind": "tool_call", "tool": "read_source", "call_id": "tool-0001", "request_index": 1},
+            {"kind": "tool_result", "tool": "read_source", "call_id": "tool-0001", "request_index": 1},
+            {"kind": "agent_terminal", "request_index": 1},
+        ):
+            kwargs["on_event"](event)
+        return request_timeout_outcome() if incomplete else good_outcome()
+
+    monkeypatch.setattr(worker_module, "audit_unit", controlled)
+    try:
+        asyncio.run(worker._execute(store.claim_next_run()))
+        events = store.list_events("legacy-invocation", limit=1000)
+        units = {}
+        for event in events:
+            if event["unit_id"] is not None:
+                units.setdefault(event["unit_id"], []).append(event)
+        assert len(units) == 2
+        invocations = []
+        for activity in units.values():
+            ids = {event["payload"]["agent_invocation_id"] for event in activity}
+            assert len(ids) == 1
+            invocations.extend(ids)
+            assert {event["kind"] for event in activity} >= {
+                "unit_started", "model_request", "tool_call", "tool_result", "agent_terminal",
+                "unit_incomplete" if incomplete else "unit_completed",
+            }
+        assert len(set(invocations)) == 2
+    finally:
+        store.close()
 
 
 def test_cancel_interrupts_a_pending_model_request_and_preserves_checkpoint(tmp_path, monkeypatch):

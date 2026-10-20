@@ -22,6 +22,7 @@ from .config import CredentialVault, DEFAULT_BUDGETS, VERSION, Settings, clamp_b
 from .db import Store, now
 from .events import EventBus
 from .health import ModelHealth
+from .finding_policy import partition_findings, source_observations
 from .metrics import comparable_runs, prompt_diffs, summarise
 from .prompts import DEFAULT_PROMPT_ID, builtin_prompt_records
 from .report import collect_evidence, render_json, render_markdown, render_zip
@@ -238,12 +239,14 @@ def _run_bundle(state: Services, run_id: str) -> dict:
     run = state.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run does not exist")
-    findings = state.store.list_findings(run_id)
+    all_findings = state.store.list_findings(run_id)
+    findings, _ = partition_findings(all_findings)
     truths = state.store.list_truths(run["snapshot_id"])
     planner = state.store.get_planner_session(run_id)
     if planner is not None:
         tasks = state.store.list_tasks(run_id)
         goal = state.store.get_task_goal(run_id)
+        audit_observations = source_observations(all_findings, tasks)
         return {
             "run": run,
             "goal": goal,
@@ -264,18 +267,24 @@ def _run_bundle(state: Services, run_id: str) -> dict:
             "units": [],
             "work_items": [],
             "findings": findings,
+            "source_observations": audit_observations,
             "attributions": [],
-            "metrics": summarise(run, [], findings, truths, tasks=tasks),
+            "metrics": {**summarise(run, [], all_findings, truths, tasks=tasks),
+                        "source_observations": len(audit_observations)},
         }
     units = state.store.list_run_units(run_id)
+    work_items = state.store.list_task_work_items(run_id)
+    audit_observations = source_observations(all_findings, work_items)
     return {
         "run": run,
         "units": units,
         "goals": state.store.list_task_goals(run_id),
-        "work_items": state.store.list_task_work_items(run_id),
+        "work_items": work_items,
         "findings": findings,
+        "source_observations": audit_observations,
         "attributions": state.store.list_attributions(run_id),
-        "metrics": summarise(run, units, findings, truths),
+        "metrics": {**summarise(run, units, all_findings, truths),
+                    "source_observations": len(audit_observations)},
     }
 
 

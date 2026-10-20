@@ -33,6 +33,8 @@ def run_probe(probe: str, *, host: Host | None = None, policy: AgentPolicy | Non
     ("import os\nprint(os.getcwd())", "Import of os is not allowed"),
     ("import subprocess", "Import of subprocess is not allowed"),
     ("import socket", "Import of socket is not allowed"),
+    ("from pathlib import Path", "Import from pathlib is not allowed"),
+    ("import json.os", "Import of json.os is not allowed"),
     ("print(open('/etc/passwd').read())", "Forbidden function evaluation: 'open'"),
     ("print(__import__('subprocess'))", "Forbidden function evaluation: '__import__'"),
     ("print(globals())", "Forbidden function evaluation: 'globals'"),
@@ -55,6 +57,19 @@ def test_the_allowed_modules_are_the_ones_the_policy_says():
 
     assert step["error"] is None
     assert "True" in step["logs"]
+
+
+def test_json_tool_records_can_be_parsed_in_the_same_action_without_a_retry():
+    host = Host({"list_tree": '{"files_here":[{"path":"src/upload.php"}]}'})
+    outcome = Phase(host, specs=PLANNER_TOOLS, output_model=Answer).play([code(
+        "import json\n"
+        "listing = json.loads(list_tree(path='src'))\n"
+        "final_answer({'note': listing['files_here'][0]['path']})"
+    )])
+    assert outcome.failure is None
+    assert outcome.gate.published == Answer(note="src/upload.php")
+    assert len(outcome.model.requests) == 1
+    assert not [step for step in outcome.codes if step.get("error")]
 
 
 def test_an_ordinary_python_error_is_just_an_error():

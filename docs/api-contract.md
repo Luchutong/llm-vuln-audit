@@ -59,10 +59,10 @@
 
 `max_total_attempts` 默认 64、`max_planner_rounds` 默认 24。预算默认 `{responses:24, tools:96, seconds:1800}`、上限 `{responses:256, tools:2048, seconds:14400}`：预算刻意放松，因为一个在结构化决策之前就耗尽响应的 Planner 回合产不出任何任务，代价是整次运行而不是几次调用。要提前停下运行请用 `pause` / `cancel`，不要靠一个会在决策中途过期的预算。`GET /config` 的 `budget_limits.defaults` 返回当前默认值。
 
-`require_poc=false` 适用于源码事实、架构、配置和边界审计。设为 `true` 时，每条 `achieved` 发现都必须带可人工复核的 POC；服务不会执行 POC。
+`require_poc=false` 时，漏洞候选仍需明确利用前提、安全影响、风险等级与源码证据。设为 `true` 时，每条 `achieved` 漏洞发现都必须带可人工复核的 POC；服务不会执行 POC。安全结论与普通源码事实单独保存为排查记录，不计为漏洞，也不能使漏洞审计目标达成。
 
 - `GET /runs` → 运行摘要。
-- `GET /runs/{id}` → `{run,goal,planner,project_map,plans,tasks,observations,investigations,findings,metrics}`。Planner 运行的 `units` 与 `work_items` 为兼容字段且始终为空。`project_map` 在这里是**有界投影**（`stats`、入口候选、模块聚合、`binary_files`、`limitations` 等；不含 `files`/`symbols`/`includes`/`calls` 全量数组），以免整包快照让每次轮询变成数 MB JSON。`investigations` 是固定调查的无正文投影（见下）。
+- `GET /runs/{id}` → `{run,goal,planner,project_map,plans,tasks,observations,investigations,findings,source_observations,metrics}`。`findings` 为漏洞候选，`source_observations` 为独立的排查记录。Planner 运行的 `units` 与 `work_items` 为兼容字段且始终为空。`project_map` 在这里是**有界投影**（`stats`、入口候选、模块聚合、`binary_files`、`limitations` 等；不含 `files`/`symbols`/`includes`/`calls` 全量数组），以免整包快照让每次轮询变成数 MB JSON。`investigations` 是固定调查的无正文投影（见下）。
 - `GET /runs/{id}/project-map` → 完整冻结项目图，供导出与深挖使用。注意 `architecture.modules[]` 的目录键是 `directory`：该数组里的每一项都是**目录**，而这份投影里其它叫 `path` 的字段都是文件。存储的完整项目图保留原始键名，`GET /runs/{id}` 与 `GET /runs/{id}/project-overview` 使用 `directory`。
 - `GET /runs/{id}/project-overview` → Planner 首轮看到的那份有界概览。
 - `POST /runs/{id}/cancel` → 取消排队、运行中或已暂停的任务。
@@ -96,6 +96,8 @@ PlannerTaskAttempt {task_id,attempt,worker_id,outcome,state,result,usage,seen,er
 Planner 不能直接声明源码发现：它只能提供任务目标、依据摘要、文件/符号阅读指令和依赖。它的工具面是**全量只读**的：`get_project_map` / `search_project_map`（冻结索引）、`list_tree` / `find_files` / `file_summary`（布局与符号大纲）、`read_source` / `search_code`（原始源码行与文本检索）、`get_coverage`（覆盖统计）、`get_task_results`（完整任务史与已有结论）、`get_investigation`（某条固定调查的全文）、`investigate_project`（内置侦察子 agent）。这些工具受运行冻结范围约束，越界返回 `context_missing`；未知工具名会被显式拒绝；参数不符合工具签名（例如多给一个没声明的开关）会退回模型纠正一次，而不是把该回合的探索阶段直接判死——这一类纠正请求与其它请求一样计入预算。**Planner 的读记录只用于节流与「已读过什么」，不进 `validate_evidence` 或任何 finding 证据路径**——与侦察子 agent 一致；证据永远只来自 worker 的台账。Planner 也不再有一个“无工具决策阶段”：结构化决策阶段保留同一套工具，只是提示词要求它现在提交 `PlannerDecision`。工具只在一种情况下会被收回——决策阶段的确认额度（`policy.decision_confirmations`）用尽，宿主发 `planner_tools_withdrawn` 并要求单独提交决策，见下文。
 
 `investigate_project` 返回布局、入口候选、数据存储、安全边界和首批阅读目标，这些是导航线索而不是证据，且它有自己的响应/工具/墙钟预算。worker 通过原子租约领取已就绪任务，并先装载受范围约束的多文件上下文；已完成依赖的摘要会作为未验证线索交接给后续任务。worker 还可以检索同一运行中其他 worker 的受限持久化轨迹（工具参数/结果预览和依据摘要），但这些内容不是证据，任何 finding 仍须由该 worker 实际读取的源码行号支撑。`continue` 只会重试同一动态任务；`blocked` 会使整体结论保留为 `inconclusive`。每次工具调用都受运行冻结的审计范围限制：`scope_mode="snapshot"` 的运行可以读取快照内任何可读文本文件（含依赖目录与其它语言），二进制文件与快照外路径仍被拒绝。
+
+目标任务 worker 提供 `list_tree` / `find_files` 定位其冻结范围内的可读文件，再使用 `read_source` / `search_code` / `get_context` 获取源码证据。目录和文件名查询计入工具预算，但不登记为已读源码。导航与同行轨迹的成功返回值保持纯 JSON，可用 `json.loads(...)` 解析，不追加文本预算提示；剩余额度由既有执行状态记录。源码中的运行时输出目录不一定存在于上传包，Planner 的 `scope_paths` 只能引用快照中实际存在的文件或目录。缺失的部署配置应记录为 `missing_context`，不得猜测其存在或检查服务器主机文件系统。
 
 ### 每轮态势与「允许派 0 个任务」
 
@@ -163,11 +165,15 @@ recon_started, recon_phase, recon_brief_prepared, recon_terminal, recon_skipped,
 finding_superseded, finding_retracted, finding_duplicate, finding_contested,
 finding_disposition_changed,
 run_pause_requested, run_paused, run_resumed,
-agent_code, tool_call, tool_result, task_assessment, model_retry,
+audit_progress, agent_code, tool_call, tool_result, task_assessment, model_retry,
 run_completed, goal_unreachable, goal_inconclusive
 ```
 
 Planner 事件带 `plan_id`、`session_id`、`role=planner`；侦察事件带 `role=recon` 与同一 `plan_id`，其工具事件复用 `tool_call` / `tool_result` 但 `call_id` 前缀为 `recon-tool-`（Planner 是 `planner-tool-`），因此不会与 Planner 的工具跨度合并。worker 事件带 `task_id`、`task_key`、`worker_id`、`attempt`、`role=worker`。`tool_call` 和 `tool_result` 使用同一 `call_id` / `span_id` 配对，结果携带状态、受限预览、已读范围、用量和 `duration_ms`。`task_assessment` 包含 `outcome`、`summary`、`rationale`、`next_focus`、`missing_context` 和经解析的源码引用。
+
+模型请求、代码动作、进展和工具事件另带 `agent_invocation_id` 与 `request_index`，标识具体执行实例及模型请求序号；`request_index` 不表示 worker 的任务尝试次数。配对时应结合运行、角色、执行实例、阶段、任务与尝试上下文，不能仅凭 `call_id` 合并不同 Planner 回合或并行 worker。
+
+控制工具 `report_progress(message)` 在同一代码动作的源码工具调用前发布一句公开进展，持久化为 `audit_progress`，载荷包含 `message`、`phase` 与上述执行归属。每次模型响应最多保存一条，最多 280 字符、1024 UTF-8 字节；空白与重复内容不落库。它不增加模型请求或源码工具次数，仍受阶段关闭与墙钟预算限制，不属于漏洞证据，也不采集供应商隐藏推理。没有进展事件的旧记录只展示其原有摘要和实际工具操作。
 
 `planner_coverage_prepared` 带 `round` 与 `coverage`；`planner_situational_prepared` 带 `round`、`counts`（前沿/已结算/结论/固定调查）与 `frontier` / `settled` / `finding_ids` / `omitted`，说明那一回合的 Planner 究竟被告知了什么——「它重复派发了一个已结算方向」与「宿主从没告诉它那个方向已结算」在没有这个事件时长得一样。`recon_brief_prepared` 带 `round`、`question`、`brief`（含由宿主填充的 `files_examined` 与 `reads`）；`recon_terminal` 带 `reason`（`completed`、`timeout`、`invalid_output`、`model_error`、`internal_error`、`cancelled`）——侦察失败只会让该回合没有简报，不会中断 Planner 回合或整个运行。侦察请求不计入 `planner_agent_terminal.usage`。
 
@@ -187,7 +193,7 @@ Planner 事件带 `plan_id`、`session_id`、`role=planner`；侦察事件带 `r
 
 **阶段边界不继承记忆**：一个阶段是有界的一段上下文，不是上一阶段的续篇。进入决策阶段与收尾阶段（`planner_decision` / `planner_publish`）前，宿主会清空循环的记忆，因为这些阶段的 prompt 已经带着它们需要的全部态势（项目概览、情境块、覆盖统计，以及把探索阶段问过的内容原样回放的固定调查）——继承上一阶段的观察只会让请求白白顶到 `policy.history_bytes`（默认 192 KiB）上限。一次真实运行正是这样死的：第一次收尾请求已经 ~170 KB，而被拒绝的决策唯一允许的那次纠正，在发出之前就被历史上限拒掉了。跨边界保留下来的是**解释器里的变量**（探索阶段建好的表正是决策阶段据以判断的东西），以及每个阶段照常重建的阶段名、工具表与闸门。
 
-执行器的边界（进程内 `LocalPythonExecutor`，`additional_authorized_imports=[]`）：只留下库自带的基础模块（`re`、`math`、`collections`、`itertools`、`datetime`、`statistics`、`time`、`random`、`queue`、`stat`、`unicodedata`）；`os`、`sys`、`subprocess`、`socket`、`pathlib`、`io`、`shutil`、`multiprocessing`、`pty`、`builtins` 在解释器自己的危险清单里，连名字都取不到；`eval` / `exec` / `compile` / `globals` / `locals` / `__import__` 同样被禁，dunder 属性被拒。另有操作数上限（`1e7`）、`while` 迭代上限（`1e6`）与打印上限兜住跑飞的一步。
+执行器的边界（进程内 `LocalPythonExecutor`，`additional_authorized_imports=["json"]`）：在库自带的基础模块（`re`、`math`、`collections`、`itertools`、`datetime`、`statistics`、`time`、`random`、`queue`、`stat`、`unicodedata`）之外，仅增加 JSON 数据解析；CodeAgent 和解释器使用同一授权列表。`os`、`sys`、`subprocess`、`socket`、`pathlib`、`io`、`shutil`、`multiprocessing`、`pty`、`builtins` 仍在解释器自己的危险清单里，连名字都取不到；`eval` / `exec` / `compile` / `globals` / `locals` / `__import__` 同样被禁，dunder 属性被拒。另有操作数上限（`1e7`）、`while` 迭代上限（`1e6`）与打印上限兜住跑飞的一步。
 
 **官方定性照抄在这里**：smolagents 自己写着 `LocalPythonExecutor`「is not a security sandbox: for isolated execution of untrusted code, use a remote executor」。本工具接受这一定性，因为它执行的是**模型写出的、只被授权调用宿主只读工具**的代码，而不是上传快照里的任何代码：沙箱里没有任何能读文件、发网络请求或起进程的能力，所有实际读取都必须经由宿主工具，并照旧受范围校验、pin、去重、读账本与 `budgets["tools"]` 约束。上传快照里的代码与 POC 从头到尾都不执行。另一条诚实的边界：解释器的墙钟上限由线程池实现，**杀不掉已经跑飞的线程**，它限制的是宿主愿意等多久（`policy.code_seconds`，默认 30s），所以取消时的等待上限是「一次请求 + 最多一个代码块的等待」，而不是「一次请求」。
 

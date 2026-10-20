@@ -18,7 +18,7 @@ from typing import Any
 
 from playwright.sync_api import Page, expect, sync_playwright
 
-from ui_fixtures import COMPLETED_ID, CREATED_ID, CRITERIA, LONG_LOG, LONG_VALUE, OBJECTIVE, SOURCE_PATH, MockAPI, snapshot
+from ui_fixtures import ACTIVITY_ID, COMPLETED_ID, CREATED_ID, CRITERIA, LONG_LOG, LONG_VALUE, OBJECTIVE, SOURCE_PATH, MockAPI, activity_events, event, finding, run, snapshot, source_observations
 
 
 class Checks:
@@ -73,6 +73,15 @@ def open_findings(page: Page) -> Any:
     page.get_by_role("button", name="审计详情", exact=True).click()
     dialog = page.get_by_role("dialog", name="审计详情", exact=True)
     dialog.get_by_role("tab", name="发现与复核", exact=True).click()
+    return dialog
+
+
+def open_logs(page: Page) -> Any:
+    """Full filtering and diagnostic details live in the audit detail drawer."""
+    if not page.get_by_role("dialog", name="审计详情", exact=True).count():
+        page.get_by_role("button", name="审计详情", exact=True).click()
+    dialog = page.get_by_role("dialog", name="审计详情", exact=True)
+    dialog.get_by_role("tab", name="执行日志", exact=True).click()
     return dialog
 
 
@@ -196,6 +205,9 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     page.get_by_role("button", name="发送审计任务", exact=True).click()
     expect(page).to_have_url(re.compile(f"#run/{CREATED_ID}$"))
     expect(page.get_by_role("button", name="停止审计", exact=True)).to_be_visible()
+    expect(page.locator(".activity-stream")).to_be_visible()
+    expect(page.locator(".trace")).to_have_count(0)
+    open_logs(page)
     expect(page.locator(".trace-counts")).to_contain_text("11 条事件")
     expect(page.locator(".trace-counts")).to_contain_text("2 次工具活动")
     assert api.create_count == 2
@@ -203,6 +215,7 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     assert api.create_bodies[-1]["budgets"] == {"responses": 24, "tools": 96, "seconds": 1800}
     expect(page.locator(".message-attachment")).to_contain_text("5 个可读文件")
     checks.passed("existing snapshot creates one run; SSE duplicate frames are deduplicated")
+    close_dialog(page)
     save(page, directory, "running-dark")
 
     page.get_by_role("button", name="暂停运行", exact=True).click()
@@ -229,6 +242,7 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     checks.passed("hash refresh restores the session and refreshed history")
 
     goto(page, base, f"#run/{COMPLETED_ID}")
+    open_logs(page)
     expect(page.locator(".trace-counts")).to_contain_text("2001 条事件", timeout=15000)
     assert (COMPLETED_ID, 0) in api.event_queries and (COMPLETED_ID, 2000) in api.event_queries, api.event_queries
     expect(page.locator(".trace-footer")).to_contain_text("50 / 2001")
@@ -271,7 +285,7 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     expect(page.locator(".conversation-meta")).to_contain_text("目标已达成")
     checks.passed("executed code and long logs expand with saved truncation markers; a recovered code error does not fail the run")
     log_content.get_by_role("button", name="收起", exact=True).click()
-    code_card.evaluate("""node => { const box = node.closest('.chat-scroll');
+    code_card.evaluate("""node => { const box = node.closest('.drawer-body');
       box.scrollTop += node.getBoundingClientRect().top - box.getBoundingClientRect().top - 14; }""")
     save(page, directory, "code-action-dark")
     trace.get_by_role("combobox", name="按事件类型筛选轨迹").select_option("tool_call")
@@ -280,6 +294,7 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     expect(trace.locator(".trace-tool")).to_have_count(1)
     expect(trace.locator(".trace-tool")).to_contain_text("find_files")
     checks.passed("reconnaissance has its own role and trace filters")
+    close_dialog(page)
 
     source_count = len(api.source_requests)
     trigger = page.get_by_role("button", name="审计详情", exact=True)
@@ -301,6 +316,7 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     dialog.get_by_role("button", name="提交复核记录", exact=True).click()
     expect(dialog.get_by_role("status")).to_contain_text("已记录")
     assert api.verification_count == 1
+    dialog.get_by_role("tab", name="执行日志", exact=True).click()
     expect(page.locator(".trace-counts")).to_contain_text("2002 条事件", timeout=10000)
     checks.passed("a terminal run fetches new verification events without reopening its live stream")
     dialog.get_by_role("tab", name="结果报告", exact=True).click()
@@ -468,7 +484,7 @@ def run_status_regressions(page: Page, base: str, api: MockAPI, checks: Checks) 
     goto(page, base, f"#run/{COMPLETED_ID}")
     expect(page.locator(".result-card")).to_contain_text("其中 0 项仍被本次运行主张")
     page.get_by_role("button", name="审计详情", exact=True).click()
-    summary = page.get_by_role("dialog", name="审计详情").locator(".stat").filter(has=page.get_by_text("有效证据化发现", exact=True))
+    summary = page.get_by_role("dialog", name="审计详情").locator(".stat").filter(has=page.get_by_text("有效漏洞候选", exact=True))
     expect(summary.locator(".stat-value")).to_have_text("0")
     expect(summary.locator(".stat-note")).to_contain_text("已撤回/取代/判重 1")
     checks.passed("withdrawn evidence remains stored while active findings and overview counts exclude it")
@@ -492,6 +508,352 @@ def run_status_regressions(page: Page, base: str, api: MockAPI, checks: Checks) 
     checks.passed("run errors remain visible alongside a persisted goal terminal reason")
 
 
+def run_result_classification_checks(page: Page, base: str, api: MockAPI, checks: Checks, directory: Path | None) -> None:
+    """Facts stay traceable without being counted as vulnerabilities, including old API shapes."""
+    import copy
+
+    observed = api.findings[COMPLETED_ID]
+    observed.update(severity="low", disposition="open", verdict="confirmed")
+    goto(page, base, f"#run/{COMPLETED_ID}")
+    expect(page.locator(".result-finding")).to_have_count(1)
+    if page.get_by_role("button", name="切换深色主题", exact=True).count():
+        page.get_by_role("button", name="切换深色主题", exact=True).click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    expect(page.locator(".result-finding")).to_contain_text("low")
+    expect(page.locator(".result-card")).to_contain_text("另有 2 条排查记录，不计为漏洞")
+    dialog = open_findings(page)
+    expect(dialog.locator(".finding-layout")).to_contain_text(observed["title"])
+    expect(dialog.locator(".finding-layout")).not_to_contain_text("上传路径已规范化")
+    checks.passed("real low-severity vulnerabilities remain candidates while safe observations are separate")
+
+    observations = dialog.get_by_role("region", name="排查记录（非漏洞）", exact=True)
+    before = len(api.source_requests)
+    observations.get_by_role("button", name="查看排查记录（2）", exact=True).click()
+    observations.get_by_role("button", name=re.compile(r"^排查记录\s*上传路径已规范化")).click()
+    historical = observations.get_by_role("region", name="排查记录详情", exact=True)
+    expect(historical).to_contain_text("不构成漏洞确认")
+    review = observations.get_by_role("region", name="历史人工记录", exact=True)
+    expect(review).to_contain_text("只读")
+    expect(review.get_by_role("combobox")).to_have_count(0)
+    review.get_by_role("button", name="查看历史记录（1）", exact=True).click()
+    review.get_by_role("button", name=re.compile(r"^确认结论")).click()
+    expect(review).to_contain_text("历史人工排查记录：已核对 basename 防护")
+    expect(review.get_by_role("link", name="历史代码评审.txt", exact=True)).to_have_attribute("href", "/api/evidence/historical-review.txt")
+    expect(observations.get_by_role("button", name="记录一次人工复核", exact=True)).to_have_count(0)
+    assert len(api.source_requests) == before, "observation source loaded before explicit disclosure"
+    observations.get_by_role("button", name=re.compile(r"^排查记录\s*上传路径已规范化")).click()
+    observations.get_by_role("button", name=re.compile(r"^排查记录\s*已确认上传入口的认证边界")).click()
+    expect(observations.get_by_role("region", name="排查记录详情", exact=True)).to_contain_text("第 1 次尝试")
+    source = observations.get_by_role("region", name="排查依据源码", exact=True)
+    source.get_by_role("button", name=re.compile(r"^src\/auth\.php")).click()
+    assert len(api.source_requests) == before
+    source.get_by_role("button", name=re.compile(r"^查看源码")).click()
+    expect(source.get_by_role("region", name=re.compile(r"src\/auth\.php 第"))).to_be_visible()
+    assert len(api.source_requests) >= before + 1
+    assert api.source_requests[-1]["path"] == "src/auth.php"
+    checks.passed("minimal attempt observations load source lazily and preserve historical human reviews read-only")
+    observations.evaluate("""node => { const box = node.closest('.drawer-body');
+      box.scrollTop += node.getBoundingClientRect().top - box.getBoundingClientRect().top - 12; }""")
+    save(page, directory, "source-observation-dark")
+    responsive(page, checks, "source-observations", directory)
+    page.set_viewport_size({"width": 390, "height": 900})
+    observations.evaluate("""node => { const box = node.closest('.drawer-body');
+      box.scrollTop += node.getBoundingClientRect().top - box.getBoundingClientRect().top - 12; }""")
+    save(page, directory, "source-observations-mobile-focused")
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    dialog.get_by_role("tab", name="结果报告", exact=True).click()
+    expect(dialog.get_by_role("region", name="报告漏洞候选", exact=True)).to_contain_text("1 条引用通过")
+    expect(dialog.get_by_role("region", name="人工复核清单", exact=True)).to_contain_text("确认漏洞 1 条")
+    expect(dialog.get_by_role("region", name="排查记录（非漏洞）", exact=True)).to_contain_text("2 条")
+    checks.passed("report separates observations and excludes their confirmed historical reviews from confirmed vulnerabilities")
+    close_dialog(page)
+
+    # A previous server may return source facts mixed into findings and metrics.
+    fact = source_observations(COMPLETED_ID)[0]
+    fact.update(severity="high", finding_kind="data_flow")
+    api.detail_overrides[COMPLETED_ID] = {"findings": [copy.deepcopy(observed), fact], "source_observations": []}
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".result-card")).to_contain_text("共保存 1 项漏洞候选")
+    expect(page.locator(".result-card")).to_contain_text("另有 1 条排查记录")
+    expect(page.locator(".result-finding")).to_have_count(1)
+    page.get_by_role("button", name="审计详情", exact=True).click()
+    summary = page.get_by_role("dialog", name="审计详情").locator(".stat").filter(has=page.get_by_text("有效漏洞候选", exact=True))
+    expect(summary.locator(".stat-value")).to_have_text("1")
+    checks.passed("legacy mixed responses cannot classify a high-severity data-flow fact as a vulnerability")
+    close_dialog(page)
+
+    api.detail_overrides[COMPLETED_ID] = {"findings": [fact], "source_observations": []}
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".result-card")).to_contain_text("共保存 0 项漏洞候选")
+    expect(page.locator(".result-card")).to_contain_text("历史任务状态沿用原判定")
+    expect(page.locator(".result-finding")).to_have_count(0)
+    expect(page.locator(".conversation-meta")).to_contain_text("目标已达成")
+    dialog = open_findings(page)
+    expect(dialog.locator(".finding-layout")).to_have_count(0)
+    expect(dialog.get_by_role("region", name="排查记录（非漏洞）", exact=True)).to_contain_text("1 条")
+    checks.passed("historical safe-only completed runs retain their status with zero vulnerabilities and an explicit explanation")
+    no_overflow(page, "safe-only observation drawer 1440px", checks)
+    save(page, directory, "historical-safe-only-dark")
+    close_dialog(page)
+
+    minimal = source_observations(COMPLETED_ID)[1]
+    for key in ("file_path", "line", "unit_start_line", "unit_end_line"):
+        minimal.pop(key, None)
+    api.detail_overrides[COMPLETED_ID] = {"findings": [], "source_observations": [minimal]}
+    page.reload(wait_until="domcontentloaded")
+    dialog = open_findings(page)
+    observations = dialog.get_by_role("region", name="排查记录（非漏洞）", exact=True)
+    observations.get_by_role("button", name="查看排查记录（1）", exact=True).click()
+    observations.get_by_role("button", name=re.compile(r"^排查记录\s*已确认上传入口的认证边界")).click()
+    expect(observations.get_by_role("region", name="排查记录详情", exact=True)).to_contain_text("第 1 次尝试")
+    expect(observations).not_to_contain_text("undefined")
+    checks.passed("minimal historical observation projections retain attempt context without undefined location metadata")
+    close_dialog(page)
+    del api.detail_overrides[COMPLETED_ID]
+
+
+def install_activity_stream(page: Page) -> None:
+    """Control only the dedicated fixture stream; normal cases keep native SSE.
+
+    Its initial frames still come from the strict API router. Later frames are released
+    by the test so the running/pending UI can be observed before a result arrives.
+    """
+    page.add_init_script("""(() => {
+      const NativeEventSource = window.EventSource;
+      window.__auditActivityStreams = [];
+      class ControlledStream extends EventTarget {
+        constructor(url) {
+          super(); this.url = String(url); this.readyState = 0; this.withCredentials = false;
+          window.__auditActivityStreams.push(this);
+          fetch(this.url).then(response => response.text()).then(body => {
+            if (this.readyState === 2) return;
+            this.readyState = 1; this.deliver('open', new Event('open'));
+            for (const frame of body.split('\\n\\n')) {
+              const data = frame.split('\\n').find(line => line.startsWith('data: '));
+              if (data) this.message(JSON.parse(data.slice(6)));
+            }
+          }).catch(() => this.deliver('error', new Event('error')));
+        }
+        deliver(type, value) { this.dispatchEvent(value); this['on' + type]?.(value); }
+        message(value) {
+          if (this.readyState !== 1) return;
+          this.deliver('message', new MessageEvent('message', {data: JSON.stringify(value), lastEventId: String(value.id)}));
+        }
+        close() { this.readyState = 2; }
+      }
+      window.EventSource = class extends NativeEventSource {
+        constructor(url, options) {
+          if (String(url).includes('/smoke-live-activity/')) return new ControlledStream(url);
+          super(url, options);
+        }
+      };
+      window.__emitAuditActivity = rows => {
+        const active = window.__auditActivityStreams.filter(stream => stream.readyState === 1);
+        rows.forEach(row => active.forEach(stream => stream.message(row)));
+        return active.length;
+      };
+    })();""")
+
+
+def run_chat_activity_checks(page: Page, base: str, api: MockAPI, checks: Checks, directory: Path | None) -> None:
+    """Continuous activity remains readable while tools and retries update in place."""
+    frames = activity_events()
+    api.runs[ACTIVITY_ID] = run(ACTIVITY_ID, "running")
+    api.findings[ACTIVITY_ID] = finding(ACTIVITY_ID)
+    api.detail_overrides[ACTIVITY_ID] = {"findings": [], "source_observations": []}
+    api.event_overrides[ACTIVITY_ID] = frames[:3]
+
+    def emit(rows: list[dict[str, Any]]) -> None:
+        present = {item["id"] for item in api.event_overrides[ACTIVITY_ID]}
+        api.event_overrides[ACTIVITY_ID].extend(item for item in rows if item["id"] not in present)
+        assert page.evaluate("rows => window.__emitAuditActivity(rows)", rows) == 1, "fixture stream is not active"
+        page.wait_for_timeout(100)
+
+    page.set_viewport_size({"width": 1440, "height": 900})
+    goto(page, base, f"#run/{ACTIVITY_ID}")
+    stream = page.locator(".activity-stream")
+    expect(stream).to_be_visible()
+    expect(stream.get_by_text("先检查上传入口的路径处理，再核对认证边界和文件写入。", exact=True)).to_be_visible()
+    expect(stream.locator(".activity-tool")).to_have_count(0)
+    expect(page.locator(".trace")).to_have_count(0)
+    checks.passed("agent progress appears as plain activity before any tool is called; logs remain in details")
+    save(page, directory, "progress-before-tools-dark")
+
+    emit(frames[3:5])
+    tools = stream.locator(".activity-tool")
+    expect(tools).to_have_count(2)
+    first = tools.filter(has=page.locator(".activity-tool-subject", has_text="src/upload.php:10–12"))
+    expect(first).to_have_count(1)
+    first_key = first.get_attribute("data-activity-key")
+    first.get_by_role("button", name=re.compile(r"工具详情：")).click()
+    params = first.locator(".activity-tool-detail")
+    params.get_by_role("tab", name="参数", exact=True).click()
+    expect(params.get_by_text("LONG_PAYLOAD_END", exact=False)).to_have_count(0)
+    params.get_by_role("button", name="展开全文", exact=True).click()
+    expect(params).to_contain_text("LONG_PAYLOAD_END")
+    params.get_by_role("tab", name="参数", exact=True).focus()
+    source_before = len(api.source_requests)
+    emit([frames[5]])
+    expect(tools).to_have_count(2)
+    expect(first.locator(".activity-tool-detail")).to_be_visible()
+    expect(params.get_by_role("tab", name="参数", exact=True)).to_be_focused()
+    assert len(api.source_requests) == source_before, "opening tool parameters fetched source"
+    emit([frames[6], frames[6]])
+    expect(tools).to_have_count(2)
+    assert first.get_attribute("data-activity-key") == first_key, "tool row identity changed when its result arrived"
+    expect(first.locator(".activity-tool-detail")).to_be_visible()
+    expect(params.get_by_role("tab", name="参数", exact=True)).to_be_focused()
+    params.get_by_role("tab", name="返回预览", exact=True).click()
+    expect(params).to_contain_text("WORKER_A_RETURN")
+    expect(params).not_to_contain_text("WORKER_B_RETURN")
+    assert "fixture-invocation-a" not in stream.inner_text()
+    assert "reused-call" not in stream.inner_text()
+    checks.passed("parallel workers with identical call IDs pair independently; inline details survive results and replay")
+
+    params.get_by_role("tab", name="源码", exact=True).click()
+    expect(params.get_by_role("region", name=re.compile(r"src\/upload\.php 第"))).to_be_visible()
+    assert len(api.source_requests) >= source_before + 1
+    assert api.source_requests[-1] == {"path": SOURCE_PATH, "start": 10, "end": 12}
+    checks.passed("tool source is fetched only after the explicit source tab is opened")
+    emit(frames[7:14])
+    expect(stream).to_contain_text("第二次尝试只补读路径规范化相关源码")
+    expect(stream.locator(".activity-tool")).to_have_count(4)
+    error_tool = stream.locator('.activity-tool[data-tool="search_code"]')
+    error_tool.get_by_role("button", name=re.compile("工具详情：")).click()
+    error_detail = error_tool.locator(".activity-tool-detail")
+    error_detail.get_by_role("tab", name="异常", exact=True).click()
+    expect(error_detail).to_contain_text("模拟检索暂时失败")
+    checks.passed("tool errors stay local; a new task attempt does not overwrite the previous invocation")
+    save(page, directory, "activity-tools-error-dark")
+
+    # Consecutive successful operations become one compact historical disclosure.
+    history_start = len(api.event_overrides[ACTIVITY_ID])
+    emit(frames[14:])
+    expect(stream.get_by_role("button", name=re.compile(r"^加载更早的"))).to_be_visible()
+    history_button = stream.get_by_role("button", name=re.compile(r"^加载更早的"))
+    while history_button.count():
+        history_button.click()
+    expect(first.locator(".activity-tool-detail")).to_be_visible()
+    expect(stream.locator(".activity-tool-group")).not_to_have_count(0)
+    checks.passed("long activity histories paginate without losing an already expanded tool")
+
+    scroll = page.locator(".chat-scroll")
+    scroll.evaluate("node => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll', {bubbles: true})); }")
+    earlier = scroll.evaluate("node => node.scrollTop")
+    last = {**frames[-1], "id": frames[-1]["id"] + 1, "kind": "audit_progress",
+            "payload": {**frames[-1]["payload"], "message": "新增活动不会打断正在查看的历史，完成后继续核对部署条件。"}}
+    emit([last])
+    expect(page.get_by_role("button", name="有新活动", exact=True)).to_be_visible()
+    assert abs(scroll.evaluate("node => node.scrollTop") - earlier) < 3
+    page.get_by_role("button", name="有新活动", exact=True).click()
+    expect(stream).to_contain_text("新增活动不会打断正在查看的历史")
+    checks.passed("reading older activity preserves scroll position and offers a new-activity action")
+
+    for theme in ("dark", "light"):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        if page.locator("html").get_attribute("data-theme") != theme:
+            page.get_by_role("button", name=f"切换{'深' if theme == 'dark' else '浅'}色主题", exact=True).click()
+        for width in (1440, 1024, 768, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            scroll.evaluate("node => { node.scrollTop = node.scrollHeight; }")
+            no_overflow(page, f"chat activity {theme} {width}px", checks)
+            save(page, directory, f"chat-activity-{theme}-{width}")
+
+    # The terminal transition drains the saved event log and closes the live stream.
+    final = {**last, "id": last["id"] + 1, "kind": "run_completed", "payload": {"role": "host", "goal_status": "met"}}
+    api.runs[ACTIVITY_ID].update(status="completed", finished_at=final["created_at"])
+    emit([final])
+    expect(page.locator(".result-card")).to_be_visible(timeout=10000)
+    page.wait_for_function("window.__auditActivityStreams.every(stream => stream.readyState === 2)")
+    rows_before = stream.locator("[data-activity-key]").count()
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".result-card")).to_be_visible()
+    expect(page.locator(".activity-stream")).to_contain_text("新增活动不会打断正在查看的历史")
+    assert (ACTIVITY_ID, 0) in api.event_queries
+    assert history_start > 0 and rows_before > 0
+    checks.passed("terminal activity closes its live stream and restores from the saved event log after refresh")
+
+
+def run_activity_focus_checks(page: Page, base: str, api: MockAPI, checks: Checks, directory: Path | None) -> None:
+    """Keyboard focus and expanded prose are as durable as expanded tool details."""
+    context = {"role": "worker", "task_id": "task-upload", "attempt": 1,
+               "agent_invocation_id": "focus-invocation", "request_index": 1, "phase": "explore"}
+    rows = [event(ACTIVITY_ID, 1, "audit_progress", {**context,
+             "message": "已定位上传入口，正在核对文件名处理和路径约束。"})]
+    for index, (start, end) in enumerate(((10, 12), (24, 28))):
+        rows.extend([
+            event(ACTIVITY_ID, 2 + index * 2, "tool_call", {**context, "tool": "read_source", "call_id": f"focus-{index}",
+                  "args": {"path": SOURCE_PATH, "start": start, "end": end}}),
+            event(ACTIVITY_ID, 3 + index * 2, "tool_result", {**context, "tool": "read_source", "call_id": f"focus-{index}",
+                  "status": "ok", "duration_ms": 14, "preview": "已读取原始源码；继续核对路径与部署条件。"}),
+        ])
+    api.runs[ACTIVITY_ID] = run(ACTIVITY_ID, "running")
+    api.findings[ACTIVITY_ID] = finding(ACTIVITY_ID)
+    api.detail_overrides[ACTIVITY_ID] = {"findings": [], "source_observations": []}
+    api.event_overrides[ACTIVITY_ID] = rows
+    page.set_viewport_size({"width": 1440, "height": 900})
+    # Navigating to the very same hash is a same-document navigation: leave the
+    # prior completed fixture so its event cursor and component state are released.
+    goto(page, base)
+    workspace_ready(page)
+    goto(page, base, f"#run/{ACTIVITY_ID}")
+    stream = page.locator(".activity-stream")
+    expect(stream.locator(".activity-tool")).to_have_count(2)
+
+    def emit(values: list[dict[str, Any]]) -> None:
+        api.event_overrides[ACTIVITY_ID].extend(values)
+        assert page.evaluate("rows => window.__emitAuditActivity(rows)", values) == 1
+        page.wait_for_timeout(100)
+
+    focused = stream.locator(".activity-tool-toggle").nth(1)
+    focused.focus()
+    focused.evaluate("node => { window.__focusedAuditControl = node; }")
+    emit([event(ACTIVITY_ID, 6, "model_request", {**context, "request_index": 2})])
+    expect(focused).to_be_focused()
+    expect(focused).to_have_attribute("aria-expanded", "false")
+    assert page.evaluate("document.activeElement === window.__focusedAuditControl")
+    checks.passed("keyboard-focused tool controls survive the next model step without being folded or remounted")
+
+    # Capture the ordinary conversation before the deliberately huge history stress case.
+    scroll = page.locator(".chat-scroll")
+    for theme in ("dark", "light"):
+        if page.locator("html").get_attribute("data-theme") != theme:
+            page.get_by_role("button", name=f"切换{'深' if theme == 'dark' else '浅'}色主题", exact=True).click()
+        scroll.evaluate("node => { const intro = node.querySelector('.assistant-message'); node.scrollTop += intro.getBoundingClientRect().top - node.getBoundingClientRect().top - 22; }")
+        save(page, directory, f"conversation-process-{theme}")
+    page.set_viewport_size({"width": 390, "height": 844})
+    scroll.evaluate("node => { const intro = node.querySelector('.assistant-message'); node.scrollTop += intro.getBoundingClientRect().top - node.getBoundingClientRect().top - 12; }")
+    save(page, directory, "conversation-process-mobile")
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    long_summary = "逐项核对已读取的路径处理与目录约束，并记录尚未确认的部署条件。" * 55 + "已保存依据全文末尾。"
+    emit([
+        event(ACTIVITY_ID, 7, "model_response", {**context, "request_index": 2}),
+        event(ACTIVITY_ID, 8, "task_assessment", {**context, "request_index": 2, "outcome": "no_evidence", "summary": long_summary,
+              "rationale": "当前分支未证实路径绕过，其他上传入口仍需继续调查。"}),
+        event(ACTIVITY_ID, 9, "task_agent_terminal", {**context, "request_index": 2, "reason": "completed"}),
+    ])
+    message = stream.locator('.activity-message[data-event-kind="task_assessment"]')
+    message.get_by_role("button", name="展开全文", exact=True).click()
+    expect(message).to_contain_text("已保存依据全文末尾。")
+    collapse = message.get_by_role("button", name="收起", exact=True)
+    collapse.focus()
+    collapse.evaluate("node => { window.__focusedAuditControl = node; }")
+    previous_scroll = scroll.evaluate("node => node.scrollTop")
+    updates = [event(ACTIVITY_ID, 10 + index, "audit_progress", {**context,
+               "task_id": "task-auth", "agent_invocation_id": "focus-another-worker", "request_index": index + 1,
+               "message": f"继续核对第 {index + 1} 条认证边界线索。"}) for index in range(65)]
+    emit(updates)
+    expect(message).to_be_visible()
+    expect(collapse).to_be_focused()
+    assert page.evaluate("document.activeElement === window.__focusedAuditControl")
+    expect(message).to_contain_text("已保存依据全文末尾。")
+    expect(page.get_by_role("button", name="有新活动", exact=True)).to_be_visible()
+    assert abs(scroll.evaluate("node => node.scrollTop") - previous_scroll) < 3
+    checks.passed("expanded long audit prose stays mounted, focused and readable beyond the latest fifty activities")
+
+
 def run_readonly(page: Page, base: str, run_id: str | None, checks: Checks, directory: Path | None) -> None:
     attempted: list[str] = []
 
@@ -509,7 +871,7 @@ def run_readonly(page: Page, base: str, run_id: str | None, checks: Checks, dire
         checks.passed("existing session restored")
         page.get_by_role("button", name="审计详情", exact=True).click()
         dialog = page.get_by_role("dialog", name="审计详情", exact=True)
-        for tab in ("项目与任务图", "发现与复核", "结果报告"):
+        for tab in ("项目与任务图", "执行日志", "发现与复核", "结果报告"):
             dialog.get_by_role("tab", name=tab, exact=True).click()
             expect(dialog.get_by_role("tabpanel")).to_be_visible()
             assert len(dialog.get_by_role("tabpanel").inner_text()) > 15, f"empty {tab}"
@@ -544,6 +906,8 @@ def main() -> int:
         chrome = os.environ.get("CHROME_BIN")
         browser = pw.chromium.launch(**({"executable_path": chrome} if chrome else {}))
         page = browser.new_page(viewport={"width": 1440, "height": 900}, locale="zh-CN", timezone_id="Asia/Shanghai")
+        if args.mock:
+            install_activity_stream(page)
         page.set_default_timeout(10000)
         page.on("console", lambda msg: errors.append({"kind": "console", "text": msg.text, "url": msg.location.get("url", "")}) if msg.type == "error" else None)
         page.on("pageerror", lambda exc: errors.append({"kind": "pageerror", "text": str(exc), "url": ""}))
@@ -553,6 +917,9 @@ def main() -> int:
                 run_profile_checks(page, api, checks, args.screenshots)
                 run_race_regressions(page, api, checks)
                 run_status_regressions(page, args.frontend_url.rstrip("/"), api, checks)
+                run_result_classification_checks(page, args.frontend_url.rstrip("/"), api, checks, args.screenshots)
+                run_chat_activity_checks(page, args.frontend_url.rstrip("/"), api, checks, args.screenshots)
+                run_activity_focus_checks(page, args.frontend_url.rstrip("/"), api, checks, args.screenshots)
             else:
                 run_readonly(page, args.frontend_url.rstrip("/"), args.run_id, checks, args.screenshots)
         except Exception:

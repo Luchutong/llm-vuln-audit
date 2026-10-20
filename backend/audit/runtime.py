@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 
 
@@ -162,6 +163,39 @@ class Execution:
     corrections: int = 0
     phase: str = "prepare"
     phases: dict = field(default_factory=dict)
+    agent_invocation_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    progress_requests: set[int] = field(default_factory=set)
+    progress_messages: set[str] = field(default_factory=set)
+
+    def __post_init__(self) -> None:
+        sink = self.emit
+
+        def contextual_emit(event: dict) -> None:
+            # Recon has its own Execution and forwards through the Planner's sink.
+            # Preserve explicit child context rather than relabelling it as its parent.
+            sink({
+                "agent_invocation_id": self.agent_invocation_id,
+                "request_index": self.attempts,
+                "phase": self.phase,
+                **event,
+            })
+
+        self.emit = contextual_emit
+
+    def report_progress(self, message: str, *, deadline: float) -> bool:
+        """Publish bounded public status without spending a source-tool allowance."""
+        if self.remaining(deadline) <= 0:
+            raise StopAudit("timeout", "当前阶段的墙钟预算已到期")
+        if not isinstance(message, str):
+            return False
+        text = " ".join(message.split())[:280]
+        text = text.encode("utf-8")[:1024].decode("utf-8", errors="ignore")
+        if not text or not self.attempts or self.attempts in self.progress_requests or text in self.progress_messages:
+            return False
+        self.progress_requests.add(self.attempts)
+        self.progress_messages.add(text)
+        self.emit({"kind": "audit_progress", "message": text, "source": "agent"})
+        return True
 
     @property
     def deadline(self) -> float:

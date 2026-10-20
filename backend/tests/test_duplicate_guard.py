@@ -62,7 +62,8 @@ SETTLED = {
     "state": "completed",
     "files": ["public/index.php", "src/bootstrap.php"],
 }
-CONCLUSION = [{"id": "f-1", "paths": ["public/index.php", "src/bootstrap.php"]}]
+CONCLUSION = [{"id": "f-1", "finding_kind": "vulnerability", "severity": "high",
+               "paths": ["public/index.php", "src/bootstrap.php"]}]
 
 
 def validate(decision_value, *, prior=None, findings=None, policy=None):
@@ -180,7 +181,8 @@ def test_a_directory_scope_is_read_as_the_files_under_it():
             [{"task_key": "src-read", "state": "completed",
               "files": ["src/bootstrap.php", "src/auth.php"]}],
             policy=AgentPolicy(),
-            findings=[{"id": "f-1", "paths": ["src/bootstrap.php", "src/auth.php"]}],
+            findings=[{"id": "f-1", "finding_kind": "vulnerability", "severity": "high",
+                       "paths": ["src/bootstrap.php", "src/auth.php"]}],
         )
 
     # Scoped to the whole directory the settled direction read: 2 of 2, the same direction.
@@ -208,3 +210,11 @@ def test_the_situation_shows_the_file_sets_the_guard_compares():
     settled = situation["settled"][0]
     assert settled["files"] == ["public/index.php", "src/bootstrap.php"]
     assert json.loads(agent._planner_json(situation))["settled"][0]["files"][1] == "src/bootstrap.php"
+
+
+def test_safe_observations_do_not_prevent_a_new_vulnerability_direction_in_the_same_files():
+    safe = {**CONCLUSION[0], "finding_kind": "security_boundary", "severity": "informational"}
+    assert validate(
+        decision(key="check-another-risk", files=["public/index.php", "src/bootstrap.php"]),
+        findings=[safe],
+    ) is not None

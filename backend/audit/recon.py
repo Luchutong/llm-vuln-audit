@@ -135,6 +135,15 @@ async def run_recon(
 ) -> dict:
     """Answer one Planner question about an unfamiliar project, or return an empty brief."""
     started = time.monotonic()
+    slice_seconds = max(1.0, min(policy.recon_seconds, budget_seconds * policy.recon_fraction))
+    execution = Execution(
+        {"responses": policy.recon_responses, "tools": policy.recon_tools, "seconds": slice_seconds},
+        policy,
+        emit,
+    )
+    emit = execution.emit
+    execution.phase = "recon_explore"
+    execution.phases["recon_explore"] = {"model_attempts": 0, "tool_calls": 0}
     if not policy.recon_enabled:
         emit({"kind": "recon_skipped", "round": round_no, "reason": "disabled", "question": question[:600]})
         return {
@@ -146,16 +155,8 @@ async def run_recon(
             "files_examined": [],
             "elapsed_seconds": 0.0,
         }
-    slice_seconds = max(1.0, min(policy.recon_seconds, budget_seconds * policy.recon_fraction))
-    execution = Execution(
-        {"responses": policy.recon_responses, "tools": policy.recon_tools, "seconds": slice_seconds},
-        policy,
-        emit,
-    )
     # Not ``enter``: that emits ``agent_phase``, which the timeline renders as a Planner
     # phase.  Recon has its own lifecycle events.
-    execution.phase = "recon_explore"
-    execution.phases["recon_explore"] = {"model_attempts": 0, "tool_calls": 0}
     ledger = SourceLedger(policy.source_bytes)
     index = ProjectIndex.from_map(project_map, repository, snapshot_id)
     deps = ReconDeps(

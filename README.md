@@ -8,6 +8,41 @@
 
 模型的内部思维链不会被保存或展示。界面中的“审计依据摘要”是模型产出的、受源码行号约束的结论说明，结合工具轨迹与证据引用供人工复核。
 
+## 界面预览
+
+以下截图使用模拟 API 数据，展示当前前端的交互与布局，不代表真实项目的审计结论。
+
+在聊天输入区添加项目 ZIP，填写审计任务与验收目标；左侧可搜索和恢复历史审计。
+
+![VULN-AUDIT 深色聊天工作台：历史任务侧栏、任务与验收目标输入区](docs/screenshots/workspace-dark.png)
+
+<details>
+<summary>执行轨迹：筛选工具链并展开调用详情</summary>
+
+按角色、任务与事件类型筛选执行记录，展开查看调用参数和返回预览；长内容可收起，并标明服务端保存的预览范围。
+
+![工具链执行记录：筛选控件、工具调用参数和服务端受限返回预览](docs/screenshots/execution-trace-dark.png)
+
+</details>
+
+<details>
+<summary>浅色主题：管理多个模型连接档案</summary>
+
+独立维护模型、服务地址与凭据，切换后用于后续新建审计；密钥不会在页面回显。
+
+![浅色主题下的模型档案设置：档案列表、连接状态与凭据管理](docs/screenshots/model-profiles-light.png)
+
+</details>
+
+<details>
+<summary>移动端：查看报告与下载审计工件</summary>
+
+窄屏下详情抽屉全屏展示，报告章节按需展开，底部保留 Markdown、JSON 和证据包下载入口。
+
+<img src="docs/screenshots/report-mobile.png" alt="移动端审计报告：任务目标、验收条件、执行预算与下载入口" width="390" />
+
+</details>
+
 ## 快速开始
 
 ### 本地开发（一键启动）

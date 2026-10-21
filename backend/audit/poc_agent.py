@@ -500,7 +500,9 @@ def _is_xss(finding: dict) -> bool:
         str(finding.get(key) or "")
         for key in ("category", "title", "summary", "dangerous_operation", "finding_kind")
     ).casefold()
-    return "xss" in haystack
+    # 标准分类名 "Cross-Site Scripting" 不含子串 "xss"，必须单独匹配，
+    # 否则 host_check 不会强制浏览器弹窗证据，纯 HTTP 反射可能被误判为 verified。
+    return "xss" in haystack or "cross-site scripting" in haystack
 
 
 def _successful_script(job: dict) -> bool:
@@ -661,6 +663,20 @@ print("ATTACK", location("/vulnerabilities/open_redirect/source/low.php?redirect
 规则：
 - 先做正常请求（例如 id=1），再做攻击请求；两者输出都要保留，作为对照。
 - 每次执行都要把真正的命令行输出当作证据，不要编造；失败就换一种最小写法重试。
+
+适配要点（历史实测中反复导致验证失败的四种写法，必须避开）：
+- 登录自检：脚本每次请求后要确认已经处于登录态（例如 /index.php 响应含 Logout 或目标页面的
+  表单/功能链接）。登录失败或把登录页当结果输出时不要硬跑攻击，先修正登录再重试；
+  "脚本成功退出"不等于"验证成功"。
+- 对照优先：判断漏洞靠正常侧与攻击侧的**差异**，不是靠攻击响应里出现任何字符串。
+  SQLi 看结果行数/字段/报错的变化或唯一标记；命令注入看唯一回显标记
+  （例如 PWNED_$(id -u) 这种专属字符串，不要 grep "root"、"/bin/sh" 等常见词，避免正常侧误命中）；
+  XSS 必须用 browser_check 观察到弹窗或页面求值，HTTP 反射出来的 payload 不算。
+- payload 上下文：攻击 payload 必须适配目标页面的上下文（SQL 语句中的引号闭合、HTML 属性/标签
+  位置、URL 编码规则）。不确定时先发一次正常请求观察回显结构，再构造 payload；一次不成立就换
+  最小变体（如引号配对、注释符、编码方式），不要在一个错误 payload 上反复重试。
+- 结果自证：脚本要把正常侧与攻击侧的原始输出都打印出来，作为 attack_observation 里可以核对
+  的 token；观测里必须出现脚本真实输出的内容，不要凭假设复述。
 - 探索阶段结束时调用 final_answer("探索结束")；验证结论在下一阶段单独提交。
 - 不要输出隐藏思维链或逐步推理，代码块之外不要写长篇散文。
 """

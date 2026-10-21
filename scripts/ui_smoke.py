@@ -140,6 +140,11 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     expect(dialog.get_by_text("可读文本", exact=True)).to_be_visible()
     expect(dialog.get_by_text("二进制文件", exact=True)).to_be_visible()
     expect(dialog.get_by_role("checkbox")).to_have_count(0)
+    short_value = dialog.locator(".long-content").filter(has=page.get_by_text("归档 SHA256", exact=True)).locator(".long-content-text")
+    expect(short_value).to_have_text("a" * 64)
+    assert short_value.evaluate("node => getComputedStyle(node).maskImage") == "none"
+    assert short_value.evaluate("node => getComputedStyle(node).webkitLineClamp") == "none"
+    checks.passed("short metadata stays fully readable without the Aurora fade or line clamp")
     dialog.get_by_role("button", name="快照文件清单", exact=True).click()
     expect(dialog.get_by_text("src/client.ts", exact=True)).to_be_visible()
     expect(dialog.get_by_text("vendor/dependency.php", exact=True)).to_be_visible()
@@ -209,11 +214,14 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     args = card.locator(".long-content").filter(has=page.get_by_text("已保存的参数", exact=True))
     preview = args.locator(".long-content-text")
     assert preview.evaluate("node => getComputedStyle(node).webkitLineClamp") == "3"
+    assert preview.evaluate("node => getComputedStyle(node).maskImage").startswith("linear-gradient")
     assert "LONG_PAYLOAD_END" not in preview.inner_text()
     args.get_by_role("button", name="展开全文", exact=True).click()
     expect(preview).to_contain_text("LONG_PAYLOAD_END")
+    assert preview.evaluate("node => getComputedStyle(node).maskImage") == "none"
+    assert preview.evaluate("node => getComputedStyle(node).webkitLineClamp") == "none"
     args.get_by_role("button", name="收起", exact=True).click()
-    checks.passed("terminal logs drain more than 2000 events and preserve expandable saved tool arguments")
+    checks.passed("terminal logs drain more than 2000 events; long arguments fade when clamped and expand without a mask")
     dialog = page.get_by_role("dialog", name="审计详情", exact=True)
     dialog.get_by_role("tab", name="结果报告", exact=True).click()
     expect(dialog.get_by_role("region", name="项目级审计报告", exact=True)).to_be_visible()
@@ -620,6 +628,7 @@ def run_chat_activity_checks(page: Page, base: str, api: MockAPI, checks: Checks
             "payload": {**frames[-1]["payload"], "message": "新增活动不会打断正在查看的历史，完成后继续核对部署条件。"}}
     emit([last])
     expect(page.get_by_role("button", name="有新活动", exact=True)).to_be_visible()
+    assert page.get_by_role("button", name="有新活动", exact=True).evaluate("node => getComputedStyle(node).zIndex") == "2"
     assert abs(scroll.evaluate("node => node.scrollTop") - earlier) < 3
     page.get_by_role("button", name="有新活动", exact=True).click()
     expect(stream).to_contain_text("新增活动不会打断正在查看的历史")

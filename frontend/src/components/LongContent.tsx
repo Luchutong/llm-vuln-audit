@@ -20,7 +20,7 @@ export function LongContent({ value, label, previewLines = 3 }: { value: unknown
           }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button>
         </span>
       </div>}
-      <div id={id} className={`long-content-text${expanded ? ' expanded' : ' clamped'}`} style={expanded ? undefined : { WebkitLineClamp: previewLines }}>{expanded || !long ? text : text.slice(0, 600)}</div>
+      <div id={id} className={`long-content-text${expanded ? ' expanded' : long ? ' clamped' : ''}`} style={expanded || !long ? undefined : { WebkitLineClamp: previewLines }}>{expanded || !long ? text : text.slice(0, 600)}</div>
       {copyError && <span className="field-hint" role="status">复制失败，请展开后选中文本复制。</span>}
     </div>
   );

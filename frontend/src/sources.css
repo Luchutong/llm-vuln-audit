@@ -95,5 +95,5 @@
   .source-import-notice { font-size: 11px; padding: 10px 14px; align-items: flex-start; }
   .source-draft-picker select { font-size: 11px; }
   .source-draft .toolbar-divider { display: none; }
-  .source-start-button { padding: 0 8px; font-size: 10px; }
+  .source-draft .source-start-button { padding: 0 8px; font-size: 10px; }
 }

@@ -618,8 +618,10 @@ EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的执行阶段。你的
 
 访问语义：
 - run_poc：脚本在隔离容器里执行，只有脚本内部可以使用标准库 urllib / curl 等网络能力。
-  脚本必须自己登录 DVWA：GET /login.php 读取 `name='user_token' value='...'`，再 POST
-  username=admin、password=password、Login=Login、user_token=...。只准访问 http://dvwa。
+  脚本必须自己登录 DVWA：GET /login.php，用正则
+  `name=['\"]user_token['\"]\\s+value=['\"]([^'\"]+)['\"]` 提取 user_token（DVWA 各版本
+  login 页的单引号/双引号写法都要兼容），再 POST username=admin、password=password、
+  Login=Login、user_token=...。只准访问 http://dvwa。
 - http_observe：宿主代发**恰好一个**请求，**不跟随重定向**。返回首个响应的 status、url、
   headers（含 location）、redirects、body；`redirects` 只记录这个 Location，不代表它被访问过。
   开放重定向类漏洞的证据就是首个 3xx 与它发出的 Location，不要试图把它"跟完"。
@@ -637,7 +639,8 @@ jar = http.cookiejar.CookieJar()
 # 登录用会跟随重定向的 opener：登录成功后 DVWA 返回 302 到 index.php。
 login = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
 html = login.open(BASE + "/login.php", timeout=10).read().decode("utf-8", "replace")
-token = re.search(r"name='user_token'\\s+value='([^']+)'", html).group(1)
+# 正则同时兼容 login 页的单引号与双引号两种 token 写法。
+token = re.search(r"name=['\"]user_token['\"]\\s+value=['\"]([^'\"]+)['\"]", html).group(1)
 login.open(BASE + "/login.php", timeout=10, data=urllib.parse.urlencode({
     "username": "admin", "password": "password", "Login": "Login", "user_token": token,
 }).encode()).read()

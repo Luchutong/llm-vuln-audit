@@ -458,6 +458,46 @@ def test_xss_requires_browser_execution(monkeypatch):
     assert "浏览器" in result.evidence_notes
 
 
+def test_is_xss_matches_full_category_name():
+    # 审计侧可能给出完整分类名 "Cross-Site Scripting"（不含子串 "xss"），
+    # _is_xss 必须识别，否则 XSS 结论不会被强制要求浏览器弹窗证据。
+    assert poc_agent._is_xss(dict(FINDING, category="Cross-Site Scripting", title="reflected"))
+    assert poc_agent._is_xss(dict(FINDING, category="xss", title="reflected XSS"))
+    assert not poc_agent._is_xss(dict(FINDING, category="sqli", title="SQL injection"))
+    assert not poc_agent._is_xss(dict(FINDING, category="command injection", title="exec"))
+
+
+def test_xss_requires_browser_execution_with_full_category_name(monkeypatch):
+    finding = dict(
+        FINDING,
+        category="Cross-Site Scripting",
+        title="reflected cross-site scripting in name parameter",
+        file_path="vulnerabilities/xss_r/index.php",
+    )
+    client = FakeClient()
+    script = {
+        "poc_execute": [
+            call("run_poc", language="python", script=SCRIPT),
+            final_answer("探索结束"),
+        ],
+        "poc_conclude": [
+            final_answer({
+                "status": "verified",
+                "verdict": "confirmed",
+                "summary": "script reflected",
+                "attack_observation": "First name: admin",
+                "jobs": ["job-1"],
+            }),
+        ],
+    }
+    factory = ModelFactory(script)
+    monkeypatch.setattr(poc_agent, "build_code_model", factory)
+    deps_ = deps(client, finding=finding)
+    result, _ = asyncio.run(poc_agent.run_poc_agent(finding=finding, deps=deps_, config=CONFIG))
+    assert result is not None and result.status == "inconclusive"
+    assert "浏览器" in result.evidence_notes
+
+
 def test_model_reported_environment_state_is_overridden(monkeypatch):
     client = FakeClient()
     script = {

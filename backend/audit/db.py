@@ -4116,6 +4116,152 @@ class Store:
             cursor = self._db.execute("DELETE FROM model_profiles WHERE id = ?", (profile_id,))
         return bool(cursor.rowcount)
 
+    # --- record deletion: housekeeping for finished audits -------------------
+    #
+    # A run accumulates rows across ~15 tables.  Leaving them behind was the
+    # "测试记录没有删除接口" gap: the UI could show 200 old runs but never discard
+    # one.  These methods delete a whole audit as one unit, refuse while the
+    # worker is still writing, and return per-table row counts so the API can
+    # report exactly what it removed.
+
+    # Tables that carry a ``run_id`` column and are owned entirely by the run.
+    # ``verifications`` is not in this list: it keys off ``finding_id``, which we
+    # collect first so the IN-clause is explicit.
+    _RUN_CASCADE_TABLES: tuple[tuple[str, str], ...] = (
+        ("poc_verification_jobs", "run_id"),
+        ("project_finding_runs", "run_id"),
+        ("events", "run_id"),
+        ("attributions", "run_id"),
+        ("findings", "run_id"),
+        ("run_units", "run_id"),
+        ("task_work_attempts", "run_id"),
+        ("task_work_items", "run_id"),
+        ("task_goals", "run_id"),
+        ("planner_project_maps", "run_id"),
+        ("planner_task_attempts", "run_id"),
+        ("planner_tasks", "run_id"),
+        ("planner_plans", "run_id"),
+        ("planner_sessions", "run_id"),
+        ("planner_investigations", "run_id"),
+    )
+
+    def delete_run(self, run_id: str) -> dict:
+        """Permanently remove one finished audit and every row it owns.
+
+        Raises ``KeyError`` if the run is gone, ``ValueError`` while it is still
+        ``pending`` or ``running`` -- deleting a row the worker is mid-write
+        would corrupt its in-memory frontier.  ``paused`` runs are deletable: a
+        pause is a deliberate handbrake, and the user who parked it may want the
+        record gone rather than resumed.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        status = str(run.get("status") or "")
+        if status in ("pending", "running"):
+            raise ValueError(f"Run is {status}; cancel it before deleting")
+
+        with self._lock:
+            finding_ids = [
+                row["id"] for row in self._rows(
+                    "SELECT id FROM findings WHERE run_id = ?", (run_id,)
+                )
+            ]
+            deleted: dict[str, int] = {}
+
+            def _counted(table: str, sql: str, params: tuple = ()) -> None:
+                deleted[table] = self._db.execute(sql, params).rowcount or 0
+
+            if finding_ids:
+                qmarks = ",".join("?" for _ in finding_ids)
+                _counted(
+                    "verifications",
+                    f"DELETE FROM verifications WHERE finding_id IN ({qmarks})",
+                    tuple(finding_ids),
+                )
+            for table, column in self._RUN_CASCADE_TABLES:
+                _counted(table, f"DELETE FROM {table} WHERE {column} = ?", (run_id,))
+            _counted("runs", "DELETE FROM runs WHERE id = ?", (run_id,))
+
+            # Keep the project ledger's counters honest.  project_findings rows
+            # themselves survive: they are the canonical cross-run conclusion,
+            # not run-local debris.
+            project_id = run.get("project_id")
+            if project_id:
+                self._db.execute(
+                    "UPDATE projects SET run_count = MAX(0, run_count - 1), updated_at = ?"
+                    " WHERE id = ?",
+                    (now(), project_id),
+                )
+
+        return {
+            "run_id": run_id,
+            "status_before": status,
+            "deleted": deleted,
+        }
+
+    def delete_terminal_runs(self, project_id: str | None = None) -> dict:
+        """Housekeeping sweep: delete every run the worker is not actively on.
+
+        This is the bulk counterpart to ``DELETE /runs/{id}`` -- after a week of
+        re-running a snapshot, the user wants one call to clear the history
+        instead of clicking through each row.  Runs still pending/running are
+        skipped, not errored.
+        """
+        rows = self._rows(
+            "SELECT id, project_id FROM runs WHERE status NOT IN ('pending','running')"
+        )
+        summaries: list[dict] = []
+        for row in rows:
+            if project_id and row["project_id"] != project_id:
+                continue
+            try:
+                summaries.append(self.delete_run(row["id"]))
+            except (KeyError, ValueError):
+                continue
+        return {"deleted_runs": len(summaries), "runs": summaries}
+
+    def delete_snapshot(self, snapshot_id: str) -> bool:
+        """Drop an uploaded snapshot and its truth table.
+
+        Refuses while any run still points at it: a run freezes its source, so
+        deleting the archive underneath it would make its report unreproducible.
+        """
+        snapshot = self.get_snapshot(snapshot_id)
+        if snapshot is None:
+            raise KeyError(snapshot_id)
+        ref = self._row(
+            "SELECT COUNT(*) AS n FROM runs WHERE snapshot_id = ?", (snapshot_id,)
+        )
+        count = int(ref["n"]) if ref is not None else 0
+        if count:
+            raise ValueError(
+                f"Snapshot is referenced by {count} run(s); delete those runs first"
+            )
+        with self._lock:
+            self._db.execute("DELETE FROM truths WHERE snapshot_id = ?", (snapshot_id,))
+            cursor = self._db.execute(
+                "DELETE FROM snapshots WHERE id = ?", (snapshot_id,)
+            )
+        return bool(cursor.rowcount)
+
+    def delete_prompt(self, prompt_id: str) -> bool:
+        """Remove a user-defined prompt. Built-ins and prompts frozen into a run stay."""
+        prompt = self.get_prompt(prompt_id)
+        if prompt is None:
+            raise KeyError(prompt_id)
+        if prompt.get("builtin"):
+            raise ValueError("Built-in prompts cannot be deleted")
+        used = self._row(
+            "SELECT COUNT(*) AS n FROM runs WHERE prompt_id = ?", (prompt_id,)
+        )
+        count = int(used["n"]) if used is not None else 0
+        if count:
+            raise ValueError(f"Prompt is referenced by {count} run(s); archive those runs first")
+        with self._lock:
+            cursor = self._db.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
+        return bool(cursor.rowcount)
+
     def ensure_environment_model_profile(self, model: str, base_url: str) -> dict | None:
         """Seed or refresh the non-secret profile backed by ``LLM_*`` variables."""
         default_model = str(model or "").strip()

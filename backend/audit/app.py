@@ -667,6 +667,24 @@ async def get_source(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.delete("/api/snapshots/{snapshot_id}")
+async def delete_snapshot(request: Request, snapshot_id: str) -> Response:
+    """Drop an uploaded source archive and its truth table.
+
+    Refused with 409 while any run still freezes this snapshot as its source:
+    deleting it would make those runs' reports unreproducible.  Delete the runs
+    first.
+    """
+    state = services(request)
+    if state.store.get_snapshot(snapshot_id) is None:
+        raise HTTPException(status_code=404, detail="Snapshot does not exist")
+    try:
+        await asyncio.to_thread(state.store.delete_snapshot, snapshot_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
 # --- projects ---------------------------------------------------------------
 
 
@@ -1036,6 +1054,46 @@ async def resume_run(request: Request, run_id: str) -> dict:
     return state.store.get_run(run_id)
 
 
+@app.delete("/api/runs/{run_id}")
+async def delete_run(request: Request, run_id: str) -> dict:
+    """Permanently remove one finished audit and every row it owns.
+
+    This is the housekeeping half of the run lifecycle that was missing: the UI
+    could list 200 historical runs but could never discard one.  Runs still
+    ``pending`` or ``running`` are refused with 409 -- the worker may be mid-write
+    -- while ``paused``/``completed``/``failed``/``cancelled`` records go.  The
+    response echoes the per-table row counts so the interface can confirm what
+    was actually cleaned up rather than just returning 204.
+    """
+    state = services(request)
+    run = state.store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run does not exist")
+    if run["status"] in ("pending", "running"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is {run['status']}; cancel it before deleting",
+        )
+    summary = await asyncio.to_thread(state.store.delete_run, run_id)
+    state.bus.emit(run_id, None, "run_deleted", {"reason": "user_deleted"})
+    return summary
+
+
+@app.post("/api/runs/cleanup")
+async def cleanup_terminal_runs(
+    request: Request,
+    project_id: str | None = Body(default=None, embed=True),
+) -> dict:
+    """Bulk housekeeping: delete every finished run in one call.
+
+    The per-row ``DELETE /runs/{id}`` is precise; this is the sweep after a week
+    of re-running the same snapshot.  Active runs are skipped, not errored.
+    ``project_id`` optionally scopes the sweep to one project's history.
+    """
+    state = services(request)
+    return await asyncio.to_thread(state.store.delete_terminal_runs, project_id)
+
+
 def _sse(event: dict) -> str:
     return f"id: {event['id']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -1166,6 +1224,23 @@ async def create_prompt(request: Request, payload: PromptCreateRequest) -> dict:
     }
     state.store.add_prompt(prompt)
     return state.store.get_prompt(prompt["id"])
+
+
+@app.delete("/api/prompts/{prompt_id}")
+async def delete_prompt(request: Request, prompt_id: str) -> Response:
+    """Remove a user-defined prompt draft.
+
+    Built-in prompts and prompts frozen into an existing run are refused with
+    409 -- deleting text a report quotes would break reproducibility.
+    """
+    state = services(request)
+    if state.store.get_prompt(prompt_id) is None:
+        raise HTTPException(status_code=404, detail="Prompt does not exist")
+    try:
+        await asyncio.to_thread(state.store.delete_prompt, prompt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 # --- truths and attributions ------------------------------------------------

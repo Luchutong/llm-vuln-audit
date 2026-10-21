@@ -158,6 +158,25 @@ uv run --project backend python scripts/prompt_rounds.py http://127.0.0.1:8899 S
 
 这组样例只覆盖固定版本的三个代码路径；真值为源码核验，仍需在授权隔离靶场完成人工 POC 验证，不能据此宣称对一般 PHP 项目有泛化提升。
 
+### 实验室 30 题（lab30）
+
+为检验提示词版本对更多漏洞类型和难度的区分度，`demo/lab30/` 提供 30 道由简到难的白盒源码审计挑战，覆盖 SQL 注入、XSS、命令注入、文件包含、SSRF、XXE、反序列化、越权访问、认证绕过、业务逻辑等多种类型；其中 23/24 题为跨文件挑战（入口调用 `helpers/` 中的公共函数）。每道题一个已核验的主漏洞类型，清单与难度记录在 `demo/lab30/manifest.json`。
+
+评分不经过三类固定流水线，而是复用开放型 findings 执行器，按「每题是否命中植入类型」计算 Precision / Recall。三个提示词版本 `P0-lab`、`P1-lab`、`P2-lab` 定义在 `backend/audit/lab_prompts.py`，分别对应「仅判断类型」「补充证据链与防护判定」「补充跨文件上下文、触发前提与 POC 对照」。
+
+```bash
+# 打包（输出 demo/lab30-benchmark.zip）
+uv run --project backend python scripts/prepare_lab30.py
+
+# 依次运行三个版本并评分（全部 30 题）
+uv run --project backend python scripts/lab_rounds.py
+
+# 先跑前 5 题做小规模试跑
+uv run --project backend python scripts/lab_rounds.py --limit 5
+```
+
+运行结果写入 `deliverable/lab30-report.md`。该样例为自建教学靶场，标签经源码核验而非动态 POC 实测，一次顺序运行不能推断总体准确率或统计显著性；结果只用于观察提示词要求的相对作用。
+
 ## 验证与开发检查
 
 ```bash

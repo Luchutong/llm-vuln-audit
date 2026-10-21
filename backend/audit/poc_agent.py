@@ -699,6 +699,12 @@ print("ATTACK", location("/vulnerabilities/open_redirect/source/low.php?redirect
 - 表单 CSRF：DVWA 2.x 的每个漏洞页表单都带页面级 user_token；POST 攻击前必须先 GET 该页提取
   user_token 一并提交，否则表单不执行查询（页面只是重新渲染菜单），攻击观测与正常观测会完全
   相同而误判 rejected。
+- 提交方式：DVWA 内部不同页面读取方式不一致——sqli 用 $_REQUEST（GET/POST 皆可），sqli_blind
+  只认 $_GET。form_post 对某页无效（观测无变化）时，改成 GET query 再试。
+- 状态码侧信道：DVWA 盲注页用 HTTP 状态码表达查询结果的存在性（low 级别即如此：用户存在返回
+  200，不存在返回 404 + "User ID is MISSING"）。观测必须用禁止重定向的 opener 并捕获
+  HTTPError 取状态码与响应体，不能用跟随重定向的默认 opener 直接 open()——404 会抛 HTTPError
+  令脚本崩溃或误判请求失败。盲注判据优先按状态码（存在 200 / 不存在 404），再配合页面文本。
 - 对照优先：判断漏洞靠正常侧与攻击侧的**差异**，不是靠攻击响应里出现任何字符串。
   SQLi 看结果行数/字段/报错的变化或唯一标记（例如行数从 1 变多、出现多条记录）；
   命令注入看唯一回显标记（例如 PWNED_$(id -u) 这种专属字符串，不要 grep "root"、"/bin/sh" 等

@@ -301,6 +301,45 @@ def _verification_summary(findings: list[dict]) -> dict:
     return summary
 
 
+def _verification_records(store, findings: list[dict]) -> list[dict]:
+    """The per-finding POC verification detail the Planner acts on.
+
+    The summary only counts statuses; this is the feedback loop the audit agent
+    actually needs: for every finding the run has already verified or judged, the
+    latest record's observation, verdict and evidence notes, bounded to keep the
+    prompt readable.  A rejected verdict with a contradictory observation means
+    the finding itself is wrong (retract), while an inconclusive record with a
+    healthy-looking observation points at insufficient evidence (re-verify), and
+    the Planner can only tell the two apart with these details in front of it.
+    """
+    records: list[dict] = []
+    for finding in findings:
+        status = str(finding.get("verification_status") or "unverified")
+        if status == "unverified":
+            continue
+        rows = store.list_verifications(finding["id"]) if finding.get("id") else []
+        if not rows:
+            continue
+        row = rows[-1]
+        agent = row.get("agent") or {}
+        title = str(finding.get("title") or "")[:160]
+        records.append({
+            "finding_id": finding.get("id"),
+            "finding_title": title,
+            "status": str(row.get("status") or status),
+            "verdict": row.get("verdict"),
+            "execution_status": str(row.get("execution_status") or ""),
+            "summary": str(agent.get("summary") or "")[:400],
+            "normal_observation": str(row.get("normal_observation") or "")[:600],
+            "attack_observation": str(row.get("attack_observation") or "")[:1200],
+            "evidence_notes": str(row.get("notes") or "")[:600],
+            "browser_execution": bool(row.get("browser_execution")),
+            "jobs": list(agent.get("jobs") or [])[:8],
+            "verification_id": row.get("id"),
+        })
+    return records
+
+
 def _project_projection(
     state: Services, run: dict, findings: list[dict], relations: list[dict] | None = None
 ) -> dict:
@@ -319,6 +358,7 @@ def _project_projection(
             "carried_findings": [],
             "verification_jobs": [],
             "verification_summary": _verification_summary(findings),
+            "verification_records": _verification_records(state.store, findings),
             # Narratives only exist for project-mode runs; a legacy run's report must not
             # gain a section it never produced.
             "report_narrative": {},
@@ -334,6 +374,7 @@ def _project_projection(
         ],
         "verification_jobs": state.store.list_run_verification_jobs(run["id"]),
         "verification_summary": _verification_summary(findings),
+        "verification_records": _verification_records(state.store, findings),
         "report_narrative": state.store.latest_plan_narrative(run["id"]),
     }
 

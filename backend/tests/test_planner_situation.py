@@ -430,3 +430,37 @@ def test_ledger_trimming_keeps_verified_and_rejected_rows_over_unverified_leads(
     assert {"pf-0", "pf-1"}.issubset(kept)
     assert bounded["omitted"]["project_findings"] > 0
     assert bounded["counts"]["project_findings"] == 30
+
+
+def test_verification_records_travel_with_the_situation_and_guide_closure_review():
+    """Per-finding POC feedback reaches the audit agent, and the closure notice tells
+    it how to use the detail (the missing feedback loop from POC agent to audit agent)."""
+    context = {
+        "goal": {"id": "goal-1", "status": "open"},
+        "tasks": [],
+        "findings": [
+            {"id": "f-1", "category": "sqli", "finding_kind": "vulnerability",
+             "title": "SQL 注入", "severity": "high", "validation_state": "candidate",
+             "disposition": "open", "revision": 1,
+             "verification_status": "rejected", "verification_verdict": "rejected",
+             "paths": ["vulnerabilities/sqli/index.php"]},
+        ],
+        "project": None,
+        "project_findings": [],
+        "verification_summary": {"rejected": 1},
+        "verification_records": [{
+            "finding_id": "f-1", "finding_title": "SQL 注入", "status": "rejected",
+            "verdict": "rejected", "execution_status": "success",
+            "summary": "观测与结论不符", "normal_observation": "CONTROL_ROWS 1",
+            "attack_observation": "ATTACK_ROWS 1",
+            "evidence_notes": "攻击侧无差异，疑似误报",
+            "browser_execution": False, "jobs": ["job-9"], "verification_id": "v2",
+        }],
+    }
+
+    situation = agent._planner_situation(context)
+
+    assert situation["verification_records"] == context["verification_records"]
+    assert situation["closure_review"] is True
+    assert "攻击侧无差异" in situation["notice"] or "verification_records" in situation["notice"]
+    assert "不得作为收束依据" in situation["notice"]

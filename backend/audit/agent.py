@@ -1168,6 +1168,7 @@ def _planner_situation(run_context: dict) -> dict:
         if isinstance(item, dict)
     ]
     verification_summary = run_context.get("verification_summary") or {}
+    verification_records = run_context.get("verification_records") or []
     stale = [item["task_key"] for item in settled if item.get("stale_dependency")]
     counts = {
         "frontier": len(frontier),
@@ -1216,6 +1217,10 @@ def _planner_situation(run_context: dict) -> dict:
             "收束时请同时填写 decision.report：summary 说明本次审计做了什么、结论如何；"
             "conclusion 逐条对应 findings 及其 verification_status；limitations 写明未验证项、环境不可用和未决方向"
             "（最多 16 条）。report 只总结上面已经列出的证据与验证结果，不能引入新发现，宿主会围绕它渲染确定性的统计数据。"
+            "verification_records 给出每条已验证/已判定 finding 的最新验证详情（观测、判定、证据备注）："
+            "verified 的观测必须与结论一致才作为收束依据；rejected 时看观测是否与结论冲突——冲突说明 finding 本身"
+            "有误（应 retract/duplicate），观测正常却判定失败则说明验证不充分（标注 limitations 或 reopen 重新取证）；"
+            "inconclusive / environment_unavailable 一律不得作为收束依据。"
         )
     if project_findings:
         notice += (
@@ -1244,6 +1249,7 @@ def _planner_situation(run_context: dict) -> dict:
         "project": project,
         "project_findings": project_findings,
         "verification_summary": verification_summary,
+        "verification_records": verification_records,
         "observations": observations,
         "pinned_investigations": investigations,
         "counts": counts,

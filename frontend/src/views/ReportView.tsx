@@ -7,6 +7,7 @@ import { LongContent } from '../components/LongContent';
 import { PlannerNavigation } from './Overview';
 import { SourceObservationsView, VERIFICATION_LABELS } from './FindingsView';
 import { activeVulnerabilityFindings, vulnerabilityFindings } from '../results';
+import { ExecutionStatus, HostSummary } from '../components/ExecutionStatus';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
@@ -379,6 +380,10 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
           <Disclosure title="运行参数与冻结范围"><LongContent value={{ 快照: run.snapshot_id, 名称: run.snapshot_name, 模型: run.model, 预算: run.budgets, 用量: run.usage, 范围: scopeLabel(run, projectMap), 显式文件列表: run.scope, 模型档案: run.model_profile }} label="运行参数与冻结范围" /></Disclosure>
         </div>
       </section>
+
+      <ExecutionStatus detail={detail} />
+      <HostSummary detail={detail} />
+      {detail.report_narrative && <section className="panel"><div className="panel-head"><span className="panel-title">Planner 历史叙述</span><span className="faint small">以宿主最终事实为准</span></div><div className="panel-body"><LongContent label="Planner 已提交叙述" value={detail.report_narrative} /></div></section>}
 
       <section className="panel" aria-label="Planner 版本记录">
         <div className="panel-head"><span className="panel-title">Planner 版本记录</span><span className="faint small">{plans.length} 个版本</span></div>

@@ -519,6 +519,12 @@ class PlannerProjectUpdate(BaseModel):
     )
 
 
+class ReportFindingRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    finding_id: str
+    revision: int = Field(ge=1)
+
+
 class ReportNarrative(BaseModel):
     """The Planner's prose for the final report.
 
@@ -530,6 +536,8 @@ class ReportNarrative(BaseModel):
     summary: str = Field(min_length=3, max_length=4000)
     conclusion: str = Field(default="", max_length=8000)
     limitations: list[str] = Field(default_factory=list, max_length=16)
+    finding_refs: list[ReportFindingRef] = Field(default_factory=list, description="Reference every current valid run finding with its exact revision")
+    no_evidence_task_ids: list[str] = Field(default_factory=list, description="Only completed tasks whose outcome is no_evidence, never blocked or unread paths")
 
 
 class PlannerDecision(BaseModel):
@@ -625,6 +633,12 @@ class ReconBrief(BaseModel):
 
 # --- request bodies ---------------------------------------------------------
 
+class RunLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    responses: int = Field(default=256, ge=1, le=4096)
+    tools: int = Field(default=2048, ge=0, le=32768)
+    seconds: int = Field(default=1800, ge=30, le=14400)
+
 
 class CreateRunRequest(BaseModel):
     # The public entrypoint has one execution model: a user-defined Planner task over
@@ -640,6 +654,8 @@ class CreateRunRequest(BaseModel):
     snapshot_id: str | None = None
     project_id: str | None = None
     budgets: dict | None = None
+    run_limits: RunLimits = Field(default_factory=RunLimits)
+    poc_mode: Literal["off", "auto", "required"] = "off"
     task: TaskSpec = Field(description="Goal-driven white-box audit task")
 
     @model_validator(mode="after")

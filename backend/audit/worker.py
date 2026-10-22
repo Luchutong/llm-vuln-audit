@@ -26,7 +26,9 @@ from .poc import PocVerifier
 from .project_findings import canonical_fingerprint, ledger_record
 from .prompts import system_prompt
 from .source import SourceRepository
-from .runtime import AgentPolicy, allowed_paths_for_run, policy_from_snapshot
+from .runtime import AgentPolicy, StopAudit, allowed_paths_for_run, policy_from_snapshot
+from .execution_state import CURRENT_EXECUTION, execution_context, execution_role
+from .poc_readiness import normalize_poc_mode
 from .schemas import Check
 
 # Two model-level failures in a row mean the endpoint itself is down; grinding
@@ -214,20 +216,10 @@ class AuditWorker:
             except asyncio.CancelledError:
                 status = "interrupted" if self._stopping else "cancelled"
                 self.store.update_run(run["id"], status=status, finished_at=_now(), error=self._cancel_reason)
-                self.store.abandon_pending_units(run["id"], self._cancel_reason)
-                if self.store.get_planner_session(run["id"]) is not None:
-                    self.store.abandon_planner_tasks(run["id"], self._cancel_reason)
-                else:
-                    self.store.abandon_task_work(run["id"], self._cancel_reason)
                 self.bus.emit(run["id"], None, f"run_{status}", {"reason": self._cancel_reason})
                 if self._stopping:
                     raise
             except Exception as exc:  # a worker crash must not strand a run
-                self.store.abandon_pending_units(run["id"], f"Worker failure: {type(exc).__name__}")
-                if self.store.get_planner_session(run["id"]) is not None:
-                    self.store.abandon_planner_tasks(run["id"], f"Worker failure: {type(exc).__name__}")
-                else:
-                    self.store.abandon_task_work(run["id"], f"Worker failure: {type(exc).__name__}")
                 self.store.update_run(
                     run["id"], status="failed", finished_at=_now(), error=f"{type(exc).__name__}: {exc}"[:600]
                 )
@@ -240,6 +232,60 @@ class AuditWorker:
     # --- one run -----------------------------------------------------------
 
     async def _execute(self, run: dict) -> None:
+        run_id = run["id"]
+        summary = self.store.execution_summary(run_id)
+        if not summary or not summary.get("claim_epoch"):
+            with self.store._lock:
+                self.store._claim_execution_tx(run_id)
+            run = self.store.get_run(run_id) or run
+            summary = self.store.execution_summary(run_id)
+        epoch = summary["claim_epoch"]
+        async def execute_body():
+            with execution_context(self.store, run_id, epoch):
+                await self._execute_body(run)
+        body = asyncio.create_task(execute_body())
+        try:
+            while not body.done():
+                await asyncio.wait({body}, timeout=0.2)
+                if not body.done():
+                    try:
+                        self.store.admit_execution(run_id, epoch, None)
+                    except StopAudit as exc:
+                        if exc.reason == "run_budget_exhausted":
+                            state = self.store.execution_summary(run_id)
+                            self.store.terminate_execution(run_id, "inconclusive", state["stop_reason"], epoch=epoch)
+                            body.cancel()
+                            break
+                        if (self.store.get_run(run_id) or {}).get("status") in ("cancelled", "interrupted"):
+                            body.cancel()
+                            break
+            if body.done():
+                await body
+        except StopAudit as exc:
+            reason = (self.store.execution_summary(run_id) or {}).get("stop_reason")
+            self.store.terminate_execution(run_id, "inconclusive", reason or {"code": exc.reason, "message": str(exc)}, epoch=epoch)
+        except asyncio.CancelledError:
+            status = "interrupted" if self._stopping else "cancelled"
+            self.store.terminate_execution(run_id, status, {"code": "interrupted" if self._stopping else "user_cancelled", "message": self._cancel_reason}, epoch=epoch)
+            body.cancel()
+            raise
+        except Exception as exc:
+            self.store.terminate_execution(run_id, "failed", {"code": "worker_exit_without_terminal", "message": f"{type(exc).__name__}: {str(exc)[:400]}"}, epoch=epoch)
+            raise
+        finally:
+            # Fence threads before giving ownership back; cancellation cannot kill an
+            # interpreter thread that has already entered a tool.
+            current = self.store.get_run(run_id)
+            if current and current["status"] == "running":
+                self.store.terminate_execution(run_id, "failed", {"code": "worker_exit_without_terminal", "message": "执行者退出但未提交终态"}, epoch=epoch)
+            elif current and current["status"] not in ("paused", "pending") and not self.store.get_final_summary(run_id):
+                self.store.terminate_execution(run_id, current["status"], {"code": "interrupted", "message": current.get("error") or "执行已结束"}, epoch=epoch)
+            self.store.quiesce_execution(run_id)
+            body.cancel()
+            with contextlib.suppress(asyncio.CancelledError, StopAudit):
+                await body
+
+    async def _execute_body(self, run: dict) -> None:
         if run.get("task_spec"):
             await self._execute_planner_task(run)
             return
@@ -482,6 +528,7 @@ class AuditWorker:
         # The state the last pre-closure review round was run against.  A review that changes
         # nothing has already had its say, so the host closes instead of reviewing again.
         reviewed_for: tuple | None = None
+        repaired_blockers: set[tuple] = set()
         # Set when a worker produces a conclusion the host would close the run on and
         # ``stop_on_achieved`` says to stop queued work.  It withholds the directions that
         # have not started yet -- the run is about to be over, so starting them would spend
@@ -568,23 +615,30 @@ class AuditWorker:
         async def finish_goal(state: str, basis: str, missing: list[str] | None = None) -> bool:
             """Persist a host-verified terminal goal and its public run state."""
             try:
+                queue_now = self.store.task_queue_state(run_id)
+                session_now = self.store.get_planner_session(run_id) or {}
+                goal_now = self.store.get_task_goal(run_id) or {}
+                code = "goal_met" if state == "met" else (
+                    "worker_attempt_limit" if int(goal_now.get("attempts", 0)) >= int(goal_now.get("max_total_attempts", 1)) else
+                    "planner_round_limit" if int(session_now.get("current_round", 0)) >= int(session_now.get("max_rounds", 1)) else
+                    "unresolved_blockers" if queue_now["blocked"] else
+                    "environment_unavailable" if normalize_poc_mode(run)[0] == "required" and not (self.store.execution_summary(run_id) or {}).get("poc", {}).get("available", False) else
+                    "invalid_output_limit"
+                )
+                if state == "met":
+                    record_carried()
                 settled = self.store.finalize_goal(
                     run_id, state, basis, missing,
                     # Strict mode: the run may only close on a finding the isolated POC
                     # runner actually reproduced, not on a static conclusion.
-                    require_verified=bool(task_spec.get("require_poc")),
+                    require_verified=normalize_poc_mode(run)[0] == "required",
+                    stop_reason={"code": code, "message": basis},
                 )
             except ValueError as exc:
                 self.bus.emit(run_id, None, "planner_terminal_deferred", {
                     "state": state, "reason": str(exc), "basis_summary": basis,
                 })
                 return False
-            if state == "met":
-                # A Planner-driven closure (the common path) must record the project
-                # conclusions it stood on, not only the host-driven one below.  The call is
-                # idempotent, and a run that rediscovered nothing still needs these rows
-                # for its report's "carried" section.
-                record_carried()
             status_map = {"met": ("completed", "run_completed"), "unreachable": ("unreachable", "goal_unreachable"), "inconclusive": ("inconclusive", "goal_inconclusive")}
             run_status, event_kind = status_map[state]
             if state == "met":
@@ -604,7 +658,6 @@ class AuditWorker:
                         "count": len(kept_rejected),
                         "note": "自动验证未通过，但 Planner 没有撤回；这些结论不支撑目标达成。",
                     })
-            self.store.update_run(run_id, status=run_status, finished_at=_now())
             self.bus.emit(run_id, None, event_kind, {
                 "goal_id": settled["id"],
                 "goal_status": state,
@@ -617,6 +670,9 @@ class AuditWorker:
         async def run_planner_round() -> str:
             """Reserve, execute and commit one Planner revision."""
             nonlocal round_mutations
+            owner = CURRENT_EXECUTION.get()
+            if owner is not None:
+                owner.admit("work")
             round_mutations = 0
             plan = self.store.begin_planner_round(run_id, session["session_id"])
             if plan is None:
@@ -649,6 +705,7 @@ class AuditWorker:
             outcome = await plan_audit_frontier(
                 project_map=project_map,
                 run_context=context,
+                context_reader=lambda: self.store.list_planner_context(run_id, project_map=project_map),
                 task=task_spec,
                 round_no=int(plan["round_no"]),
                 config=model_config,
@@ -842,6 +899,9 @@ class AuditWorker:
                     current_goal = self.store.get_task_goal(run_id)
                     if current is None or current["status"] != "running" or current_goal is None or current_goal["status"] != "open":
                         return
+                    owner = CURRENT_EXECUTION.get()
+                    if owner is not None:
+                        owner.admit("work")
                     planner_task = self.store.claim_ready_task(run_id, worker_id)
                     if planner_task is None:
                         return
@@ -898,24 +958,25 @@ class AuditWorker:
                             event_ids=event_ids,
                         )
 
-                    outcome = await pursue_planner_task(
-                        repository=self.repository,
-                        snapshot_id=run["snapshot_id"],
-                        snapshot_name=run["snapshot_name"],
-                        planner_task=planner_task,
-                        run_task=task_spec,
-                        attempt=attempt,
-                        agent_invocation_id=invocation_id,
-                        allowed_paths=allowed_paths_for_run(run),
-                        dependency_handoffs=dependency_handoffs,
-                        known_findings=list((run.get("project_baseline") or [])[:8]),
-                        peer_trace_search=search_peer_traces,
-                        peer_trace_read=get_peer_trace,
-                        config=model_config,
-                        budgets=run["budgets"],
-                        policy=policy,
-                        on_event=record,
-                    )
+                    with execution_role("worker", task_id):
+                        outcome = await pursue_planner_task(
+                            repository=self.repository,
+                            snapshot_id=run["snapshot_id"],
+                            snapshot_name=run["snapshot_name"],
+                            planner_task=planner_task,
+                            run_task=task_spec,
+                            attempt=attempt,
+                            agent_invocation_id=invocation_id,
+                            allowed_paths=allowed_paths_for_run(run),
+                            dependency_handoffs=dependency_handoffs,
+                            known_findings=list((run.get("project_baseline") or [])[:8]),
+                            peer_trace_search=search_peer_traces,
+                            peer_trace_read=get_peer_trace,
+                            config=model_config,
+                            budgets=run["budgets"],
+                            policy=policy,
+                            on_event=record,
+                        )
                     outcome = _normalise_task_findings(outcome)
                     prepared_findings: list[dict] = []
                     if outcome["outcome"] == "achieved":
@@ -981,6 +1042,8 @@ class AuditWorker:
                             # host now closes from the reconcile loop, after that review.
                             closing = True
             except asyncio.CancelledError:
+                raise
+            except StopAudit:
                 raise
             except Exception as exc:
                 await abort(f"Planner worker {slot} failure: {type(exc).__name__}: {str(exc)[:400]}")
@@ -1060,7 +1123,12 @@ class AuditWorker:
                 asyncio.create_task(execute_slot(slot), name=f"planner-{run_id[:8]}-{slot}")
                 for slot in range(1, max(1, int(task_spec["max_workers"])) + 1)
             ]
-            await asyncio.gather(*workers)
+            try:
+                await asyncio.gather(*workers)
+            finally:
+                for worker in workers:
+                    worker.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
 
         while not stop.is_set():
             current = self.store.get_run(run_id)
@@ -1096,6 +1164,17 @@ class AuditWorker:
                 await finish_goal(goal["status"], goal.get("terminal_reason") or "Goal already settled")
                 return
             queue = self.store.task_queue_state(run_id)
+            blockers = tuple(sorted({
+                (str(item.get("error") or ""), str((item.get("result") or {}).get("missing_context") or []),
+                 str((item.get("context_spec") or {}).get("source_refs") or []))
+                for item in self.store.list_tasks(run_id, include_attempts=False)
+                if item["state"] == "blocked"
+            }))
+            if blockers and not queue["ready"] and not queue["running"]:
+                if blockers in repaired_blockers:
+                    await finish_goal("inconclusive", "一次修复规划后阻塞原因仍未改变，停止重复规划。")
+                    return
+                repaired_blockers.add(blockers)
             # The conclusions the host would close this run on, asked once per pass: they decide
             # both whether a worker may start another direction and whether the host reviews
             # before it closes.  The hold is only meaningful while one of them exists.
@@ -1160,13 +1239,13 @@ class AuditWorker:
                     "met",
                     "前沿已结算，并保留至少一条通过源码证据校验、未被撤回的 worker 发现。",
                 )
-                if not settled and task_spec.get("require_poc"):
+                if not settled:
                     # Strict mode refused the closure because nothing standing was
                     # reproduced.  Leaving the goal open here would leave the run
                     # ``running`` with no work left, so settle honestly instead.
                     await finish_goal(
                         "inconclusive",
-                        "严格模式要求已验证结论；自动验证未提供可支撑收束的已复现结果。",
+                        "收束条件未满足，仍存在受阻方向或缺少有效动态验证。",
                     )
                 return
             # A hard shared worker cap is an execution limit, not evidence that the

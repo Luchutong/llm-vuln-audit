@@ -16,6 +16,8 @@ import { ReportView } from './ReportView';
 import { localDate, runLabel, TERMINAL } from '../status';
 import { sourceHref } from '../routes';
 import { activeVulnerabilityFindings, sourceObservations, vulnerabilityFindings } from '../results';
+import { ExecutionStatus, HostSummary } from '../components/ExecutionStatus';
+import { executionSummary } from '../execution';
 
 const SCENARIO_LABELS: Record<string, string> = { sqli: 'SQL 注入', xss_r: '反射型 XSS', command_injection: '命令注入' };
 
@@ -60,7 +62,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
   }, [scheduleRefresh]);
   useEffect(() => {
     if (!live) return;
-    const poll = window.setInterval(scheduleRefresh, connected ? 15000 : 5000);
+    const poll = window.setInterval(scheduleRefresh, 4000);
     return () => window.clearInterval(poll);
   }, [live, connected, scheduleRefresh]);
   useEffect(() => {
@@ -95,11 +97,13 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
   const observations = sourceObservations(detail);
   const reason = goal?.terminal_reason ?? detail.planner?.terminal_reason;
   const paused = run.status === 'paused';
+  const summary = executionSummary(detail);
+  const pauseSettling = paused && summary !== null && summary.phase !== 'paused';
   const executing = run.status === 'running' || run.status === 'pending';
   const achieved = goal?.status === 'met';
   const statusLabel = runLabel(run.status, goal?.status);
   return <section className="run-workspace">
-    <header className="conversation-header"><div className="conversation-heading"><span className="eyebrow">AUDIT SESSION</span><h1 title={run.task_spec?.objective}>{run.task_spec?.objective ?? run.snapshot_name}</h1><div className="conversation-meta"><span className={`chip chip-${run.status}`}><span className={`status-dot status-${run.status}`} />{statusLabel}</span>{run.task_spec?.scenario && <span className="chip" title="分场景专属运行：宿主要求穷尽该类别全部方向后才允许收束">{SCENARIO_LABELS[run.task_spec.scenario] ?? run.task_spec.scenario} · 分场景穷尽</span>}<span>{run.snapshot_name}</span><span className="mono" title="实际 ZIP 快照">ZIP {run.snapshot_id.slice(0, 8)}</span><span className="mono">{run.id.slice(0, 8)}</span>{run.project_id && <><a href={sourceHref(run.project_id)}>{detail.project?.name ?? run.project_name ?? '所属源码包'}</a><a href={sourceHref(run.project_id, 'findings')}>项目漏洞台账</a><a href={`${sourceHref(run.project_id, 'archives')}&snapshot=${encodeURIComponent(run.snapshot_id)}`}>ZIP 与源码</a></>}</div></div><div className="conversation-actions"><DeleteRunButton run={run} />{executing && <button className="btn" disabled={busy} onClick={() => void control('pause')}><Pause size={13} />暂停运行</button>}{paused && <button className="btn btn-primary" disabled={busy} onClick={() => void control('resume')}><Play size={13} />继续运行</button>}{live && <button className="btn btn-danger" disabled={busy} onClick={() => void cancel()}><Square size={13} />{busy ? '取消中…' : '停止审计'}</button>}<button className="btn" onClick={() => openDetails('overview')}><PanelRightOpen size={16} /><span>审计详情</span></button></div></header>
+    <header className="conversation-header"><div className="conversation-heading"><span className="eyebrow">AUDIT SESSION</span><h1 title={run.task_spec?.objective}>{run.task_spec?.objective ?? run.snapshot_name}</h1><div className="conversation-meta"><span className={`chip chip-${run.status}`}><span className={`status-dot status-${run.status}`} />{statusLabel}</span>{run.task_spec?.scenario && <span className="chip" title="分场景专属运行：宿主要求穷尽该类别全部方向后才允许收束">{SCENARIO_LABELS[run.task_spec.scenario] ?? run.task_spec.scenario} · 分场景穷尽</span>}<span>{run.snapshot_name}</span><span className="mono" title="实际 ZIP 快照">ZIP {run.snapshot_id.slice(0, 8)}</span><span className="mono">{run.id.slice(0, 8)}</span>{run.project_id && <><a href={sourceHref(run.project_id)}>{detail.project?.name ?? run.project_name ?? '所属源码包'}</a><a href={sourceHref(run.project_id, 'findings')}>项目漏洞台账</a><a href={`${sourceHref(run.project_id, 'archives')}&snapshot=${encodeURIComponent(run.snapshot_id)}`}>ZIP 与源码</a></>}</div></div><div className="conversation-actions"><DeleteRunButton run={run} />{executing && <button className="btn" disabled={busy} onClick={() => void control('pause')}><Pause size={13} />暂停运行</button>}{paused && <button className="btn btn-primary" disabled={busy || pauseSettling} onClick={() => void control('resume')}><Play size={13} />继续运行</button>}{live && <button className="btn btn-danger" disabled={busy} onClick={() => void cancel()}><Square size={13} />{busy ? '取消中…' : '停止审计'}</button>}<button className="btn" onClick={() => openDetails('overview')}><PanelRightOpen size={16} /><span>审计详情</span></button></div></header>
     <div className="chat-scroll" ref={scrollbox} onScroll={() => { const box = scrollbox.current; if (box) { follow.current = box.scrollHeight - box.scrollTop - box.clientHeight < 100; if (follow.current) setNewActivity(false); } }}>
       <div className="chat-content">
         <div className="session-date">{localDate(run.created_at)}</div>
@@ -109,8 +113,9 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
           {run.task_spec?.success_criteria && <LongContent value={run.task_spec.success_criteria} label="验收目标" />}
         </div></article>
         <article className="assistant-message"><div className="assistant-avatar"><ShieldCheck size={20} /></div><div className="assistant-body"><div className="message-label"><BrandWordmark compact /> <span>源码审计助手</span></div>
-          <p className="assistant-intro">{paused ? '审计已暂停，任务前沿和回合号均已保存，可随时继续。' : run.status === 'pending' ? '审计任务已加入队列，等待 Planner 建立项目级任务图。' : live ? '正在围绕你的目标审计源码。下方展示已保存的规划、工具调用与证据过程。' : '审计执行记录已恢复。你可以展开工具调用，或打开详情复核源码证据。'}</p>
+          <p className="assistant-intro">{paused ? pauseSettling ? '正在等待在途执行静止，静止后可继续审计。' : '审计已暂停，任务前沿和回合号均已保存，可随时继续。' : run.status === 'pending' ? '审计任务已加入队列，等待 Planner 建立项目级任务图。' : live ? '正在围绕你的目标审计源码。下方展示已保存的规划、工具调用与证据过程。' : '审计执行记录已恢复。你可以展开工具调用，或打开详情复核源码证据。'}</p>
           <div className="run-progress"><span><GitBranch size={15} />Planner {detail.planner?.current_round ?? 0} / {detail.planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'} 回合</span><span><Wrench size={15} />{run.usage.tool_calls} 次工具调用</span><span>{paused ? '已暂停 · 可原样继续' : live ? `${activeWorkers} 个 worker 活跃` : `${completed} / ${tasks.length} 个任务已结算`}</span></div>
+          <ExecutionStatus detail={detail} />
           <ActivityStream events={events} detail={detail} connected={connected} reconnects={reconnects} onOpenLogs={() => openDetails('logs')} onInspect={() => { follow.current = false; }} />
           {streamError && <div className="error-box" role="alert">轨迹读取失败：{streamError} <button className="text-button" onClick={retry}>重新读取</button></div>}
           {error && <div className="error-box" role="alert">{error}</div>}
@@ -118,6 +123,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
           {!live && <div className={`result-card${achieved ? ' result-achieved' : ''}`}>
             <div className="result-heading">{achieved ? <ShieldCheck size={22} /> : <CircleHelp size={22} />}<div><span className="eyebrow">AUDIT RESULT</span><h2>{statusLabel}</h2></div></div>
             {reason && <LongContent label="结论依据" value={reason} />}
+            <HostSummary detail={detail} />
             <p className="muted small">共保存 {findings.length} 项漏洞候选，其中 {evidenceFindings.length} 项仍被本次运行主张且通过源码证据校验。另有 {observations.length} 条排查记录，不计为漏洞。处置、历史版本及自动验证记录见详情。</p>
             {achieved && !evidenceFindings.length && <p className="small muted">历史任务状态沿用原判定；排查记录不表示发现漏洞，也不保证项目安全。</p>}
             {evidenceFindings.slice(0, 3).map((finding) => <button key={finding.id} className="result-finding" onClick={() => openDetails('findings')}><span className={`chip sev-${finding.severity}`}>{finding.severity}</span><span>{finding.title}</span><ArrowUpRight size={15} /></button>)}

@@ -1,6 +1,7 @@
 import type { AuditEvent, RunDetail } from './types';
 import { normalizeTrace, pairToolCalls, scalar, shortText, traceRunState } from './trace.ts';
 import type { ToolSpan, TraceContext, TraceEntry } from './trace';
+import { pocReason } from './execution.ts';
 
 interface ActivityBase {
   key: string;
@@ -231,16 +232,19 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       const jobs = Array.isArray(payload.jobs) ? payload.jobs.length : 0;
       const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts.length : 0;
       secondary = [jobs ? `${jobs} 次 runner 作业` : '', artifacts ? `${artifacts} 份产物` : ''].filter(Boolean).join(' · ');
-      tone = status === 'rejected' ? 'error' : status === 'verified' ? 'neutral' : 'warning';
+      tone = status === 'rejected' ? 'error' : ['verified', 'not_applicable', 'environment_unavailable', 'unverified'].includes(status) ? 'neutral' : 'warning';
     } else if (kind === 'poc_verification_skipped') {
       title = '跳过自动验证';
-      message = text(payload.reason) === 'target_not_dvwa'
-        ? `目标类型 ${text(payload.target_profile) || 'unknown'} 不是 DVWA，自动验证不适用。`
-        : text(payload.reason) || '本次运行不需要自动验证。';
-      tone = 'warning';
+      message = pocReason(text(payload.reason), text(payload.message));
+      tone = 'neutral';
     } else if (kind === 'poc_verification_unavailable') {
       title = '自动验证环境不可用';
       message = text(payload.error) || text(payload.reason) || '隔离靶场不可用，相关结论保留为未验证。';
+      tone = 'neutral';
+    } else if (kind === 'poc_readiness_checked' || kind === 'poc_disabled') {
+      title = '自动验证策略'; message = pocReason(text(payload.reason) || (kind === 'poc_disabled' ? 'off' : ''), text(payload.message));
+    } else if (kind === 'run_budget_exhausted' || kind === 'goal_inconclusive' || kind === 'run_finalized') {
+      title = '审计阶段结算'; message = text(payload.message) || text(payload.reason) || '本次未完成穷尽审计，已保存阶段报告与现有结论。';
       tone = 'warning';
     } else if (kind === 'poc_execution_finished') {
       // Normal completion is not worth a row; an early stop is, because the conclusion

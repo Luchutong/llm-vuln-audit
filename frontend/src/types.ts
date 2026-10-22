@@ -204,6 +204,40 @@ export interface TaskWorkItem {
   finished_at?: string | null;
 }
 export interface Budget { responses: number; tools: number; seconds: number }
+export type PocMode = 'off' | 'auto' | 'required';
+export interface PocReadiness {
+  available: boolean;
+  reason: string;
+  message: string;
+  checked_at: string;
+  capabilities: { supported_targets: string[]; browser: boolean };
+}
+export interface ExecutionSummary {
+  policy_version?: string;
+  phase: string;
+  run_limits: Budget | null;
+  run_usage: Budget;
+  run_remaining: Budget | null;
+  active_executions: { [key: string]: unknown }[] | number;
+  stop_reason?: { code: string; dimension?: string | null; message?: string | null } | null;
+  blocked_task_ids: string[];
+  poc: { mode?: PocMode; available?: boolean | null; reason?: string | null; message?: string | null };
+  final_summary_available: boolean;
+}
+export interface HostFinalSummary {
+  source: 'host';
+  status: RunStatus;
+  complete: boolean;
+  stop_reason: { code: string; dimension?: string | null; message?: string | null } | null;
+  raw_finding_count: number;
+  valid_finding_count: number;
+  ledger_group_count: number;
+  finding_groups: { id: string; project_finding_id?: string | null; finding_ids: string[]; findings?: { id: string; revision: number; project_revision?: number | null; title: string; severity: string; category: string; evidence: Evidence[]; verification_status?: VerificationStatus; disposition: FindingDisposition }[] }[];
+  tasks: { id: string; title: string; state: string; error?: string | null; result?: unknown; depends_on?: string[] }[];
+  coverage: Record<string, unknown>;
+  execution?: Record<string, unknown>;
+  limitations: string[];
+}
 export interface Usage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number }
 export interface FileRecord {
   path: string;
@@ -429,7 +463,7 @@ export interface Snapshot {
 export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean }
 /** Public provider identity frozen with a run. It deliberately has no credential. */
 export interface ModelProfileSnapshot { profile_id: string; model: string; base_url: string }
-export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number; project_id?: string | null; project_name?: string | null; project_mode?: 'project' | 'legacy'; poc_policy?: Record<string, unknown> }
+export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; run_limits?: Budget | null; poc_mode?: PocMode; execution_summary?: ExecutionSummary | null; final_summary?: HostFinalSummary | null; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number; project_id?: string | null; project_name?: string | null; project_mode?: 'project' | 'legacy'; poc_policy?: Record<string, unknown> }
 /** One execution the isolated runner performed for a verification record. */
 export interface VerificationJob {
   id?: number | string;
@@ -543,6 +577,7 @@ export interface Metrics {
 }
 export interface Attribution { id?: string; file_path: string; category: string; kind: string; cause: string; check_item: string; finding_id?: string; created_at?: string }
 export interface RunDetail {
+  execution_summary?: ExecutionSummary | null;
   run: Run;
   goal?: Goal | null;
   /** The shared project ledger this run reasoned over; live, unlike the frozen baseline. */
@@ -734,6 +769,7 @@ export interface Config {
   budgets: Budget;
   /** The defaults the server applies when a caller names none; the ceiling is not sent. */
   budget_limits?: { defaults: Budget };
+  run_budget_limits?: { defaults: Budget; min: Budget; max: Budget };
   worker: Record<string, unknown>;
   model_health?: ModelHealthSnapshot;
   version: string;

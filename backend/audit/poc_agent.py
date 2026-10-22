@@ -133,6 +133,8 @@ class PocDeps:
     job_seconds: int = 30
     max_jobs: int = 8
     max_script_bytes: int = MAX_SCRIPT
+    should_stop: Any = None
+    on_job: Any = None
 
     @property
     def last_script(self) -> str:
@@ -165,6 +167,8 @@ class PocDeps:
         }, ensure_ascii=False)
 
     async def call(self, name: str, args: dict) -> str:
+        if self.should_stop is not None and self.should_stop():
+            raise StopAudit("interrupted", "POC 所属执行代次已停止")
         execution = self.execution
         execution.before_tool()
         # Pair every call with a result even when the phase is cancelled: the durable
@@ -193,6 +197,8 @@ class PocDeps:
                 text = self._reply({"error": "unknown_tool", "tool": name})
             else:
                 text = await handler(args)
+                if self.should_stop is not None and self.should_stop():
+                    raise StopAudit("interrupted", "拒绝已停止 POC 的迟到工具结果")
         except asyncio.CancelledError:
             status = "cancelled"
             raise
@@ -205,6 +211,7 @@ class PocDeps:
             self.runner_error = str(exc)[:400]
             execution.emit({"kind": "poc_runner_unavailable", "error": self.runner_error})
             text = self._reply({"error": "runner_unavailable", "message": self.runner_error})
+            raise StopAudit("environment_unavailable", "POC runner 不可用，停止本次自动验证") from exc
         except PocRunnerError as exc:
             status = "runner_rejected"
             error_type = type(exc).__name__
@@ -283,6 +290,10 @@ class PocDeps:
             artifacts=requested,
         )
         job_id = str(job.get("job_id") or "")
+        if self.on_job is not None and job_id:
+            self.on_job(job_id)
+        if self.should_stop is not None and self.should_stop():
+            raise StopAudit("interrupted", "拒绝已停止 POC 的迟到作业结果")
         self.scripts.append(script)
         artifacts = []
         for item in job.get("artifacts") or []:
@@ -402,6 +413,10 @@ class PocDeps:
             self.browser_available = False
             return self._reply({"error": "browser_unavailable", "message": "runner 未安装浏览器"})
         job_id = str(result.get("job_id") or "")
+        if self.on_job is not None and job_id:
+            self.on_job(job_id)
+        if self.should_stop is not None and self.should_stop():
+            raise StopAudit("interrupted", "拒绝已停止 POC 的迟到浏览器结果")
         artifacts = []
         for item in result.get("artifacts") or []:
             name = str(item.get("name") or "")
@@ -781,6 +796,8 @@ async def run_poc_agent(
     inherited ``budget`` as the whole agent's reason.
     """
     emit = on_event or (lambda event: None)
+    if deps.should_stop is not None and deps.should_stop():
+        return None, "interrupted"
     budgets = {
         "responses": max(2, int(deps.policy.get("max_steps", 8))) + 3,
         "tools": max(4, int(deps.policy.get("max_jobs", 8)) * 3 + 12),
@@ -838,6 +855,8 @@ async def run_poc_agent(
             max_steps=max(1, int(deps.policy.get("max_steps", 8))),
         )
     except StopAudit as exc:
+        if exc.reason in {"run_budget_exhausted", "interrupted", "cancelled"}:
+            raise
         reason = exc.reason
     except ModelCallFailed as exc:
         reason = exc.reason
@@ -857,6 +876,9 @@ async def run_poc_agent(
         "jobs": len(deps.jobs),
         "scripts": len(deps.scripts),
     })
+
+    if reason == "environment_unavailable":
+        return None, reason
 
     if agent is None or model is None:
         return None, reason

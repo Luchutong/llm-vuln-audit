@@ -19,6 +19,8 @@ from urllib.parse import urlsplit, urlunsplit
 from .evidence import seen_ranges
 from .finding_policy import is_vulnerability_finding
 from .project_findings import pick_merge_candidate
+from .execution_state import ExecutionStoreMixin, TERMINAL
+from .poc_store import PocStoreMixin, POC_SCHEMA
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -701,7 +703,7 @@ def _model_profile_snapshot(value: object) -> dict:
     }
 
 
-class Store:
+class Store(PocStoreMixin, ExecutionStoreMixin):
     def __init__(self, path: Path | str):
         self.path = str(path)
         self._lock = threading.RLock()
@@ -709,7 +711,9 @@ class Store:
         self._db.row_factory = sqlite3.Row
         with self._lock:
             self._db.executescript(SCHEMA)
+            self._db.executescript(POC_SCHEMA)
             self._migrate()
+            self._init_execution_state()
 
     # Additive migrations so a database written by an earlier build keeps working.
     _ADDED_COLUMNS = {
@@ -1433,6 +1437,7 @@ class Store:
                         ],
                     )
                 task = run.get("task_spec") or None
+                self._create_execution_state_tx(run)
                 if task:
                     goal_id = uuid.uuid4().hex
                     created_at = now()
@@ -1537,6 +1542,13 @@ class Store:
             "input_tokens": int(usage["input_tokens"] or 0) if usage else 0,
             "output_tokens": int(usage["output_tokens"] or 0) if usage else 0,
         }
+        run["execution_summary"] = self.execution_summary(run["id"])
+        run["execution_epoch"] = (run["execution_summary"] or {}).get("claim_epoch")
+        run["run_limits"] = (run["execution_summary"] or {}).get("run_limits")
+        if run["run_limits"] is not None:
+            run["usage"]["requests"] = run["execution_summary"]["run_usage"]["responses"]
+            run["usage"]["tool_calls"] = run["execution_summary"]["run_usage"]["tools"]
+        run["final_summary"] = self.get_final_summary(run["id"])
         return run
 
     def list_runs(self) -> list[dict]:
@@ -1547,6 +1559,15 @@ class Store:
         return self._run_dict(row) if row else None
 
     def update_run(self, run_id: str, **fields: Any) -> None:
+        self.assert_execution_write(run_id)
+        current = self._row("SELECT status FROM runs WHERE id=?", (run_id,))
+        if current and current["status"] in TERMINAL and fields.get("status", current["status"]) != current["status"]:
+            return
+        if fields.get("status") in TERMINAL:
+            status = fields["status"]
+            code = {"completed": "goal_met", "cancelled": "user_cancelled", "interrupted": "interrupted", "failed": "worker_exit_without_terminal"}.get(status, "unresolved_blockers")
+            self.terminate_execution(run_id, status, {"code": code, "message": fields.get("error") or code})
+            return
         allowed = {"status", "started_at", "finished_at", "error"}
         updates = {name: value for name, value in fields.items() if name in allowed}
         if not updates:
@@ -1572,6 +1593,7 @@ class Store:
                     "UPDATE runs SET status = 'running', started_at = COALESCE(started_at, ?) WHERE id = ?",
                     (now(), row["id"]),
                 )
+                self._claim_execution_tx(row["id"])
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -1582,11 +1604,7 @@ class Store:
         # Running runs are stopped by the worker; pending and paused runs never start.
         # A paused run is cancellable on purpose: pausing is how a user parks work to look
         # at it, and having to resume it first in order to throw it away would be a trap.
-        self._write(
-            "UPDATE runs SET status = 'cancelled', finished_at = ?"
-            " WHERE id = ? AND status IN ('pending','running','paused')",
-            (now(), run_id),
-        )
+        self.terminate_execution(run_id, "cancelled", {"code": "user_cancelled", "message": "用户取消审计"})
 
     def request_pause(self, run_id: str) -> None:
         """Park a run at its next boundary without giving up its frontier.
@@ -1616,6 +1634,11 @@ class Store:
             try:
                 run = self._db.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
                 if run is None or run["status"] != "paused":
+                    self._db.execute("ROLLBACK")
+                    return False
+                if run_id in self._active_clocks:
+                    # The in-flight execution must reach its boundary before a new
+                    # owner can be queued. A quick resume cannot overlap generations.
                     self._db.execute("ROLLBACK")
                     return False
                 goal = self._db.execute(
@@ -1732,6 +1755,8 @@ class Store:
                     "SELECT id FROM runs WHERE status IN ('cancelled', 'interrupted', 'failed')))",
                     (now(),),
                 )
+                for stale_id, _ in stale:
+                    self._terminal_execution_tx(stale_id, "interrupted", {"code": "interrupted", "message": "服务重启，原执行已中断。"})
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -2719,6 +2744,7 @@ class Store:
                 "context_spec": task["context_spec"],
                 "files": sorted({path for path in declared if path})[:MAX_TASK_FILES],
                 "summary": result.get("summary") if isinstance(result, dict) else "",
+                "result": {"outcome": result.get("outcome")} if isinstance(result, dict) else {},
                 "basis_summary": result.get("reasoning") if isinstance(result, dict) else "",
                 "observations": _compact_source_observations(result) if isinstance(result, dict) else [],
                 "missing_context": result.get("missing_context", []) if isinstance(result, dict) else [],
@@ -3412,6 +3438,7 @@ class Store:
         missing_context: list[str] | None = None,
         *,
         require_verified: bool = False,
+        stop_reason: dict | None = None,
     ) -> dict:
         """Host-enforced terminal state for the only goal in a Planner run.
 
@@ -3430,6 +3457,10 @@ class Store:
                 session = self._db.execute("SELECT * FROM planner_sessions WHERE run_id = ?", (run_id,)).fetchone()
                 if goal is None or session is None:
                     raise ValueError("Planner run has no goal/session")
+                self.assert_execution_write(run_id)
+                run_state = self._db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+                if run_state is None or run_state["status"] in TERMINAL:
+                    raise ValueError("运行已经终结，拒绝覆盖")
                 queue = self.task_queue_state(run_id)
                 if state == "met":
                     # "Standing" means valid evidence that nobody has withdrawn and that
@@ -3438,7 +3469,7 @@ class Store:
                     # database -- and still in the report -- but it is not something to
                     # close a run on.
                     candidates = self._db.execute(
-                        "SELECT finding_kind, category, severity, verification_status FROM findings"
+                        "SELECT * FROM findings"
                         f" WHERE run_id = ? AND validation_state = 'candidate'"
                         f" AND disposition NOT IN {_WITHDRAWN_SQL}"
                         " AND COALESCE(verification_status, '') <> 'rejected'",
@@ -3446,9 +3477,10 @@ class Store:
                     ).fetchall()
                     standing = any(is_vulnerability_finding(dict(item)) for item in candidates)
                     if standing and require_verified:
+                        frozen_run = self.get_run(run_id) or {}
                         standing = any(
                             is_vulnerability_finding(dict(item))
-                            and str(item["verification_status"] or "") == "verified"
+                            and self.compatible_verified_finding(frozen_run, dict(item))
                             for item in candidates
                         )
                     if not standing:
@@ -3461,12 +3493,12 @@ class Store:
                         # later run before it read anything.
                         if run_row is not None and run_row["project_mode"] == "project" and run_row["project_id"]:
                             carried = self._db.execute(
-                                "SELECT 1 FROM project_findings WHERE project_id = ?"
+                                "SELECT * FROM project_findings WHERE project_id = ?"
                                 f" AND disposition NOT IN {_WITHDRAWN_SQL}"
-                                " AND verification_status = 'verified' LIMIT 1",
+                                " AND verification_status = 'verified'",
                                 (run_row["project_id"],),
-                            ).fetchone()
-                            standing = carried is not None
+                            ).fetchall()
+                            standing = bool(carried) if not require_verified else any(self.compatible_verified_finding(self.get_run(run_id) or {}, dict(item)) for item in carried)
                     if not standing:
                         raise ValueError(
                             "Planner cannot mark a goal met without a validated vulnerability finding"
@@ -3504,6 +3536,12 @@ class Store:
                         "WHERE run_id = ? AND state IN ('pending','ready','deferred')",
                         ("目标已达成，未启动任务停止", stamp, stamp, run_id),
                     )
+                run_status = {"met": "completed", "unreachable": "unreachable", "inconclusive": "inconclusive"}[state]
+                self._db.execute("UPDATE runs SET status=?,finished_at=? WHERE id=?", (run_status, stamp, run_id))
+                if state != "met":
+                    self._db.execute("UPDATE planner_tasks SET state=CASE WHEN state='running' THEN 'blocked' ELSE 'cancelled' END,error=?,updated_at=?,finished_at=? WHERE run_id=? AND state IN ('pending','ready','deferred','running')", (reason, stamp, stamp, run_id))
+                code = "goal_met" if state == "met" else "unresolved_blockers" if queue["blocked"] else "planner_round_limit"
+                self._terminal_execution_tx(run_id, run_status, stop_reason or {"code": code, "message": reason})
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -3515,6 +3553,8 @@ class Store:
 
     def abandon_planner_tasks(self, run_id: str, reason: str) -> None:
         with self._lock:
+            if self.get_final_summary(run_id) is not None:
+                return
             self._db.execute("BEGIN IMMEDIATE")
             try:
                 stamp = now()
@@ -4152,6 +4192,8 @@ class Store:
     # ``verifications`` is not in this list: it keys off ``finding_id``, which we
     # collect first so the IN-clause is explicit.
     _RUN_CASCADE_TABLES: tuple[tuple[str, str], ...] = (
+        ("run_execution_state", "run_id"),
+        ("poc_attempts", "run_id"),
         ("poc_verification_jobs", "run_id"),
         ("project_finding_runs", "run_id"),
         ("events", "run_id"),
@@ -4186,39 +4228,50 @@ class Store:
             raise ValueError(f"Run is {status}; cancel it before deleting")
 
         with self._lock:
-            finding_ids = [
-                row["id"] for row in self._rows(
-                    "SELECT id FROM findings WHERE run_id = ?", (run_id,)
-                )
-            ]
-            deleted: dict[str, int] = {}
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                current = self._db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+                if current is None:
+                    raise KeyError(run_id)
+                if current["status"] in ("pending", "running") or run_id in self._active_clocks:
+                    raise ValueError("Run execution is not quiescent; wait for pause/cancel to settle")
+                finding_ids = [
+                    row["id"] for row in self._rows(
+                        "SELECT id FROM findings WHERE run_id = ?", (run_id,)
+                    )
+                ]
+                deleted: dict[str, int] = {}
 
-            def _counted(table: str, sql: str, params: tuple = ()) -> None:
-                deleted[table] = self._db.execute(sql, params).rowcount or 0
+                def _counted(table: str, sql: str, params: tuple = ()) -> None:
+                    deleted[table] = self._db.execute(sql, params).rowcount or 0
 
-            if finding_ids:
-                qmarks = ",".join("?" for _ in finding_ids)
-                _counted(
-                    "verifications",
-                    f"DELETE FROM verifications WHERE finding_id IN ({qmarks})",
-                    tuple(finding_ids),
-                )
-            for table, column in self._RUN_CASCADE_TABLES:
-                _counted(table, f"DELETE FROM {table} WHERE {column} = ?", (run_id,))
-            _counted("runs", "DELETE FROM runs WHERE id = ?", (run_id,))
+                if finding_ids:
+                    qmarks = ",".join("?" for _ in finding_ids)
+                    _counted(
+                        "verifications",
+                        f"DELETE FROM verifications WHERE finding_id IN ({qmarks})",
+                        tuple(finding_ids),
+                    )
+                for table, column in self._RUN_CASCADE_TABLES:
+                    _counted(table, f"DELETE FROM {table} WHERE {column} = ?", (run_id,))
+                _counted("runs", "DELETE FROM runs WHERE id = ?", (run_id,))
 
-            # Keep the project ledger's counters honest.  project_findings rows
-            # themselves survive: they are the canonical cross-run conclusion,
-            # not run-local debris.
-            project_id = run.get("project_id")
-            if project_id:
-                self._db.execute(
-                    "UPDATE projects SET run_count = (SELECT COUNT(*) FROM runs WHERE project_id = ?),"
-                    " latest_run_id = (SELECT id FROM runs WHERE project_id = ?"
-                    " ORDER BY created_at DESC, id DESC LIMIT 1), updated_at = ?"
-                    " WHERE id = ?",
-                    (project_id, project_id, now(), project_id),
-                )
+                # Keep the project ledger's counters honest.  project_findings rows
+                # themselves survive: they are the canonical cross-run conclusion,
+                # not run-local debris.
+                project_id = run.get("project_id")
+                if project_id:
+                    self._db.execute(
+                        "UPDATE projects SET run_count = (SELECT COUNT(*) FROM runs WHERE project_id = ?),"
+                        " latest_run_id = (SELECT id FROM runs WHERE project_id = ?"
+                        " ORDER BY created_at DESC, id DESC LIMIT 1), updated_at = ?"
+                        " WHERE id = ?",
+                        (project_id, project_id, now(), project_id),
+                    )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
 
         return {
             "run_id": run_id,
@@ -4363,3 +4416,7 @@ class Store:
     def load_health(self) -> dict | None:
         row = self._row("SELECT * FROM model_health WHERE id = 1")
         return dict(row) if row else None
+
+
+from .execution_guards import install_execution_guards
+install_execution_guards(Store)

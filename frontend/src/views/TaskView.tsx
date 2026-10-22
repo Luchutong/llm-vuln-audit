@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUp, Braces, Check, ChevronDown, Database, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, X, type LucideIcon } from 'lucide-react';
-import { api, errorText, post } from '../api';
-import type { Budget, Config, Project, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
+import { api, ApiError, errorText, post } from '../api';
+import type { Budget, Config, PocMode, PocReadiness, Project, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
+import { draftRunLimits, FALLBACK_RUN_BOUNDS, POC_MODE_LABELS, pocReason } from '../execution';
+import '../execution.css';
 import { localDate } from '../status';
 import { sourceHref } from '../routes';
 import { Overlay } from '../components/Overlay';
@@ -117,6 +119,12 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [task, setTask] = useState<TaskSpec>(() => ({ ...EMPTY_TASK, ...seed?.task_spec }));
   const [budgets, setBudgets] = useState<Budget>(seed?.budgets ?? config?.budget_limits?.defaults ?? config?.budgets ?? { responses: 24, tools: 96, seconds: 1800 });
+  const [runLimits, setRunLimits] = useState<Budget>(() => draftRunLimits(seed, config));
+  const [pocMode, setPocMode] = useState<PocMode>('off');
+  const [readiness, setReadiness] = useState<PocReadiness | null>(null);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessRevision, setReadinessRevision] = useState(0);
   const [dialog, setDialog] = useState<'snapshots' | 'snapshot' | 'options' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileLimit, setFileLimit] = useState(100);
@@ -154,7 +162,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   }, [initialSnapshotId, seed?.snapshot_id]);
 
   useEffect(() => {
-    if (!configuredBudget.current && config) { setBudgets(config.budget_limits?.defaults ?? config.budgets); configuredBudget.current = true; }
+    if (!configuredBudget.current && config) { setBudgets(config.budget_limits?.defaults ?? config.budgets); setRunLimits(draftRunLimits(seed, config)); configuredBudget.current = true; }
   }, [config]);
   useEffect(() => {
     active.current = true;
@@ -173,6 +181,18 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     }).catch((exc) => { if (!abort.signal.aborted) { setLoading(false); setError(`源码快照读取失败：${errorText(exc)}`); } });
     return () => abort.abort();
   }, [selected, seed, snapshotRevision, project?.id]);
+
+  useEffect(() => {
+    setReadiness(null); setReadinessError(null);
+    if (!selected || pocMode === 'off') { setReadinessLoading(false); return; }
+    const abort = new AbortController();
+    setReadinessLoading(true);
+    api<PocReadiness>(`/poc/readiness?snapshot_id=${encodeURIComponent(selected)}`, { signal: abort.signal })
+      .then((value) => { if (!abort.signal.aborted) setReadiness(value); })
+      .catch((exc) => { if (!abort.signal.aborted) setReadinessError(errorText(exc)); })
+      .finally(() => { if (!abort.signal.aborted) setReadinessLoading(false); });
+    return () => abort.abort();
+  }, [selected, pocMode, readinessRevision]);
 
   const upload = async (file: File) => {
     if (starting || uploading || project) return;
@@ -199,16 +219,22 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     const objective = task.objective.trim();
     if ([...objective].length < 8 || [...objective].length > 2000) { setError('审计任务需填写 8–2000 个字符。'); objectiveRef.current?.focus(); return; }
     if (!config?.configured) { setError('模型尚未配置完成，请在工作空间设置中检查连接。'); return; }
+    if (pocMode === 'required' && (!readiness?.available || readinessLoading)) { setError('必须验证模式需要可用的自动验证环境，请先检查环境或选择其它模式。'); return; }
     startLock.current = true; setStarting(true);
     const generation = ++startGeneration.current;
     const sourceHash = window.location.hash;
     try {
-      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, task: startTask(task, objective, scope) });
+      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, run_limits: runLimits, poc_mode: pocMode, task: startTask(task, objective, scope) });
       if (active.current) {
         onChanged();
         if (startGeneration.current === generation && window.location.hash === sourceHash) onOpenRun(run.id);
       }
-    } catch (exc) { if (active.current && startGeneration.current === generation) setError(`任务创建失败：${errorText(exc)}`); }
+    } catch (exc) {
+      if (active.current && startGeneration.current === generation) {
+        setError(`任务创建失败：${errorText(exc)}`);
+        if (exc instanceof ApiError && exc.status === 409 && pocMode !== 'off') setReadinessRevision((value) => value + 1);
+      }
+    }
     finally {
       if (startGeneration.current === generation) { startLock.current = false; if (active.current) setStarting(false); }
     }
@@ -216,6 +242,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const stats = snapshot?.stats ?? {};
   const textCount = stats.text_files ?? snapshot?.files.filter((file) => file.kind === 'text' || (file.kind === undefined && !file.excluded)).length ?? 0;
   const busy = uploading || loading || starting;
+  const runBounds = config?.run_budget_limits ?? FALLBACK_RUN_BOUNDS;
   return <section className={`draft-workspace${project ? ' source-draft' : ''}${dragging ? ' is-dragging' : ''}`}
     onDragEnter={(event) => { if (!project && event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current += 1; setDragging(true); } }}
     onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
@@ -277,7 +304,9 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
           <span className="toolbar-divider" />
           <button type="button" className="tool-button" disabled={!snapshot || busy} onClick={() => setDialog('snapshot')}><FileCode2 size={17} /><span>快照{snapshot ? ` · ${textCount}` : ''}</span><ChevronDown size={12} /></button>
           <button type="button" className="icon-button" disabled={busy} aria-label="高级执行设置" title="高级执行设置" onClick={() => setDialog('options')}><SlidersHorizontal size={17} /></button>
-        </div><button type="submit" className={`send-button${project ? ' source-start-button' : ''}`} disabled={busy || !config?.configured || !snapshot || snapshot.id !== selected} aria-label="开始审计">{starting ? <LoaderCircle size={19} className="spin" /> : <ArrowUp size={21} />}{project && <span>{starting ? '创建中…' : '开始审计'}</span>}</button></div>
+        </div><button type="submit" className={`send-button${project ? ' source-start-button' : ''}`} disabled={busy || !config?.configured || !snapshot || snapshot.id !== selected || (pocMode === 'required' && (!readiness?.available || readinessLoading))} aria-label="开始审计">{starting ? <LoaderCircle size={19} className="spin" /> : <ArrowUp size={21} />}{project && <span>{starting ? '创建中…' : '开始审计'}</span>}</button></div>
+        <p className="field-hint">整次上限：模型 {runLimits.responses} 次 · 工具 {runLimits.tools} 次 · 活跃 {runLimits.seconds} 秒；POC：{POC_MODE_LABELS[pocMode]}。可在高级执行设置调整。</p>
+        {pocMode === 'required' && !readiness?.available && <p className="field-hint" role="status">{readinessLoading ? '正在检查必须验证所需环境…' : readinessError ? '自动验证环境检查失败，请重新检查或切换模式。' : pocReason(readiness?.reason, readiness?.message)}</p>}
       </form>
       <div className="composer-footnote"><span><ShieldCheck size={12} /> 源码只读审计 · 执行过程持久保存</span><span>Ctrl / ⌘ + Enter 发送</span></div>
     </div>
@@ -296,11 +325,18 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     {dialog === 'options' && <Overlay title="高级执行设置" onClose={() => setDialog(null)}><div className="overlay-body">
       <div className="settings-section-label"><Sparkles size={16} />Planner 与 worker</div><div className="form-grid">
         {([{ key: 'max_iterations', label: '每个动态任务最大尝试', min: 1, max: 8 }, { key: 'max_total_attempts', label: '共享总尝试上限', min: 1, max: 512 }, { key: 'max_planner_rounds', label: 'Planner 最大回合', min: 1, max: 128 }, { key: 'max_workers', label: '并发 worker', min: 1, max: 4 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={task[field.key]} onChange={(event) => setTask((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
-      </div><div className="settings-section-label"><SlidersHorizontal size={16} />每次 Planner / worker 回合的预算</div><div className="form-grid">
+      </div><div className="settings-section-label"><SlidersHorizontal size={16} />整次审计硬预算</div><div className="form-grid">
+        {([{ key: 'responses', label: '整次模型请求上限' }, { key: 'tools', label: '整次工具调用上限' }, { key: 'seconds', label: '整次活跃时间（秒）' }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={runBounds.min[field.key]} max={runBounds.max[field.key]} value={runLimits[field.key]} onChange={(event) => setRunLimits((value) => ({ ...value, [field.key]: clamp(event.target.value, runBounds.min[field.key], runBounds.max[field.key]) }))} /><span className="field-hint">{runBounds.min[field.key]}–{runBounds.max[field.key]}</span></label>)}
+      </div><p className="field-hint">Planner、侦察、worker 与 POC 共享整次额度。失败请求也计入消耗；暂停不重置预算，暂停后的静止时间不计入活跃时间。达到上限将自动结束为未完成，并保存阶段报告。</p>
+      <div className="settings-section-label"><SlidersHorizontal size={16} />单次 Planner / worker 执行预算</div><div className="form-grid">
         {([{ key: 'responses', label: '模型响应次数', min: 1, max: 256 }, { key: 'tools', label: '工具调用次数', min: 0, max: 2048 }, { key: 'seconds', label: '墙钟时间（秒）', min: 30, max: 14400 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={budgets[field.key]} onChange={(event) => setBudgets((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
-      </div><p className="field-hint">预算按回合计算，所有 worker 共享总尝试上限。运行中可暂停并原样继续，目标与快照保持冻结。</p>
+      </div><p className="field-hint">单次执行和整次审计均受限，先到达的上限生效。所有 worker 还共享总尝试上限，暂停继续保留全部消耗。</p>
       <label className="checkbox option-checkbox"><input type="checkbox" checked={task.stop_on_achieved} onChange={(event) => setTask((value) => ({ ...value, stop_on_achieved: event.target.checked }))} /><span>目标达成后停止未开始的任务</span></label>
-      <label className="checkbox option-checkbox"><input type="checkbox" checked={task.require_poc} onChange={(event) => setTask((value) => ({ ...value, require_poc: event.target.checked }))} /><span>目标达成时要求 POC</span></label>
+      <div className="settings-section-label"><ShieldCheck size={16} />POC 自动验证</div>
+      <label className="field"><span className="field-label">自动验证模式</span><select value={pocMode} onChange={(event) => setPocMode(event.target.value as PocMode)}><option value="off">关闭 · 仅源码审计</option><option value="auto">自动 · 环境可用时验证</option><option value="required">必须 · 需要验证后收束</option></select></label>
+      <p className="field-hint">关闭时不启动 POC agent。自动模式环境不可用时跳过验证，源码结论仍保留为未验证；必须模式要求环境可用且结论已复现。</p>
+      {pocMode !== 'off' && <div className="poc-readiness" role="status"><p>{readinessLoading ? '正在检查自动验证环境…' : readinessError ? `环境检查失败：${readinessError}` : readiness ? `${readiness.available ? '环境可用' : '环境不可用'}：${pocReason(readiness.reason, readiness.message)}` : '请先选择源码 ZIP。'}</p>{readiness && <span className="faint small">检查于 {localDate(readiness.checked_at)} · 浏览器验证{readiness.capabilities.browser ? '可用' : '不可用'}</span>}<button type="button" className="text-button" disabled={!selected || readinessLoading} onClick={() => setReadinessRevision((value) => value + 1)}>重新检查环境</button></div>}
+      <label className="checkbox option-checkbox"><input type="checkbox" checked={task.require_poc} onChange={(event) => setTask((value) => ({ ...value, require_poc: event.target.checked }))} /><span>发现需附 POC 脚本（与自动验证独立）</span></label>
     </div><div className="overlay-footer"><button type="button" className="btn btn-primary" onClick={() => setDialog(null)}>保存设置</button></div></Overlay>}
   </section>;
 }

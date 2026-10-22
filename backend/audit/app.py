@@ -39,6 +39,9 @@ from .schemas import (
 from .source import MAX_LISTED_PATHS, SourceRepository
 from .worker import AuditWorker
 from .runtime import AgentPolicy
+from .execution_state import DEFAULT_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
+from .poc_readiness import PocReadinessService
+from .poc_store import poc_target_key
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
@@ -78,6 +81,7 @@ class Services:
             backfill_project_ledger(self.store)
             self.store.set_schema_meta("project_backfill_v1", "done")
         self.bus = EventBus(self.store)
+        self.poc_readiness = PocReadinessService(settings)
         self.health = ModelHealth()
         saved_health = self.store.load_health()
         if saved_health is not None and saved_health.get("model") == self.health_key:
@@ -410,8 +414,9 @@ def _config_payload(state: Services) -> dict:
         "model_profiles": profiles,
         "budgets": state.settings.budgets,
         "budget_limits": {"defaults": DEFAULT_BUDGETS},
+        "run_budget_limits": {"defaults": DEFAULT_RUN_LIMITS, "min": MIN_RUN_LIMITS, "max": MAX_RUN_LIMITS},
         "agent_policy": AgentPolicy().snapshot(),
-        "poc": state.settings.poc.public(),
+        "poc": {**state.settings.poc.public(), "supported_targets": ["dvwa"]},
         "worker": state.worker.status,
         "model_health": state.health.snapshot(),
         "version": VERSION,
@@ -421,6 +426,17 @@ def _config_payload(state: Services) -> dict:
 @app.get("/api/config")
 async def get_config(request: Request) -> dict:
     return _config_payload(services(request))
+
+
+@app.get("/api/poc/readiness")
+async def poc_readiness(request: Request, snapshot_id: str) -> dict:
+    state = services(request)
+    snapshot = state.store.get_snapshot(snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot does not exist")
+    if not hasattr(state, "poc_readiness"):
+        state.poc_readiness = PocReadinessService(state.settings)
+    return await state.poc_readiness.check(snapshot.get("target_profile", "unknown"))
 
 
 def _require_no_active_run(state: Services) -> None:
@@ -850,6 +866,15 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     state = services(request)
     snapshot, project = _resolve_run_scope(state, payload)
 
+    readiness_service = getattr(state, "poc_readiness", None)
+    if readiness_service is None:
+        readiness_service = state.poc_readiness = PocReadinessService(state.settings)
+    readiness = None
+    if payload.poc_mode != "off":
+        readiness = await readiness_service.check(snapshot.get("target_profile", "unknown"), mode=payload.poc_mode, fresh=payload.poc_mode == "required")
+        if payload.poc_mode == "required" and not readiness["available"]:
+            raise HTTPException(status_code=409, detail={"code": "poc_not_ready", **{k: readiness[k] for k in ("reason", "message", "checked_at")}})
+
     budgets = clamp_budgets(payload.budgets)
     run_id = uuid.uuid4().hex
     try:
@@ -878,6 +903,8 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     # history, not standing conclusions.
     baseline = state.store.list_project_findings(project["id"], include_withdrawn=False)
     poc_policy = state.settings.poc.snapshot()
+    poc_policy["mode"] = payload.poc_mode
+    poc_policy["required"] = payload.poc_mode == "required"
     task_spec = payload.task.model_dump()
     if task_spec.get("scenario"):
         # A scenario run must exhaust the whole class, not stop at the first finding.
@@ -910,9 +937,15 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "model": state.settings.model.label,
         "model_profile": model_profile,
         "budgets": budgets,
+        "run_limits": payload.run_limits.model_dump(),
         "agent_policy": AgentPolicy().snapshot(),
         "task_spec": task_spec,
         "created_at": _iso(),
+    }
+    poc_policy["target_key"] = poc_target_key({**run, "target_profile": project.get("target_profile", "unknown")}, state.settings.poc, state.settings)
+    run["poc_state"] = readiness or {
+        "mode": "off", "available": False, "reason": "disabled",
+        "message": "本次审计未启用自动执行 POC。", "checked_at": _iso(),
     }
     state.store.create_run(run)
     state.store.touch_project_run(project["id"], run_id)
@@ -1014,11 +1047,6 @@ async def cancel_run(request: Request, run_id: str) -> dict:
     if state.worker._run_id != run_id:
         current = state.store.get_run(run_id)
         if current and current["status"] == "cancelled":
-            state.store.abandon_pending_units(run_id, "Run cancelled")
-            if state.store.get_planner_session(run_id) is not None:
-                state.store.abandon_planner_tasks(run_id, "Run cancelled")
-            else:
-                state.store.abandon_task_work(run_id, "Run cancelled")
             state.bus.emit(run_id, None, "run_cancelled", {"reason": "cancel requested"})
     state.worker.notify()
     return state.store.get_run(run_id)

@@ -204,6 +204,7 @@ class PhaseGate:
     pending_correction: str | None = None
     closed: bool = False
     tool_calls: int = 0
+    consecutive_corrections: int = 0
 
     def _on_loop(self, callback: Callable[[], Awaitable]) -> Any:
         """Run one host callback on the event loop and wait for its answer.
@@ -219,7 +220,18 @@ class PhaseGate:
         """
         if self.closed:
             raise HostStop(StopAudit("cancelled", "本阶段已经结束，宿主不再受理模型侧的动作"))
-        future = asyncio.run_coroutine_threadsafe(callback(), self.loop)
+        async def restored_callback():
+            from .execution_state import execution_context
+            owner = getattr(self.execution, "run_execution", None)
+            try:
+                if owner is None:
+                    return await callback()
+                with execution_context(owner.store, owner.run_id, owner.epoch):
+                    return await callback()
+            except StopAudit as stop:
+                raise HostStop(stop) from None
+
+        future = asyncio.run_coroutine_threadsafe(restored_callback(), self.loop)
         return future.result(timeout=CALLBACK_SECONDS)
 
     def request_ceiling(self, messages: Any) -> float:
@@ -229,6 +241,16 @@ class PhaseGate:
     def call_tool(self, name: str, args: dict) -> str:
         """Run one host tool and return the text the model reads as its observation."""
         return self._on_loop(lambda: self._call_tool(name, args))
+
+    def reject_tool_call(self, name: str, error: str) -> None:
+        """A registered call with invalid arguments is still a charged attempt."""
+        async def rejected():
+            self.execution.before_tool()
+            call_id = f"invalid-tool-{self.execution.tools}"
+            self.execution.emit({"kind": "tool_call", "tool": name, "args": {}, "call_id": call_id})
+            self.execution.emit({"kind": "tool_result", "tool": name, "call_id": call_id,
+                                 "status": "invalid_arguments", "error_type": "TypeError", "output": error})
+        self._on_loop(rejected)
 
     def accept(self, payload: Any) -> str:
         """Publish the phase's terminal answer, or refuse it with a reason.
@@ -318,10 +340,17 @@ class PhaseGate:
             raise HostStop(StopAudit("context_limit", "模型历史已达到上下文上限"))
         correction, reason = self.pending_correction is not None, self.pending_correction
         self.pending_correction = None
+        if correction and self.consecutive_corrections >= self.execution.policy.output_corrections:
+            raise HostStop(StopAudit(
+                "invalid_output", "连续输出或代码纠正已用尽；最后一次拒绝：" + str(reason or "")[:300]
+            ))
         try:
-            return self.execution.before_model(
+            ceiling = self.execution.before_model(
                 deadline=self.deadline, limit=self.limit, correction=correction, reason=reason
             )
+            if correction:
+                self.consecutive_corrections += 1
+            return ceiling
         except StopAudit as stop:
             raise HostStop(stop) from None
 
@@ -346,6 +375,9 @@ class PhaseGate:
         return "公开进展已保存。" if accepted else "未新增进展，请继续当前审计动作。"
 
     async def _accept(self, payload: Any) -> str:
+        owner = getattr(self.execution, "run_execution", None)
+        if owner is not None:
+            owner.store.assert_execution_write(owner.run_id)
         if self.published is not None:
             raise HostStop(StopAudit("invalid_output", "本阶段已经交回终局，不接受第二次终局"))
         try:
@@ -419,6 +451,25 @@ class PhaseGate:
 
     async def _emit_code(self, event: dict) -> None:
         self.execution.emit(event)
+        error = str(event.get("error") or "")
+        if not error:
+            self.consecutive_corrections = 0
+        elif not self.closed and self.published is None and self.pending_correction is None:
+            # Interpreter failures are model actions too. Previously only schema and
+            # fence errors spent corrections, so invalid Python consumed the entire
+            # request allowance without ever reaching a bounded correction path.
+            kind = error.partition(":")[0]
+            category = (
+                "invalid_python" if kind in {"SyntaxError", "NameError", "InterpreterError"}
+                else "tool_contract" if kind in {"JSONDecodeError", "TypeError", "KeyError", "IndexError"}
+                else "runtime_error"
+            )
+            self.pending_correction = error[:400]
+            self.execution.emit({
+                "kind": "agent_execution_error", "category": category,
+                "step": event.get("step"), "reason": error[:400],
+                "consecutive_corrections": self.consecutive_corrections,
+            })
 
 
 class AuditCodeModel(OpenAIModel):

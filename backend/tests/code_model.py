@@ -61,7 +61,7 @@ def final_answer(payload: Any) -> str:
     used to be interpolated unquoted, which turned every text answer into a NameError
     in the interpreter -- a broken test, not a broken phase.
     """
-    body = json.dumps(payload, ensure_ascii=False)
+    body = repr(payload)
     return code(f"final_answer({body})")
 
 

@@ -185,11 +185,10 @@ def test_malformed_output_has_shared_corrections_and_a_finite_end(monkeypatch):
     # request after that one is refused by the host before it is ever sent.  The refusals
     # are observations of the phase's own steps, so the run ends on the arithmetic rather
     # than on a step count: exploration's last request is refused as invalid_output, and
-    # the tool-free phase behind it -- still owed to the unit -- gets one more, which is
-    # refused on its own first correction.
+    # no publication phase can renew a spent consecutive correction allowance.
     corrections = AgentPolicy().output_corrections
     assert outcome.result["usage"]["phases"]["explore"]["model_attempts"] == 1 + corrections
-    assert len(outcome.factory.built().requests) == (1 + corrections) + 1
+    assert len(outcome.factory.built().requests) == 1 + corrections
 
 
 def test_planner_project_map_tool_returns_a_compact_overview():
@@ -1267,6 +1266,7 @@ def test_planner_worker_can_search_a_bounded_peer_trace_as_an_untrusted_lead(mon
              'detail = json.loads(get_peer_trace(task_key="entry-auth"))\n'
              'assert detail["task_key"] == "entry-auth"\n'
              'assert detail["traces"] == []'),
+    ], "task_publish": [
         final_answer({
             "outcome": "no_evidence",
             "summary": "同行记录提供了认证线索，但当前任务未取得决定性行号。",

@@ -1,6 +1,6 @@
 # API 契约
 
-所有 HTTP API 使用 `/api` 前缀，响应为 JSON（文件上传、下载和 SSE 除外）。错误响应形如 `{ "detail": "..." }`；时间均为 ISO 8601 UTC；ID 为字符串。
+所有 HTTP API 使用 `/api` 前缀，响应为 JSON（文件上传、下载、SSE 和 `204` 空响应除外）。错误响应形如 `{ "detail": "..." }`；时间均为 ISO 8601 UTC；ID 为字符串。
 
 ## 主流程
 
@@ -105,6 +105,15 @@
 - `POST /runs/{id}/resume` → 继续一个已暂停的运行。
 
 目标任务的 `Run.status` 可能是 `pending`、`running`、`paused`、`completed`、`unreachable`、`inconclusive`、`cancelled`、`interrupted` 或 `failed`。`unreachable` 只在动态前沿的所有证据方向结算且无受阻项时产生；缺失源码、模型/预算失败、共享尝试上限、Planner 回合耗尽、取消和中断不会被转换为“不可达”。
+
+### 删除与清理记录
+
+- `DELETE /runs/{id}` → `{run_id,status_before,deleted:{表名:删除行数}}`。`pending`、`running` 返回 `409`，其余状态可删除，**包含 `paused`**；删除已暂停任务会失去继续执行的前沿。不存在的任务返回 `404`。
+- `POST /runs/cleanup` 接受 `{}`（全局）或 `{"project_id":"..."}`（指定项目），返回 `{deleted_runs,runs:[上述删除结果]}`。自动跳过 `pending`、`running`，已暂停任务同样在清理范围内。
+- `DELETE /snapshots/{id}` → `204`。任何审计引用该快照时返回 `409`，不存在时返回 `404`。删除数据库中的快照及关联真值记录，不删除磁盘上的归档或源码文件。
+- `DELETE /prompts/{id}` → `204`。内置提示词及被任一审计引用的提示词返回 `409`，不存在时返回 `404`；草稿列表沿用 `GET /prompts`，包含 `builtin` 标识。
+
+审计删除会清理该运行的发现、验证、执行轨迹与关联记录，保留源码项目和跨运行的 `project_findings` 台账；因此被删任务的来源链接、验证或工件可能不可用。删除 ZIP 也保留项目及累计台账。运行和 ZIP 删除后，项目对应的计数与最新记录指针会按剩余记录重算，没有剩余记录时指针为 `null`。这些操作无法从界面撤销，前端提交前明确确认范围与影响，成功后刷新列表和统计，并在当前审计被删时返回源码包工作台。
 
 ### 暂停与继续
 

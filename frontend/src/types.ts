@@ -424,7 +424,7 @@ export interface Snapshot {
   /** True when this source tree already had a project; the upload joined it. */
   project_reused?: boolean;
 }
-export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string }
+export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean }
 /** Public provider identity frozen with a run. It deliberately has no credential. */
 export interface ModelProfileSnapshot { profile_id: string; model: string; base_url: string }
 export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number; project_id?: string | null; project_name?: string | null; project_mode?: 'project' | 'legacy'; poc_policy?: Record<string, unknown> }

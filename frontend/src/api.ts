@@ -21,15 +21,22 @@ function detailText(detail: unknown): string | null {
   return null;
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) { super(message); this.name = 'ApiError'; this.status = status; }
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, { ...options, headers: { ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options?.headers } });
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try { const body = await response.json(); message = detailText(body.detail) ?? JSON.stringify(body); } catch { /* HTML/network gateway error */ }
-    throw new Error(message);
+    throw new ApiError(response.status, message);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 export const post = <T>(path: string, body: unknown) => api<T>(path, { method: 'POST', body: JSON.stringify(body) });
+export const remove = <T = void>(path: string) => api<T>(path, { method: 'DELETE' });
 export const downloadUrl = (path: string) => `/api${path}`;
 export const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);

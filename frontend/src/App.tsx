@@ -9,6 +9,11 @@ import { LedgerFindingsView } from './views/LedgerFindingsView';
 import { LedgerFindingView } from './views/LedgerFindingView';
 import { Overlay } from './components/Overlay';
 import { BrandWordmark } from './components/BrandWordmark';
+import { Disclosure } from './components/Disclosure';
+import { CleanupRunsButton, DeleteRunButton, RecordsProvider } from './components/RecordActions';
+import { PromptDrafts } from './views/PromptDrafts';
+import { RECORDS_CHANGED } from './records';
+import type { RecordsChange } from './records';
 import { runLabel, TERMINAL } from './status';
 import { newAuditHref, parseRoute, sourceHref } from './routes';
 
@@ -23,6 +28,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [recordEpoch, setRecordEpoch] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [theme, setTheme] = useState(() => stored('audit-theme', 'dark') === 'light' ? 'light' : 'dark');
@@ -31,16 +37,19 @@ export default function App() {
   const [draft, setDraft] = useState<{ key: number; seed?: Run }>({ key: 0 });
   const alive = useRef(true);
   const loading = useRef(false);
-  const load = useCallback(async () => {
-    if (loading.current) return;
+  const pendingReload = useRef(false);
+  const dataVersion = useRef(0);
+  const load = useCallback(async (): Promise<void> => {
+    if (loading.current) { pendingReload.current = true; return; }
     loading.current = true;
+    const version = dataVersion.current;
     try {
       const [snapshotList, configData, runList, projectList] = await Promise.all([
         api<SnapshotSummary[]>('/snapshots'), api<Config>('/config'), api<Run[]>('/runs'), api<Project[]>('/projects'),
       ]);
-      if (alive.current) { setSnapshots(snapshotList); setConfig(configData); setRuns(runList); setProjects(projectList); setError(null); setReady(true); setRevision((value) => value + 1); }
-    } catch (exc) { if (alive.current) setError(errorText(exc)); }
-    finally { loading.current = false; }
+      if (alive.current && version === dataVersion.current) { setSnapshots(snapshotList); setConfig(configData); setRuns(runList); setProjects(projectList); setError(null); setReady(true); setRevision((value) => value + 1); }
+    } catch (exc) { if (alive.current && version === dataVersion.current) setError(errorText(exc)); }
+    finally { loading.current = false; if (pendingReload.current && alive.current) { pendingReload.current = false; void load(); } }
   }, []);
   useEffect(() => {
     alive.current = true;
@@ -72,6 +81,19 @@ export default function App() {
     void load();
     navigate(snapshot.project_id ? sourceHref(snapshot.project_id) : '#sources');
   };
+  const recordsChanged = (change: RecordsChange) => {
+    dataVersion.current += 1;
+    const removed = new Set(change.runIds ?? []);
+    setRuns((items) => items.filter((run) => !removed.has(run.id)));
+    if (change.snapshotId) setSnapshots((items) => items.filter((snapshot) => snapshot.id !== change.snapshotId));
+    setNotice(change.notice);
+    setRecordEpoch((value) => value + 1);
+    const visible = parseRoute(window.location.hash);
+    if (visible.runId && removed.has(visible.runId)) navigate(change.projectId ? sourceHref(change.projectId) : '#sources');
+    if (change.snapshotId && visible.snapshotId === change.snapshotId && visible.projectId) navigate(sourceHref(visible.projectId, 'archives'));
+    window.dispatchEvent(new Event(RECORDS_CHANGED));
+    void load();
+  };
   const toggleSidebar = () => setCollapsed((value) => { try { localStorage.setItem('audit-sidebar', value ? 'open' : 'closed'); } catch { /* Optional persistence. */ } return !value; });
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const filtered = runs.filter((run) => `${run.task_spec?.objective ?? ''} ${run.snapshot_name} ${run.id} ${run.project_id ? projectNames.get(run.project_id) ?? '' : ''}`.toLowerCase().includes(search.toLowerCase()));
@@ -86,15 +108,15 @@ export default function App() {
     <div className="side-brand"><span className="brand-mark"><ShieldCheck size={21} /></span><div><BrandWordmark /><small>源码审计工作空间</small></div></div>
     <nav className="source-primary-nav" aria-label="工作空间导航"><a href="#sources" className={`nav-item${sourcesActive ? ' active' : ''}`} aria-current={sourcesActive ? 'page' : undefined}><FileArchive size={18} />源码包<span>{projects.length}</span></a><a href="#findings" className={`nav-item${current.page === 'findings' || current.page === 'finding' ? ' active' : ''}`} aria-current={current.page === 'findings' || current.page === 'finding' ? 'page' : undefined}><Bug size={18} />漏洞发现<ArrowUpRight size={14} /></a></nav>
     <label className="sidebar-search"><Search size={16} /><input aria-label="搜索历史任务" placeholder="搜索审计记录" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-    <div className="sidebar-section-title">审计记录 <span>{runs.length}</span></div>
+    <div className="sidebar-section-title records-history-title"><span>审计记录 · {runs.length}</span><CleanupRunsButton /></div>
     <nav className="history-list" aria-label="历史审计任务">
       {!filtered.length && <div className="sidebar-empty">{runs.length ? '没有匹配的审计记录' : '从源码包开始第一次审计，任务将保存在这里。'}</div>}
       {[...groups].map(([key, group]) => <div key={key} className="history-group">
         {key !== '__legacy__' && <a className="sidebar-section-title source-group-link" href={sourceHref(key)}>{group.name}<span>{group.runs.length}</span></a>}
-        {group.runs.map((run) => <button key={run.id} className={`history-item${current.runId === run.id ? ' active' : ''}`} onClick={() => openRun(run.id)} aria-current={current.runId === run.id ? 'page' : undefined}>
+        {group.runs.map((run) => <div key={run.id} className="history-record"><button className={`history-item${current.runId === run.id ? ' active' : ''}`} onClick={() => openRun(run.id)} aria-current={current.runId === run.id ? 'page' : undefined}>
           <span className={`status-dot status-${run.status}${!TERMINAL.has(run.status) ? ' live' : ''}`} />
           <span className="history-item-body"><span className="history-title">{run.task_spec?.objective ?? '历史审计'}</span><span className="history-meta"><span>{run.snapshot_name}</span><span>{runLabel(run.status)}</span></span></span>
-        </button>)}
+        </button><DeleteRunButton run={run} compact /></div>)}
       </div>)}
     </nav>
     <div className="side-footer">
@@ -104,21 +126,21 @@ export default function App() {
     </div>
   </>;
   const pageLabel = current.page === 'settings' ? '设置' : current.page === 'run' ? '审计会话' : current.page === 'finding' ? '漏洞详情' : current.page === 'findings' ? '漏洞发现' : current.page === 'new' ? '新建审计' : '源码包';
-  return <div className={`shell${collapsed ? ' sidebar-collapsed' : ''}`}>
+  return <RecordsProvider runs={runs} onChanged={recordsChanged}><div className={`shell${collapsed ? ' sidebar-collapsed' : ''}`}>
     <aside className="side desktop-side">{sidebar}<button className="sidebar-collapse icon-button" aria-label="收起侧栏" onClick={toggleSidebar}><ChevronLeft size={16} /></button></aside>
     {mobileOpen && <Overlay title="审计工作空间" onClose={() => setMobileOpen(false)} drawer className="mobile-sidebar"><div className="side" onClick={(event) => { if ((event.target as Element).closest('a[href^="#"]')) setMobileOpen(false); }}>{sidebar}</div></Overlay>}
     <main className="main">
       <div className="workspace-bar"><button className="icon-button desktop-menu" aria-label={collapsed ? '展开侧栏' : '收起侧栏'} onClick={toggleSidebar}><Menu size={18} /></button><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><span>工作空间 <span className="breadcrumb-divider">/</span> {pageLabel}</span><span className="workspace-tag">CODE AGENT</span></div>
       {error && <div className="service-error" role="alert"><span>服务连接失败：{error}</span><button className="text-button" onClick={() => void load()}>重试</button><button className="icon-button" aria-label="关闭连接错误" onClick={() => setError(null)}><X size={15} /></button></div>}
-      {notice && <div className="source-import-notice" role="status"><ShieldCheck size={17} /><span>{notice}</span><button className="icon-button" aria-label="关闭导入提示" onClick={() => setNotice(null)}><X size={15} /></button></div>}
+      {notice && <div className="source-import-notice" role="status"><ShieldCheck size={17} /><span>{notice}</span><button className="icon-button" aria-label="关闭操作提示" onClick={() => setNotice(null)}><X size={15} /></button></div>}
       {current.page === 'run' ? <RunView key={current.runId} runId={current.runId!} onNewTask={newTask} onChanged={load} />
-        : current.page === 'project' ? <SourceProjectView key={current.projectId} projectId={current.projectId!} tab={current.tab!} snapshotId={current.snapshotId} projects={projects} revision={revision} />
+        : current.page === 'project' ? <SourceProjectView key={`${current.projectId}-${recordEpoch}`} projectId={current.projectId!} tab={current.tab!} snapshotId={current.snapshotId} projects={projects} revision={revision} />
         : current.page === 'new' ? <SourceTaskView key={`${current.projectId ?? 'legacy'}-${draft.key}`} projectId={current.projectId} snapshotId={current.snapshotId} seed={draft.seed?.snapshot_id === current.snapshotId ? draft.seed : undefined} config={config} allSnapshots={snapshots} onOpenRun={openRun} onChanged={load} />
         : current.page === 'findings' ? <LedgerFindingsView projects={projects} />
         : current.page === 'finding' ? <LedgerFindingView key={current.findingId} findingId={current.findingId!} />
-        : current.page === 'settings' ? <div className="settings-page"><header className="page-head"><span className="eyebrow">WORKSPACE SETTINGS</span><h1>工作空间设置</h1><p>查看模型连接、运行状态和默认执行预算。</p></header><SettingsView config={config} onChanged={load} /></div>
+        : current.page === 'settings' ? <div className="settings-page"><header className="page-head"><span className="eyebrow">WORKSPACE SETTINGS</span><h1>工作空间设置</h1><p>查看模型连接、运行状态和默认执行预算。</p></header><SettingsView config={config} onChanged={load} /><section className="panel records-prompts"><Disclosure title="提示词草稿"><PromptDrafts /></Disclosure></section></div>
         : current.page === 'missing' ? <div className="sources-page"><div className="sources-empty"><h1>页面不存在</h1><a className="btn" href="#sources">返回源码包库</a></div></div>
         : <SourceLibrary projects={projects} snapshots={snapshots} runs={runs} loading={!ready && !error} onImported={imported} />}
     </main>
-  </div>;
+  </div></RecordsProvider>;
 }

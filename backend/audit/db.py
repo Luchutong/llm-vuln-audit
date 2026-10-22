@@ -4189,9 +4189,11 @@ class Store:
             project_id = run.get("project_id")
             if project_id:
                 self._db.execute(
-                    "UPDATE projects SET run_count = MAX(0, run_count - 1), updated_at = ?"
+                    "UPDATE projects SET run_count = (SELECT COUNT(*) FROM runs WHERE project_id = ?),"
+                    " latest_run_id = (SELECT id FROM runs WHERE project_id = ?"
+                    " ORDER BY created_at DESC, id DESC LIMIT 1), updated_at = ?"
                     " WHERE id = ?",
-                    (now(), project_id),
+                    (project_id, project_id, now(), project_id),
                 )
 
         return {
@@ -4243,6 +4245,14 @@ class Store:
             cursor = self._db.execute(
                 "DELETE FROM snapshots WHERE id = ?", (snapshot_id,)
             )
+            if snapshot.get("project_id"):
+                project_id = snapshot["project_id"]
+                self._db.execute(
+                    "UPDATE projects SET snapshot_count = (SELECT COUNT(*) FROM snapshots WHERE project_id = ?),"
+                    " latest_snapshot_id = (SELECT id FROM snapshots WHERE project_id = ?"
+                    " ORDER BY created_at DESC, id DESC LIMIT 1), updated_at = ? WHERE id = ?",
+                    (project_id, project_id, now(), project_id),
+                )
         return bool(cursor.rowcount)
 
     def delete_prompt(self, prompt_id: str) -> bool:

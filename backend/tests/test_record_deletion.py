@@ -201,3 +201,25 @@ def test_delete_prompt_refuses_builtin_and_referenced(store: Store) -> None:
     store._write("DELETE FROM runs WHERE id = 'uses-draft'")
     assert store.delete_prompt("draft") is True
     assert store.get_prompt("draft") is None
+
+
+def test_deletion_refreshes_project_latest_records_and_counters(store: Store) -> None:
+    store.add_project({"id": "project", "name": "Source", "content_key": "content"})
+    for ident, stamp in (("old", "2026-01-01"), ("latest", "2026-02-01")):
+        store.add_snapshot({"id": ident, "name": ident + ".zip", "created_at": stamp,
+                            "archive_sha256": ident, "source": "upload"})
+        store.attach_snapshot_project(ident, "project", "content", "unknown")
+        _make_run(store, run_id="run-" + ident, snapshot_id=ident, project_id="project")
+        store._write("UPDATE runs SET created_at = ? WHERE id = ?", (stamp, "run-" + ident))
+    store._write("UPDATE projects SET run_count = 2, latest_run_id = 'run-latest' WHERE id = 'project'")
+    store.delete_run("run-latest")
+    project = store.get_project("project")
+    assert project["run_count"] == 1 and project["latest_run_id"] == "run-old"
+    store.delete_snapshot("latest")
+    project = store.get_project("project")
+    assert project["snapshot_count"] == 1 and project["latest_snapshot_id"] == "old"
+    store.delete_run("run-old")
+    store.delete_snapshot("old")
+    project = store.get_project("project")
+    assert project["run_count"] == project["snapshot_count"] == 0
+    assert project["latest_run_id"] is None and project["latest_snapshot_id"] is None

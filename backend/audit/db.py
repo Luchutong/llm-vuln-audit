@@ -3391,6 +3391,19 @@ class Store:
         state = self.task_queue_state(run_id)
         return int(session.get("current_round") or 0) == 0 or (state["ready"] == 0 and state["running"] == 0)
 
+    def _run_scenario(self, run_id: str) -> str | None:
+        """The single vulnerability class a scenario run must exhaust, when set."""
+        row = self._db.execute(
+            "SELECT task_spec FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        task = _loads(row["task_spec"], None)
+        if not isinstance(task, dict):
+            return None
+        scenario = task.get("scenario")
+        return scenario if scenario in ("sqli", "xss_r", "command_injection") else None
+
     def finalize_goal(
         self,
         run_id: str,
@@ -3457,6 +3470,17 @@ class Store:
                     if not standing:
                         raise ValueError(
                             "Planner cannot mark a goal met without a validated vulnerability finding"
+                        )
+                    # Scenario runs are "find every reachable instance of one class".  A
+                    # standing finding is necessary but not sufficient: the run may not
+                    # report completion until the whole frontier is settled and nothing is
+                    # left blocked, because an unexamined direction could hold another
+                    # instance of the same class.
+                    scenario = self._run_scenario(run_id)
+                    if scenario and (queue["active"] or queue["blocked"]):
+                        raise ValueError(
+                            f"分场景运行（{scenario}）要求穷尽该漏洞类别的全部方向后再收束 met："
+                            f"仍有 {queue['active']} 个方向未结算、{queue['blocked']} 个受阻"
                         )
                 elif state == "unreachable":
                     if queue["active"] or queue["blocked"] or not queue["total"]:

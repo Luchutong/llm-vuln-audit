@@ -26,6 +26,11 @@ RUN groupadd --gid 10001 audit \
     && chown audit:audit /app/data
 COPY --from=backend-build /app/backend /app/backend
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
+# Scenario tooling travels with the image: register_scenarios.py talks to this very
+# instance and score_dataset.py resolves its default truth path relative to the repo
+# root.  Both stay read-only at runtime; score_dataset.py takes --out for writable dirs.
+COPY scripts/ /app/scripts/
+COPY datasets/ /app/datasets/
 WORKDIR /app/backend
 USER audit
 EXPOSE 8899

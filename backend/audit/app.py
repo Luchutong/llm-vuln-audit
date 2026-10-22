@@ -878,6 +878,17 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     # history, not standing conclusions.
     baseline = state.store.list_project_findings(project["id"], include_withdrawn=False)
     poc_policy = state.settings.poc.snapshot()
+    task_spec = payload.task.model_dump()
+    if task_spec.get("scenario"):
+        # A scenario run must exhaust the whole class, not stop at the first finding.
+        # ``stop_on_achieved`` is forced off and the frozen acceptance criterion states the
+        # exhaustion requirement outright, so the goal text the Planner reads matches the
+        # host-side gate in ``Store.finalize_goal`` instead of the "find at least one" default.
+        task_spec["stop_on_achieved"] = False
+        task_spec["success_criteria"] = (
+            "穷尽所选分场景下全部可被外部输入触发的漏洞实例，并在收束报告中逐条列出已确认结论、"
+            "已排查无证据的方向与仍可能遗漏的位置，而不是找到第一处就停止。"
+        )
     run = {
         "id": run_id,
         "snapshot_id": snapshot["id"],
@@ -900,7 +911,7 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "model_profile": model_profile,
         "budgets": budgets,
         "agent_policy": AgentPolicy().snapshot(),
-        "task_spec": payload.task.model_dump(),
+        "task_spec": task_spec,
         "created_at": _iso(),
     }
     state.store.create_run(run)

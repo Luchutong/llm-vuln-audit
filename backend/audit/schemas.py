@@ -233,6 +233,10 @@ class TaskSpec(BaseModel):
         default=False,
         description="Require vulnerability findings to include manually reviewable POCs when enabled",
     )
+    scenario: Literal["sqli", "xss_r", "command_injection"] | None = Field(
+        default=None,
+        description="Optional single vulnerability class the run must exhaustively cover before reporting completion",
+    )
 
     @field_validator("objective", "success_criteria")
     @classmethod

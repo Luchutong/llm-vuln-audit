@@ -446,6 +446,12 @@ class AuditWorker:
         run_id = run["id"]
         model_config = self._model_for_run(run)
         task_spec = run["task_spec"]
+        # A scenario run is "find every reachable instance of one class", not "find the
+        # first one".  ``stop_on_achieved`` must therefore be off so a first finding does
+        # not hold the remaining directions back; the host's exhaustion gate in
+        # ``Store.finalize_goal`` is what closes the run once the frontier is settled.
+        if task_spec.get("scenario"):
+            task_spec = {**task_spec, "stop_on_achieved": False}
         if self.health.is_open():
             error = "模型熔断窗口尚未结束；未发起新的 Planner 或 worker 请求"
             self.store.abandon_planner_tasks(run_id, error)

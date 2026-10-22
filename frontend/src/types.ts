@@ -11,6 +11,8 @@ export interface TaskSpec {
   max_workers: number;
   stop_on_achieved: boolean;
   require_poc: boolean;
+  /** Single vulnerability class the run must exhaustively cover (backend hard constraint). */
+  scenario?: Category | null;
 }
 export type GoalStatus = 'open' | 'met' | 'unreachable' | 'inconclusive';
 export type TaskWorkItemState = 'open' | 'running' | 'done' | 'exhausted' | 'blocked' | 'skipped';

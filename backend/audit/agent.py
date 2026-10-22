@@ -898,6 +898,33 @@ def _planner_text(value: object, byte_limit: int) -> str:
     return encoded[: max(0, byte_limit - 3)].decode("utf-8", errors="ignore") + "…"
 
 
+_SCENARIO_LABELS = {
+    "sqli": "SQL 注入",
+    "xss_r": "反射型 XSS",
+    "command_injection": "命令注入",
+}
+
+
+def _scenario_constraint(scenario: str | None) -> str:
+    """The hard "find every instance, then report" rule a scenario run adds to the Planner.
+
+    The default acceptance criterion is "find at least one"; a scenario run flips that to
+    exhaustive coverage.  This is a host-side instruction layered on top of the objective
+    the user already wrote, so the Planner treats ``met`` as a completion report rather
+    than as "one finding exists".
+    """
+    if scenario not in _SCENARIO_LABELS:
+        return ""
+    label = _SCENARIO_LABELS[scenario]
+    return f"""
+
+本次运行是分场景专属审计（目标场景：{label}），这是宿主下发的硬约束，优先级高于"找到一处即可"的默认验收：
+1. 目标是穷尽该场景下全部可被外部输入触发的实例，而不是找到第一个就停。每派发一个新方向前，先确认它与已结算方向不重合，且确实瞄准了尚未覆盖的 {label} 入口、危险操作或输出点。
+2. 在态势里前沿为空、且没有受阻上下文之前，不得建议 met；任何一条 candidate 的产出都不等于"已找全"。只有当该场景相关的源码区域都已被读过或明确结算（无证据 / 已确认），才允许在 decision.report 里汇报"穷尽完成"并建议 met。
+3. 收束时必须填写 decision.report：summary 说明覆盖了哪些入口与危险操作、确认了几处；conclusion 逐条对应 findings；limitations 列出仍可能遗漏或无法验证的位置。未穷尽而建议 met 会被宿主拒绝并继续规划。
+"""
+
+
 def _planner_project_search(project_map: dict, query: str, *, per_kind: int = 6) -> dict:
     """Search the frozen index in balanced groups instead of first-match order.
 
@@ -2944,6 +2971,8 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
 工具是给**规划**用的：不要为了"把整个项目读一遍"连续读文件，也不要自己下结论或写严重级别。**你的读记录不是证据**——只有 worker 自己读过的原始行才能成为 finding 的证据；你读到的东西只能用来决定让 worker 去读哪里。
 
 当概览不足以判断这个项目该从哪里读起（陌生目录布局、非 PHP 技术栈、没有明显的入口候选）时，你可以调用 investigate_project 让侦察子 agent 去项目里确认。它返回的是**导航线索**：布局、入口候选、数据存储、安全边界和首批阅读目标。它不是证据——引用其中的任何路径或行号，仍必须由 worker 真正读取原始行之后才算数。二进制文件只登记、不可读取。侦察有自己的预算，会把本回合的墙钟时间用掉一部分，所以问题要具体，不要用它代替规划。每回合的**新**侦察问题有次数上限，但同一个问题不会重跑：结果一旦固定，之后每次问都直接返回那份简报，不占额度。"""
+
+    instruction += _scenario_constraint(task.get("scenario"))
 
     try:
         async with asyncio.timeout(planner_budgets["seconds"]):

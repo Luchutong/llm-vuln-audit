@@ -16,6 +16,7 @@ import pytest
 from pydantic import ValidationError
 
 from audit import worker as worker_module
+from audit.agent import _scenario_constraint
 from audit.config import ModelConfig, PocSettings
 from audit.db import Store, now
 from audit.events import EventBus
@@ -768,6 +769,44 @@ def test_blocked_frontier_cannot_be_finalized_as_unreachable(store, repository):
         store.finalize_goal(run["id"], "unreachable", "不应将缺失上下文当作否定结论。")
     settled = store.finalize_goal(run["id"], "inconclusive", "动态 include 缺少运行时值。")
     assert settled["status"] == "inconclusive"
+
+
+def test_scenario_run_requires_an_exhausted_frontier_before_met(store, repository):
+    """分场景运行：已有结论不足以收束，必须等前沿全部结算且无受阻方向。"""
+    run, _ = create_planner_run(store, repository, task={**TASK, "scenario": "sqli"})
+    store.add_finding(_conclusion_finding(run))
+
+    session = store.get_planner_session(run["id"])
+    assert session is not None
+    plan = store.begin_planner_round(run["id"], session["session_id"])
+    assert plan is not None
+    store.finish_planner_round(
+        run["id"], plan["id"], goal_state="continue", basis_summary="还有同类方向未排查。",
+        tasks=[proposal("another-sink")], usage={"requests": 1, "tool_calls": 0},
+    )
+
+    # 前沿仍有未结算方向，宿主必须拒绝 met。
+    with pytest.raises(ValueError, match="穷尽"):
+        store.finalize_goal(run["id"], "met", "已有结论，但方向尚未穷尽。")
+
+    # 结算最后一条方向后，才允许收束 met。
+    claimed = store.claim_ready_task(run["id"], "worker-1")
+    assert claimed is not None
+    store.resolve_task_attempt(
+        claimed["id"], "worker-1", outcome="no_evidence",
+        result={"summary": "该方向未发现可触发的 SQL 注入。"},
+        usage={"requests": 1}, seen=[], error=None,
+    )
+    settled = store.finalize_goal(run["id"], "met", "同类方向已穷尽，汇报完成。")
+    assert settled["status"] == "met"
+
+
+def test_scenario_constraint_is_appended_to_the_planner_instruction():
+    assert "SQL 注入" in _scenario_constraint("sqli")
+    assert "反射型 XSS" in _scenario_constraint("xss_r")
+    assert "命令注入" in _scenario_constraint("command_injection")
+    assert _scenario_constraint(None) == ""
+    assert _scenario_constraint("xxe") == ""
 
 
 def test_planner_can_defer_and_later_resume_a_not_started_task(store, repository):

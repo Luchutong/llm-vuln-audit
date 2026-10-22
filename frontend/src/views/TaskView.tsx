@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUp, Check, ChevronDown, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, Braces, Check, ChevronDown, Database, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, X, type LucideIcon } from 'lucide-react';
 import { api, errorText, post } from '../api';
 import type { Budget, Config, Project, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
 import { localDate } from '../status';
@@ -7,12 +7,86 @@ import { sourceHref } from '../routes';
 import { Overlay } from '../components/Overlay';
 import { LongContent } from '../components/LongContent';
 import { Disclosure } from '../components/Disclosure';
+import { SourceViewer } from '../components/SourceViewer';
 
-const EMPTY_TASK: TaskSpec = { objective: '', success_criteria: '', max_iterations: 3, max_total_attempts: 64, max_planner_rounds: 24, max_workers: 2, stop_on_achieved: true, require_poc: false };
+const EMPTY_TASK: TaskSpec = { objective: '', success_criteria: '', max_iterations: 3, max_total_attempts: 64, max_planner_rounds: 24, max_workers: 2, stop_on_achieved: true, require_poc: false, scenario: null };
 const EXAMPLES = [
   { title: '追踪危险数据流', description: '查找任意文件写入或危险上传漏洞', objective: '审计文件上传入口，查找可被外部输入触发的任意文件写入、路径穿越或危险文件上传漏洞。' },
   { title: '检查认证边界', description: '查找管理功能的认证与授权绕过', objective: '审计项目中的管理路由，查找无需认证或越权访问敏感管理功能的漏洞。' },
   { title: '查找配置缺陷', description: '检查会话与 Cookie 的可利用风险', objective: '审计会话与 Cookie 配置，查找可导致会话泄露、劫持或跨站请求风险的可利用配置缺陷。' },
+];
+
+/**
+ * 分场景专属提示词（S-sqli / S-xss / S-cmd）。
+ *
+ * 统一版 P0/P1/P2 让一份 Prompt 同时判定 SQL 注入 / 反射型 XSS / 命令注入三类；这里补齐的是
+ * 每个漏洞类型单独一份的"分场景"提示词。点击快捷填充后，整段会作为审计任务 objective 冻结进
+ * 本次运行，Planner 与 worker 按该方向只追这一条漏洞线，而不是三线混在一起下结论。
+ */
+interface ScenarioPreset {
+  key: 'sqli' | 'xss_r' | 'command_injection';
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  objective: string;
+}
+
+const SCENARIO_PRESETS: ScenarioPreset[] = [
+  {
+    key: 'sqli',
+    label: 'SQL 注入',
+    description: 'S-sqli · 输入拼接进 SQL 结构',
+    icon: Database,
+    objective: `审计方向（S-sqli · SQL 注入分场景）：
+在所选源码中只聚焦 SQL 注入这一类漏洞，逐一给出候选结论与可核对证据。
+
+判定标准：
+1. 写出「输入来源 → 传播路径 → 危险操作」完整三段链，每一段都落到原始文件的具体行号；任何一段无法在代码中指出，就不得判定为候选漏洞。
+2. 只有外部输入被拼接进 SQL 语句结构（查询 / 表名 / 列名 / ORDER BY / LIMIT 等），而非仅作为参数绑定数据传入时，才构成注入；重点关注 mysqli_query、PDO::query 等直接执行拼接 SQL 的位置。
+3. 逐条核对已有防护是否真正覆盖该输入路径：参数绑定（prepare/execute）、类型强制转换、白名单、mysqli_real_escape_string / addslashes 等；不能看到函数名就认为安全，要指出它为何仍可能被绕过或恰好只覆盖了部分路径。
+
+输出要求：
+- 每个候选漏洞附上原始行号区间，且必须是本次实际读过的代码。
+- 写明触发条件：路由 / 入口、参数名、所需登录或配置前提、影响等级。
+- 提供可直接运行的 POC：目标地址 + 正常输入 + 攻击输入 + 两者可观测差异（如数据库报错、盲注时间差、注入成功回显）。
+- 无法确定时写明缺失上下文（例如危险操作在未读到的文件里），不要臆断。`,
+  },
+  {
+    key: 'xss_r',
+    label: '反射型 XSS',
+    description: 'S-xss · 输入以可执行形式进入输出',
+    icon: Braces,
+    objective: `审计方向（S-xss · 反射型 XSS 分场景）：
+在所选源码中只聚焦反射型 XSS 这一类漏洞，逐一给出候选结论与可核对证据。
+
+判定标准：
+1. 写出「输入来源 → 传播路径 → 输出点」完整三段链，每一段标注原始文件行号。
+2. 判断输出上下文（HTML 正文 / 标签属性 / <script> / URL）与所用转义是否匹配；htmlspecialchars 未指定 ENT_QUOTES 与正确字符集、属性或 JS 上下文未按需编码，本身就是漏洞。
+3. 仅"响应里出现了输入"不足以判定，必须说明输入是否以可执行形式落在这个上下文中（能否触发 <script>、事件属性、javascript: 等）。
+
+输出要求：
+- 每个候选漏洞附上原始行号区间。
+- 写明触发条件与影响（执行任意脚本、窃取会话、钓鱼）。
+- 提供可直接运行的 POC：正常输入 + 攻击输入 + 浏览器中可观测的差异（弹窗、写入 DOM、跳转等）。`,
+  },
+  {
+    key: 'command_injection',
+    label: '命令注入',
+    description: 'S-cmd · 输入影响命令解释',
+    icon: Terminal,
+    objective: `审计方向（S-cmd · 命令注入分场景）：
+在所选源码中只聚焦命令注入这一类漏洞，逐一给出候选结论与可核对证据。
+
+判定标准：
+1. 写出「输入来源 → 传播路径 → 命令执行点」完整三段链，每一段标注原始文件行号。
+2. 判断输入落在命令的参数位置还是结构位置：shell_exec / system / exec / popen / proc_open / 反引号 直接拼接输入即属结构位置，风险最高。
+3. 逐条核对 escapeshellarg / escapeshellcmd、白名单、强制类型转换等防护是否真正覆盖本路径；escapeshellarg 未加引号、参数顺序错位、注入点绕过等常见疏漏需明确指出。
+
+输出要求：
+- 每个候选漏洞附上原始行号区间。
+- 写明触发条件与影响（执行任意命令、反弹 shell、任意文件读写）。
+- 提供可直接运行的 POC：正常输入 + 攻击输入 + 命令执行结果的可观测差异（如输出内容、文件落地、外带请求）。`,
+  },
 ];
 function clamp(value: string, minimum: number, maximum: number) { return Math.max(minimum, Math.min(maximum, Math.trunc(Number(value) || minimum))); }
 /** The start screen freezes one decision: what to audit.
@@ -22,8 +96,17 @@ function clamp(value: string, minimum: number, maximum: number) { return Math.ma
  * request omits the field instead of sending a second editable text the user would have
  * to phrase again.  The frozen run still shows that default wherever a task is described.
  */
-function startTask(task: TaskSpec, objective: string): Partial<TaskSpec> {
-  const payload: Partial<TaskSpec> = { ...task, objective };
+/** One source window the user picked from the snapshot dialog.  The window is appended
+ * to the objective at submit time only, so the textarea keeps the preset comparison
+ * (`task.objective === preset.objective`) intact and the scope stays visible as a chip. */
+interface AuditScope { path: string; start: number; end: number }
+
+function scopeSuffix(scope: AuditScope): string {
+  return `\n\n重点审计范围：${scope.path}:${scope.start}-${scope.end}（优先核对所选行窗口及其直接关联的被包含文件；窗口之外若发现同一方向的可触发漏洞仍须上报。）`;
+}
+
+function startTask(task: TaskSpec, objective: string, scope: AuditScope | null): Partial<TaskSpec> {
+  const payload: Partial<TaskSpec> = { ...task, objective: scope ? objective + scopeSuffix(scope) : objective };
   delete payload.success_criteria;
   return payload;
 }
@@ -37,6 +120,10 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const [dialog, setDialog] = useState<'snapshots' | 'snapshot' | 'options' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileLimit, setFileLimit] = useState(100);
+  const [scope, setScope] = useState<AuditScope | null>(null);
+  const [rangePath, setRangePath] = useState<string | null>(null);
+  const [rangeStart, setRangeStart] = useState(1);
+  const [rangeEnd, setRangeEnd] = useState(80);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [uploadName, setUploadName] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -116,7 +203,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     const generation = ++startGeneration.current;
     const sourceHash = window.location.hash;
     try {
-      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, task: startTask(task, objective) });
+      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, task: startTask(task, objective, scope) });
       if (active.current) {
         onChanged();
         if (startGeneration.current === generation && window.location.hash === sourceHash) onOpenRun(run.id);
@@ -141,7 +228,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       <span className="eyebrow">YOUR CODE. YOUR EVIDENCE.</span>
       <h1>{project ? '基于已有源码，开始审计。' : seed ? '开始新的漏洞审计方向' : '选择源码，开始漏洞审计。'}</h1>
       <p>{project ? `审计归属于 ${project.name}，发现将累计到该源码项目。` : '选择完整项目 ZIP，定义漏洞审计目标。'}<br />本次任务固定使用下方所选的 ZIP 快照。</p>
-      <div className="example-grid">{EXAMPLES.map((example, index) => <button type="button" key={example.title} className="example-card" disabled={busy} onClick={() => { setTask((value) => ({ ...value, objective: example.objective })); objectiveRef.current?.focus(); }}><span className="example-number">0{index + 1}</span><strong>{example.title}</strong><span>{example.description}</span><ArrowUp size={14} /></button>)}</div>
+      <div className="example-grid">{EXAMPLES.map((example, index) => <button type="button" key={example.title} className="example-card" disabled={busy} onClick={() => { setTask((value) => ({ ...value, objective: example.objective, scenario: null })); objectiveRef.current?.focus(); }}><span className="example-number">0{index + 1}</span><strong>{example.title}</strong><span>{example.description}</span><ArrowUp size={14} /></button>)}</div>
     </div>
     <div className="composer-wrap">
       {config && !config.configured && <div className="inline-notice"><span className="status-dot status-inconclusive" />模型尚未配置，上传后可前往<a href="#settings">设置</a>检查连接。</div>}
@@ -161,8 +248,26 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
         </div>}
         {attachmentError && <div className="composer-error" role="alert"><FileArchive size={16} /><span>{attachmentError}</span><button type="button" className="text-button" onClick={() => fileInput.current?.click()}>重新选择</button></div>}
         <div className="composer-fields">
-          <label className="composer-field"><span>审计任务 <span className="faint">/ 你想查清什么</span></span><textarea ref={objectiveRef} aria-label="审计任务" rows={2} maxLength={4000} disabled={starting} value={task.objective} onChange={(event) => setTask((value) => ({ ...value, objective: event.target.value }))} placeholder="例如：追踪文件上传入口，检查是否存在任意文件写入路径…" /></label>
-          <p className="field-hint">验收条件按平台默认要求冻结：结论需有原始源码行号证据、明确风险等级与触发条件。</p>
+          <label className="composer-field"><span>审计任务 <span className="faint">/ 你想查清什么</span></span><textarea ref={objectiveRef} aria-label="审计任务" rows={2} maxLength={4000} disabled={starting} value={task.objective} onChange={(event) => setTask((value) => ({ ...value, objective: event.target.value, scenario: null }))} placeholder="例如：追踪文件上传入口，检查是否存在任意文件写入路径…" /></label>
+          <div className="scenario-fill">
+            <span className="scenario-fill-label"><Sparkles size={13} />分场景快捷填充</span>
+            <div className="scenario-fill-options">
+              {SCENARIO_PRESETS.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  className={`scenario-chip${task.objective === preset.objective ? ' active' : ''}`}
+                  disabled={starting}
+                  title={`${preset.label} · ${preset.description}`}
+                  onClick={() => { setTask((value) => ({ ...value, objective: preset.objective, scenario: preset.key })); objectiveRef.current?.focus(); }}
+                >
+                  <preset.icon size={14} />
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="field-hint">验收条件按平台默认要求冻结：结论需有原始源码行号证据、明确风险等级与触发条件。{scope && <span className="scope-chip" title="提交时会拼进审计任务末尾"><span className="mono">{scope.path}:{scope.start}-{scope.end}</span><button type="button" className="icon-button" aria-label="移除重点范围" disabled={starting} onClick={() => setScope(null)}><X size={12} /></button></span>}</p>
         </div>
         {error && <div className="composer-error" role="alert">{error}{selected && !snapshot && !loading && <button className="text-button" type="button" onClick={() => setSnapshotRevision((value) => value + 1)}>重试读取 ZIP</button>}</div>}
         <div className="composer-toolbar"><div className="composer-tools">
@@ -184,7 +289,8 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       <p className="field-hint">依赖 / 生成目录 {stats.dependency_tree_files ?? 0} 个文件 · PHP 语法索引 {stats.php_files ?? 0} 个文件</p>
       {snapshot.warnings?.length > 0 && <Disclosure title={`导入告警（${snapshot.warnings.length}）`}><LongContent label="已保存的导入告警" value={snapshot.warnings.join('\n')} /></Disclosure>}
       {(snapshot.skipped_files?.length ?? 0) > 0 && <Disclosure title={`跳过的条目（${stats.skipped_count ?? snapshot.skipped_files?.length}）`}><LongContent label="跳过条目预览（最多 200 条）" value={snapshot.skipped_files} /></Disclosure>}
-      <Disclosure title="快照文件清单"><div className="scope-list">{snapshot.files.slice(0, fileLimit).map((file) => <div key={file.path} className="scope-item"><FileCode2 size={14} /><span><span className="mono">{file.path}</span><small>{file.kind === 'binary' ? '二进制 · 不可读' : `${file.line_count} 行 · ${file.language ?? '文本'}`}{file.dependency_tree ? ' · 依赖 / 生成目录' : ''}</small></span></div>)}</div>{snapshot.files.length > fileLimit && <button type="button" className="btn" onClick={() => setFileLimit((value) => value + 100)}>加载更多 100 个文件</button>}</Disclosure>
+      <Disclosure title="快照文件清单"><div className="scope-list">{snapshot.files.slice(0, fileLimit).map((file) => <div key={file.path} className="scope-item"><FileCode2 size={14} /><span><span className="mono">{file.path}</span><small>{file.kind === 'binary' ? '二进制 · 不可读' : `${file.line_count} 行 · ${file.language ?? '文本'}`}{file.dependency_tree ? ' · 依赖 / 生成目录' : ''}</small></span>{file.kind !== 'binary' && file.line_count > 0 && <button type="button" className="text-button" onClick={() => { setRangePath(file.path); setRangeStart(1); setRangeEnd(Math.min(file.line_count || 200, 200)); }}>选范围</button>}</div>)}</div>{snapshot.files.length > fileLimit && <button type="button" className="btn" onClick={() => setFileLimit((value) => value + 100)}>加载更多 100 个文件</button>}</Disclosure>
+      {rangePath && <div className="scope-picker"><div className="scope-picker-head"><span className="mono">{rangePath}</span><label>起始行 <input type="number" min={1} max={9999} value={rangeStart} onChange={(event) => setRangeStart(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} /></label><label>结束行 <input type="number" min={1} max={9999} value={rangeEnd} onChange={(event) => setRangeEnd(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} /></label><button type="button" className="btn btn-primary" onClick={() => { const file = snapshot.files.find((row) => row.path === rangePath); const top = Math.min(rangeStart, rangeEnd); const bottom = Math.max(rangeStart, rangeEnd); setScope({ path: rangePath, start: top, end: Math.min(bottom, file?.line_count || bottom) }); setDialog(null); }}>把该范围填入审计任务</button></div><SourceViewer snapshotId={snapshot.id} path={rangePath} start={Math.max(1, Math.min(rangeStart, rangeEnd) - 10)} end={Math.min(rangeEnd + 10, Math.max(rangeEnd, 220))} highlight={[{ start_line: Math.min(rangeStart, rangeEnd), end_line: Math.max(rangeStart, rangeEnd) }]} height={260} /></div>}
       <LongContent label="归档 SHA256" value={snapshot.archive_sha256} />
     </div></Overlay>}
     {dialog === 'options' && <Overlay title="高级执行设置" onClose={() => setDialog(null)}><div className="overlay-body">

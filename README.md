@@ -9,11 +9,22 @@
 | 文件 | 内容 |
 | --- | --- |
 | [lab30-shop-1.0.0-source.zip](lab30-shop-1.0.0-source.zip) | 完整应用源码、静态资源、Compose、初始化及重置脚本、应用说明；不含答案、POC、检查脚本或运行数据 |
-| [answers/answers.json](answers/answers.json) | 30 条结构化答案，仅包含编号、源码位置、漏洞类型和危害程度 |
+| [answers/answers.json](answers/answers.json) | 30 条结构化答案，包含描述、影响、评分前提和完整 CVSS v3.1 指标 |
 | [answers/answers.md](answers/answers.md) | 同一份答案的可读清单 |
 | [SHA256SUMS](SHA256SUMS) | 本目录源码包及两份答案的 SHA-256 校验值 |
 
-答案中的路径相对于解压后的 `lab30-shop/` 根目录，行号对应本版本源码。危害程度采用“极高／高／中／低”，依据代码与业务影响评定。
+答案中的路径相对于解压后的 `lab30-shop/` 根目录，行号对应本版本源码。新版答案以 **CVSS v3.1 数值评分**替代原有文字危害等级，源码 ZIP 保持 1.0.0 原始字节及校验值。
+
+## CVSS v3.1 评分与集成
+
+- 每项保留 8 个基础、3 个时序、11 个环境指标，共 **22 项**。原始值、继承后的有效值、数值权重、取值依据与完整向量均写入答案。
+- `cvss.base_score` 是主评分；`cvss.base_vector` 可供标准解析器集成，`cvss.vector` 显式包含全部指标。数组及 `id`、`locations`、`type` 保持，原 `severity` 字段移除。
+- `cvss.sub_scores` 保留 ISS、Impact、Exploitability 及环境分项；分数由 FIRST 官方计算器实现计算，并用 `cvss==3.6` 独立复算。最终分数遵循 CVSS v3.1 Roundup，向上保留一位小数。
+- 未独立评估的时序和环境指标明确记为 `X`，并记录默认系数或基础值继承关系；派生时序分、环境分不代表已经开展真实环境评估。
+- 评分基于逐项静态代码分析，普通会员和后台角色分别保留权限前提；不把其他题目、公开教学口令或未证实的漏洞链加算进去。完整假设与边界见 [answers/answers.md](answers/answers.md)。
+- 本次只更新独立答案及评分说明，不向源码 ZIP 添加答案或评测工具。答案仍不包含 POC、攻击脚本或漏洞验证报告。
+
+规范参考：[FIRST CVSS v3.1 规范](https://www.first.org/cvss/v3.1/specification-document)、[使用指南](https://www.first.org/cvss/v3.1/user-guide)和[官方计算器](https://www.first.org/cvss/calculator/3.1)。
 
 ## 部署
 

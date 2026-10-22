@@ -192,6 +192,8 @@ POC 适配脚本、runner 作业清单（目标、限额、job id、退出码、
 
 ## 验证与开发检查
 
+靶场检出与评级评价采用 CVSS 3.1 基础分，支持 JSON 导出或运行 API；使用方法和评分缺失的处理见 [Lab30 数据集说明](datasets/lab30-shop/README.md)。
+
 ```bash
 cd backend
 uv sync --extra dev

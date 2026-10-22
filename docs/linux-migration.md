@@ -27,11 +27,12 @@ python3 scripts/register_scenarios.py http://127.0.0.1:8899
 
 # 5. 数据集核对 + 评分（--out 指到可写目录）
 python3 scripts/verify_lab30_dataset.py <靶场源码.zip> datasets/lab30-shop/ground_truth.json
-python3 scripts/score_dataset.py --api http://127.0.0.1:8899 --run <run_id> --out /tmp/score.json
+python3 scripts/score_dataset.py --api http://127.0.0.1:8899 --run <run_id> --check-severity --check-cvss --out /tmp/score.json
 ```
 
 要点：
 
+- 评价以 CVSS 3.1 基础分为准；文字评级按基础分区间校验，未提供数值评分或向量时明确标为缺失。不会从 `severity` 猜分，也不将未独立评估的时序、环境分数作为主评分。字段与输出见 [数据集说明](../datasets/lab30-shop/README.md)。
 - 数据持久化在 named volume `audit-data`；`AUDIT_PORT` 可改端口（默认只绑 127.0.0.1，对外暴露请自行加反代/改端口绑定）。
 - 模型端点在宿主机时，容器内可用 `http://host.docker.internal:<port>`（compose 已配置 host-gateway）。
 - `COMPOSE_PROFILES=poc` 时会额外启动 DVWA + MariaDB + poc-runner；三个内部网络互相隔离，runner 无外网、无宿主挂载。

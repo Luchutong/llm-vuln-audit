@@ -14,11 +14,13 @@ Exit code 0 = all entries verified; 1 = at least one mismatch.
 """
 from __future__ import annotations
 
-import io
+import hashlib
 import json
 import sys
 import zipfile
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+
+from cvss31 import assessment
 
 
 def load_names(zf: zipfile.ZipFile) -> dict[str, list[str]]:
@@ -43,16 +45,29 @@ def line_of(zf: zipfile.ZipFile, archive_name: str, line: int) -> str | None:
 
 def main() -> int:
     zip_path, truth_path = sys.argv[1], sys.argv[2]
-    truth = json.loads(open(truth_path, encoding="utf-8").read())
+    truth = json.loads(Path(truth_path).read_text(encoding="utf-8"))
+    entries = truth["vulnerabilities"] if isinstance(truth, dict) else truth
     zf = zipfile.ZipFile(zip_path)
     names = load_names(zf)
 
     ok = 0
+    cvss_checked = 0
     problems: list[str] = []
-    for vuln in truth["vulnerabilities"]:
+    with open(zip_path, "rb") as source:
+        archive_hash = hashlib.file_digest(source, "sha256").hexdigest()
+    for vuln in entries:
         vid = vuln["id"]
+        expected_hash = (vuln.get("assessment") or {}).get("source_archive_sha256")
+        if expected_hash and expected_hash != archive_hash:
+            problems.append(f"{vid}: CVSS 评分绑定的源码 SHA-256 与 ZIP 不一致")
+        if vuln.get("cvss") is not None:
+            try:
+                assessment(vuln["cvss"])
+                cvss_checked += 1
+            except ValueError as exc:
+                problems.append(f"{vid}: {exc}")
         # 1) every cited location must exist
-        for loc in vuln.get("location", []):
+        for loc in vuln.get("location", vuln.get("locations", [])):
             rel = loc["path"].replace("\\", "/")
             matches = names.get(rel) or names.get(f"lab30-shop/{rel}")
             if not matches:
@@ -80,16 +95,18 @@ def main() -> int:
                     ok += 1
         # 3) exploitation path must be populated
         xp = vuln.get("exploitation_path") or {}
-        if not (xp.get("input") and xp.get("propagation") and xp.get("sink")):
+        if "exploitation_path" in vuln and not (xp.get("input") and xp.get("propagation") and xp.get("sink")):
             problems.append(f"{vid}: exploitation_path incomplete (input/propagation/sink)")
 
+    zf.close()
     print(f"已核对的行级定位: {ok} 处")
     if problems:
         print(f"发现 {len(problems)} 处问题:")
         for p in problems:
             print(" -", p)
         return 1
-    print("全部 30 项漏洞的路径、行号、入口点与利用路径均与源码一致。")
+    print(f"全部 {len(entries)} 项漏洞的路径、行号及已有入口/利用路径均与源码一致。")
+    print(f"CVSS 3.1 基础分与向量已校验 {cvss_checked}/{len(entries)} 条。")
     return 0
 
 

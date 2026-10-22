@@ -1,50 +1,50 @@
 #!/usr/bin/env python3
-"""Score an audit run's findings against the lab30-shop ground-truth dataset.
+"""Evaluate Lab30 findings by source location, with CVSS v3.1 Base ratings.
 
-This is the offline scorer the dataset README describes: it compares agent findings
-with ``datasets/lab30-shop/ground_truth.json`` and reports TP/FP/FN, precision, recall
-and F1, plus the miss detail needed to compare prompt versions.
-
-Two things it must get right, both established by measurement:
-
-1. **Path normalisation.**  A snapshot imported from ``lab30-shop-1.0.0-source.zip``
-   keeps the archive's top-level directory, so agent evidence reads
-   ``lab30-shop/app/public/catalog/index.php`` while the dataset says
-   ``app/public/catalog/index.php``.  Exact string matching scores a perfect run
-   0/39.  Paths are therefore matched component-wise as suffixes of each other.
-2. **Line intersection.**  A truth ``location`` is a single line; a finding cites
-   ``path:start-end`` windows.  A hit is a same-path window that contains or
-   overlaps the truth line.
-
-Findings come from either a live instance (``--api`` + ``--run``) or an exported
-run bundle / findings list (``--findings``).  Stdlib only, no project imports.
-
-Usage:
-    score_dataset.py --api http://127.0.0.1:8899 --run <run_id> [--scenario sqli]
-    score_dataset.py --findings run.json [--truth ground_truth.json] [--scenario sqli]
+Accepts the enriched ground_truth.json or feat/lab30-shop's answers.json array.
+Detection TP/FP/FN stay independent of severity and CVSS agreement. Qualitative
+severity is compared to the CVSS Base rating; a label never implies a numeric
+score. --check-cvss reports numeric error and Base metric agreement when supplied.
+Only the standard library and the adjacent cvss31.py helper are required.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
-import sys
 import urllib.request
 from pathlib import Path, PurePosixPath
 
+from cvss31 import BASE, assessment
+
 SCENARIOS = ("sqli", "xss_r", "command_injection")
-EVIDENCE_ENTRY = re.compile(r"([^;:]+):(\d+)(?:-(\d+))?")
+SCENARIO_TYPES = {
+    "SQL 注入": "sqli", "跨文件 SQL 注入": "sqli", "二次 SQL 注入": "sqli",
+    "反射型 XSS": "xss_r", "HTML 属性注入型 XSS": "xss_r",
+    "命令注入": "command_injection", "跨文件命令注入": "command_injection",
+}
+EVIDENCE_ENTRY = re.compile(r"([^;:\n]+):(\d+)(?:-(\d+))?")
+SEVERITY_NAMES = {"极高": "critical", "严重": "critical", "高": "high", "中": "medium", "低": "low", "无": "none"}
 
 
-def parse_evidence(evidence: str) -> list[tuple[str, int, int]]:
-    """Parse ``path:start-end; path:line`` citations into (path, start, end) triples."""
-    out: list[tuple[str, int, int]] = []
-    for match in EVIDENCE_ENTRY.finditer(evidence or ""):
-        path = match.group(1).strip().replace("\\", "/")
-        start = int(match.group(2))
-        end = int(match.group(3) or start)
-        out.append((path, min(start, end), max(start, end)))
-    return out
+def parse_evidence(evidence: object) -> list[tuple[str, int, int]]:
+    """Accept worker citation strings and the API/export's structured ranges."""
+    if isinstance(evidence, str):
+        return [(match[1].strip().replace("\\", "/"), min(int(match[2]), int(match[3] or match[2])),
+                 max(int(match[2]), int(match[3] or match[2]))) for match in EVIDENCE_ENTRY.finditer(evidence)]
+    refs = []
+    for item in evidence if isinstance(evidence, list) else []:
+        if isinstance(item, str):
+            refs.extend(parse_evidence(item))
+        elif isinstance(item, dict) and item.get("path"):
+            try:
+                start = int(item.get("start_line", item.get("line", 0)))
+                end = int(item.get("end_line", start))
+            except (ValueError, TypeError):
+                continue
+            if start > 0 and end > 0:
+                refs.append((str(item["path"]).replace("\\", "/"), min(start, end), max(start, end)))
+    return refs
 
 
 def parts(path: str) -> tuple[str, ...]:
@@ -52,136 +52,224 @@ def parts(path: str) -> tuple[str, ...]:
 
 
 def same_location(a: str, b: str) -> bool:
-    """True when both paths point at the same file regardless of archive prefixes."""
+    """Ignore archive prefixes, while comparing complete path components."""
     pa, pb = parts(a), parts(b)
-    return pa == pb or (len(pa) < len(pb) and pb[-len(pa):] == pa) or (len(pb) < len(pa) and pa[-len(pb):] == pb)
+    return bool(pa and pb) and (pa == pb or (len(pa) < len(pb) and pb[-len(pa):] == pa)
+                               or (len(pb) < len(pa) and pa[-len(pb):] == pb))
 
 
-def line_hit(evidence: str, truth_path: str, truth_line: int) -> bool:
-    return any(
-        same_location(path, truth_path) and start <= truth_line <= end
-        for path, start, end in parse_evidence(evidence)
-    )
+def line_hit(evidence: object, truth_path: str, truth_line: int) -> bool:
+    return any(same_location(path, truth_path) and start <= truth_line <= end
+               for path, start, end in parse_evidence(evidence))
+
+
+def normalise_severity(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip().casefold()
+    return SEVERITY_NAMES.get(value, value)
+
+
+def normalise_truth(payload: object) -> list[dict]:
+    rows = payload.get("vulnerabilities") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError("真值必须为答案数组或含 vulnerabilities 的对象")
+    result, seen = [], set()
+    for item in rows:
+        if not isinstance(item, dict) or not item.get("id"):
+            raise ValueError("每条真值必须包含 id")
+        ident = str(item["id"])
+        if ident in seen:
+            raise ValueError(f"真值 id 重复：{ident}")
+        seen.add(ident)
+        locations = item.get("location", item.get("locations"))
+        if not isinstance(locations, list) or not locations:
+            raise ValueError(f"真值 {ident} 缺少源码位置")
+        for loc in locations:
+            if not isinstance(loc, dict) or not loc.get("path") or int(loc.get("line", 0)) < 1:
+                raise ValueError(f"真值 {ident} 包含无效源码位置")
+        try:
+            cvss = assessment(item.get("cvss"))
+        except ValueError as exc:
+            raise ValueError(f"真值 {ident}：{exc}") from exc
+        result.append({**item, "id": ident, "title": item.get("title") or item.get("type") or ident,
+                       "location": locations, "cvss": cvss,
+                       "scenario": item.get("scenario", SCENARIO_TYPES.get(item.get("type"))),
+                       "severity": cvss["severity"] if cvss else normalise_severity(item.get("severity")),
+                       "severity_basis": "CVSS:3.1/Base" if cvss else "legacy severity"})
+    return result
+
+
+def finding_rows(payload: object) -> list[dict]:
+    if isinstance(payload, dict):
+        payload = payload.get("findings") if "findings" in payload else payload.get("results")
+    if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+        raise ValueError("审计结果必须为 findings/results 数组或发现数组")
+    result = []
+    for item in payload:
+        kind = str(item.get("finding_kind") or item.get("kind") or "").strip().casefold()
+        vulnerability = kind == "vulnerability" if kind else item.get("category") in SCENARIOS
+        if vulnerability and item.get("disposition", "open") not in {"retracted", "duplicate", "superseded"}:
+            result.append(item)
+    return result
 
 
 def load_findings(args: argparse.Namespace) -> list[dict]:
     if args.findings:
-        payload = json.loads(open(args.findings, encoding="utf-8").read())
-        if isinstance(payload, dict):
-            payload = payload.get("findings") or payload.get("results") or []
-        return [f for f in payload if f.get("kind") == "vulnerability"]
+        return finding_rows(json.loads(Path(args.findings).read_text(encoding="utf-8")))
     if not (args.api and args.run):
-        sys.exit("需要 --findings <file> 或 --api <base> --run <run_id> 之一")
+        raise ValueError("需要 --findings <file> 或 --api <base> --run <run_id> 之一")
     with urllib.request.urlopen(f"{args.api.rstrip('/')}/api/runs/{args.run}", timeout=60) as response:
-        bundle = json.loads(response.read().decode("utf-8"))
-    return [f for f in bundle.get("findings") or [] if f.get("kind") == "vulnerability"]
+        return finding_rows(json.loads(response.read().decode("utf-8")))
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--truth", default=None, help="ground_truth.json 路径（默认随仓库定位）")
-    parser.add_argument("--api", default=None, help="审计实例基址，如 http://127.0.0.1:8899")
-    parser.add_argument("--run", default=None, help="run id（与 --api 搭配）")
-    parser.add_argument("--findings", default=None, help="导出的 run bundle / findings JSON 文件")
-    parser.add_argument("--scenario", choices=SCENARIOS, default=None, help="只评某个分场景（默认全量 30 项）")
-    parser.add_argument("--check-severity", action="store_true", help="命中后额外核对 severity 是否一致")
-    parser.add_argument("--out", default=None, help="明细 JSON 输出路径（默认写数据集目录；容器内只读时必须指定）")
-    args = parser.parse_args()
+def compare_rating(finding: dict, truth: dict, check_severity: bool, check_cvss: bool) -> dict:
+    reported, error = None, None
+    try:
+        reported = assessment(finding.get("cvss"))
+    except ValueError as exc:
+        error = str(exc)
+    label = normalise_severity(finding.get("severity"))
+    if label is None and reported:
+        label = reported["severity"]
+    expected = truth["cvss"]
+    result = {"severity_expected": truth["severity"], "severity_reported": label,
+              "severity_basis": truth["severity_basis"],
+              "severity_ok": label == truth["severity"] if check_severity and truth["severity"] is not None else None,
+              "cvss_expected": expected, "cvss_reported": reported, "cvss_error": error,
+              "cvss_status": "not_checked", "cvss_score_ok": None, "cvss_score_error": None,
+              "cvss_score_delta": None, "cvss_vector_ok": None, "cvss_metrics": None}
+    if check_cvss:
+        result["cvss_status"] = ("missing_truth" if expected is None else "invalid_reported" if error else
+                                 "missing_reported" if reported is None else "compared")
+        if result["cvss_status"] == "compared":
+            delta = round(reported["base_score"] - expected["base_score"], 1)
+            result.update(cvss_score_ok=delta == 0, cvss_score_error=abs(delta), cvss_score_delta=delta)
+            if expected["metrics"] and reported["metrics"]:
+                result["cvss_metrics"] = {key: {"expected": expected["metrics"][key], "reported": reported["metrics"][key],
+                                               "ok": expected["metrics"][key] == reported["metrics"][key]} for key in BASE}
+                result["cvss_vector_ok"] = all(metric["ok"] for metric in result["cvss_metrics"].values())
+    return result
 
-    default_truth = Path(__file__).resolve().parents[1] / "datasets" / "lab30-shop" / "ground_truth.json"
-    truth_path = Path(args.truth) if args.truth else default_truth
-    truth = json.loads(truth_path.read_text(encoding="utf-8"))
 
-    truths = truth["vulnerabilities"]
-    if args.scenario:
-        truths = [v for v in truths if v.get("scenario") == args.scenario]
+def ratio(numerator: int | float, denominator: int) -> float | None:
+    return numerator / denominator if denominator else None
+
+
+def evaluate(truth_payload: object, findings: list[dict], *, scenario: str | None = None,
+             check_severity: bool = False, check_cvss: bool = False) -> dict:
+    truths = normalise_truth(truth_payload)
+    if scenario:
+        truths = [item for item in truths if item["scenario"] == scenario]
     if not truths:
-        sys.exit(f"场景 {args.scenario} 在数据集中没有真值条目")
-
-    findings = load_findings(args)
-    matched_truth: set[str] = set()
-    matched_findings: set[int] = set()
-    matches: list[dict] = []
-
-    for finding in findings:
-        hit = None
-        for vuln in truths:
-            if vuln["id"] in matched_truth:
-                continue
-            if any(line_hit(finding.get("evidence", ""), loc["path"], int(loc["line"])) for loc in vuln["location"]):
-                hit = vuln
-                break
-        if hit is not None:
-            matched_truth.add(hit["id"])
-            matched_findings.add(id(finding))
-            severity_ok = None
-            if args.check_severity:
-                severity_ok = finding.get("severity") == hit.get("severity")
-            matches.append({
-                "truth": f"{hit['id']} {hit['title']}",
-                "severity_expected": hit.get("severity"),
-                "severity_reported": finding.get("severity"),
-                "severity_ok": severity_ok,
-                "finding": finding.get("title"),
-            })
-
+        raise ValueError(f"场景 {scenario or 'all'} 在数据集中没有真值条目")
+    findings = finding_rows(findings)
+    matched_truth, matched_findings, matches = set(), set(), []
+    for index, finding in enumerate(findings):
+        hit = next((vuln for vuln in truths if vuln["id"] not in matched_truth and
+                    any(line_hit(finding.get("evidence"), loc["path"], int(loc["line"])) for loc in vuln["location"])), None)
+        if hit is None:
+            continue
+        matched_truth.add(hit["id"])
+        matched_findings.add(index)
+        matches.append({"truth_id": hit["id"], "truth": f"{hit['id']} {hit['title']}",
+                        "finding_id": finding.get("id"), "finding": finding.get("title"),
+                        **compare_rating(finding, hit, check_severity, check_cvss)})
+    missing = [item for item in truths if item["id"] not in matched_truth]
+    missed = [f"{v['id']} {v['title']}（真值位置: {'; '.join(loc['path'] + ':' + str(loc['line']) for loc in v['location'])}）" for v in missing]
+    fp = [item.get("title") or (item.get("summary") or "")[:60] for index, item in enumerate(findings) if index not in matched_findings]
     tp = len(matches)
-    fn = [f"{v['id']} {v['title']}（真值位置: {'; '.join(l['path'] + ':' + str(l['line']) for l in v['location'])}）"
-          for v in truths if v["id"] not in matched_truth]
-    fp = [f.get("title") or (f.get("summary") or "")[:60] for f in findings if id(f) not in matched_findings]
-    precision = tp / (tp + len(fp)) if (tp + len(fp)) else None
-    recall = tp / (tp + len(fn)) if (tp + len(fn)) else None
-    f1 = (2 * precision * recall / (precision + recall)) if precision and recall else None
-
-    scope = f"场景 {args.scenario}" if args.scenario else "全量"
-    print(f"评分范围: {scope} · 真值 {len(truths)} 项 · agent 结论 {len(findings)} 条")
-    print(f"TP={tp}  FP={len(fp)}  FN={len(fn)}")
-    print(f"precision={precision:.4f}" if precision is not None else "precision=n/a")
-    print(f"recall={recall:.4f}" if recall is not None else "recall=n/a")
-    print(f"F1={f1:.4f}" if f1 is not None else "F1=n/a")
-    if matches:
-        print("\n命中明细:")
-        for m in matches:
-            extra = ""
-            if m["severity_ok"] is False:
-                extra = f"  [severity 不符: 期望 {m['severity_expected']}, 报出 {m['severity_reported']}]"
-            print(f"  - {m['truth']}{extra}")
-    if fn:
-        print("\n漏报:")
-        for item in fn:
-            print(f"  - {item}")
-    if fp:
-        print("\n多报（无对应真值）:")
-        for item in fp:
-            print(f"  - {item}")
-
-    report = {
-        "scope": args.scenario or "all",
-        "truths": len(truths),
-        "findings": len(findings),
-        "TP": tp,
-        "FP": len(fp),
-        "FN": len(fn),
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "matches": matches,
-        "missed": fn,
+    compared = [item for item in matches if item["cvss_status"] == "compared"]
+    vectors = [item for item in compared if item["cvss_vector_ok"] is not None]
+    severity_compared = [item for item in matches if item["severity_ok"] is not None]
+    return {
+        "scope": scenario or "all", "truths": len(truths), "findings": len(findings),
+        "rating_standard": "CVSS:3.1" if all(item["cvss"] for item in truths) else "mixed/legacy",
+        "score_basis": "Base", "TP": tp, "FP": len(fp), "FN": len(missed),
+        "precision": ratio(tp, tp + len(fp)), "recall": ratio(tp, len(truths)),
+        "f1": ratio(2 * tp, 2 * tp + len(fp) + len(missed)),
+        "severity_evaluation": {"checked": check_severity, "compared": len(severity_compared),
+                                "correct": sum(item["severity_ok"] for item in severity_compared),
+                                "accuracy": ratio(sum(item["severity_ok"] for item in severity_compared), len(severity_compared))},
+        "cvss_evaluation": {
+            "checked": check_cvss, "compared": len(compared),
+            "missing_truth": sum(item["cvss_status"] == "missing_truth" for item in matches),
+            "missing_reported": sum(item["cvss_status"] == "missing_reported" for item in matches),
+            "invalid_reported": sum(item["cvss_status"] == "invalid_reported" for item in matches),
+            "score_accuracy": ratio(sum(item["cvss_score_ok"] for item in compared), len(compared)),
+            "score_mae": ratio(sum(item["cvss_score_error"] for item in compared), len(compared)),
+            "vector_compared": len(vectors),
+            "vector_accuracy": ratio(sum(item["cvss_vector_ok"] for item in vectors), len(vectors)),
+            "metrics": {key: {"compared": len(vectors), "correct": sum(item["cvss_metrics"][key]["ok"] for item in vectors),
+                              "accuracy": ratio(sum(item["cvss_metrics"][key]["ok"] for item in vectors), len(vectors))} for key in BASE},
+        },
+        "matches": matches, "missed": missed,
+        "missed_details": [{"id": item["id"], "title": item["title"], "location": item["location"], "cvss": item["cvss"]} for item in missing],
         "false_positives": fp,
     }
-    if args.out:
-        out = Path(args.out)
-    elif args.scenario:
-        out = truth_path.parent / f"score_{args.scenario}.json"
-    else:
-        out = truth_path.parent / "score_all.json"
+
+
+def print_report(report: dict) -> None:
+    print(f"评分范围: {report['scope']} · 真值 {report['truths']} 项 · agent 结论 {report['findings']} 条")
+    print(f"评级口径: {report['rating_standard']} / Base（只比较基础分，不使用时序分或环境分替代）")
+    print(f"TP={report['TP']}  FP={report['FP']}  FN={report['FN']}")
+    for label, key in (("precision", "precision"), ("recall", "recall"), ("F1", "f1")):
+        print(f"{label}={report[key]:.4f}" if report[key] is not None else f"{label}=n/a")
+    if report["matches"]:
+        print("\n命中明细:")
+        for item in report["matches"]:
+            expected = item["cvss_expected"]
+            extra = f" · CVSS 3.1 Base {expected['base_score']:.1f} ({expected['severity']})" if expected else ""
+            if item["severity_ok"] is False:
+                extra += f" [severity 不符: 期望 {item['severity_expected']}, 报出 {item['severity_reported']}]"
+            if item["cvss_status"] == "compared":
+                extra += f" [CVSS 报出 {item['cvss_reported']['base_score']:.1f}, 绝对误差 {item['cvss_score_error']:.1f}]"
+            elif item["cvss_status"] != "not_checked":
+                extra += f" [CVSS: {item['cvss_status']}{': ' + item['cvss_error'] if item['cvss_error'] else ''}]"
+            print(f"  - {item['truth']}{extra}")
+    if report["cvss_evaluation"]["checked"]:
+        summary = report["cvss_evaluation"]
+        print(f"\nCVSS 基础分对比: {summary['compared']} 条；缺失 {summary['missing_reported']} 条；无效 {summary['invalid_reported']} 条")
+        print(f"CVSS MAE={summary['score_mae']:.4f}" if summary["score_mae"] is not None else "CVSS MAE=n/a（没有可比较的数值评分）")
+    for title, items in (("漏报", report["missed"]), ("多报（无对应真值）", report["false_positives"])):
+        if items:
+            print(f"\n{title}:")
+            for item in items:
+                print(f"  - {item}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--truth", help="ground_truth.json 或新版 answers.json（默认随仓库定位）")
+    parser.add_argument("--api", help="审计实例基址，如 http://127.0.0.1:8899")
+    parser.add_argument("--run", help="run id（与 --api 搭配）")
+    parser.add_argument("--findings", help="导出的 run bundle / findings JSON 文件")
+    parser.add_argument("--scenario", choices=SCENARIOS, help="只评某个分场景（默认全量 30 项）")
+    parser.add_argument("--check-severity", action="store_true", help="将文字等级与 CVSS 3.1 基础分对应的等级比较")
+    parser.add_argument("--check-cvss", action="store_true", help="比较 cvss.base_score / 基础向量；缺失不从文字等级猜分")
+    parser.add_argument("--out", help="明细 JSON 输出路径（默认写数据集目录）")
+    args = parser.parse_args(argv)
+    truth_path = Path(args.truth) if args.truth else Path(__file__).resolve().parents[1] / "datasets/lab30-shop/ground_truth.json"
     try:
-        out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    except OSError:
-        # 数据集目录只读（例如容器内镜像层）；退回当前工作目录，明细仍然可取。
-        out = Path(f"score_{args.scenario or 'all'}.json")
-        out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n明细已写入: {out}")
+        truth = json.loads(truth_path.read_text(encoding="utf-8"))
+        report = evaluate(truth, load_findings(args), scenario=args.scenario,
+                          check_severity=args.check_severity, check_cvss=args.check_cvss)
+        report["truth_file"] = str(truth_path)
+        if isinstance(truth, dict):
+            report["truth_provenance"] = truth.get("provenance")
+        print_report(report)
+        out = Path(args.out) if args.out else truth_path.parent / f"score_{args.scenario or 'all'}.json"
+        encoded = json.dumps(report, ensure_ascii=False, indent=2)
+        try:
+            out.write_text(encoded, encoding="utf-8")
+        except OSError:
+            if args.out:
+                raise
+            out = Path(f"score_{args.scenario or 'all'}.json")
+            out.write_text(encoded, encoding="utf-8")
+        print(f"\n明细已写入: {out}")
+    except (OSError, ValueError, TypeError) as exc:
+        parser.error(str(exc))
     return 0
 
 

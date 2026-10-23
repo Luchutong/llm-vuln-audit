@@ -1,6 +1,6 @@
 export type SourceTab = 'tasks' | 'findings' | 'archives';
 export type WorkspaceRoute = {
-  page: 'sources' | 'project' | 'new' | 'findings' | 'finding' | 'run' | 'settings' | 'missing';
+  page: 'sources' | 'project' | 'new' | 'findings' | 'finding' | 'run' | 'settings' | 'experiments' | 'missing';
   projectId?: string;
   snapshotId?: string;
   runId?: string;
@@ -16,6 +16,7 @@ export function parseRoute(hash: string): WorkspaceRoute {
   catch { return { page: 'missing' }; }
   if (!parts.length || (parts[0] === 'sources' && parts.length === 1)) return { page: 'sources' };
   if (parts[0] === 'settings' && parts.length === 1) return { page: 'settings' };
+  if (parts[0] === 'experiments' && parts.length === 1) return { page: 'experiments' };
   if (parts[0] === 'run' && parts.length === 2) return { page: 'run', runId: parts[1] };
   if (parts[0] === 'findings' && parts.length <= 2) return parts[1] ? { page: 'finding', findingId: parts[1] } : { page: 'findings' };
   if (parts[0] === 'sources' && parts[1]) {

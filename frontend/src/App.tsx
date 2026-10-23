@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Bug, ChevronLeft, FileArchive, Menu, Moon, Search, Settings, ShieldCheck, Sun, X } from 'lucide-react';
+import { ArrowUpRight, Bug, ChevronLeft, FileArchive, FlaskConical, Menu, Moon, Search, Settings, ShieldCheck, Sun, X } from 'lucide-react';
 import { api, errorText } from './api';
 import type { Config, Project, Run, Snapshot, SnapshotSummary } from './types';
 import { RunView } from './views/RunView';
@@ -12,6 +12,7 @@ import { BrandWordmark } from './components/BrandWordmark';
 import { Disclosure } from './components/Disclosure';
 import { CleanupRunsButton, DeleteRunButton, RecordsProvider } from './components/RecordActions';
 import { PromptDrafts } from './views/PromptDrafts';
+import { PromptExperimentsView } from './views/PromptExperimentsView';
 import { RECORDS_CHANGED } from './records';
 import type { RecordsChange } from './records';
 import { runLabel, TERMINAL } from './status';
@@ -106,7 +107,7 @@ export default function App() {
   const sourcesActive = ['sources', 'project', 'new'].includes(current.page);
   const sidebar = <>
     <div className="side-brand"><span className="brand-mark"><ShieldCheck size={21} /></span><div><BrandWordmark /><small>源码审计工作空间</small></div></div>
-    <nav className="source-primary-nav" aria-label="工作空间导航"><a href="#sources" className={`nav-item${sourcesActive ? ' active' : ''}`} aria-current={sourcesActive ? 'page' : undefined}><FileArchive size={18} />源码包<span>{projects.length}</span></a><a href="#findings" className={`nav-item${current.page === 'findings' || current.page === 'finding' ? ' active' : ''}`} aria-current={current.page === 'findings' || current.page === 'finding' ? 'page' : undefined}><Bug size={18} />漏洞发现<ArrowUpRight size={14} /></a></nav>
+    <nav className="source-primary-nav" aria-label="工作空间导航"><a href="#sources" className={`nav-item${sourcesActive ? ' active' : ''}`} aria-current={sourcesActive ? 'page' : undefined}><FileArchive size={18} />源码包<span>{projects.length}</span></a><a href="#findings" className={`nav-item${current.page === 'findings' || current.page === 'finding' ? ' active' : ''}`} aria-current={current.page === 'findings' || current.page === 'finding' ? 'page' : undefined}><Bug size={18} />漏洞发现<ArrowUpRight size={14} /></a><a href="#experiments" className={`nav-item${current.page === 'experiments' ? ' active' : ''}`} aria-current={current.page === 'experiments' ? 'page' : undefined}><FlaskConical size={18} />Prompt 实验<ArrowUpRight size={14} /></a></nav>
     <label className="sidebar-search"><Search size={16} /><input aria-label="搜索历史任务" placeholder="搜索审计记录" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
     <div className="sidebar-section-title records-history-title"><span>审计记录 · {runs.length}</span><CleanupRunsButton /></div>
     <nav className="history-list" aria-label="历史审计任务">
@@ -125,7 +126,7 @@ export default function App() {
       <p className="sidebar-footnote">每一条结论，都有源码依据。</p>
     </div>
   </>;
-  const pageLabel = current.page === 'settings' ? '设置' : current.page === 'run' ? '审计会话' : current.page === 'finding' ? '漏洞详情' : current.page === 'findings' ? '漏洞发现' : current.page === 'new' ? '新建审计' : '源码包';
+  const pageLabel = current.page === 'settings' ? '设置' : current.page === 'run' ? '审计会话' : current.page === 'finding' ? '漏洞详情' : current.page === 'findings' ? '漏洞发现' : current.page === 'experiments' ? 'Prompt 实验' : current.page === 'new' ? '新建审计' : '源码包';
   return <RecordsProvider runs={runs} onChanged={recordsChanged}><div className={`shell${collapsed ? ' sidebar-collapsed' : ''}`}>
     <aside className="side desktop-side">{sidebar}<button className="sidebar-collapse icon-button" aria-label="收起侧栏" onClick={toggleSidebar}><ChevronLeft size={16} /></button></aside>
     {mobileOpen && <Overlay title="审计工作空间" onClose={() => setMobileOpen(false)} drawer className="mobile-sidebar"><div className="side" onClick={(event) => { if ((event.target as Element).closest('a[href^="#"]')) setMobileOpen(false); }}>{sidebar}</div></Overlay>}
@@ -137,6 +138,7 @@ export default function App() {
         : current.page === 'project' ? <SourceProjectView key={`${current.projectId}-${recordEpoch}`} projectId={current.projectId!} tab={current.tab!} snapshotId={current.snapshotId} projects={projects} revision={revision} />
         : current.page === 'new' ? <SourceTaskView key={`${current.projectId ?? 'legacy'}-${draft.key}`} projectId={current.projectId} snapshotId={current.snapshotId} seed={draft.seed?.snapshot_id === current.snapshotId ? draft.seed : undefined} config={config} allSnapshots={snapshots} onOpenRun={openRun} onChanged={load} />
         : current.page === 'findings' ? <LedgerFindingsView projects={projects} />
+        : current.page === 'experiments' ? <div className="settings-page"><header className="page-head"><span className="eyebrow">PROMPT EXPERIMENTS</span><h1>Prompt 实验</h1><p>同一份冻结源码、同一执行器、同一预算，只改 worker 角色文本，按官方真值位置评分。</p></header><PromptExperimentsView /></div>
         : current.page === 'finding' ? <LedgerFindingView key={current.findingId} findingId={current.findingId!} />
         : current.page === 'settings' ? <div className="settings-page"><header className="page-head"><span className="eyebrow">WORKSPACE SETTINGS</span><h1>工作空间设置</h1><p>查看模型连接、运行状态和默认执行预算。</p></header><SettingsView config={config} onChanged={load} /><section className="panel records-prompts"><Disclosure title="提示词草稿"><PromptDrafts /></Disclosure></section></div>
         : current.page === 'missing' ? <div className="sources-page"><div className="sources-empty"><h1>页面不存在</h1><a className="btn" href="#sources">返回源码包库</a></div></div>

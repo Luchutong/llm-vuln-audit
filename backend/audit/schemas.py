@@ -827,6 +827,17 @@ class PromptCreateRequest(BaseModel):
     parent_id: str | None = None
 
 
+class PromptExperimentRequest(BaseModel):
+    """A comparison run: which worker-instruction variants, over how much of the target."""
+
+    variants: list[str] = Field(default_factory=list, max_length=8)
+    # ``0`` means every file the ground truth cites.  The cap exists so a first look at the
+    # feature costs minutes instead of hours.
+    units_limit: int = Field(default=0, ge=0, le=200)
+    scenario: Literal["sqli", "xss_r", "command_injection"] | None = None
+    budgets: dict[str, int] | None = None
+
+
 class TruthSample(BaseModel):
     file_path: str
     category: Literal["sqli", "xss_r", "command_injection"]

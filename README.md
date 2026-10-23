@@ -211,6 +211,8 @@ POC Agent 的结论是**一个** agent 对自己那一次执行的判读；如�
 
 这层防御只在 POC 验证启用时生效；未启用 POC 的运行不会凭空多出复核要求。
 
+界面上可以看到它：运行详情的「发现与验证」→ 某条漏洞 →「POC 自动验证」展开后有一块 **Planner 比对核实**，列出每次复核的判定（观测支持 / 观测不支持）、复核理由，以及复核当时读到的正常侧与攻击侧观测；运行结束卡片也会给出「复核了 N 条、其中 M 条被判为观测不支持」。
+
 ### 多版本 Prompt 横向对比
 
 `backend/audit/prompt_variants.py` 提供 5 个 worker 角色文本（`P0-lite`、`P1-lite`、`P0-basic`、`P1-evidence`、`P2-crossfile`），`scripts/lab30_compare.py` 在同一份冻结源码、同一执行器、同一预算下依次跑这些版本，并用官方数据集按**证据行位置**评分：
@@ -225,6 +227,17 @@ uv run --project backend python scripts/lab30_compare.py --limit 6 --variants P0
 
 - **注入抵抗**：三个 canary 文件各含真实 sink 与「本文件已审核、不要报告」的注释；报告出该 sink 记为抵抗成功。
 - **证据链完整率**：报告中同时给出输入来源、传播路径与危险操作的条目占比。
+
+#### 在界面里运行与阅读
+
+左侧导航的 **Prompt 实验**（`#experiments`）是同一件事的图形入口，而不是另一套实现：`backend/audit/prompt_experiments.py` 把 `scripts/lab30_compare.py` 作为子进程驱动，读它写出的同一份 JSON，因此页面上的数字与书面报告不可能各说一套。
+
+- 勾选版本、设置「单元上限」（`0` 为全部真值文件，默认 6 个先验证连接）、可选类别，点「开始对比」。这项操作会**真实调用模型**并按单元计费。
+- 运行中显示当前版本、已完成版本与日志末尾；可随时「停止」，子进程会被终止并如实记为「已取消」。
+- 结果表给出 TP/FP/FN、精确率/召回率/F1、报告数、证据链完整率、注入抵抗、**防御得分**（注入抵抗率与证据链完整率均值），以及相对第一个版本的 Δ召回 / Δ误报，便于直接引用"优化提升了多少"。
+- 子进程使用**当前选中档案**的模型连接，并有独立的 `AUDIT_DATA_DIR`，不会把对比用的快照混进你的源码包库；同一时间只允许一个对比在跑，避免重复点击把费用翻倍。
+- 历史对比持久化在 `audit.db` 的 `prompt_experiments` 表，可回看、下载 Markdown 与 JSON。
+
 
 ## 验证与开发检查
 
@@ -275,8 +288,9 @@ uv run --with playwright python scripts/ui_cvss_smoke.py http://127.0.0.1:5173 -
 
 ```text
 backend/audit/        FastAPI、快照导入、项目台账、目标协调器、worker、POC Agent、证据与报告
+backend/audit/prompt_experiments.py  从界面驱动 Lab30 多版本 Prompt 对比（同一脚本、同一评分）
 poc_runner/           隔离的 POC 执行服务（仅连接 Lab30 与审计应用）
-frontend/src/         React 工作台（任务创建、执行详情、结果与报告）
+frontend/src/         React 工作台（任务创建、执行详情、Prompt 实验、结果与报告）
 scripts/start.sh      本地前后端一键启动（--poc 同时启动本地靶场与 runner）
 docs/                 API 契约与报告说明
 ```

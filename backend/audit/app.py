@@ -36,6 +36,7 @@ from .schemas import (
     ModelProfileCreateRequest,
     ModelProfileUpdateRequest,
     PromptCreateRequest,
+    PromptExperimentRequest,
     TruthRequest,
 )
 from .source import MAX_LISTED_PATHS, SourceRepository
@@ -49,6 +50,8 @@ from .evidence import validate_evidence
 from .execution_state import DEFAULT_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
 from .poc_readiness import PocReadinessService
 from .poc_store import poc_target_key
+
+from . import prompt_experiments
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,7 @@ class Services:
         )
         for prompt in builtin_prompt_records():
             self.store.upsert_builtin_prompt(prompt)
+        self.prompt_experiments = prompt_experiments.ExperimentRunner(self.store, self.settings)
 
     def _seed_lab30(self) -> dict | None:
         """Register the bundled Lab30 shop so a fresh install is ready to audit.
@@ -187,6 +191,11 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # A prompt comparison started from the UI must not outlive its owner: it is a child
+        # process that spends tokens.
+        runner = getattr(services, "prompt_experiments", None)
+        if runner is not None:
+            await runner.shutdown()
         await services.worker.stop()
         services.store.close()
 
@@ -332,6 +341,14 @@ def _verification_records(store, findings: list[dict]) -> list[dict]:
     # Resolved lazily: findings with no verification never ask the store, and test
     # doubles that model only the endpoints they exercise stay usable.
     return build_verification_records(lambda finding_id: store.list_verifications(finding_id), findings)
+
+
+def _verification_reviews(store, run_id: str) -> list[dict]:
+    """The Planner's cross-checks of this run's automatic verdicts, for the UI to show."""
+    reader = getattr(store, "list_verification_reviews", None)
+    return list(reader(run_id)) if reader is not None else []
+
+
 def _project_projection(
     state: Services, run: dict, findings: list[dict], relations: list[dict] | None = None
 ) -> dict:
@@ -351,6 +368,7 @@ def _project_projection(
             "verification_jobs": [],
             "verification_summary": _verification_summary(findings),
             "verification_records": _verification_records(state.store, findings),
+            "verification_reviews": _verification_reviews(state.store, run["id"]),
             # Narratives only exist for project-mode runs; a legacy run's report must not
             # gain a section it never produced.
             "report_narrative": {},
@@ -367,6 +385,7 @@ def _project_projection(
         "verification_jobs": state.store.list_run_verification_jobs(run["id"]),
         "verification_summary": _verification_summary(findings),
         "verification_records": _verification_records(state.store, findings),
+        "verification_reviews": _verification_reviews(state.store, run["id"]),
         "report_narrative": state.store.latest_plan_narrative(run["id"]),
     }
 
@@ -1369,6 +1388,70 @@ async def delete_prompt(request: Request, prompt_id: str) -> Response:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=204)
+
+
+# --- prompt-variant experiments ---------------------------------------------
+
+
+@app.get("/api/prompt-experiments/variants")
+async def prompt_experiment_variants() -> list[dict]:
+    """The worker-instruction variants, with the text each one actually sends."""
+    return prompt_experiments.catalog()
+
+
+@app.get("/api/prompt-experiments")
+async def list_prompt_experiments(request: Request, limit: int = Query(20, ge=1, le=100)) -> list[dict]:
+    return services(request).prompt_experiments.list(limit)
+
+
+@app.post("/api/prompt-experiments", status_code=201)
+async def start_prompt_experiment(request: Request, payload: PromptExperimentRequest) -> dict:
+    state = services(request)
+    try:
+        return state.prompt_experiments.start(
+            payload.variants,
+            payload.units_limit,
+            payload.scenario,
+            payload.budgets,
+        )
+    except prompt_experiments.ExperimentError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/prompt-experiments/{experiment_id}")
+async def get_prompt_experiment(request: Request, experiment_id: str) -> dict:
+    try:
+        return services(request).prompt_experiments.get(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Experiment does not exist") from exc
+
+
+@app.post("/api/prompt-experiments/{experiment_id}/cancel")
+async def cancel_prompt_experiment(request: Request, experiment_id: str) -> dict:
+    state = services(request)
+    try:
+        return await state.prompt_experiments.cancel(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Experiment does not exist") from exc
+
+
+@app.get("/api/prompt-experiments/{experiment_id}/report")
+async def download_prompt_experiment(request: Request, experiment_id: str, format: str = Query("markdown")):
+    """The written report the comparison produced, so the page can hand over the artefact."""
+    state = services(request)
+    try:
+        row = state.prompt_experiments.get(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Experiment does not exist") from exc
+    if row["status"] != "completed":
+        raise HTTPException(status_code=409, detail="对比尚未完成，没有可下载的报告。")
+    path = Path(row["report_path"] if format == "markdown" else row["report_path"]).with_suffix(
+        ".md" if format == "markdown" else ".json"
+    )
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="报告文件已不存在")
+    media = "text/markdown; charset=utf-8" if format == "markdown" else "application/json"
+    return Response(content=path.read_text(encoding="utf-8"), media_type=media)
 
 
 # --- truths and attributions ------------------------------------------------

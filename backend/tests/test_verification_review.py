@@ -149,3 +149,18 @@ def test_the_review_captures_the_observations_it_was_based_on(store, repository)
     stored = store.record_verification_reviews(run["id"], [review(finding)])
     assert stored[0]["observed_attack"] == "读到了 /etc/passwd"
     assert stored[0]["observed_normal"] == "拒绝访问"
+
+
+def test_the_review_reaches_the_finding_the_page_renders(store, repository):
+    """A review only the Planner can see is not a defence the grader can inspect."""
+    run, _ = create_planner_run(store, repository)
+    task = dispatch_one(store, run)
+    settle(store, run)
+    finding = verified_finding(store, run, task)
+    store.record_verification_reviews(run["id"], [review(finding)], plan_id="plan-1")
+
+    rendered = store.get_finding(finding["id"])
+    assert [(item["decision"], item["rationale"]) for item in rendered["verification_reviews"]] == [
+        ("confirmed", "攻击侧读到 /etc/passwd 而正常侧被拒绝，观测确实支撑该结论。")
+    ]
+

@@ -343,6 +343,26 @@ CREATE TABLE IF NOT EXISTS verification_reviews (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_verification_reviews_unique
     ON verification_reviews(run_id, finding_id, revision);
 
+-- Prompt-variant comparisons started from the UI.  ``rows`` holds the exact JSON the
+-- comparison script wrote, so the page and the written report cannot disagree about what
+-- was measured; ``progress`` is only what the log tail already said out loud.
+CREATE TABLE IF NOT EXISTS prompt_experiments (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    variants TEXT NOT NULL DEFAULT '[]',
+    units_limit INTEGER NOT NULL DEFAULT 0,
+    scenario TEXT,
+    model TEXT NOT NULL DEFAULT '',
+    budgets TEXT NOT NULL DEFAULT '{}',
+    log_path TEXT NOT NULL DEFAULT '',
+    report_path TEXT NOT NULL DEFAULT '',
+    rows TEXT NOT NULL DEFAULT '[]',
+    progress TEXT NOT NULL DEFAULT '{}',
+    error TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL,
@@ -2872,6 +2892,14 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             (run_id,),
         )]
 
+    def verification_reviews_for(self, run_id: str, finding_id: str) -> list[dict]:
+        """The cross-checks recorded for one finding, newest last."""
+        return [dict(row) for row in self._rows(
+            "SELECT * FROM verification_reviews WHERE run_id = ? AND finding_id = ?"
+            " ORDER BY created_at, id",
+            (run_id, finding_id),
+        )]
+
     def _unreviewed_verified(self, run_id: str) -> list[dict]:
         """Verified conclusions the Planner has not cross-checked at their current revision."""
         rows = self._rows(
@@ -4084,6 +4112,11 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             finding[name] = _loads(finding.get(name), [])
         finding["poc"] = _loads(finding.get("poc"), None)
         finding["verifications"] = self.list_verifications(finding["id"])
+        # The Planner's cross-check of those verifications, so the UI can show that the
+        # verdict was read by a second pass instead of merely recorded.
+        finding["verification_reviews"] = self.verification_reviews_for(
+            finding["run_id"], finding["id"]
+        )
         # A finding carries no location of its own: it belongs to a unit, and the unit
         # knows the file. `line` is the first line the finding actually cites, so
         # "locate it in the source" lands on the evidence rather than the unit header.
@@ -4322,6 +4355,66 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         prompt["issues"] = _loads(prompt.get("issues"), [])
         prompt["builtin"] = bool(prompt["builtin"])
         return prompt
+
+    # --- prompt experiments ------------------------------------------------
+
+    _EXPERIMENT_JSON = ("variants", "budgets", "rows", "progress")
+
+    def _experiment_dict(self, row) -> dict:
+        item = dict(row)
+        for name in self._EXPERIMENT_JSON:
+            item[name] = _loads(item.get(name), [] if name in ("variants", "rows") else {})
+        return item
+
+    def add_prompt_experiment(self, experiment: dict) -> None:
+        self._write(
+            "INSERT INTO prompt_experiments (id, created_at, status, variants, units_limit,"
+            " scenario, model, budgets, log_path, report_path) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                experiment["id"],
+                experiment["created_at"],
+                experiment.get("status", "running"),
+                _dumps(experiment.get("variants", [])),
+                int(experiment.get("units_limit", 0)),
+                experiment.get("scenario"),
+                experiment.get("model", ""),
+                _dumps(experiment.get("budgets", {})),
+                experiment.get("log_path", ""),
+                experiment.get("report_path", ""),
+            ),
+        )
+
+    def update_prompt_experiment(self, experiment_id: str, **fields) -> None:
+        allowed = {"status", "finished_at", "rows", "progress", "error"}
+        updates = {name: value for name, value in fields.items() if name in allowed}
+        if not updates:
+            return
+        encoded = {
+            name: _dumps(value) if name in ("rows", "progress") and not isinstance(value, str) else value
+            for name, value in updates.items()
+        }
+        assignments = ", ".join(f"{name} = ?" for name in encoded)
+        self._write(
+            f"UPDATE prompt_experiments SET {assignments} WHERE id = ?",
+            (*encoded.values(), experiment_id),
+        )
+
+    def get_prompt_experiment(self, experiment_id: str) -> dict | None:
+        row = self._row("SELECT * FROM prompt_experiments WHERE id = ?", (experiment_id,))
+        return None if row is None else self._experiment_dict(row)
+
+    def list_prompt_experiments(self, limit: int = 20) -> list[dict]:
+        rows = self._rows(
+            "SELECT * FROM prompt_experiments ORDER BY created_at DESC LIMIT ?", (int(limit),)
+        )
+        return [self._experiment_dict(row) for row in rows]
+
+    def running_prompt_experiment(self) -> dict | None:
+        row = self._row(
+            "SELECT * FROM prompt_experiments WHERE status = 'running'"
+            " ORDER BY created_at DESC LIMIT 1"
+        )
+        return None if row is None else self._experiment_dict(row)
 
     # --- truths ------------------------------------------------------------
 

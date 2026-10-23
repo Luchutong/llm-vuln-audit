@@ -1,0 +1,5 @@
+<?php
+require __DIR__.'/../../src/bootstrap.php';
+$term=(string)($_GET['q']??'');
+$products=db()->query("SELECT id,name,description,price,stock,color FROM products WHERE name LIKE '%".$term."%' ORDER BY id")->fetchAll();
+page('本季好物',function()use($products,$term){echo '<form class="search-form" method="get"><input aria-label="搜索商品" name="q" placeholder="搜索你喜欢的好物" value="'.h($term).'"><button>搜索</button></form><p class="muted">共找到 <span id="result-count">'.count($products).'</span> 件商品</p><div class="products">';foreach($products as $p)echo '<article class="product"><div class="product-art '.h($p['color']).'"><svg viewBox="0 0 240 220" role="img" aria-label="'.h($p['name']).'"><use href="/assets/products.svg#product-'.(int)$p['id'].'"></use></svg></div><div class="product-copy"><small>拾光 · 日常系列</small><h2>'.h($p['name']).'</h2><p>'.h($p['description']).'</p><div class="row"><strong>¥'.h($p['price']).'</strong><a class="button secondary" href="/catalog/detail.php?id='.(int)$p['id'].'">查看商品 →</a></div></div></article>';echo '</div><a href="/catalog/greeting.php">查看到店欢迎信息</a>';},'商品目录');

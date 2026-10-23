@@ -20,6 +20,7 @@ from .config import ModelConfig, Settings
 from .db import WITHDRAWN_FINDING_DISPOSITIONS, Store
 from .events import EventBus
 from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
+from .cvss_assessment import propose
 from .finding_policy import is_vulnerability_finding
 from .health import ModelHealth
 from .poc import PocPolicy, PocVerifier
@@ -1393,12 +1394,12 @@ class AuditWorker:
     def _merge_project_finding(self, run_id: str, finding_id: str, prepared: dict) -> dict | None:
         """Fold a validated vulnerability into its project's ledger.
 
-        Only a candidate vulnerability is ledger material: an observation, an invalid
-        citation or a finding whose kind/severity disqualified it stays run-local.  The
+        Only a candidate vulnerability is ledger material: an observation or an invalid
+        citation stays run-local. Scoring completeness is independent. The
         ledger write is best-effort by design -- losing a ledger row must not lose the run
         finding that is already persisted and reported.
         """
-        record = prepared.get("record") or {}
+        record = {**(prepared.get("record") or {}), "id": finding_id}
         if not prepared.get("candidate") or not prepared.get("vulnerability"):
             return None
         run = self.store.get_run(run_id)
@@ -1874,7 +1875,7 @@ class AuditWorker:
             vulnerability = is_vulnerability_finding(payload)
             candidate = bool(evidence) and vulnerability
             if not vulnerability:
-                problems.append("A vulnerability kind and a low/medium/high/critical risk level are required")
+                problems.append("An explicit vulnerability kind is required")
             finding_id = uuid.uuid4().hex
             raw_preconditions = str(payload.get("preconditions") or "").strip()
             kind = str(payload.get("kind") or "source_observation").strip() or "source_observation"
@@ -1919,6 +1920,9 @@ class AuditWorker:
                 "verdict": None,
                 "created_at": _now(),
             }
+            finding.update(propose(payload.get("cvss_input"),
+                validate_refs=lambda refs: validate_evidence(refs, file_lines, ranges),
+                snapshot_id=run["snapshot_id"], run_id=run["id"]))
             prepared.append({
                 "record": finding,
                 "candidate": candidate,
@@ -1982,7 +1986,12 @@ class AuditWorker:
                 "verdict": None,
                 "created_at": _now(),
             }
-            self.store.add_finding(finding)
+            finding.update(propose(check.cvss_input,
+                validate_refs=lambda refs: validate_evidence(refs, file_lines, ranges),
+                snapshot_id=run["snapshot_id"], run_id=run["id"]))
+            written = self.store.add_finding(finding)
+            finding_id = written['finding_id']
+            finding['id'] = finding_id
             self.bus.emit(
                 run["id"],
                 unit["unit_id"],

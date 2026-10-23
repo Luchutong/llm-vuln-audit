@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+case "${1:-help}" in
+  up) docker compose up -d --build --wait --wait-timeout 240 ;;
+  down) docker compose down ;;
+  reset)
+    docker compose stop web
+    trap 'docker compose start web >/dev/null' EXIT
+    docker compose run --rm --no-deps --user www-data --entrypoint php web /var/www/shop/bin/reset.php
+    docker compose restart fixtures
+    docker compose up -d --wait --wait-timeout 120 web
+    trap - EXIT
+    ;;
+  status) docker compose ps ;;
+  logs) docker compose logs --tail 100 "${@:2}" ;;
+  package) python3 bin/package.py ;;
+  *) echo '用法: bin/lab {up|down|reset|status|logs [服务]|package}' ;;
+esac

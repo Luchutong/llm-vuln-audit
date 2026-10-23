@@ -39,10 +39,10 @@ def test_legacy_mode_uses_actual_frozen_gate(policy, task, expected):
 
 
 @pytest.mark.parametrize("mode,profile,enabled,url,reason", [
-    ("off", "dvwa", True, "http://runner", "disabled"),
+    ("off", "lab30", True, "http://runner", "disabled"),
     ("auto", "unknown", True, "http://runner", "unsupported_target"),
-    ("required", "dvwa", False, "http://runner", "disabled"),
-    ("auto", "dvwa", True, "", "runner_unconfigured"),
+    ("required", "lab30", False, "http://runner", "disabled"),
+    ("auto", "lab30", True, "", "runner_unconfigured"),
 ])
 def test_obvious_unavailability_never_contacts_runner(mode, profile, enabled, url, reason):
     def forbidden():
@@ -50,7 +50,7 @@ def test_obvious_unavailability_never_contacts_runner(mode, profile, enabled, ur
     service = PocReadinessService(SimpleNamespace(poc=PocSettings(enabled=enabled, runner_url=url)), client_factory=forbidden)
     result = asyncio.run(service.check(profile, mode=mode))
     assert not result["available"] and result["reason"] == reason
-    assert result["capabilities"]["supported_targets"] == ["dvwa"]
+    assert result["capabilities"]["supported_targets"] == ["lab30"]
 
 
 def test_health_cache_coalesces_and_fresh_bypasses_cached_answers():
@@ -58,15 +58,15 @@ def test_health_cache_coalesces_and_fresh_bypasses_cached_answers():
         client = Client()
         client.delay = .01
         service = PocReadinessService(SimpleNamespace(poc=PocSettings(runner_url="http://private", runner_token="private")), client_factory=lambda: client)
-        first, second = await asyncio.gather(service.check("dvwa"), service.check("dvwa", mode="required", fresh=True))
+        first, second = await asyncio.gather(service.check("lab30"), service.check("lab30", mode="required", fresh=True))
         assert first["available"] and second["mode"] == "required"
         assert client.calls == 1
-        await service.check("dvwa")
+        await service.check("lab30")
         assert client.calls == 1
-        await service.check("dvwa", fresh=True)
+        await service.check("lab30", fresh=True)
         assert client.calls == 2
         client.healthy = False
-        unhealthy = await service.check("dvwa", fresh=True)
+        unhealthy = await service.check("lab30", fresh=True)
         assert unhealthy["reason"] == "runner_unhealthy"
         assert "private" not in str(unhealthy)
         assert client.closed == 3
@@ -79,11 +79,28 @@ def test_health_timeout_is_bounded_and_failures_have_short_cache():
         client.delay = 1
         clock = [0.0]
         service = PocReadinessService(SimpleNamespace(poc=PocSettings(runner_url="http://runner")), client_factory=lambda: client, clock=lambda: clock[0], timeout=.01)
-        assert (await service.check("dvwa"))["reason"] == "runner_unhealthy"
+        assert (await service.check("lab30"))["reason"] == "runner_unhealthy"
         clock[0] = 4.9
-        await service.check("dvwa")
+        await service.check("lab30")
         assert client.calls == 1
         clock[0] = 5.1
-        await service.check("dvwa")
+        await service.check("lab30")
         assert client.calls == 2
+    asyncio.run(scenario())
+
+
+def test_lab30_is_a_supported_target():
+    """Lab30 shop joins Lab30: profile/target pair must not be refused offline."""
+    async def scenario():
+        client = Client()
+        service = PocReadinessService(
+            SimpleNamespace(poc=PocSettings(runner_url="http://runner")),
+            client_factory=lambda: client,
+        )
+        # lab30 profile + lab30 target reaches the runner health check instead of
+        # being rejected as unsupported; unknown profile is still rejected.
+        lab30 = await service.check("lab30", target="lab30")
+        assert lab30["reason"] == "ready"
+        unknown = await service.check("some-other-lab", target="lab30")
+        assert unknown["reason"] == "unsupported_target"
     asyncio.run(scenario())

@@ -1,0 +1,72 @@
+name: lab30-shop
+services:
+  db:
+    image: lab30-shop-db:1.0.0
+    build:
+      context: .
+      dockerfile: docker/db.Dockerfile
+    environment:
+      MARIADB_DATABASE: shop
+      MARIADB_USER: shop
+      MARIADB_PASSWORD: shop-local-password
+      MARIADB_ROOT_PASSWORD: shop-root-local-password
+    volumes:
+      - database:/var/lib/mysql
+    networks: [shop]
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+  web:
+    image: lab30-shop-web:1.0.0
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        HTTP_PROXY: ${SHOP_BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${SHOP_BUILD_HTTPS_PROXY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      fixtures:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_NAME: shop
+      DB_USER: shop
+      DB_PASSWORD: shop-local-password
+      SHOP_DATA_DIR: /var/lib/shop
+    ports:
+      - '127.0.0.1:${SHOP_PORT:-18880}:80'
+    volumes:
+      - runtime:/var/lib/shop
+    networks: [shop]
+    healthcheck:
+      test: [CMD, php, -r, "exit(@file_get_contents('http://127.0.0.1/health.php') === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  fixtures:
+    image: lab30-shop-fixtures:1.0.0
+    build:
+      context: .
+      dockerfile: docker/fixtures.Dockerfile
+    ports:
+      - '127.0.0.1:${HELPER_PORT:-18881}:8080'
+    networks: [shop]
+    read_only: true
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+volumes:
+  database:
+  runtime:
+networks:
+  shop:
+    driver: bridge

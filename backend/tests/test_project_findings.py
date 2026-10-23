@@ -26,7 +26,7 @@ def _project(store: Store, content_key: str = "key-1") -> dict:
         "id": uuid.uuid4().hex,
         "content_key": content_key,
         "name": "DVWA",
-        "target_profile": "dvwa",
+        "target_profile": "lab30",
     }
     store.add_project(project)
     return store.get_project_by_content_key(content_key)
@@ -134,7 +134,7 @@ def test_a_correction_marks_the_previous_verification_stale(store):
         merged["project_finding_id"], "verified", "confirmed", "verification-1"
     )
 
-    _merge(store, project, "run-2", _finding(severity="critical"))
+    _merge(store, project, "run-2", _finding(evidence=[{"path":"vulnerabilities/sqli/index.php", "start_line":10,"end_line":13}]))
 
     row = store.get_project_finding(merged["project_finding_id"])
     assert row["revision"] == 2

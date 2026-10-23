@@ -14,7 +14,7 @@ scp -r llm-vuln-audit-main/ user@server:/opt/   # 或 git clone
 cd /opt/llm-vuln-audit-main
 cp .env.example .env
 # 必填：LLM_MODEL / LLM_BASE_URL / LLM_API_KEY
-# 可选：COMPOSE_PROFILES=poc 启用本地 DVWA 靶场 + 隔离 poc-runner
+# 可选：COMPOSE_PROFILES=poc 启用本地 Lab30 靶场 + 隔离 poc-runner
 #       POC_RUNNER_TOKEN=$(openssl rand -hex 32)
 
 # 3. 构建并启动
@@ -35,7 +35,7 @@ python3 scripts/score_dataset.py --api http://127.0.0.1:8899 --run <run_id> --ch
 - 评价以 CVSS 3.1 基础分为准；文字评级按基础分区间校验，未提供数值评分或向量时明确标为缺失。不会从 `severity` 猜分，也不将未独立评估的时序、环境分数作为主评分。字段与输出见 [数据集说明](../datasets/lab30-shop/README.md)。
 - 数据持久化在 named volume `audit-data`；`AUDIT_PORT` 可改端口（默认只绑 127.0.0.1，对外暴露请自行加反代/改端口绑定）。
 - 模型端点在宿主机时，容器内可用 `http://host.docker.internal:<port>`（compose 已配置 host-gateway）。
-- `COMPOSE_PROFILES=poc` 时会额外启动 DVWA + MariaDB + poc-runner；三个内部网络互相隔离，runner 无外网、无宿主挂载。
+- `COMPOSE_PROFILES=poc` 时会额外启动 Lab30 + MariaDB + poc-runner；三个内部网络互相隔离，runner 无外网、无宿主挂载。
 
 ## 路径 B：裸机 venv（开发/调试）
 
@@ -54,7 +54,7 @@ python3 scripts/score_dataset.py --api http://127.0.0.1:8899 --run <run_id> --ch
 |--------|------|------|
 | 脚本换行符 | ✅ 已核查 | 全仓 `.sh/.py/.yaml/.toml/.ts` 无 CRLF；`setup_linux.sh` 内置自检，发现即转 LF |
 | 可执行位 | ✅ 已处理 | Windows 文件系统不带 +x；`setup_linux.sh` 会 `chmod +x scripts/*`；用 git 迁移时确认 `git update-index --chmod=+x` |
-| Windows-only 代码 | ✅ 无残留 | `prompt_rounds.sh` 解释器可覆盖并自动探测；`poc_runner` 的 `resource` 模块本就只在 Linux 容器内运行，其测试在非 Linux 上按平台跳过，Linux 上正常执行 |
+| Windows-only 代码 | ✅ 无残留 | `scripts/start.sh` 负责本地服务及 Lab30 Compose 环境；`poc_runner` 的 `resource` 模块在 Linux 容器内运行，其测试在非 Linux 上按平台跳过，Linux 上正常执行 |
 | 镜像内容 | ✅ 已补齐 | Dockerfile application 阶段新增 `COPY scripts/` 与 `COPY datasets/`（只读）；容器内评分请用 `--out` 指到可写目录（未指定且目录只读时脚本自动退回当前工作目录） |
 | 依赖锁定 | ✅ | 后端走 `uv sync --frozen`（uv.lock），前端走 `npm ci`（package-lock.json） |
 | 数据与密钥 | ⚠️ 需人工 | `.env` 不入库不入镜像（.dockerignore 已挡）；密钥只在目标机的 `.env` 里填；`data/` 目录不建议从 Windows 拷贝（容器用 named volume 更干净） |

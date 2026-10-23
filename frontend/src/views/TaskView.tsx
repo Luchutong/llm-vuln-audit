@@ -294,7 +294,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
               ))}
             </div>
           </div>
-          <p className="field-hint">验收条件按平台默认要求冻结：结论需有原始源码行号证据、明确风险等级与触发条件。{scope && <span className="scope-chip" title="提交时会拼进审计任务末尾"><span className="mono">{scope.path}:{scope.start}-{scope.end}</span><button type="button" className="icon-button" aria-label="移除重点范围" disabled={starting} onClick={() => setScope(null)}><X size={12} /></button></span>}</p>
+          <p className="field-hint">验收条件按平台默认要求冻结：结论需有原始源码行号证据与明确触发条件；CVSS 3.1 指标不足时保留待评分。{scope && <span className="scope-chip" title="提交时会拼进审计任务末尾"><span className="mono">{scope.path}:{scope.start}-{scope.end}</span><button type="button" className="icon-button" aria-label="移除重点范围" disabled={starting} onClick={() => setScope(null)}><X size={12} /></button></span>}</p>
         </div>
         {error && <div className="composer-error" role="alert">{error}{selected && !snapshot && !loading && <button className="text-button" type="button" onClick={() => setSnapshotRevision((value) => value + 1)}>重试读取 ZIP</button>}</div>}
         <div className="composer-toolbar"><div className="composer-tools">

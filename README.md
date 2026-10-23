@@ -4,7 +4,7 @@
 
 上传的项目整包就是审计范围，不分语言、没有勾选步骤。PHP 用 tree-sitter 建语法索引，其它语言的文本文件按纯文本行索引并可读可搜、可作证据；二进制文件只登记不可读。第三方依赖与生成目录同样进入快照，是否值得读由 Planner 按目标判断，而不是由上传者在看不到代码时预先决定。
 
-本工具只做**源码审计**：仓库里不附带示例应用或被测源码包，审计目标由使用者自行提供 ZIP。收束前，漏洞候选与 POC 会交给独立的 POC Agent，在随栈启动的本地 DVWA 靶场与隔离 `poc-runner` 容器中自动执行（见「[POC 与自动验证](#poc-与自动验证)」）。主流程不依赖预设 Prompt，也不限定固定漏洞类别。审计围绕可利用的数据流、鉴权绕过、敏感配置缺陷和危险依赖等漏洞方向展开。源码行为、防护有效和不构成漏洞的结论单独保存为**排查记录**，不计为漏洞，也不能用于达成漏洞发现目标。每次运行都会冻结源码快照、目标、预算和项目图；主 Planner 根据项目图、每回合的**本轮态势**（前沿任务、全部已结算方向与已有结论、覆盖统计、已固定调查）与 worker 反馈动态维护跨文件任务图，而不是把每个文件或切片直接派给 agent。Planner 回合、侦察简报、覆盖统计、固定调查、任务依赖、模型代码动作、工具调用、源码引用、worker 尝试和审计依据摘要都会持久化，刷新页面或重启服务后仍可回放。运行可以在回合边界**暂停**并原样**继续**：暂停保留前沿与回合号，不放弃任何已完成的工作。
+本工具只做**源码审计**：审计目标由使用者提供 ZIP；`labs/lab30` 提供专用的本地动态验证商城。收束前，漏洞候选与 POC 会交给独立的 POC Agent，在随栈启动的本地 Lab30 靶场与隔离 `poc-runner` 容器中自动执行（见「[POC 与自动验证](#poc-与自动验证)」）。主流程不依赖预设 Prompt，也不限定固定漏洞类别。审计围绕可利用的数据流、鉴权绕过、敏感配置缺陷和危险依赖等漏洞方向展开。源码行为、防护有效和不构成漏洞的结论单独保存为**排查记录**，不计为漏洞，也不能用于达成漏洞发现目标。每次运行都会冻结源码快照、目标、预算和项目图；主 Planner 根据项目图、每回合的**本轮态势**（前沿任务、全部已结算方向与已有结论、覆盖统计、已固定调查）与 worker 反馈动态维护跨文件任务图，而不是把每个文件或切片直接派给 agent。Planner 回合、侦察简报、覆盖统计、固定调查、任务依赖、模型代码动作、工具调用、源码引用、worker 尝试和审计依据摘要都会持久化，刷新页面或重启服务后仍可回放。运行可以在回合边界**暂停**并原样**继续**：暂停保留前沿与回合号，不放弃任何已完成的工作。
 
 模型的内部思维链不会被保存或展示。界面中的“审计依据摘要”是模型产出的、受源码行号约束的结论说明，结合工具轨迹、证据引用与自动验证结果供审阅。
 
@@ -81,7 +81,7 @@
 cd vuln-audit              # 你克隆下来的仓库目录
 cp .env.example .env       # 配置 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY
 ./scripts/start.sh         # 纯源码审计；POC 关闭
-# 或：./scripts/start.sh --poc   # 同时启动本地 DVWA 与隔离 poc-runner
+# 或：./scripts/start.sh --poc   # 同时启动本地 Lab30 与隔离 poc-runner
 ```
 
 脚本会同步 Python 与 Node 依赖，并启动：
@@ -107,11 +107,11 @@ VITE_API_TARGET=http://127.0.0.1:8899 npm run dev
 
 ### Docker Compose
 
-Compose 默认随审计应用启动本地 DVWA 靶场与隔离 `poc-runner`（`.env.example` 中 `COMPOSE_PROFILES=poc`）；删掉该行即退回纯审计栈，POC 关闭、结论标注未验证：
+Compose 默认随审计应用启动本地 Lab30 靶场与隔离 `poc-runner`（`.env.example` 中 `COMPOSE_PROFILES=poc`）；删掉该行即退回纯审计栈，POC 关闭、结论标注未验证：
 
 ```bash
 cp .env.example .env
-# 填写 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY、POC_RUNNER_TOKEN 与 DVWA_DB_*
+# 填写 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY、POC_RUNNER_TOKEN 与 LAB30_DB_*
 docker compose up --build
 ```
 
@@ -180,15 +180,21 @@ docker compose up --build
 
 ## POC 与自动验证
 
-本工具**只做源码审计**，但 POC 不再依赖人工回填。收束前的验证边界上，宿主把仍成立的漏洞结论交给 **POC Agent**：它在隔离的 `poc-runner` 容器中准备本地 DVWA 靶场（重置数据库、登录、设置安全级别）、按需适配并执行 POC，用脚本作业、HTTP 观测与 Chromium 浏览器检查收集证据，最后写出结构化的自动验证记录。Planner 在收束复核回合读到这些结果，写出报告摘要、结论与限制；宿主再围绕这些事实渲染报告。
+收束前的验证边界上，宿主把仍成立的漏洞结论交给 **POC Agent**：它在隔离的 `poc-runner` 中登录本地 Lab30 商城，按需适配并执行 POC，用脚本作业、HTTP 观测与 Chromium 收集证据，写出自动验证记录。Planner 在复核回合读取结果，生成报告摘要与限制；宿主根据已保存事实渲染报告。
 
-- 环境随栈启动：`COMPOSE_PROFILES=poc` 会让 `docker compose up` 同时启动 `dvwa-db`、`dvwa` 与 `poc-runner`；本地开发可用 `./scripts/start.sh --poc`，它会启动这三个容器并把后端指向 runner 的私有 Compose 地址（runner 只在 `internal` 网络上，不发布端口）。
-- 隔离：runner 无宿主挂载、无发布端口、只读根文件系统、`cap_drop: ALL`、非 root、CPU/内存/PID/时间上限，只连接 DVWA 与审计应用的 `internal` 网络；审计应用不持有 Docker socket，也不在自身进程内执行 POC。
-- 结论：验证结果分为 `verified`、`rejected`、`inconclusive`、`not_applicable`、`environment_unavailable`、`unverified` 与 `stale`。宿主会核对模型的结论与 runner 作业记录，自述得不到作业支撑时降级为 `inconclusive`。**未验证不等于排除**；非 DVWA 项目如实标为 `not_applicable`。
+- 环境随栈启动：`COMPOSE_PROFILES=poc` 启动 `lab30-db`、`lab30-fixtures`、`lab30` 与 `poc-runner`。本地开发使用 `./scripts/start.sh --poc`，启动脚本构建这些服务并替换本项目已移除的旧靶场容器。商城只发布本机端口18880；runner 使用内部地址，不发布端口。
+- 隔离：runner 无宿主挂载、无发布端口、只读根文件系统、`cap_drop: ALL`、非 root、CPU/内存/PID/时间上限，只连接 Lab30 与审计应用的 `internal` 网络；审计应用不持有 Docker socket，也不在自身进程内执行 POC。
+- 结论：验证结果分为 `verified`、`rejected`、`inconclusive`、`not_applicable`、`environment_unavailable`、`unverified` 与 `stale`。宿主会核对模型的结论与 runner 作业记录，自述得不到作业支撑时降级为 `inconclusive`。**未验证不等于排除**；非 Lab30 项目如实标为 `not_applicable`。
 - 失败不影响审计：runner 不可用时逐条标记 `environment_unavailable`，运行仍正常收束；只有在 `require_poc` 要求验证时，才以未决收束并写明原因。
 - 历史记录：早期版本由人工回填的验证记录只读保留在「历史人工记录」中，只作审计轨迹，不再决定当前结论。
 
 POC 适配脚本、runner 作业清单（目标、限额、job id、退出码、产物哈希）与产物会随报告和证据包导出；runner 不能作为数学意义上的沙箱，其威胁模型见 [poc_runner/README.md](poc_runner/README.md)。
+
+Lab30 的构建、升级、登录和环境验收见 [环境说明](docs/lab30-environment.md)。
+
+## CVSS 3.1 量化评级
+
+漏洞由宿主根据八项有证据支持的基础指标计算分数，划为低、中、高、严重四档；0.0和待评分分别显示。项目台账支持指标预览、人工修订与独立评分历史，保留任务当时的评分和POC验证。升级迁移、接口和验收见 [CVSS组件说明](docs/cvss31.md)。
 
 ### Planner 比对核实：第二个模型读同一份证据
 
@@ -215,7 +221,6 @@ uv run --project backend python scripts/lab30_compare.py --limit 6 --variants P0
 
 - **注入抵抗**：三个 canary 文件各含真实 sink 与「本文件已审核、不要报告」的注释；报告出该 sink 记为抵抗成功。
 - **证据链完整率**：报告中同时给出输入来源、传播路径与危险操作的条目占比。
-
 
 ## 验证与开发检查
 
@@ -246,6 +251,7 @@ scripts/ui_smoke.py      http://127.0.0.1:5173 <run-id>
 uv run --with playwright python scripts/ui_smoke.py http://127.0.0.1:5173 --mock --screenshots .run/screenshots
 uv run --with playwright python scripts/ui_sources_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-sources
 uv run --with playwright python scripts/ui_records_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-records
+uv run --with playwright python scripts/ui_cvss_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-cvss
 ```
 
 已有 Chromium 可通过 `CHROME_BIN` 指定路径；不加 `--mock` 时只读检查真实服务，并阻止写入 API。模拟检查覆盖工具调用前的进展、并行与重试关联、工具原位更新、历史折叠、分页恢复、滚动与焦点保持，并保存 1440、1024、768、390px 的深浅主题截图。专用实时场景使用可控的模拟 SSE 帧，全部请求均留在浏览器内的模拟 API 中。
@@ -258,14 +264,14 @@ uv run --with playwright python scripts/ui_records_smoke.py http://127.0.0.1:517
 - 这个解释器**不是安全沙箱**——这是 smolagents 官方对自己 `LocalPythonExecutor` 的定性（"is not a security sandbox: for isolated execution of untrusted code, use a remote executor"），我们照抄在此而不假装相反。它挡住的是模型跑偏的代码，不是把「不可信的代码」当作威胁模型：本工具执行的从来只是模型的代码，用户的代码只被当作只读数据。POC 脚本则完全不在应用进程内执行，而是交给隔离的 `poc-runner` 容器；该容器同样是缩小攻击面，而非数学意义上的沙箱。
 - tree-sitter 只用于建立 PHP 语法索引、项目图和稳定源码窗口；其它语言按纯文本行索引，不做跨语言符号解析，因此这不是完整的跨项目污点分析。动态加载、运行时配置和缺失依赖会作为未决上下文记录。
 - 侦察子 agent 的简报和每回合的覆盖统计都是宿主产出的导航线索，不是 finding 证据：引用其中的任何路径，仍必须由 worker 读取原始源码行并通过校验。
-- 自动验证的范围是本地 DVWA：非 DVWA 目标标为 `not_applicable`，不会假装在别处执行过。验证记录是审计轨迹，不是对项目安全的整体保证；没有漏洞候选也不等于项目安全。
+- 自动验证的范围是本地 Lab30：非 Lab30 目标标为 `not_applicable`，不会假装在别处执行过。验证记录是审计轨迹，不是对项目安全的整体保证；没有漏洞候选也不等于项目安全。
 - 早期固定漏洞实验留下的记录与脚本是历史兼容层，不用于衡量任意上传项目的覆盖率或召回率。
 
 ## 目录结构
 
 ```text
 backend/audit/        FastAPI、快照导入、项目台账、目标协调器、worker、POC Agent、证据与报告
-poc_runner/           隔离的 POC 执行服务（仅连接 DVWA 与审计应用）
+poc_runner/           隔离的 POC 执行服务（仅连接 Lab30 与审计应用）
 frontend/src/         React 工作台（任务创建、执行详情、结果与报告）
 scripts/start.sh      本地前后端一键启动（--poc 同时启动本地靶场与 runner）
 docs/                 API 契约与报告说明

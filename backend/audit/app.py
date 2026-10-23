@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from .config import CredentialVault, DEFAULT_BUDGETS, VERSION, Settings, clamp_budgets, find_env_file, load_env_file
-from .db import Store, now
+from .db import Store, build_verification_records, now
 from .events import EventBus
 from .health import ModelHealth
 from .finding_policy import partition_findings, source_observations
@@ -39,6 +39,11 @@ from .schemas import (
 from .source import MAX_LISTED_PATHS, SourceRepository
 from .worker import AuditWorker
 from .runtime import AgentPolicy
+from .cvss_assessment import propose
+from .cvss31 import BASE
+from .cvss_store import CvssConflict
+from .schemas import CvssEditRequest
+from .evidence import validate_evidence
 from .execution_state import DEFAULT_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
 from .poc_readiness import PocReadinessService
 from .poc_store import poc_target_key
@@ -74,10 +79,10 @@ class Services:
         if selected_profile is not None:
             self.settings.model = self.model_config_for_profile(selected_profile)
         self.repository = SourceRepository(settings.data_dir)
-        # Backfill is guarded by schema_meta and idempotent: an old data directory gains
-        # projects and a ledger exactly once, while a fresh one does nothing here.
+        # Profile recognition evolves as supported targets change. Refresh it on each
+        # startup even if the one-time project/ledger migration has already completed.
+        ensure_projects(self.store, self.repository)
         if self.store.schema_meta("project_backfill_v1") != "done":
-            ensure_projects(self.store, self.repository)
             backfill_project_ledger(self.store)
             self.store.set_schema_meta("project_backfill_v1", "done")
         self.bus = EventBus(self.store)
@@ -301,6 +306,11 @@ def _verification_summary(findings: list[dict]) -> dict:
     return summary
 
 
+def _verification_records(store, findings: list[dict]) -> list[dict]:
+    """Shared with the Planner context, so the bundle cannot drift from what it reads."""
+    # Resolved lazily: findings with no verification never ask the store, and test
+    # doubles that model only the endpoints they exercise stay usable.
+    return build_verification_records(lambda finding_id: store.list_verifications(finding_id), findings)
 def _project_projection(
     state: Services, run: dict, findings: list[dict], relations: list[dict] | None = None
 ) -> dict:
@@ -319,6 +329,7 @@ def _project_projection(
             "carried_findings": [],
             "verification_jobs": [],
             "verification_summary": _verification_summary(findings),
+            "verification_records": _verification_records(state.store, findings),
             # Narratives only exist for project-mode runs; a legacy run's report must not
             # gain a section it never produced.
             "report_narrative": {},
@@ -334,6 +345,7 @@ def _project_projection(
         ],
         "verification_jobs": state.store.list_run_verification_jobs(run["id"]),
         "verification_summary": _verification_summary(findings),
+        "verification_records": _verification_records(state.store, findings),
         "report_narrative": state.store.latest_plan_narrative(run["id"]),
     }
 
@@ -416,7 +428,7 @@ def _config_payload(state: Services) -> dict:
         "budget_limits": {"defaults": DEFAULT_BUDGETS},
         "run_budget_limits": {"defaults": DEFAULT_RUN_LIMITS, "min": MIN_RUN_LIMITS, "max": MAX_RUN_LIMITS},
         "agent_policy": AgentPolicy().snapshot(),
-        "poc": {**state.settings.poc.public(), "supported_targets": ["dvwa"]},
+        "poc": {**state.settings.poc.public(), "supported_targets": ["lab30"]},
         "worker": state.worker.status,
         "model_health": state.health.snapshot(),
         "version": VERSION,
@@ -756,10 +768,11 @@ async def search_project_findings(
     request: Request,
     project_id: str | None = Query(None),
     q: str | None = Query(None, max_length=200),
-    severity: str | None = Query(None, pattern="^(critical|high|medium|low|unknown)$"),
+    severity: str | None = Query(None, pattern="^(critical|high|medium|low|none|unknown)$"),
     verification_status: str | None = Query(
         None, pattern="^(verified|rejected|inconclusive|not_applicable|environment_unavailable|unverified|stale)$"
     ),
+    cvss_status: str | None = Query(None, pattern="^(scored|needs_information|legacy_unrated|stale)$"),
     disposition: str | None = Query(None, pattern="^(all|open|retracted|duplicate|superseded|contested)$"),
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
@@ -769,8 +782,63 @@ async def search_project_findings(
         raise HTTPException(status_code=404, detail="Project does not exist")
     return state.store.search_project_findings(
         project_id=project_id, q=q, severity=severity, verification_status=verification_status,
-        disposition=disposition, offset=offset, limit=limit,
+        cvss_status=cvss_status, disposition=disposition, offset=offset, limit=limit,
     )
+
+
+
+def _cvss_edit(state, ident, payload):
+    finding = state.store.get_project_finding(ident)
+    if finding is None:
+        raise HTTPException(404, "Project finding does not exist")
+    info = finding.get("cvss_assessment") or {}
+    if finding["revision"] != payload.expected_revision or int(info.get("assessment_revision") or 0) != payload.expected_assessment_revision:
+        raise HTTPException(409, "结论或评分已更新，请刷新后比较并重新提交。")
+    if set(payload.metrics) != set(BASE):
+        raise HTTPException(422, "必须且只能提供 AV/AC/PR/UI/S/C/I/A 八项指标")
+    run = state.store.get_run(finding.get("last_run_id") or "")
+    snapshot_id = (run or {}).get("snapshot_id")
+    def references(refs):
+        if not snapshot_id or not getattr(state, "repository", None):
+            return [], ["评分依据的源码快照不可用；可使用明确说明的人工假设"]
+        try:
+            snapshot = state.repository.get_snapshot(snapshot_id)
+        except (KeyError, FileNotFoundError):
+            return [], ["评分依据的源码快照不可用"]
+        files = {item["path"]: item["line_count"] for item in snapshot["files"] if item.get("kind") != "binary"}
+        return validate_evidence(refs, files, [(path, 1, end) for path, end in files.items()])
+    try:
+        return propose(payload.metrics, source="manual", strict=True, validate_refs=references,
+                       snapshot_id=snapshot_id, run_id=(run or {}).get("id"))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/project-findings/{finding_id}/cvss/preview")
+async def preview_project_cvss(request: Request, finding_id: str, payload: CvssEditRequest) -> dict:
+    return _cvss_edit(services(request), finding_id, payload)
+
+
+@app.put("/api/project-findings/{finding_id}/cvss")
+async def update_project_cvss(request: Request, finding_id: str, payload: CvssEditRequest) -> dict:
+    state = services(request)
+    rating = _cvss_edit(state, finding_id, payload)
+    try:
+        return state.store.update_project_cvss(finding_id, rating, expected_revision=payload.expected_revision,
+            expected_assessment_revision=payload.expected_assessment_revision, reason=payload.reason.strip())
+    except KeyError as exc:
+        raise HTTPException(404, "Project finding does not exist") from exc
+    except CvssConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/api/project-findings/{finding_id}/cvss-history")
+async def project_cvss_history(request: Request, finding_id: str,
+        offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)) -> dict:
+    try:
+        return services(request).store.project_cvss_history(finding_id, offset=offset, limit=limit)
+    except KeyError as exc:
+        raise HTTPException(404, "Project finding does not exist") from exc
 
 
 def _finding_run_source(run: dict | None) -> dict | None:

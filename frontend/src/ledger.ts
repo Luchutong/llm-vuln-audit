@@ -1,10 +1,10 @@
 import type { Evidence, Finding, LedgerFindingDetail } from './types';
 
 export const LEDGER_PAGE_SIZE = 25;
-export const LEDGER_SEVERITIES = ['critical', 'high', 'medium', 'low', 'unknown'] as const;
+export const LEDGER_SEVERITIES = ['critical', 'high', 'medium', 'low', 'none', 'unknown'] as const;
 export const LEDGER_VERIFICATIONS = ['verified', 'unverified', 'inconclusive', 'environment_unavailable', 'not_applicable', 'rejected', 'stale'] as const;
 export const LEDGER_DISPOSITIONS = ['open', 'contested', 'retracted', 'duplicate', 'superseded', 'all'] as const;
-export const SEVERITY_LABELS: Record<string, string> = { critical: '严重', high: '高危', medium: '中危', low: '低危', unknown: '未标注' };
+export const SEVERITY_LABELS: Record<string, string> = { critical: '严重', high: '高危', medium: '中危', low: '低危', none: '无基础影响', unknown: '待评分' };
 export const LEDGER_DISPOSITION_LABELS: Record<string, string> = { open: '当前主张', contested: '存在争议', retracted: '已撤回', duplicate: '重复', superseded: '已取代' };
 export const RELATION_LABELS: Record<string, string> = { created: '首次发现', rediscovered: '再次发现', corrected: '更正结论', retracted: '撤回', withdrawn: '撤回', restored: '恢复', carried: '沿用', duplicate: '判为重复', superseded: '被后续结论取代', contested: '标记争议', open: '恢复有效', reopened: '恢复' };
 
@@ -12,6 +12,7 @@ export interface LedgerFilters {
   q: string;
   projectId: string;
   severity: string;
+  cvssStatus?: string;
   verification: string;
   disposition: string;
   page: number;
@@ -26,6 +27,7 @@ export function ledgerFilters(hash: string, projectId?: string): LedgerFilters {
     q: params.get('q') ?? '',
     projectId: projectId ?? params.get('project') ?? '',
     severity: choice(params.get('severity'), LEDGER_SEVERITIES),
+    ...(choice(params.get('cvss_status'), ['scored','needs_information','legacy_unrated','stale']) ? {cvssStatus:params.get('cvss_status')!} : {}),
     verification: choice(params.get('verification'), LEDGER_VERIFICATIONS),
     disposition: choice(params.get('disposition'), LEDGER_DISPOSITIONS),
     page: Number.isSafeInteger(page) && page > 0 ? page : 1,
@@ -36,10 +38,11 @@ export function ledgerFilters(hash: string, projectId?: string): LedgerFilters {
 export function ledgerHash(hash: string, filters: LedgerFilters, scoped = false): string {
   const [base, query = ''] = hash.split('?');
   const params = new URLSearchParams(query);
-  for (const key of ['q', 'project', 'severity', 'verification', 'disposition', 'page']) params.delete(key);
+  for (const key of ['q', 'project', 'severity', 'verification', 'disposition', 'page', 'cvss_status']) params.delete(key);
   if (filters.q.trim()) params.set('q', filters.q.trim());
   if (!scoped && filters.projectId) params.set('project', filters.projectId);
   if (filters.severity) params.set('severity', filters.severity);
+  if (filters.cvssStatus) params.set('cvss_status', filters.cvssStatus);
   if (filters.verification) params.set('verification', filters.verification);
   if (filters.disposition) params.set('disposition', filters.disposition);
   if (filters.page > 1) params.set('page', String(filters.page));
@@ -52,6 +55,7 @@ export function ledgerQuery(filters: LedgerFilters): string {
   if (filters.projectId) params.set('project_id', filters.projectId);
   if (filters.q.trim()) params.set('q', filters.q.trim());
   if (filters.severity) params.set('severity', filters.severity);
+  if (filters.cvssStatus) params.set('cvss_status', filters.cvssStatus);
   if (filters.verification) params.set('verification_status', filters.verification);
   if (filters.disposition) params.set('disposition', filters.disposition);
   return params.toString();

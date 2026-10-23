@@ -5,7 +5,7 @@ from inspect import signature
 from .execution_state import CURRENT_EXECUTION
 
 MUTATIONS = {
-    "merge_project_finding", "record_carried_findings", "set_project_finding_disposition",
+    "update_project_cvss", "merge_project_finding", "record_carried_findings", "set_project_finding_disposition",
     "link_finding_project", "set_finding_verification_state", "set_project_finding_verification",
     "mark_unit_running", "checkpoint_unit", "finish_unit", "claim_next_task_work", "resolve_task_work",
     "settle_task_goal_if_idle", "record_investigation", "set_investigation_status", "begin_planner_round",

@@ -2,7 +2,7 @@
 
 This process is deliberately small and boring.  It listens only on the Compose
 ``poc-control`` network, executes one whitelisted script at a time inside a fresh
-``/tmp`` directory, and talks to the local DVWA instance on ``poc-target``.  It never
+``/tmp`` directory, and talks to the local Lab30 shop on ``poc-target``.  It never
 touches uploaded archives, the audit database, the model endpoint or the Docker socket.
 
 The container is built read-only, runs as an unprivileged uid, drops all capabilities
@@ -32,11 +32,12 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 TOKEN = (os.environ.get("POC_RUNNER_TOKEN") or "").strip()
-DVWA_URL = (os.environ.get("DVWA_URL") or "http://dvwa").rstrip("/")
-DVWA_USER = os.environ.get("DVWA_USER") or "admin"
-DVWA_PASSWORD = os.environ.get("DVWA_PASSWORD") or "password"
+# Lab30 shop (拾光商城): PHP/Apache + MariaDB, member accounts required.
+LAB30_URL = (os.environ.get("LAB30_URL") or "http://lab30").rstrip("/")
+LAB30_USER = os.environ.get("LAB30_USER") or "alice"
+LAB30_PASSWORD = os.environ.get("LAB30_PASSWORD") or "Alice123!"
 WORKDIR = Path(os.environ.get("POC_RUNNER_WORKDIR") or "/tmp/poc-runner")
 MAX_CONCURRENCY = max(1, min(8, int(os.environ.get("POC_RUNNER_CONCURRENCY") or 2)))
 JOB_TTL_SECONDS = 900
@@ -52,17 +53,10 @@ JOB_FILESIZE = 16 * 1024 * 1024
 
 ALLOWED_LANGUAGES = {"php": "poc.php", "python": "poc.py"}
 ALLOWED_PATHS = (
-    "/login.php",
-    "/setup.php",
-    "/security.php",
-    "/index.php",
-    "/about.php",
-    "/instructions.php",
-    "/logout.php",
-    "/vulnerabilities/",
-    "/hackable/",
-    "/docs/",
+    "/auth/", "/catalog/", "/orders/index.php", "/wallet/", "/account/", "/ops/",
+    "/partner/", "/support/", "/content/", "/assets/",
 )
+ALLOWED_PAGES = {"/", "/index.php", "/health.php"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SAFE_TARGET = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 
@@ -89,7 +83,8 @@ _semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 _targets: dict[str, dict] = {}
-_target_locks = {name: threading.Lock() for name in ("dvwa",)}
+_target_locks = {name: threading.Lock() for name in ("lab30",)}
+SUPPORTED_TARGETS = frozenset({"lab30"})
 
 
 # --------------------------------------------------------------------------- auth
@@ -115,12 +110,11 @@ protected = [Depends(require_token)]
 
 
 class PrepareRequest(BaseModel):
-    reset: bool = True
-    security: str = Field(default="low", max_length=16)
+    reset: bool = False
 
 
 class JobRequest(BaseModel):
-    target: str = Field(default="dvwa", max_length=32)
+    target: str = Field(default="lab30", max_length=32)
     language: str = Field(max_length=16)
     script: str
     timeout_seconds: int = Field(default=30, ge=1, le=120)
@@ -128,7 +122,7 @@ class JobRequest(BaseModel):
 
 
 class HttpRequest(BaseModel):
-    target: str = Field(default="dvwa", max_length=32)
+    target: str = Field(default="lab30", max_length=32)
     method: str = Field(default="GET", max_length=8)
     path: str = Field(max_length=2048)
     body: str = Field(default="", max_length=256 * 1024)
@@ -136,7 +130,7 @@ class HttpRequest(BaseModel):
 
 
 class BrowserRequest(BaseModel):
-    target: str = Field(default="dvwa", max_length=32)
+    target: str = Field(default="lab30", max_length=32)
     path: str = Field(max_length=2048)
     script: str = Field(default="", max_length=8 * 1024)
     wait_ms: int = Field(default=1000, ge=0, le=10000)
@@ -148,7 +142,7 @@ class BrowserRequest(BaseModel):
 def _check_target(target: str) -> None:
     if not SAFE_TARGET.fullmatch(target or ""):
         raise HTTPException(status_code=400, detail="invalid target")
-    if target != "dvwa":
+    if target not in SUPPORTED_TARGETS:
         raise HTTPException(status_code=404, detail="unknown target")
 
 
@@ -159,8 +153,8 @@ def _check_path(path: str) -> str:
     bare, _, query = candidate.partition("?")
     if any(token in bare for token in ("..", "\\", "\x00", "://")):
         raise HTTPException(status_code=400, detail="invalid path")
-    if not any(bare == prefix or bare.startswith(prefix) for prefix in ALLOWED_PATHS):
-        raise HTTPException(status_code=403, detail="path is not in the DVWA allowlist")
+    if bare not in ALLOWED_PAGES and not any(bare.startswith(prefix) for prefix in ALLOWED_PATHS):
+        raise HTTPException(status_code=403, detail="path is not in the Lab30 allowlist")
     return candidate
 
 
@@ -254,9 +248,9 @@ def _child_limits() -> None:
             "HOME": os.getcwd(),
             "TMPDIR": os.getcwd(),
             "LANG": "C.UTF-8",
-            "DVWA_URL": DVWA_URL,
-            "DVWA_USER": DVWA_USER,
-            "DVWA_PASSWORD": DVWA_PASSWORD,
+            "LAB30_URL": LAB30_URL,
+            "LAB30_USER": LAB30_USER,
+            "LAB30_PASSWORD": LAB30_PASSWORD,
             # An inherited proxy would turn a target-local script into an egress
             # attempt; explicitly neutralize the common names.
             "NO_PROXY": "*",
@@ -371,7 +365,8 @@ def healthz() -> dict:
     return {
         "ok": TOKEN != "",
         "version": VERSION,
-        "target": "dvwa",
+        "target": "lab30",
+        "supported_targets": ["lab30"],
         "capabilities": {
             "php": shutil.which("php") is not None,
             "python": True,
@@ -389,9 +384,9 @@ def _browser_available() -> bool:
     return True
 
 
-def _dvwa_client() -> httpx.Client:
+def _lab30_client() -> httpx.Client:
     return httpx.Client(
-        base_url=DVWA_URL,
+        base_url=LAB30_URL,
         timeout=httpx.Timeout(15.0, connect=5.0),
         follow_redirects=False,
         trust_env=False,
@@ -405,110 +400,70 @@ def _session(session: httpx.Client, method: str, path: str, **kwargs) -> httpx.R
 TOKEN_FIELD = re.compile(r"name=['\"]user_token['\"]\s+value=['\"]([^'\"]+)['\"]")
 
 
-def _form_token(session: httpx.Client, path: str) -> str:
-    """Fetch a page and read its anti-CSRF token.
+def _prepare_lab30_sync() -> dict:
+    """Bring up the Lab30 shop target and authenticate a member session.
 
-    DVWA regenerates the token every time it renders one of these pages, so the token
-    must come from the exact page that is about to be submitted and no other page may
-    be fetched in between.
+    Lab30 needs a logged-in member for most pages. The login form has no CSRF
+    field. The prepared client
+    keeps the PHP session cookie so the runner's HTTP/Browser endpoints reuse it.
     """
-    page = _session(session, "GET", path)
-    if page.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"{path} unavailable")
-    match = TOKEN_FIELD.search(page.text)
-    return match.group(1) if match else ""
-
-
-def _prepare_sync(security: str, reset: bool) -> dict:
-    if security not in {"low", "medium", "high", "impossible"}:
-        raise HTTPException(status_code=400, detail="security must be low, medium, high or impossible")
-    deadline = time.time() + 30
-    last_error = ""
-    session = _dvwa_client()
+    session = _lab30_client()
     try:
+        deadline = time.time() + 30
+        last_error = ""
         while time.time() < deadline:
             try:
-                response = _session(session, "GET", "/login.php")
-                if response.status_code < 500 and "DVWA" in response.text:
+                health = _session(session, "GET", "/health.php")
+                if health.status_code == 200 and health.json().get("ok") is True:
                     break
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, ValueError) as exc:
                 last_error = type(exc).__name__
             time.sleep(1)
         else:
             raise HTTPException(status_code=503, detail=f"target unreachable: {last_error or 'timeout'}")
 
-        def login() -> bool:
-            token = _form_token(session, "/login.php")
-            if not token:
-                return False
-            response = _session(
-                session,
-                "POST",
-                "/login.php",
-                data={
-                    "username": DVWA_USER,
-                    "password": DVWA_PASSWORD,
-                    "Login": "Login",
-                    "user_token": token,
-                },
-            )
-            if response.status_code >= 400:
-                return False
-            body = session.get("/index.php")
-            return "Logout" in body.text
+        login_page = _session(session, "GET", "/auth/login.php")
+        if login_page.status_code >= 400:
+            raise HTTPException(status_code=502, detail="lab30 login page unavailable")
 
-        if reset:
-            # A first-time DVWA has no `users` table, so setup must run before login.
-            token = _form_token(session, "/setup.php")
-            setup = _session(
-                session,
-                "POST",
-                "/setup.php",
-                data={"create_db": "Create / Reset Database", "user_token": token},
-            )
-            if setup.status_code >= 500:
-                raise HTTPException(status_code=502, detail="database reset failed")
-        if not login():
-            raise HTTPException(status_code=502, detail="target login failed")
-        if reset:
-            # Recreated tables drop the session's authenticated flag in some releases.
-            session.cookies.clear()
-            if not login():
-                raise HTTPException(status_code=502, detail="login after reset failed")
-        token = _form_token(session, "/security.php")
-        _session(
+        response = _session(
             session,
             "POST",
-            "/security.php",
-            data={"security": security, "seclev_submit": "Submit", "user_token": token},
+            "/auth/login.php",
+            data={"username": LAB30_USER, "password": LAB30_PASSWORD},
         )
-        level = session.cookies.get("security") or security
-        index = session.get("/index.php")
-        authenticated = "Logout" in index.text
-        version = ""
-        match = re.search(r"Version\s+([0-9][0-9A-Za-z.\-]*)", index.text)
-        if match:
-            version = match.group(1)
+        if response.status_code not in {302, 303}:
+            raise HTTPException(status_code=502, detail="lab30 login rejected")
+
+        # A member-only page must answer 200; the real fixture rejects guests with 401.
+        account = _session(session, "GET", "/orders/index.php")
+        authenticated = account.status_code == 200
+        if not authenticated:
+            raise HTTPException(status_code=502, detail="lab30 member session unavailable")
         snapshot = {
-            "base_url": DVWA_URL,
-            "version": version,
-            "security": level,
+            "base_url": LAB30_URL,
+            "version": "lab30-shop-1.0.0",
+            "user": LAB30_USER,
             "authenticated": authenticated,
             "prepared_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        # The prepared client keeps the PHP session cookie in memory.  It is never
-        # returned to the model; scripts log in themselves using the DVWA_* env vars.
-        previous = _targets.get("dvwa")
+        previous = _targets.get("lab30")
         if previous is not None:
             try:
                 previous["client"].close()
             except Exception:
                 pass
-        _targets["dvwa"] = {"client": session, "status": snapshot}
+        _targets["lab30"] = {"client": session, "status": snapshot}
         return {"ok": authenticated, **snapshot}
     except Exception:
         session.close()
         raise
+
+
+def _prepare_sync(reset: bool = False) -> dict:
+    if reset:
+        raise HTTPException(status_code=400, detail="Reset Lab30 explicitly with its CLI between audits")
+    return _prepare_lab30_sync()
 
 
 @app.post("/v1/targets/{target}/prepare", dependencies=protected)
@@ -518,7 +473,7 @@ async def prepare_target(target: str, request: PrepareRequest) -> dict:
     lock = _target_locks.setdefault(target, threading.Lock())
     await asyncio.to_thread(lock.acquire)
     try:
-        return await asyncio.to_thread(_prepare_sync, request.security, request.reset)
+        return await asyncio.to_thread(_prepare_sync, request.reset)
     finally:
         lock.release()
 
@@ -532,21 +487,20 @@ async def target_status(target: str) -> dict:
         if state is None:
             return {
                 "ok": False,
-                "base_url": DVWA_URL,
+                "base_url": LAB30_URL,
                 "authenticated": False,
-                "security": "",
                 "version": "",
                 "prepared_at": "",
             }
         session: httpx.Client = state["client"]
         status = dict(state["status"])
         try:
-            index = session.get("/index.php")
-            status["ok"] = index.status_code < 400
-            status["authenticated"] = "Logout" in index.text
-            status["security"] = session.cookies.get("security") or status.get("security", "")
+            account = session.get("/orders/index.php")
+            status["authenticated"] = account.status_code == 200
+            status["ok"] = status["authenticated"]
         except httpx.HTTPError:
             status["ok"] = False
+            status["authenticated"] = False
         return status
 
     return await asyncio.to_thread(probe)
@@ -621,7 +575,7 @@ def _observe_sync(request: HttpRequest) -> dict:
     session = state["client"] if state else None
     owned = session is None
     if session is None:
-        session = _dvwa_client()
+        session = _lab30_client()
     payload = (request.body or None) if method == "POST" else None
     try:
         response = session.request(method, path, content=payload, headers=headers)
@@ -662,21 +616,12 @@ async def http_observe(request: HttpRequest) -> dict:
 
 
 def _prepared_cookies() -> list[dict]:
-    """The prepared DVWA session in the shape Playwright accepts.
-
-    DVWA serves its vulnerability pages only to an authenticated session.  A browser
-    launched without these cookies lands on ``login.php`` and can never observe the
-    injected script, which would make every XSS conclusion unverifiable.
-
-    The cookies are scoped by ``url`` rather than by their original ``domain``: DVWA
-    issues them for ``dvwa.local`` while the runner reaches it as ``dvwa``.  httpx
-    tolerates that mismatch, Chromium does not, and would silently drop the session.
-    """
-    entry = _targets.get("dvwa")
+    """Inject the prepared member session into Chromium at the runner's target URL."""
+    entry = _targets.get("lab30")
     if not entry:
         return []
     return [
-        {"name": cookie.name, "value": cookie.value, "url": f"{DVWA_URL}/"}
+        {"name": cookie.name, "value": cookie.value, "url": f"{LAB30_URL}/"}
         for cookie in entry["client"].cookies.jar
     ]
 
@@ -708,7 +653,7 @@ def _browser_sync(request: BrowserRequest) -> dict:
             page = context.new_page()
             page.on("dialog", lambda dialog: (dialogs.append(str(dialog.message)[:500]), dialog.dismiss()))
             page.on("console", lambda message: console_errors.append(str(message.text)[:500]) if message.type == "error" else None)
-            page.goto(f"{DVWA_URL}{path}", wait_until="domcontentloaded", timeout=20000)
+            page.goto(f"{LAB30_URL}{path}", wait_until="domcontentloaded", timeout=20000)
             page.wait_for_timeout(request.wait_ms)
             title = page.title()[:500]
             url = page.url

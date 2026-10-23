@@ -156,13 +156,33 @@ def ratio(numerator: int | float, denominator: int) -> float | None:
     return numerator / denominator if denominator else None
 
 
+def class_coverage(truths: list[dict], matched_ids: set[str]) -> dict:
+    """Per-class detection matrix: which of the dataset's classes the audit covered."""
+    coverage: dict[str, dict] = {}
+    for vuln in truths:
+        cls = str(vuln.get("class") or "uncategorized")
+        entry = coverage.setdefault(cls, {"total": 0, "detected": 0, "missed": 0,
+                                          "detected_ids": [], "missed_ids": []})
+        entry["total"] += 1
+        if vuln["id"] in matched_ids:
+            entry["detected"] += 1
+            entry["detected_ids"].append(vuln["id"])
+        else:
+            entry["missed"] += 1
+            entry["missed_ids"].append(vuln["id"])
+    return coverage
+
+
 def evaluate(truth_payload: object, findings: list[dict], *, scenario: str | None = None,
-             check_severity: bool = False, check_cvss: bool = False) -> dict:
+             klass: str | None = None, check_severity: bool = False,
+             check_cvss: bool = False) -> dict:
     truths = normalise_truth(truth_payload)
     if scenario:
         truths = [item for item in truths if item["scenario"] == scenario]
+    if klass:
+        truths = [item for item in truths if item.get("class") == klass]
     if not truths:
-        raise ValueError(f"场景 {scenario or 'all'} 在数据集中没有真值条目")
+        raise ValueError(f"场景 {scenario or 'all'}/类别 {klass or 'all'} 在数据集中没有真值条目")
     findings = finding_rows(findings)
     matched_truth, matched_findings, matches = set(), set(), []
     for index, finding in enumerate(findings):
@@ -183,7 +203,7 @@ def evaluate(truth_payload: object, findings: list[dict], *, scenario: str | Non
     vectors = [item for item in compared if item["cvss_vector_ok"] is not None]
     severity_compared = [item for item in matches if item["severity_ok"] is not None]
     return {
-        "scope": scenario or "all", "truths": len(truths), "findings": len(findings),
+        "scope": scenario or "all", "class_scope": klass, "truths": len(truths), "findings": len(findings),
         "rating_standard": "CVSS:3.1" if all(item["cvss"] for item in truths) else "mixed/legacy",
         "score_basis": "Base", "TP": tp, "FP": len(fp), "FN": len(missed),
         "precision": ratio(tp, tp + len(fp)), "recall": ratio(tp, len(truths)),
@@ -204,6 +224,7 @@ def evaluate(truth_payload: object, findings: list[dict], *, scenario: str | Non
                               "accuracy": ratio(sum(item["cvss_metrics"][key]["ok"] for item in vectors), len(vectors))} for key in BASE},
         },
         "matches": matches, "missed": missed,
+        "class_coverage": class_coverage(truths, matched_truth),
         "missed_details": [{"id": item["id"], "title": item["title"], "location": item["location"], "cvss": item["cvss"]} for item in missing],
         "false_positives": fp,
     }
@@ -215,6 +236,11 @@ def print_report(report: dict) -> None:
     print(f"TP={report['TP']}  FP={report['FP']}  FN={report['FN']}")
     for label, key in (("precision", "precision"), ("recall", "recall"), ("F1", "f1")):
         print(f"{label}={report[key]:.4f}" if report[key] is not None else f"{label}=n/a")
+    if report.get("class_coverage"):
+        print("\n类别覆盖（检出/总数）:")
+        for cls, cov in report["class_coverage"].items():
+            note = f"  漏: {', '.join(cov['missed_ids'])}" if cov["missed_ids"] else ""
+            print(f"  {cls:<26} {cov['detected']}/{cov['total']}{note}")
     if report["matches"]:
         print("\n命中明细:")
         for item in report["matches"]:
@@ -244,7 +270,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api", help="审计实例基址，如 http://127.0.0.1:8899")
     parser.add_argument("--run", help="run id（与 --api 搭配）")
     parser.add_argument("--findings", help="导出的 run bundle / findings JSON 文件")
-    parser.add_argument("--scenario", choices=SCENARIOS, help="只评某个分场景（默认全量 30 项）")
+    parser.add_argument("--scenario", choices=SCENARIOS, help="只评某个分场景（与 --class 互斥使用，默认全量 30 项）")
+    parser.add_argument("--class", dest="klass", help="只评某个粗粒度类别（如 path_traversal / auth_bypass），默认全量")
     parser.add_argument("--check-severity", action="store_true", help="将文字等级与 CVSS 3.1 基础分对应的等级比较")
     parser.add_argument("--check-cvss", action="store_true", help="比较 cvss.base_score / 基础向量；缺失不从文字等级猜分")
     parser.add_argument("--out", help="明细 JSON 输出路径（默认写数据集目录）")
@@ -253,19 +280,20 @@ def main(argv: list[str] | None = None) -> int:
     try:
         truth = json.loads(truth_path.read_text(encoding="utf-8"))
         report = evaluate(truth, load_findings(args), scenario=args.scenario,
+                          klass=args.klass,
                           check_severity=args.check_severity, check_cvss=args.check_cvss)
         report["truth_file"] = str(truth_path)
         if isinstance(truth, dict):
             report["truth_provenance"] = truth.get("provenance")
         print_report(report)
-        out = Path(args.out) if args.out else truth_path.parent / f"score_{args.scenario or 'all'}.json"
+        out = Path(args.out) if args.out else truth_path.parent / f"score_{args.scenario or args.klass or 'all'}.json"
         encoded = json.dumps(report, ensure_ascii=False, indent=2)
         try:
             out.write_text(encoded, encoding="utf-8")
         except OSError:
             if args.out:
                 raise
-            out = Path(f"score_{args.scenario or 'all'}.json")
+            out = Path(f"score_{args.scenario or args.klass or 'all'}.json")
             out.write_text(encoded, encoding="utf-8")
         print(f"\n明细已写入: {out}")
     except (OSError, ValueError, TypeError) as exc:

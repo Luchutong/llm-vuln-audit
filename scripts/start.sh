@@ -23,7 +23,7 @@ Usage: ./scripts/start.sh [--skip-install] [--poc]
 Starts the vuln-audit backend on 127.0.0.1:8899 and the Vite frontend on
 127.0.0.1:5173. Ctrl+C stops both processes.
 
---poc starts the local DVWA target and the isolated poc-runner with
+--poc starts the local Lab30 target and the isolated poc-runner with
 `docker compose --profile poc`, then points the backend at the runner's
 private Compose address. The containers are left running after Ctrl+C; stop
 them with `docker compose --profile poc down`.
@@ -33,7 +33,7 @@ Environment:
   WEB_PORT    Frontend port (default: 5173)
 
 Options:
-  --poc           Enable automatic POC verification against local DVWA.
+  --poc           Enable automatic POC verification against local Lab30.
   --skip-install  Do not run `uv sync` or `npm install` before starting.
   -h, --help      Show this help text.
 EOF
@@ -286,21 +286,19 @@ require_command python3
 require_command setsid
 
 # Check the ports before touching Compose: otherwise a second invocation brings the
-# DVWA/runner stack up and waits for the runner's health endpoint only to fail here.
+# Lab30/runner stack up and waits for the runner's health endpoint only to fail here.
 # A listener that belongs to this checkout is replaced; a foreign one aborts.
 ensure_port_free "$AUDIT_PORT" backend "后端"
 ensure_port_free "$WEB_PORT" frontend "前端"
 
 if [[ "$POC" == true ]]; then
   require_command docker
-  [[ -f "$ROOT_DIR/.env" ]] || fail "--poc 需要 $ROOT_DIR/.env：请从 .env.example 复制并填写 POC_RUNNER_TOKEN 与 DVWA 密码。"
+  [[ -f "$ROOT_DIR/.env" ]] || fail "--poc 需要 $ROOT_DIR/.env：请从 .env.example 复制并填写 POC_RUNNER_TOKEN 及可选的 LAB30_DB_* 配置。"
   grep -Eq '^[[:space:]]*(export[[:space:]]+)?POC_RUNNER_TOKEN=[^[:space:]]+' "$ROOT_DIR/.env" \
     || fail ".env 缺少 POC_RUNNER_TOKEN。"
-  grep -Eq '^[[:space:]]*(export[[:space:]]+)?DVWA_DB_PASSWORD=[^[:space:]]+' "$ROOT_DIR/.env" \
-    || fail ".env 缺少 DVWA_DB_PASSWORD。"
-  printf '启动本地 DVWA 靶场与隔离 POC runner…\n'
-  (cd "$ROOT_DIR" && docker compose --profile poc up -d dvwa-db dvwa poc-runner) \
-    || fail "无法启动 DVWA/poc-runner；请查看 docker compose 日志。"
+  printf '启动本地 Lab30 靶场与隔离 POC runner…\n'
+  (cd "$ROOT_DIR" && docker compose --profile poc up --build -d --remove-orphans lab30-db lab30-fixtures lab30 poc-runner) \
+    || fail "无法启动 Lab30/poc-runner；请查看 docker compose 日志。"
   RUNNER_ID="$(cd "$ROOT_DIR" && docker compose --profile poc ps -q poc-runner)"
   [[ -n "$RUNNER_ID" ]] || fail "找不到 poc-runner 容器。"
   # The runner lives only on `internal` networks, where Docker does not publish ports.
@@ -366,7 +364,7 @@ printf '  前端：http://127.0.0.1:%s\n' "$WEB_PORT"
 printf '  后端：http://127.0.0.1:%s/api/config\n' "$AUDIT_PORT"
 printf '  日志：%s 与 %s\n' "$BACKEND_LOG" "$FRONTEND_LOG"
 if [[ "$POC" == true ]]; then
-  printf '  POC：已连接 %s（DVWA + poc-runner 保持运行）\n' "$POC_RUNNER_URL"
+  printf '  POC：已连接 %s（Lab30 + poc-runner 保持运行）\n' "$POC_RUNNER_URL"
   printf '       停止靶场：docker compose --profile poc down\n'
 else
   printf '  POC：未启用（需要自动验证时使用 ./scripts/start.sh --poc）\n'

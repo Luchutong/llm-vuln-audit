@@ -1,0 +1,4 @@
+<?php
+require __DIR__.'/../../src/bootstrap.php';require_user(['operator','admin']);$output='';
+if(isset($_GET['probe'])){try{$schema=$_GET['probe']==='archive'?'shop_archive_unconfigured':(getenv('DB_NAME')?:'shop');$test=new PDO('mysql:host='.(getenv('DB_HOST')?:'db').';dbname='.$schema,getenv('DB_USER')?:'shop',getenv('DB_PASSWORD')?:'shop-local-password');$test->query('SELECT 1');$output='主数据源连接正常。';}catch(Throwable$e){$output=get_class($e).': '.$e->getMessage()."\n".$e->getTraceAsString();}}
+page('数据库诊断',function()use($output){echo '<section class="panel"><p>检查在线数据源与归档数据源。</p><form method="get"><label>数据源<select name="probe"><option value="main">主数据源</option><option value="archive">归档数据源</option></select></label><button>检查连接</button></form><pre>'.h($output).'</pre></section>';},'运营工作台');

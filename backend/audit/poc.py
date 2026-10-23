@@ -37,7 +37,7 @@ class PocPolicy:
     legacy: bool = False
     enabled: bool = False
     required: bool = False
-    target: str = "dvwa"
+    target: str = "lab30"
     job_seconds: int = 30
     max_steps: int = 8
     max_jobs: int = 8
@@ -56,7 +56,7 @@ class PocPolicy:
             legacy=legacy,
             enabled=bool(raw.get("enabled", default_enabled)),
             required=mode == "required",
-            target=str(raw.get("target") or getattr(poc, "target", "dvwa")),
+            target=str(raw.get("target") or getattr(poc, "target", "lab30")),
             job_seconds=_int(raw.get("job_seconds", getattr(poc, "job_seconds", 30)), 30, 1, 120),
             max_steps=_int(raw.get("max_steps", getattr(poc, "max_steps", 8)), 8, 1, 32),
             max_jobs=_int(raw.get("max_jobs", getattr(poc, "max_jobs", 8)), 8, 1, 32),
@@ -244,7 +244,7 @@ class PocVerifier:
             client = self._make_client(policy)
             if not readiness.get("capabilities", {}).get("browser", True):
                 policy = replace(policy, browser=False)
-            prepared = await client.prepare_target(policy.target, reset=True)
+            prepared = await client.prepare_target(policy.target, reset=False)
             if not prepared.get("ok", False):
                 raise PocRunnerUnavailable("target is not ready for verification")
         except (PocRunnerUnavailable, PocRunnerError):
@@ -436,6 +436,7 @@ class PocVerifier:
             "target": {
                 "name": policy.target,
                 "base_url": str(prepared.get("base_url") or ""),
+                "user": str(prepared.get("user") or ""),
                 "security": str(prepared.get("security") or ""),
                 "version": str(prepared.get("version") or ""),
                 "prepared_at": str(prepared.get("prepared_at") or ""),

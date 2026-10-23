@@ -37,7 +37,7 @@
 - `GET /projects/{id}/findings` → 项目台账（跨运行的漏洞结论，见下）。
 - `GET /projects/{id}/runs` → 属于该项目的运行摘要。
 
-`target_profile` 目前是 `dvwa` 或 `unknown`；只有同时出现 DVWA 的关键文件与目录结构才判为 `dvwa`，自动验证也只覆盖这一类型。
+`target_profile` 为 `lab30` 或 `unknown`；同一应用根下同时出现商城登录、会员、钱包、运营模板、合作服务及初始化文件时才识别为 `lab30`。自动验证只覆盖此靶场，其他源码仍可静态审计。
 
 ### 漏洞台账列表与详情
 
@@ -59,6 +59,12 @@
 `finding` 保留证据、漏洞链、POC、修复建议、处置和修订历史。源码引用按 `last_run.snapshot_id` 读取，不能使用项目最新上传快照代替实际审计来源。`history` 按关联时间倒序保留创建、重发现、更正、沿用、撤回及恢复关系，同一运行可有多条关系。`verifications` 包含整个台账及其关联运行发现上的记录（兼容早期人工记录），每条附真实 `run_id`；首次来源不等于当前结论。
 
 `current_verification` 按台账 `latest_verification_id` 与当前修订匹配：重发现可以沿用早期运行的有效验证；台账状态为 `stale` 时始终为 `null`，早期记录仅作为历史展示，不能计为当前已验证。当前 POC 与最近运行发现一致时，`poc_download_path` 为带 `/api` 前缀的原有 `/api/findings/{poc_finding_id}/poc`；没有匹配的下载来源时两字段为 `null`，内联台账 POC 仍可阅读。台账 ID 不存在返回 `404`。这些端点只读，不改变审计、归组或台账写入语义。
+
+### CVSS 3.1 基础评级与人工修订
+
+运行发现及项目台账返回 `cvss`（有效基础分、标准向量、八项指标或null）、`cvss_assessment`（状态、来源、独立评分版本、结论版本、依据和实际快照）及 `legacy_severity`。有效 severity 由宿主计算：none/low/medium/high/critical，未评分为unknown。漏洞分类不依赖评分是否完成，0.0与未知保持独立。
+
+新增 `POST /project-findings/{id}/cvss/preview`、`PUT /project-findings/{id}/cvss` 及 `GET /project-findings/{id}/cvss-history`，前两者接受八项 `metrics`、修订原因 `reason`、`expected_revision`、`expected_assessment_revision`；版本冲突409，指标或依据无效422，对象不存在404。人工评分修改项目台账，不覆盖历史任务或纯调分时的POC验证。列表 severity 支持none，新增cvss_status筛选与URL恢复。完整契约和迁移步骤见 [CVSS组件说明](cvss31.md)。
 
 ### 创建目标审计
 
@@ -106,7 +112,7 @@
 
 历史冻结策略无 `mode` 时：`require_poc=true → required`；否则 `enabled=true → auto`；其余 `off`，并标记 legacy。`POC_ENABLED` 是服务端能力开关；`POC_REQUIRED` 不覆盖新任务选择。安全观察不计为漏洞，blocked、未知或未读方向不得当作安全。
 
-`GET /poc/readiness?snapshot_id=...` 返回 `{available,reason,message,checked_at,capabilities:{supported_targets:["dvwa"],browser,...}}`。原因枚举为 `ready/disabled/unsupported_target/runner_unconfigured/runner_unhealthy`。检查只读配置、目标适配和健康，不 prepare/reset/提交作业；总超时 5 秒，成功缓存 15 秒、失败 5 秒，同配置并发合并。无快照返回 `404`。`required` 创建失败结构：
+`GET /poc/readiness?snapshot_id=...` 返回 `{available,reason,message,checked_at,capabilities:{supported_targets:["lab30"],browser,...}}`。原因枚举为 `ready/disabled/unsupported_target/runner_unconfigured/runner_unhealthy`。检查只读配置、目标适配和健康，不 prepare/reset/提交作业；总超时 5 秒，成功缓存 15 秒、失败 5 秒，同配置并发合并。无快照返回 `404`。`required` 创建失败结构：
 
 ```json
 {"detail":{"code":"poc_not_ready","reason":"runner_unconfigured","message":"自动验证执行器尚未配置。","checked_at":"<UTC>"}}
@@ -272,7 +278,7 @@ Planner 事件带 `plan_id`、`session_id`、`role=planner`；侦察事件带 `r
 
 执行器的边界（进程内 `LocalPythonExecutor`，`additional_authorized_imports=["json"]`）：在库自带的基础模块（`re`、`math`、`collections`、`itertools`、`datetime`、`statistics`、`time`、`random`、`queue`、`stat`、`unicodedata`）之外，仅增加 JSON 数据解析；CodeAgent 和解释器使用同一授权列表。`os`、`sys`、`subprocess`、`socket`、`pathlib`、`io`、`shutil`、`multiprocessing`、`pty`、`builtins` 仍在解释器自己的危险清单里，连名字都取不到；`eval` / `exec` / `compile` / `globals` / `locals` / `__import__` 同样被禁，dunder 属性被拒。另有操作数上限（`1e7`）、`while` 迭代上限（`1e6`）与打印上限兜住跑飞的一步。
 
-**官方定性照抄在这里**：smolagents 自己写着 `LocalPythonExecutor`「is not a security sandbox: for isolated execution of untrusted code, use a remote executor」。本工具接受这一定性，因为它执行的是**模型写出的、只被授权调用宿主只读工具**的代码，而不是上传快照里的任何代码：沙箱里没有任何能读文件、发网络请求或起进程的能力，所有实际读取都必须经由宿主工具，并照旧受范围校验、pin、去重、读账本与 `budgets["tools"]` 约束。上传快照里的代码从不执行；POC 也不在应用进程内运行，而是由隔离的 `poc-runner` 容器对着本地 DVWA 执行（见 `poc_runner/README.md`）。另一条诚实的边界：解释器的墙钟上限由线程池实现，**杀不掉已经跑飞的线程**，它限制的是宿主愿意等多久（`policy.code_seconds`，默认 30s），所以取消时的等待上限是「一次请求 + 最多一个代码块的等待」，而不是「一次请求」。
+**官方定性照抄在这里**：smolagents 自己写着 `LocalPythonExecutor`「is not a security sandbox: for isolated execution of untrusted code, use a remote executor」。本工具接受这一定性，因为它执行的是**模型写出的、只被授权调用宿主只读工具**的代码，而不是上传快照里的任何代码：沙箱里没有任何能读文件、发网络请求或起进程的能力，所有实际读取都必须经由宿主工具，并照旧受范围校验、pin、去重、读账本与 `budgets["tools"]` 约束。上传快照里的代码从不执行；POC 也不在应用进程内运行，而是由隔离的 `poc-runner` 容器对着本地 Lab30 执行（见 `poc_runner/README.md`）。另一条诚实的边界：解释器的墙钟上限由线程池实现，**杀不掉已经跑飞的线程**，它限制的是宿主愿意等多久（`policy.code_seconds`，默认 30s），所以取消时的等待上限是「一次请求 + 最多一个代码块的等待」，而不是「一次请求」。
 
 终局校验仍在宿主这一侧：`final_answer(...)` 的载荷按当前阶段的结构（`PlannerDecision` / `GoalAssessment` / 本单元的三类结论）校验，不通过时**不结束阶段**，而是把拒绝理由作为一条 Observation 还给模型，让它在同一个循环里改正。这次拒绝照旧算一次纠正：`policy.output_corrections`（默认 2）的额度、`model_retry` 事件与「用尽后以 `invalid_output` 终止」的语义一字不变。
 

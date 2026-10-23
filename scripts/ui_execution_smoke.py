@@ -54,7 +54,7 @@ class ExecutionAPI(MockAPI):
     def readiness(self):
         return {"available": self.ready, "reason": "ready" if self.ready else "runner_unavailable",
                 "message": "隔离环境检查通过。" if self.ready else "隔离环境暂不可用，源码结论保留为未验证。",
-                "checked_at": STAMP, "capabilities": {"supported_targets": ["dvwa"], "browser": self.ready}}
+                "checked_at": STAMP, "capabilities": {"supported_targets": ["lab30"], "browser": self.ready}}
 
     def handle(self, route):
         path = urlsplit(route.request.url).path.removeprefix("/api")

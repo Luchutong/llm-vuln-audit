@@ -74,8 +74,8 @@ def test_source_facts_are_audit_observations_without_vulnerability_template_fiel
     assert "severity" not in observation.model_dump()
 
 
-@pytest.mark.parametrize("changes", [{}, {"kind": "data_flow", "severity": "low"}, {"kind": "vulnerability"}, {"severity": "high"}, {"kind": "vulnerability", "severity": None}, {"kind": "vulnerability", "severity": "informational"}])
-def test_task_finding_requires_explicit_vulnerability_kind_and_severity(changes):
+@pytest.mark.parametrize("changes", [{}, {"kind": "data_flow", "severity": "low"}, {"severity": "high"}])
+def test_task_finding_requires_explicit_vulnerability_kind(changes):
     with pytest.raises(ValidationError):
         TaskFinding(
             title="认证状态读取边界",
@@ -370,3 +370,10 @@ def test_whole_snapshot_scope_is_frozen_including_dependency_trees(tmp_path):
         assert store.list_run_units(created["id"]) == []
     finally:
         store.close()
+
+
+def test_invalid_legacy_grade_or_cvss_format_does_not_discard_the_finding():
+    value = TaskFinding(title="存在注入风险",kind="vulnerability",summary="请求参数直接影响数据库查询结构。", evidence="a.php:1-3",severity="严重",cvss_input="CVSS maybe high")
+    assert value.kind == "vulnerability"
+    assert value.severity is None
+    assert "invalid_input" in value.cvss_input

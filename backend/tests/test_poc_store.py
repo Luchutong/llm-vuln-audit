@@ -19,7 +19,7 @@ def state(tmp_path):
     store = store_type(tmp_path / "audit.db")
     store._db.executescript(POC_SCHEMA)
     project = _project(store)
-    payload = run_payload({"id": "snap", "name": "DVWA"}, "run", [])
+    payload = run_payload({"id": "snap", "name": "Lab30"}, "run", [])
     payload.update(project_id=project["id"], project_mode="project", poc_policy={"mode": "auto", "enabled": True})
     store.create_run(payload)
     run = store.claim_next_run()
@@ -40,7 +40,7 @@ def record(finding, *, status="verified", record_id="verification-1"):
     return {**value, "id": record_id, "finding_id": finding["id"], "created_at": "2026-10-23T00:00:00+00:00",
             "execution_status": "success", "verdict": "confirmed" if status == "verified" else "uncertain",
             "browser_execution": False, "files": [], "source": "poc_agent", "status": status,
-            "target": {"name": "dvwa", "version": "2.5"}, "agent": {"target_key": "target"}, "artifacts": [],
+            "target": {"name": "lab30", "version": "2.5"}, "agent": {"target_key": "target"}, "artifacts": [],
             "project_finding_id": finding["project_finding_id"], "finding_revision": finding["project_revision"]}
 
 
@@ -132,7 +132,7 @@ def test_unknown_target_has_one_durable_notice_and_no_per_finding_verifications(
 def test_new_required_mode_rejects_status_only_or_wrong_target_history(state):
     import json
     store, run, finding = state
-    store._write("UPDATE runs SET poc_policy=? WHERE id='run'", (json.dumps({"mode": "required", "enabled": True, "target": "dvwa", "target_key": "target"}),))
+    store._write("UPDATE runs SET poc_policy=? WHERE id='run'", (json.dumps({"mode": "required", "enabled": True, "target": "lab30", "target_key": "target"}),))
     store.set_finding_verification_state(finding["id"], "verified", "confirmed")
     store.set_project_finding_verification(finding["project_finding_id"], "verified", "confirmed", None)
     run = store.get_run("run")

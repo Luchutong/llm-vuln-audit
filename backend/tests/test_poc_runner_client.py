@@ -85,7 +85,7 @@ def test_rejection_is_sanitized_and_truncated():
 
     client = _client(handler)
     with pytest.raises(PocRunnerError) as excinfo:
-        _run(client, lambda: client.run_job(target="dvwa", language="php", script="<?php echo 1;"))
+        _run(client, lambda: client.run_job(target="lab30", language="php", script="<?php echo 1;"))
 
     message = str(excinfo.value)
     assert "secret-token" not in message
@@ -134,7 +134,7 @@ def test_unknown_language_is_rejected_before_the_request():
 
     client = _client(handler)
     with pytest.raises(PocRunnerError):
-        _run(client, lambda: client.run_job(target="dvwa", language="bash", script="id"))
+        _run(client, lambda: client.run_job(target="lab30", language="bash", script="id"))
 
 
 def test_job_payload_is_bounded_and_complete():
@@ -148,7 +148,7 @@ def test_job_payload_is_bounded_and_complete():
     result = _run(
         client,
         lambda: client.run_job(
-            target="dvwa",
+            target="lab30",
             language="PHP",
             script="<?php echo 'x';",
             timeout_seconds=900,

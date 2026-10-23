@@ -45,7 +45,7 @@ export function pocReason(reason?: string | null, message?: string | null): stri
   if (message) return message;
   const labels: Record<string, string> = {
     off: '本次已关闭自动验证，源码审计照常进行。', disabled: '本次已关闭自动验证，源码审计照常进行。',
-    target_not_dvwa: '该源码类型暂无可用的自动验证靶场，结论保留为未验证。',
+    target_not_lab30: '该源码类型暂无可用的自动验证靶场，结论保留为未验证。',
     unsupported_target: '该源码类型暂无可用的自动验证靶场，结论保留为未验证。',
     environment_unavailable: '自动验证环境不可用，结论保留为未验证。',
     not_configured: '尚未配置自动验证环境，源码审计照常进行。',

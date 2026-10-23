@@ -18,6 +18,7 @@ import { sourceHref } from '../routes';
 import { activeVulnerabilityFindings, sourceObservations, vulnerabilityFindings } from '../results';
 import { ExecutionStatus, HostSummary } from '../components/ExecutionStatus';
 import { executionSummary } from '../execution';
+import { SeverityBadge } from '../components/CvssPanel';
 
 const SCENARIO_LABELS: Record<string, string> = { sqli: 'SQL 注入', xss_r: '反射型 XSS', command_injection: '命令注入' };
 
@@ -126,7 +127,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
             <HostSummary detail={detail} />
             <p className="muted small">共保存 {findings.length} 项漏洞候选，其中 {evidenceFindings.length} 项仍被本次运行主张且通过源码证据校验。另有 {observations.length} 条排查记录，不计为漏洞。处置、历史版本及自动验证记录见详情。</p>
             {achieved && !evidenceFindings.length && <p className="small muted">历史任务状态沿用原判定；排查记录不表示发现漏洞，也不保证项目安全。</p>}
-            {evidenceFindings.slice(0, 3).map((finding) => <button key={finding.id} className="result-finding" onClick={() => openDetails('findings')}><span className={`chip sev-${finding.severity}`}>{finding.severity}</span><span>{finding.title}</span><ArrowUpRight size={15} /></button>)}
+            {evidenceFindings.slice(0, 3).map((finding) => <button key={finding.id} className="result-finding" onClick={() => openDetails('findings')}><SeverityBadge finding={finding} /><span>{finding.title}</span><ArrowUpRight size={15} /></button>)}
             <div className="result-actions"><button className="btn" onClick={() => openDetails('findings')}>发现与验证<ArrowUpRight size={14} /></button>{observations.length > 0 && <button className="btn" onClick={() => openDetails('findings')}>排查记录 · {observations.length}</button>}<button className="btn" onClick={() => openDetails('report')}>查看报告</button><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=markdown`)}><Download size={14} />Markdown</a></div>
           </div>}
         </div></article>

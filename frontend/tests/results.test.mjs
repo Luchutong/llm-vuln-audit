@@ -11,7 +11,7 @@ test('explicit vulnerability classification retains real low risk and excludes n
   for (const kind of ['source_observation', 'data_flow', 'security_boundary', 'configuration', 'other']) {
     assert.equal(isVulnerabilityFinding(finding('fact', kind, 'high')), false);
   }
-  for (const severity of ['informational', 'unknown', '', null]) assert.equal(isVulnerabilityFinding(finding('ungraded', 'vulnerability', severity)), false);
+  for (const severity of ['none', 'informational', 'unknown', '', null]) assert.equal(isVulnerabilityFinding(finding('ungraded', 'vulnerability', severity)), true);
 });
 
 test('only legacy fixed vulnerability categories are inferred without an explicit kind', () => {

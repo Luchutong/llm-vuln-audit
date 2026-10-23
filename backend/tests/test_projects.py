@@ -69,7 +69,7 @@ def test_content_key_changes_with_text_and_not_with_binary():
     assert project_content_key(base) == project_content_key(changed_binary)
 
 
-def test_dvwa_profile_requires_both_marker_and_module():
+def test_removed_dvwa_profile_is_unknown_even_with_markers():
     core = [
         _file("login.php", "l"),
         _file("setup.php", "s"),
@@ -78,7 +78,7 @@ def test_dvwa_profile_requires_both_marker_and_module():
     ]
     assert project_target_profile(core) == "unknown"
     with_marker = core + [_file("includes/DVWApage.inc.php", "p")]
-    assert project_target_profile(with_marker) == "dvwa"
+    assert project_target_profile(with_marker) == "unknown"
     only_pages = [_file("login.php"), _file("setup.php"), _file("security.php")]
     assert project_target_profile(only_pages) == "unknown"
 

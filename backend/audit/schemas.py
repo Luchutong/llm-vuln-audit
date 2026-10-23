@@ -27,6 +27,20 @@ def _meaningful_text(value: str, field_name: str) -> str:
     return value
 
 
+class CvssCompatibleModel(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def keep_findings_with_incomplete_grading(cls, value):
+        if not isinstance(value, dict):
+            return value
+        value = dict(value)
+        if value.get("severity") not in ("low", "medium", "high", "critical", None):
+            value["severity"] = None
+        if value.get("cvss_input") is not None and not isinstance(value["cvss_input"], dict):
+            value["cvss_input"] = {"invalid_input": "指标格式无效，请补充八项基础指标"}
+        return value
+
+
 class EvidenceRef(BaseModel):
     """A one-based, inclusive original-file line range."""
 
@@ -50,7 +64,7 @@ class PocSpec(BaseModel):
         return _meaningful_text(value, info.field_name)
 
 
-class Check(BaseModel):
+class Check(CvssCompatibleModel):
     """One vulnerability category examined for the current audit unit."""
 
     conclusion: Conclusion = Field(
@@ -66,7 +80,8 @@ class Check(BaseModel):
     protection: str = Field(default="", description="Protections present and why they are ineffective, or the reason none apply")
     preconditions: list[str] = Field(default_factory=list, description="Runtime requirements: route, session, configuration, database branch")
     missing_context: list[str] = Field(default_factory=list, description="Context that was unavailable and would change the verdict")
-    severity: Severity | None = Field(default=None, description="Impact level; required for a candidate")
+    cvss_input: dict[str, object] | None = Field(default=None, description="Eight CVSS 3.1 Base metric proposals, each with value, rationale and source evidence; unknown=null")
+    severity: Severity | None = Field(default=None, description="Legacy label; host derives the effective rating from CVSS")
     poc: PocSpec | None = Field(default=None, description="Runnable proof of concept; required for a candidate")
     remediation: str = Field(default="", description="Concrete fix")
 
@@ -82,7 +97,6 @@ class Check(BaseModel):
                 ("propagation", self.propagation.strip()),
                 ("dangerous_operation", self.dangerous_operation.strip()),
                 ("preconditions", self.preconditions),
-                ("severity", self.severity),
                 ("poc", self.poc),
                 ("remediation", self.remediation.strip()),
             )
@@ -125,7 +139,7 @@ class UnitAnalysis(BaseModel):
 #   call 2  PocBundle     the scripts, only for the categories judged candidates
 
 
-class CategoryVerdict(BaseModel):
+class CategoryVerdict(CvssCompatibleModel):
     """One category, judged from code that has already been gathered. No script here.
 
     Deliberately flat, and every field is required. An earlier shape used nested objects
@@ -161,9 +175,8 @@ class CategoryVerdict(BaseModel):
         "parameter name, a security level or a database branch; 不适用 if not a candidate",
     )
     missing_context: str = Field(min_length=1, description="Context that was unavailable and would change the verdict, or 无")
-    severity: Severity = Field(
-        description="Impact level when this category is a candidate; pick low when it is not"
-    )
+    cvss_input: dict[str, object] | None = Field(default=None, description="CVSS 3.1 Base proposals with per-metric evidence")
+    severity: Severity | None = Field(default=None, description="Legacy label, ignored by host scoring")
 
 
 class UnitVerdicts(BaseModel):
@@ -209,7 +222,7 @@ class TaskSpec(BaseModel):
 
     objective: str = Field(min_length=8, max_length=2000, description="Vulnerability risks the agents should investigate in the selected source")
     success_criteria: str = Field(
-        default="在所选源码中找到至少一处由原始行号证据支撑、具有明确风险等级和触发条件的目标相关漏洞风险。",
+        default="在所选源码中找到至少一处由原始行号证据支撑、具有明确触发条件的目标相关漏洞风险。提供 CVSS 3.1 基础指标与依据，信息不足时保留待评分状态。",
         min_length=8,
         max_length=2000,
         description="Observable condition that lets the coordinator mark the goal reached",
@@ -244,16 +257,15 @@ class TaskSpec(BaseModel):
         return _meaningful_text(value, info.field_name)
 
 
-class TaskFinding(BaseModel):
+class TaskFinding(CvssCompatibleModel):
     """An actionable, source-backed vulnerability, separate from audit observations."""
 
     title: str = Field(min_length=3, max_length=240, description="Short, concrete result title")
     kind: Literal["vulnerability"] = Field(
         description="Must explicitly identify an actionable vulnerability; neutral or safe facts belong in observations",
     )
-    severity: Severity = Field(
-        description="Required vulnerability impact level: low, medium, high, or critical",
-    )
+    cvss_input: dict[str, object] | None = Field(default=None, description="CVSS 3.1: AV/AC/PR/UI/S/C/I/A -> {value, rationale, evidence}; unknown values=null")
+    severity: Severity | None = Field(default=None, description="Legacy label; host scoring is authoritative")
     summary: str = Field(
         min_length=8,
         max_length=4000,
@@ -896,3 +908,16 @@ class PocVerificationResult(BaseModel):
         if self.status in {"not_applicable", "environment_unavailable"}:
             self.verdict = "uncertain"
         return self
+
+
+class CvssEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    metrics: dict[str, object]
+    expected_revision: int = Field(ge=1)
+    expected_assessment_revision: int = Field(ge=0)
+    reason: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def concrete_reason(cls, value):
+        return _meaningful_text(value, "reason")

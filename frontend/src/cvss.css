@@ -1,0 +1,20 @@
+.cvss-panel { display:grid; gap:12px; min-width:0; padding:16px; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+.cvss-panel > .between { flex-wrap:wrap; gap:10px; }
+.cvss-vector { display:block; overflow-wrap:anywhere; white-space:normal; font-size:11px; }
+.cvss-metrics { display:grid; gap:14px; }
+.cvss-metric { min-width:0; padding:12px 0; border-bottom:1px solid var(--line-soft); font-size:12px; overflow-wrap:anywhere; }
+.cvss-metric p { margin:8px 0; }
+.cvss-editor { display:grid; gap:14px; margin:20px 0; min-width:0; }
+.cvss-editor > .btn { justify-self:start; }
+.cvss-form { display:grid; gap:16px; min-width:0; }
+.cvss-form fieldset { display:grid; gap:10px; border:1px solid var(--line); padding:14px; border-radius:9px; min-width:0; }
+.cvss-form label { display:grid; gap:7px; font-size:12px; }
+.cvss-form textarea { width:100%; min-height:75px; resize:vertical; }
+.cvss-form .cvss-check { display:flex; align-items:flex-start; gap:8px; }
+.cvss-check input { width:auto; flex-shrink:0; }
+.cvss-refs { display:grid; font-size:11px; overflow-wrap:anywhere; gap:8px; }
+.cvss-refs .text-button { margin-left:8px; }
+.sev-none,.sev-unknown { color:var(--ink-faint); background:var(--surface-raised); }
+@media (max-width:480px) { .cvss-panel {padding:12px;} .cvss-form .row {flex-wrap:wrap;} }
+.cvss-reference-input { display:grid; gap:10px; min-width:0; }
+.cvss-reference-input input { width:100%; min-width:0; }

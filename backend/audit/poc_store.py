@@ -236,7 +236,7 @@ class PocStoreMixin:
             return True
         policy = run.get("poc_policy") or {}
         target_key = policy.get("target_key")
-        if not target_key or run.get("target_profile") != "dvwa":
+        if not target_key or run.get("target_profile") != "lab30":
             return False
         ledger_id = finding.get("project_finding_id") or (finding.get("id") if finding.get("project_id") else None)
         revision = int(finding.get("project_revision") or finding.get("revision") or 1)
@@ -273,7 +273,7 @@ class PocStoreMixin:
                 if (row["source_project_id"] == run.get("project_id")
                         and agent.get("source_content_key") == project["content_key"]
                         and agent.get("target_key") == target_key
-                        and target.get("name") == policy.get("target", "dvwa")
+                        and target.get("name") == policy.get("target", "lab30")
                         and bool(target.get("version"))):
                     return True
         return False

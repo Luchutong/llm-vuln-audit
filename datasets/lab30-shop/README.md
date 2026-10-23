@@ -100,3 +100,5 @@ python3 scripts/verify_lab30_dataset.py /path/to/source.zip datasets/lab30-shop/
 ```
 
 基础分计算遵循 FIRST 的向上保留一位小数（Roundup），包含 Appendix A 的浮点误差处理。本实现已与 `cvss==3.6` 独立对照全部 2,592 种基础指标组合。
+
+运行时组件已使用相同CVSS计算器；其待评分状态按缺失处理。`cvss_evaluation.scoring_coverage` 为可比较基础分的命中数/全部命中数，与MAE分母同时报告，详情见 [运行时CVSS组件](../../docs/cvss31.md)。

@@ -1,12 +1,11 @@
 import type { Finding, RunDetail } from './types';
 
-const VULNERABILITY_SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
 const LEGACY_VULNERABILITY_CATEGORIES = new Set(['sqli', 'xss_r', 'command_injection']);
 
 /** Match the API's result boundary, including older responses that mixed both lists. */
 export function isVulnerabilityFinding(finding: Pick<Finding, 'finding_kind' | 'category' | 'severity'>): boolean {
   const kind = (finding.finding_kind ?? '').trim().toLowerCase();
-  if (kind) return kind === 'vulnerability' && VULNERABILITY_SEVERITIES.has(finding.severity);
+  if (kind) return kind === 'vulnerability';
   return LEGACY_VULNERABILITY_CATEGORIES.has(finding.category);
 }
 

@@ -8,6 +8,8 @@ import { PlannerNavigation } from './Overview';
 import { SourceObservationsView, VERIFICATION_LABELS } from './FindingsView';
 import { activeVulnerabilityFindings, vulnerabilityFindings } from '../results';
 import { ExecutionStatus, HostSummary } from '../components/ExecutionStatus';
+import { CvssPanel } from '../components/CvssPanel';
+import { ratingLabel } from '../cvss';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
@@ -337,7 +339,8 @@ function ReportFindings({ detail }: Pick<ReportViewProps, 'detail'>) {
           {findings.map((finding) => (
             <Disclosure key={finding.id} title={<span className="disclosure-heading"><span className={`chip chip-${finding.validation_state}`}>{finding.validation_state === 'candidate' ? '引用通过' : '引用不通过'}</span><span className="disclosure-preview">{finding.title}</span></span>}>
               <div className="grid">
-                <div className="small">{finding.finding_kind || finding.category || '源码观察'} · {finding.severity || '未分级'} · {finding.verification_status ? `自动验证：${VERIFICATION_LABELS[finding.verification_status] ?? finding.verification_status}` : finding.verdict ? `历史人工结论：${finding.verdict}` : '自动验证：待验证'}</div>
+                <div className="small">{finding.finding_kind || finding.category || '源码观察'} · {ratingLabel(finding)} · {finding.verification_status ? `自动验证：${VERIFICATION_LABELS[finding.verification_status] ?? finding.verification_status}` : finding.verdict ? `历史人工结论：${finding.verdict}` : '自动验证：待验证'}</div>
+                <CvssPanel finding={finding} />
                 <LongContent value={finding.summary} label="发现摘要" />
                 <LongContent value={{ 引用校验: finding.validation_state, 自动验证: finding.verification_status ? VERIFICATION_LABELS[finding.verification_status] ?? finding.verification_status : '未验证', 验证结论: finding.verification_verdict, 结论处置: finding.disposition ?? 'open', 处置理由: finding.disposition_reason, 标注者: finding.disposition_by, 版本: finding.revision ?? 1, 派生自: finding.derived_from_finding_id }} label="结论的独立状态" />
                 {(finding.superseded_summary ?? []).length > 0 && <Disclosure title={`历史结论（${finding.superseded_summary.length}）`}><LongContent value={finding.superseded_summary} label="历史版本与引用" /></Disclosure>}
@@ -425,7 +428,7 @@ function ReviewSummary({ detail }: Pick<ReportViewProps, 'detail'>) {
   const rejected = candidates.filter((finding) => finding.verification_status === 'rejected').length;
   const pending = candidates.filter((finding) => !finding.verification_status || ['unverified', 'stale', 'inconclusive', 'environment_unavailable', 'not_applicable'].includes(finding.verification_status)).length;
   return <section className="panel" aria-label="POC 自动验证清单">
-    <div className="panel-head"><span className="panel-title">POC 自动验证</span><span className="faint small">由隔离 runner 在 DVWA 靶场执行</span></div>
+    <div className="panel-head"><span className="panel-title">POC 自动验证</span><span className="faint small">由隔离 runner 在 Lab30 商城 靶场执行</span></div>
     <div className="panel-body small">自动验证通过 {verified} 条 · 未通过 {rejected} 条 · 未验证或环境不可用 {pending} 条。未验证不等于排除；执行记录与产物见「发现与验证」。</div>
   </section>;
 }

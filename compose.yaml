@@ -113,7 +113,7 @@ services:
         condition: service_healthy
       lab30-fixtures:
         condition: service_healthy
-    networks: [lab30-db-net, poc-target]
+    networks: [lab30-db-net, poc-target, lab30-edge]
     healthcheck:
       test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/health.php') === false ? 1 : 0);"]
       interval: 5s
@@ -154,6 +154,26 @@ services:
     restart: unless-stopped
     init: true
 
+  # Host-side access to the isolated runner, only needed when the audit app itself runs on
+  # the host (scripts/start.sh --poc) instead of in Compose.  The runner keeps publishing
+  # nothing and stays off any host-facing network; this dumb TCP hop is the single thing
+  # that touches both the internal control network and the host loopback.
+  poc-runner-dev:
+    image: alpine/socat
+    profiles: ["poc"]
+    command: ["tcp-listen:8080,fork,reuseaddr", "tcp-connect:poc-runner:8080"]
+    networks: [poc-control, lab30-edge]
+    ports:
+      - "127.0.0.1:${POC_RUNNER_DEV_PORT:-18089}:8080"
+    depends_on:
+      - poc-runner
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   # app <-> runner only; no gateway to the outside.
   poc-control:
@@ -163,6 +183,11 @@ networks:
     internal: true
   lab30-db-net:
     internal: true
+  # The only host-facing network: a container attached solely to ``internal`` networks gets
+  # no published port at all, so the shop's 127.0.0.1:18880 mapping silently did nothing.
+  # Keep it to the web tier; the database and the runner stay off it.
+  lab30-edge:
+    driver: bridge
 
 volumes:
   audit-data:

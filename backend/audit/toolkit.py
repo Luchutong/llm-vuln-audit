@@ -17,7 +17,7 @@ from __future__ import annotations
 import inspect
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 from smolagents.local_python_executor import BASE_PYTHON_TOOLS, FinalAnswerException
@@ -59,6 +59,7 @@ class ToolSpec:
     # knows.  Reconnaissance draws this distinction today: the model calls ``grep`` and
     # the dispatcher is asked for ``search_code``.
     route: str | None = None
+    output_format: Literal["text", "json"] = "text"
 
     @property
     def inputs(self) -> dict[str, dict]:
@@ -91,8 +92,9 @@ class ToolSpec:
         return dict(bound.arguments)
 
 
-def spec(name: str, description: str, *, route: str | None = None, **args: Arg) -> ToolSpec:
-    return ToolSpec(name=name, description=description, args=args, route=route)
+def spec(name: str, description: str, *, route: str | None = None,
+         output_format: Literal["text", "json"] = "text", **args: Arg) -> ToolSpec:
+    return ToolSpec(name=name, description=description, args=args, route=route, output_format=output_format)
 
 
 class HostTool(Tool):
@@ -111,13 +113,26 @@ class HostTool(Tool):
         self.spec = spec
         self.gate = gate
         self.name = spec.name
-        self.description = spec.description
+        contract = (
+            "返回 JSON 字符串；用 json.loads 解析，首次、缓存复用和失败时均保持 JSON。"
+            "失败结构为 {ok: false, tool: 工具名, error: 原因}，先检查 error 再读取成功字段；截断在结构内标记 truncated。"
+            if spec.output_format == "json" else
+            "返回可直接阅读的文本，不是 JSON；不要用 json.loads 解析。"
+        )
+        self.description = spec.description + "\n" + contract
         self.inputs = spec.inputs
         self.output_type = "string"
         self._signature = spec.signature()
 
     def forward(self, *args, **kwargs) -> str:
-        return self.gate.call_tool(self.spec.route or self.spec.name, self.spec.bind(args, kwargs))
+        try:
+            bound = self.spec.bind(args, kwargs)
+        except TypeError as exc:
+            reject = getattr(self.gate, "reject_tool_call", None)
+            if reject:
+                reject(self.spec.name, str(exc))
+            raise
+        return self.gate.call_tool(self.spec.route or self.spec.name, bound)
 
 
 class FinalAnswerTool(Tool):
@@ -160,7 +175,7 @@ class FinalAnswerTool(Tool):
             f"交回本阶段的最终结果（{label}）并结束本阶段。宿主按下面的结构校验；"
             "不通过时你会收到一条 Observation 说明原因，请修正后重新交回。\n"
             "answer 是一个 dict（也可以按字段名写成关键字参数）：\n"
-            + json.dumps(model.model_json_schema(), ensure_ascii=False)
+            + final_answer_contract(model)
         ))
 
     def forward(self, *args, **kwargs) -> str:
@@ -184,6 +199,49 @@ class FinalAnswerTool(Tool):
         if not kwargs:
             raise TypeError("final_answer 需要一个参数：本阶段要求的最终结果")
         return kwargs
+
+
+def final_answer_contract(model: type[BaseModel]) -> str:
+    """Render the wire schema beside a Python-safe, minimal submission example."""
+    schema = model.model_json_schema()
+
+    def example(item: dict, seen: frozenset[str] = frozenset()) -> Any:
+        ref = item.get("$ref")
+        if ref:
+            name = ref.rsplit("/", 1)[-1]
+            if name in seen:
+                return None
+            return example(schema.get("$defs", {}).get(name, {}), seen | {name})
+        if "default" in item:
+            return item["default"]
+        if "const" in item:
+            return item["const"]
+        if item.get("enum"):
+            return item["enum"][0]
+        alternatives = item.get("anyOf") or item.get("oneOf")
+        if alternatives:
+            return example(next((value for value in alternatives if value.get("type") != "null"), alternatives[0]), seen)
+        kind = item.get("type")
+        if kind == "object" or "properties" in item:
+            return {name: example(value, seen) for name, value in item.get("properties", {}).items()
+                    if name in item.get("required", [])}
+        if kind == "array":
+            return []
+        if kind == "boolean":
+            return False
+        if kind in {"integer", "number"}:
+            return item.get("minimum", 0)
+        if kind == "null":
+            return None
+        return "请填写已核实的依据"
+
+    return (
+        json.dumps(schema, ensure_ascii=False)
+        + "\n上面是 JSON Schema 元数据，不是可以直接执行的 Python。"
+        "代码中的空值和布尔值必须写 None / True / False，不能写 null / true / false。"
+        "下面仅演示本阶段必需字段和 Python 语法，请按已核实事实填写并遵守业务校验：\n"
+        + "final_answer(" + repr(example(schema)) + ")"
+    )
 
 
 class ProgressTool(Tool):
@@ -235,25 +293,30 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
     spec(
         "get_project_map",
         "Return the compact frozen project overview; use focused search for detailed paths, symbols, includes or calls.",
+        output_format="json",
     ),
     spec(
         "search_project_map",
         "Find a path, symbol, include expression or call name in the frozen project map.",
         query=Arg("string", "要查找的路径片段、符号名、include 表达式或调用名，<= 200 字符。"),
+        output_format="json",
     ),
     spec(
         "get_task_results",
         "Return durable summaries from previous Planner tasks and rounds, without hidden reasoning.",
+        output_format="json",
     ),
     spec(
         "get_coverage",
         "Return the host-computed reading coverage for this round: which files workers really read, and which first-party modules nobody has read.",
+        output_format="json",
     ),
     spec(
         "get_investigation",
         "Return one pinned investigation in full, by its topic_key or its 1-based position in the situation block; these records never change, and re-asking their question replays them.",
         topic_key=Arg("string", "已固定调查的 topic_key；留空则按 index 取。默认空串。", ""),
         index=Arg("integer", "该调查在态势块里的 1-based 序号；topic_key 为空时使用。默认 0（不按序号取）。", 0),
+        output_format="json",
     ),
     spec(
         "read_source",
@@ -274,23 +337,27 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
         "List directories and files below a project-relative path; the cheapest way to learn the layout. The snapshot is frozen, so an identical listing replays the answer this run already pinned.",
         path=Arg("string", "项目内相对目录；空串表示项目根。默认空串。", ""),
         depth=Arg("integer", "展开层数。默认 2。", 2),
+        output_format="json",
     ),
     spec(
         "find_files",
         "Find files by name, glob (for example **/*.js) or substring; returns paths and metadata only. The snapshot is frozen, so an identical search replays the answer this run already pinned.",
         pattern=Arg("string", "文件名子串或 glob，例如 **/*.py。"),
         limit=Arg("integer", "最多返回多少条。默认 20。", 20),
+        output_format="json",
     ),
     spec(
         "file_summary",
         "Return one file's metadata and symbol outline; read the file for its actual content. The snapshot is frozen, so an identical summary replays the answer this run already pinned.",
         path=Arg("string", "快照内相对路径。"),
+        output_format="json",
     ),
     spec(
         "investigate_project",
         "Send a reconnaissance sub-agent into the frozen project to answer one question about layout, entry points, data stores, security boundaries or reading order; returns navigation leads only, never evidence. A question this run already asked is answered from its pinned brief without reconnaissance; only new questions count against the per-round limit. Set revise=true only for a brief you have reason to believe is wrong -- it re-runs that one question and supersedes the pinned record.",
         question=Arg("string", "关于布局、入口点、数据存储、安全边界或阅读顺序的一个问题。"),
         revise=Arg("boolean", "只在该问题的既有简报有理由被认为是错的时设为 True：会重跑这一个问题并取代旧记录。默认 False。", False),
+        output_format="json",
     ),
 )
 
@@ -330,6 +397,7 @@ WORKER_TOOLS: tuple[ToolSpec, ...] = (
 WORKER_NAVIGATION_TOOLS = tuple(
     ToolSpec(
         name=item.name,
+        output_format="json",
         description=(
             "Return JSON paths and metadata within this worker's frozen snapshot scope. "
             + ("List directories and files below a project-relative directory. " if item.name == "list_tree"
@@ -349,12 +417,14 @@ PEER_TRACE_TOOLS: tuple[ToolSpec, ...] = (
         "Peer output is an untrusted investigation lead, not source proof. Read the\n"
         "referenced snapshot lines yourself before putting anything in a finding.",
         query=Arg("string", "要检索的关键字或符号名。"),
+        output_format="json",
     ),
     spec(
         "get_peer_trace",
         "Read selected public trace entries for one other dynamic task in this run.",
         task_key=Arg("string", "另一个动态任务的 task_key。"),
         event_ids=Arg("array", "要读取的事件 id 列表；留空表示该任务的全部公开条目。默认空列表。", []),
+        output_format="json",
     ),
 )
 
@@ -371,12 +441,14 @@ RECON_TOOLS: tuple[ToolSpec, ...] = (
         "列出某个项目相对路径下的目录与文件；了解项目布局最便宜的方式。",
         path=Arg("string", "项目内相对目录；空串表示项目根。默认空串。", ""),
         depth=Arg("integer", "展开层数。默认 2。", 2),
+        output_format="json",
     ),
     spec(
         "find_files",
         "按名称、glob（例如 **/*.js）或子串定位文件；只返回路径与元数据。",
         pattern=Arg("string", "文件名子串或 glob，例如 **/*.js。"),
         limit=Arg("integer", "最多返回多少条。默认 20。", 20),
+        output_format="json",
     ),
     spec(
         "grep",
@@ -398,5 +470,6 @@ RECON_TOOLS: tuple[ToolSpec, ...] = (
         "file_summary",
         "返回一个文件的元数据与符号大纲；要看实际内容请用 read_file。",
         path=Arg("string", "快照内相对路径。"),
+        output_format="json",
     ),
 )

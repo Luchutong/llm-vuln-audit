@@ -153,6 +153,103 @@ BUILTIN_PROMPTS: list[dict] = [
 DEFAULT_PROMPT_ID = "P2"
 
 
+# --- 分场景专属 Prompt（S-sqli / S-xss / S-cmd） -------------------------------
+#
+# 与统一三类版本（P0/P1/P2）并存、用途不同：一份场景版只追一条漏洞线，判定标准、
+# 防护核对与 POC 要求都按该类别写死。它们不进 BUILTIN_PROMPTS（内置版本列表保持
+# 三段演进叙事），由 scripts/register_scenarios.py 注册为 custom 版本，走同一条
+# POST /api/prompt-runs 流水线做横向对比。
+#
+# 输出契约刻意保持与统一版一致：sqli / xss_r / command_injection 三个字段都必须
+# 填写，非目标类别一律 no_candidate——这样下游的结构化解析、评分与报告不需要为
+# 场景版单独开分支。
+
+SCENARIO_TASK = """# 二、核心任务
+
+阅读给定的审计单元（一个函数、方法或顶层脚本片段，含原始文件行号），**只判断目标场景{label}这一类漏洞**；另外两类不是本次目标，除非顺手看到确凿证据，否则一律 no_candidate。
+
+分析必须按三层推进，不要跳步：
+1. 语法结构：这个单元接收什么、调用了什么、数据从哪里进、到哪里去。
+2. 漏洞语义：输入是否影响到目标场景的危险操作结构。
+3. 实际风险：在当前代码与运行前提下，攻击者能否真正触发，影响是什么。
+
+结论只能取以下之一：
+- candidate：证据支持存在可达的{label}漏洞；
+- no_candidate：已看到的代码足够判断，且不构成{label}漏洞（包括非目标类别）；
+- insufficient_context：已看到的代码不足以判断（例如危险操作在被引用的另一个文件里）。"""
+
+
+def _scenario_task(label: str) -> str:
+    return SCENARIO_TASK.format(label=label)
+
+
+SCENARIO_OUTPUT = """# 四、输出格式
+
+按给定结构返回，不要附加结构之外的解释性文字。
+
+- `sqli`、`xss_r`、`command_injection` 三个字段各给出一个结论，三者都必须填写，不得省略；非目标场景一律 no_candidate，并在其 reasoning 里写一句"非本次目标场景"。
+- `reasoning` 用简短几句话给出依据，并按「语法结构 → 漏洞语义 → 实际风险」组织。
+- `evidence` 填写原始文件的起止行号（路径必须与单元头部给出的路径完全一致）。
+- 目标场景判 candidate 时，`input_source`、`propagation`、`dangerous_operation`、`preconditions`、`severity`、`poc`、`remediation` 都必须填写，缺一不可：
+  - `poc.script` 必须是完整、可直接运行的脚本，包含目标地址、正常输入与攻击输入两段；
+  - `poc.normal_input` 与 `poc.attack_input` 分别给出对照输入与攻击输入；
+  - `poc.expected_result` 说明两者可观测的差异，而不是笼统地说"会报错"。
+- 判 no_candidate 或 insufficient_context 时，把 `missing_context` 写清楚：缺什么、为什么会影响判断。"""
+
+
+CRITERIA_SQLI = """# 三、漏洞判定标准（SQL 注入 · 专属）
+
+- 写出完整的「输入来源 → 传播路径 → 危险操作」三段链，并标注每一段的原始文件行号；任何一段无法在代码中指出，就不能判 candidate。
+- 只有外部输入被拼接进 SQL 语句**结构**（查询 / 表名 / 列名 / ORDER BY / LIMIT 等），而非仅作为参数绑定数据传入时，才构成注入；重点关注 mysqli_query、PDO::query 等直接执行拼接 SQL 的位置。
+- 逐条核对已有防护是否真正覆盖该输入路径：参数绑定（prepare/execute）、类型强制转换、白名单、mysqli_real_escape_string / addslashes 等；不能看到函数名就认为安全，要指出它为何仍可能被绕过或恰好只覆盖了部分路径。
+- 注意跨文件情况：入口脚本如何接收参数、被 include 的文件如何取用、数据库分支（例如 mysqli / PDO / 不同安全等级文件）如何选择。若危险操作位于你未读到的文件中，结论应为 insufficient_context，并在 missing_context 中写明需要哪个文件。
+- 留意二次注入：入库时未过滤、出库后直接拼接进新查询的路径同样算数；写清两次触发的位置。
+
+**证据要求**：每条 candidate 必须附上承载该结论的原始文件行号区间，且这些行必须是你在本次审计中实际读过的代码。没有行号依据的判断一律不要输出为 candidate。"""
+
+CRITERIA_XSS_R = """# 三、漏洞判定标准（反射型 XSS · 专属）
+
+- 写出「输入来源 → 传播路径 → 输出点」三段链并标注每一段的原始文件行号。
+- 判定输出上下文（HTML 正文、标签属性、`<script>` 内、URL）与所用编码/转义是否匹配；编码不匹配本身就是漏洞。`htmlspecialchars` 未指定 ENT_QUOTES 与正确字符集、属性或 JS 上下文未按需编码，都要明确指出。
+- 仅"响应里出现了输入"不足以判定，必须说明输入是否以可执行形式落在这个上下文里（能否触发 `<script>`、事件属性、`javascript:` 等）。
+- 若输出点位于被包含的模板或函数中，必须说明该模板是否已读；未读则记为 insufficient_context。
+
+**证据要求**：每条 candidate 必须附上承载该结论的原始文件行号区间，且这些行必须是你在本次审计中实际读过的代码。没有行号依据的判断一律不要输出为 candidate。"""
+
+CRITERIA_CMD = """# 三、漏洞判定标准（命令注入 · 专属）
+
+- 写出「输入来源 → 传播路径 → 命令执行点」三段链并标注每一段的原始文件行号。
+- 判定输入落在命令的**参数位置**还是**结构位置**：shell_exec / system / exec / popen / proc_open / 反引号 直接拼接输入即属结构位置，风险最高。
+- 逐条核对 escapeshellarg / escapeshellcmd、白名单、强制类型转换等防护是否真正覆盖本路径；escapeshellarg 未加引号、参数顺序错位、注入点绕过等常见疏漏需明确指出。
+- 注意跨文件情况：命令模板可能在配置或被包含文件中定义；未读到定义处则记为 insufficient_context。
+
+**证据要求**：每条 candidate 必须附上承载该结论的原始文件行号区间，且这些行必须是你在本次审计中实际读过的代码。没有行号依据的判断一律不要输出为 candidate。"""
+
+
+def _scenario_record(scenario: str, label: str, criteria: str) -> dict:
+    return {
+        "id": {"sqli": "S-sqli", "xss_r": "S-xss", "command_injection": "S-cmd"}[scenario],
+        "label": f"分场景 · {label}",
+        "phase": "custom",
+        "reason": f"场景限定版：只追{label}一条漏洞线，判定标准与 POC 要求按该类别写死，用于与统一三类版本做横向对比。",
+        "scenario": scenario,
+        "text": _text(ROLE, _scenario_task(label), criteria, SCENARIO_OUTPUT),
+    }
+
+
+SCENARIO_PROMPTS: dict[str, dict] = {
+    "sqli": _scenario_record("sqli", "SQL 注入", CRITERIA_SQLI),
+    "xss_r": _scenario_record("xss_r", "反射型 XSS", CRITERIA_XSS_R),
+    "command_injection": _scenario_record("command_injection", "命令注入", CRITERIA_CMD),
+}
+
+
+def scenario_prompt_records() -> list[dict]:
+    """The three scenario versions in the same shape ``builtin_prompt_records`` returns."""
+    created = datetime.now(timezone.utc).isoformat()
+    return [{**prompt, "created_at": created} for prompt in SCENARIO_PROMPTS.values()]
+
+
 def builtin_prompt_records() -> list[dict]:
     created = datetime.now(timezone.utc).isoformat()
     return [{**prompt, "created_at": created} for prompt in BUILTIN_PROMPTS]

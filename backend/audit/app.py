@@ -39,6 +39,9 @@ from .schemas import (
 from .source import MAX_LISTED_PATHS, SourceRepository
 from .worker import AuditWorker
 from .runtime import AgentPolicy
+from .execution_state import DEFAULT_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
+from .poc_readiness import PocReadinessService
+from .poc_store import poc_target_key
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
@@ -78,6 +81,7 @@ class Services:
             backfill_project_ledger(self.store)
             self.store.set_schema_meta("project_backfill_v1", "done")
         self.bus = EventBus(self.store)
+        self.poc_readiness = PocReadinessService(settings)
         self.health = ModelHealth()
         saved_health = self.store.load_health()
         if saved_health is not None and saved_health.get("model") == self.health_key:
@@ -451,8 +455,9 @@ def _config_payload(state: Services) -> dict:
         "model_profiles": profiles,
         "budgets": state.settings.budgets,
         "budget_limits": {"defaults": DEFAULT_BUDGETS},
+        "run_budget_limits": {"defaults": DEFAULT_RUN_LIMITS, "min": MIN_RUN_LIMITS, "max": MAX_RUN_LIMITS},
         "agent_policy": AgentPolicy().snapshot(),
-        "poc": state.settings.poc.public(),
+        "poc": {**state.settings.poc.public(), "supported_targets": ["dvwa"]},
         "worker": state.worker.status,
         "model_health": state.health.snapshot(),
         "version": VERSION,
@@ -462,6 +467,17 @@ def _config_payload(state: Services) -> dict:
 @app.get("/api/config")
 async def get_config(request: Request) -> dict:
     return _config_payload(services(request))
+
+
+@app.get("/api/poc/readiness")
+async def poc_readiness(request: Request, snapshot_id: str) -> dict:
+    state = services(request)
+    snapshot = state.store.get_snapshot(snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot does not exist")
+    if not hasattr(state, "poc_readiness"):
+        state.poc_readiness = PocReadinessService(state.settings)
+    return await state.poc_readiness.check(snapshot.get("target_profile", "unknown"))
 
 
 def _require_no_active_run(state: Services) -> None:
@@ -708,6 +724,24 @@ async def get_source(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.delete("/api/snapshots/{snapshot_id}")
+async def delete_snapshot(request: Request, snapshot_id: str) -> Response:
+    """Drop an uploaded source archive and its truth table.
+
+    Refused with 409 while any run still freezes this snapshot as its source:
+    deleting it would make those runs' reports unreproducible.  Delete the runs
+    first.
+    """
+    state = services(request)
+    if state.store.get_snapshot(snapshot_id) is None:
+        raise HTTPException(status_code=404, detail="Snapshot does not exist")
+    try:
+        await asyncio.to_thread(state.store.delete_snapshot, snapshot_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
 # --- projects ---------------------------------------------------------------
 
 
@@ -873,6 +907,15 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     state = services(request)
     snapshot, project = _resolve_run_scope(state, payload)
 
+    readiness_service = getattr(state, "poc_readiness", None)
+    if readiness_service is None:
+        readiness_service = state.poc_readiness = PocReadinessService(state.settings)
+    readiness = None
+    if payload.poc_mode != "off":
+        readiness = await readiness_service.check(snapshot.get("target_profile", "unknown"), mode=payload.poc_mode, fresh=payload.poc_mode == "required")
+        if payload.poc_mode == "required" and not readiness["available"]:
+            raise HTTPException(status_code=409, detail={"code": "poc_not_ready", **{k: readiness[k] for k in ("reason", "message", "checked_at")}})
+
     budgets = clamp_budgets(payload.budgets)
     run_id = uuid.uuid4().hex
     try:
@@ -901,6 +944,19 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     # history, not standing conclusions.
     baseline = state.store.list_project_findings(project["id"], include_withdrawn=False)
     poc_policy = state.settings.poc.snapshot()
+    poc_policy["mode"] = payload.poc_mode
+    poc_policy["required"] = payload.poc_mode == "required"
+    task_spec = payload.task.model_dump()
+    if task_spec.get("scenario"):
+        # A scenario run must exhaust the whole class, not stop at the first finding.
+        # ``stop_on_achieved`` is forced off and the frozen acceptance criterion states the
+        # exhaustion requirement outright, so the goal text the Planner reads matches the
+        # host-side gate in ``Store.finalize_goal`` instead of the "find at least one" default.
+        task_spec["stop_on_achieved"] = False
+        task_spec["success_criteria"] = (
+            "穷尽所选分场景下全部可被外部输入触发的漏洞实例，并在收束报告中逐条列出已确认结论、"
+            "已排查无证据的方向与仍可能遗漏的位置，而不是找到第一处就停止。"
+        )
     run = {
         "id": run_id,
         "snapshot_id": snapshot["id"],
@@ -922,9 +978,15 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "model": state.settings.model.label,
         "model_profile": model_profile,
         "budgets": budgets,
+        "run_limits": payload.run_limits.model_dump(),
         "agent_policy": AgentPolicy().snapshot(),
-        "task_spec": payload.task.model_dump(),
+        "task_spec": task_spec,
         "created_at": _iso(),
+    }
+    poc_policy["target_key"] = poc_target_key({**run, "target_profile": project.get("target_profile", "unknown")}, state.settings.poc, state.settings)
+    run["poc_state"] = readiness or {
+        "mode": "off", "available": False, "reason": "disabled",
+        "message": "本次审计未启用自动执行 POC。", "checked_at": _iso(),
     }
     state.store.create_run(run)
     state.store.touch_project_run(project["id"], run_id)
@@ -1026,11 +1088,6 @@ async def cancel_run(request: Request, run_id: str) -> dict:
     if state.worker._run_id != run_id:
         current = state.store.get_run(run_id)
         if current and current["status"] == "cancelled":
-            state.store.abandon_pending_units(run_id, "Run cancelled")
-            if state.store.get_planner_session(run_id) is not None:
-                state.store.abandon_planner_tasks(run_id, "Run cancelled")
-            else:
-                state.store.abandon_task_work(run_id, "Run cancelled")
             state.bus.emit(run_id, None, "run_cancelled", {"reason": "cancel requested"})
     state.worker.notify()
     return state.store.get_run(run_id)
@@ -1075,6 +1132,46 @@ async def resume_run(request: Request, run_id: str) -> dict:
     state.worker.notify()
     state.bus.emit(run_id, None, "run_resumed", {"reason": "user_resumed"})
     return state.store.get_run(run_id)
+
+
+@app.delete("/api/runs/{run_id}")
+async def delete_run(request: Request, run_id: str) -> dict:
+    """Permanently remove one finished audit and every row it owns.
+
+    This is the housekeeping half of the run lifecycle that was missing: the UI
+    could list 200 historical runs but could never discard one.  Runs still
+    ``pending`` or ``running`` are refused with 409 -- the worker may be mid-write
+    -- while ``paused``/``completed``/``failed``/``cancelled`` records go.  The
+    response echoes the per-table row counts so the interface can confirm what
+    was actually cleaned up rather than just returning 204.
+    """
+    state = services(request)
+    run = state.store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run does not exist")
+    if run["status"] in ("pending", "running"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is {run['status']}; cancel it before deleting",
+        )
+    summary = await asyncio.to_thread(state.store.delete_run, run_id)
+    state.bus.emit(run_id, None, "run_deleted", {"reason": "user_deleted"})
+    return summary
+
+
+@app.post("/api/runs/cleanup")
+async def cleanup_terminal_runs(
+    request: Request,
+    project_id: str | None = Body(default=None, embed=True),
+) -> dict:
+    """Bulk housekeeping: delete every finished run in one call.
+
+    The per-row ``DELETE /runs/{id}`` is precise; this is the sweep after a week
+    of re-running the same snapshot.  Active runs are skipped, not errored.
+    ``project_id`` optionally scopes the sweep to one project's history.
+    """
+    state = services(request)
+    return await asyncio.to_thread(state.store.delete_terminal_runs, project_id)
 
 
 def _sse(event: dict) -> str:
@@ -1207,6 +1304,23 @@ async def create_prompt(request: Request, payload: PromptCreateRequest) -> dict:
     }
     state.store.add_prompt(prompt)
     return state.store.get_prompt(prompt["id"])
+
+
+@app.delete("/api/prompts/{prompt_id}")
+async def delete_prompt(request: Request, prompt_id: str) -> Response:
+    """Remove a user-defined prompt draft.
+
+    Built-in prompts and prompts frozen into an existing run are refused with
+    409 -- deleting text a report quotes would break reproducibility.
+    """
+    state = services(request)
+    if state.store.get_prompt(prompt_id) is None:
+        raise HTTPException(status_code=404, detail="Prompt does not exist")
+    try:
+        await asyncio.to_thread(state.store.delete_prompt, prompt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 # --- truths and attributions ------------------------------------------------

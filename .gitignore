@@ -19,3 +19,5 @@ test-results/
 playwright-report/
 .DS_Store
 *.log
+.npm-cache/
+datasets/**/score_*.json

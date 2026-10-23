@@ -9,6 +9,7 @@ ask of a revised question an explicit, recorded revision.
 from __future__ import annotations
 
 import asyncio
+import json
 import io
 import zipfile
 from types import SimpleNamespace
@@ -294,5 +295,7 @@ def test_a_reconnaissance_brief_is_reused_without_running_recon_again(store, pro
     assert recon_calls["n"] == 1, "the pinned brief must be replayed, not re-derived"
     replayed = tool_text(second, "investigate_project")
     assert "PHP 前端控制器" in replayed
-    assert "已在第 1 回合固定" in replayed
+    assert json.loads(replayed)["summary"].startswith("这是一个 PHP 前端控制器")
+    reused = [event for event in second if event["kind"] == "planner_investigation_reused"]
+    assert reused[0]["pinned_round"] == 1
     assert len(store.list_investigations("pins-run")) == 1

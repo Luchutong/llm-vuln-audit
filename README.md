@@ -16,6 +16,8 @@
 
 可直接访问 `#sources`、`#sources/<project-id>?tab=findings`、`#findings` 与 `#findings/<ledger-id>`；筛选和页码写入 URL，既有 `#run/<run-id>` 和 `#settings` 链接继续可用。
 
+历史列表、项目任务列表和审计会话提供单次记录删除；侧栏与项目工作台提供全局或项目内批量清理。确认弹窗会明确删除范围：排队和运行中的任务不能删除，**已暂停任务可清理，之后无法继续**。项目累计漏洞台账保留，但被删任务的验证、日志与来源工件不再可用。“ZIP 与源码”可删除未被任何审计引用的 ZIP 记录（磁盘文件保留），设置页的“提示词草稿”可查看并删除未被审计引用的自定义草稿；内置提示词受保护。
+
 ## 界面预览
 
 聊天主区连续展示公开审计进展与轻量工具行。当前步骤直接可见，已完成的历史操作可收拢；点击工具行，在原位查看参数、已保存的返回片段与源码。新增活动不会打断正在阅读的历史内容。
@@ -190,6 +192,8 @@ POC 适配脚本、runner 作业清单（目标、限额、job id、退出码、
 
 ## 验证与开发检查
 
+靶场检出与评级评价采用 CVSS 3.1 基础分，支持 JSON 导出或运行 API；使用方法和评分缺失的处理见 [Lab30 数据集说明](datasets/lab30-shop/README.md)。
+
 ```bash
 cd backend
 uv sync --extra dev
@@ -214,9 +218,12 @@ scripts/ui_smoke.py      http://127.0.0.1:5173 <run-id>
 ```bash
 uv run --with playwright python scripts/ui_smoke.py http://127.0.0.1:5173 --mock --screenshots .run/screenshots
 uv run --with playwright python scripts/ui_sources_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-sources
+uv run --with playwright python scripts/ui_records_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-records
 ```
 
 已有 Chromium 可通过 `CHROME_BIN` 指定路径；不加 `--mock` 时只读检查真实服务，并阻止写入 API。模拟检查覆盖工具调用前的进展、并行与重试关联、工具原位更新、历史折叠、分页恢复、滚动与焦点保持，并保存 1440、1024、768、390px 的深浅主题截图。专用实时场景使用可控的模拟 SSE 帧，全部请求均留在浏览器内的模拟 API 中。
+
+`ui_records_smoke.py` 的所有删除与清理也仅操作内存模拟数据，检查确认与取消、引用保护、冲突和失败重试、重复提交、删除后刷新及跳转，以及移动端弹窗焦点，不接触真实项目库。
 
 ## 设计边界
 

@@ -1,18 +1,94 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUp, Check, ChevronDown, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
-import { api, errorText, post } from '../api';
-import type { Budget, Config, Project, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
+import { ArrowLeft, ArrowUp, Braces, Check, ChevronDown, Database, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, X, type LucideIcon } from 'lucide-react';
+import { api, ApiError, errorText, post } from '../api';
+import type { Budget, Config, PocMode, PocReadiness, Project, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
+import { draftRunLimits, FALLBACK_RUN_BOUNDS, POC_MODE_LABELS, pocReason } from '../execution';
+import '../execution.css';
 import { localDate } from '../status';
 import { sourceHref } from '../routes';
 import { Overlay } from '../components/Overlay';
 import { LongContent } from '../components/LongContent';
 import { Disclosure } from '../components/Disclosure';
+import { SourceViewer } from '../components/SourceViewer';
 
-const EMPTY_TASK: TaskSpec = { objective: '', success_criteria: '', max_iterations: 3, max_total_attempts: 64, max_planner_rounds: 24, max_workers: 2, stop_on_achieved: true, require_poc: false };
+const EMPTY_TASK: TaskSpec = { objective: '', success_criteria: '', max_iterations: 3, max_total_attempts: 64, max_planner_rounds: 24, max_workers: 2, stop_on_achieved: true, require_poc: false, scenario: null };
 const EXAMPLES = [
   { title: '追踪危险数据流', description: '查找任意文件写入或危险上传漏洞', objective: '审计文件上传入口，查找可被外部输入触发的任意文件写入、路径穿越或危险文件上传漏洞。' },
   { title: '检查认证边界', description: '查找管理功能的认证与授权绕过', objective: '审计项目中的管理路由，查找无需认证或越权访问敏感管理功能的漏洞。' },
   { title: '查找配置缺陷', description: '检查会话与 Cookie 的可利用风险', objective: '审计会话与 Cookie 配置，查找可导致会话泄露、劫持或跨站请求风险的可利用配置缺陷。' },
+];
+
+/**
+ * 分场景专属提示词（S-sqli / S-xss / S-cmd）。
+ *
+ * 统一版 P0/P1/P2 让一份 Prompt 同时判定 SQL 注入 / 反射型 XSS / 命令注入三类；这里补齐的是
+ * 每个漏洞类型单独一份的"分场景"提示词。点击快捷填充后，整段会作为审计任务 objective 冻结进
+ * 本次运行，Planner 与 worker 按该方向只追这一条漏洞线，而不是三线混在一起下结论。
+ */
+interface ScenarioPreset {
+  key: 'sqli' | 'xss_r' | 'command_injection';
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  objective: string;
+}
+
+const SCENARIO_PRESETS: ScenarioPreset[] = [
+  {
+    key: 'sqli',
+    label: 'SQL 注入',
+    description: 'S-sqli · 输入拼接进 SQL 结构',
+    icon: Database,
+    objective: `审计方向（S-sqli · SQL 注入分场景）：
+在所选源码中只聚焦 SQL 注入这一类漏洞，逐一给出候选结论与可核对证据。
+
+判定标准：
+1. 写出「输入来源 → 传播路径 → 危险操作」完整三段链，每一段都落到原始文件的具体行号；任何一段无法在代码中指出，就不得判定为候选漏洞。
+2. 只有外部输入被拼接进 SQL 语句结构（查询 / 表名 / 列名 / ORDER BY / LIMIT 等），而非仅作为参数绑定数据传入时，才构成注入；重点关注 mysqli_query、PDO::query 等直接执行拼接 SQL 的位置。
+3. 逐条核对已有防护是否真正覆盖该输入路径：参数绑定（prepare/execute）、类型强制转换、白名单、mysqli_real_escape_string / addslashes 等；不能看到函数名就认为安全，要指出它为何仍可能被绕过或恰好只覆盖了部分路径。
+
+输出要求：
+- 每个候选漏洞附上原始行号区间，且必须是本次实际读过的代码。
+- 写明触发条件：路由 / 入口、参数名、所需登录或配置前提、影响等级。
+- 提供可直接运行的 POC：目标地址 + 正常输入 + 攻击输入 + 两者可观测差异（如数据库报错、盲注时间差、注入成功回显）。
+- 无法确定时写明缺失上下文（例如危险操作在未读到的文件里），不要臆断。`,
+  },
+  {
+    key: 'xss_r',
+    label: '反射型 XSS',
+    description: 'S-xss · 输入以可执行形式进入输出',
+    icon: Braces,
+    objective: `审计方向（S-xss · 反射型 XSS 分场景）：
+在所选源码中只聚焦反射型 XSS 这一类漏洞，逐一给出候选结论与可核对证据。
+
+判定标准：
+1. 写出「输入来源 → 传播路径 → 输出点」完整三段链，每一段标注原始文件行号。
+2. 判断输出上下文（HTML 正文 / 标签属性 / <script> / URL）与所用转义是否匹配；htmlspecialchars 未指定 ENT_QUOTES 与正确字符集、属性或 JS 上下文未按需编码，本身就是漏洞。
+3. 仅"响应里出现了输入"不足以判定，必须说明输入是否以可执行形式落在这个上下文中（能否触发 <script>、事件属性、javascript: 等）。
+
+输出要求：
+- 每个候选漏洞附上原始行号区间。
+- 写明触发条件与影响（执行任意脚本、窃取会话、钓鱼）。
+- 提供可直接运行的 POC：正常输入 + 攻击输入 + 浏览器中可观测的差异（弹窗、写入 DOM、跳转等）。`,
+  },
+  {
+    key: 'command_injection',
+    label: '命令注入',
+    description: 'S-cmd · 输入影响命令解释',
+    icon: Terminal,
+    objective: `审计方向（S-cmd · 命令注入分场景）：
+在所选源码中只聚焦命令注入这一类漏洞，逐一给出候选结论与可核对证据。
+
+判定标准：
+1. 写出「输入来源 → 传播路径 → 命令执行点」完整三段链，每一段标注原始文件行号。
+2. 判断输入落在命令的参数位置还是结构位置：shell_exec / system / exec / popen / proc_open / 反引号 直接拼接输入即属结构位置，风险最高。
+3. 逐条核对 escapeshellarg / escapeshellcmd、白名单、强制类型转换等防护是否真正覆盖本路径；escapeshellarg 未加引号、参数顺序错位、注入点绕过等常见疏漏需明确指出。
+
+输出要求：
+- 每个候选漏洞附上原始行号区间。
+- 写明触发条件与影响（执行任意命令、反弹 shell、任意文件读写）。
+- 提供可直接运行的 POC：正常输入 + 攻击输入 + 命令执行结果的可观测差异（如输出内容、文件落地、外带请求）。`,
+  },
 ];
 function clamp(value: string, minimum: number, maximum: number) { return Math.max(minimum, Math.min(maximum, Math.trunc(Number(value) || minimum))); }
 /** The start screen freezes one decision: what to audit.
@@ -22,8 +98,17 @@ function clamp(value: string, minimum: number, maximum: number) { return Math.ma
  * request omits the field instead of sending a second editable text the user would have
  * to phrase again.  The frozen run still shows that default wherever a task is described.
  */
-function startTask(task: TaskSpec, objective: string): Partial<TaskSpec> {
-  const payload: Partial<TaskSpec> = { ...task, objective };
+/** One source window the user picked from the snapshot dialog.  The window is appended
+ * to the objective at submit time only, so the textarea keeps the preset comparison
+ * (`task.objective === preset.objective`) intact and the scope stays visible as a chip. */
+interface AuditScope { path: string; start: number; end: number }
+
+function scopeSuffix(scope: AuditScope): string {
+  return `\n\n重点审计范围：${scope.path}:${scope.start}-${scope.end}（优先核对所选行窗口及其直接关联的被包含文件；窗口之外若发现同一方向的可触发漏洞仍须上报。）`;
+}
+
+function startTask(task: TaskSpec, objective: string, scope: AuditScope | null): Partial<TaskSpec> {
+  const payload: Partial<TaskSpec> = { ...task, objective: scope ? objective + scopeSuffix(scope) : objective };
   delete payload.success_criteria;
   return payload;
 }
@@ -34,9 +119,19 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [task, setTask] = useState<TaskSpec>(() => ({ ...EMPTY_TASK, ...seed?.task_spec }));
   const [budgets, setBudgets] = useState<Budget>(seed?.budgets ?? config?.budget_limits?.defaults ?? config?.budgets ?? { responses: 24, tools: 96, seconds: 1800 });
+  const [runLimits, setRunLimits] = useState<Budget>(() => draftRunLimits(seed, config));
+  const [pocMode, setPocMode] = useState<PocMode>('off');
+  const [readiness, setReadiness] = useState<PocReadiness | null>(null);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessRevision, setReadinessRevision] = useState(0);
   const [dialog, setDialog] = useState<'snapshots' | 'snapshot' | 'options' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileLimit, setFileLimit] = useState(100);
+  const [scope, setScope] = useState<AuditScope | null>(null);
+  const [rangePath, setRangePath] = useState<string | null>(null);
+  const [rangeStart, setRangeStart] = useState(1);
+  const [rangeEnd, setRangeEnd] = useState(80);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [uploadName, setUploadName] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -67,7 +162,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   }, [initialSnapshotId, seed?.snapshot_id]);
 
   useEffect(() => {
-    if (!configuredBudget.current && config) { setBudgets(config.budget_limits?.defaults ?? config.budgets); configuredBudget.current = true; }
+    if (!configuredBudget.current && config) { setBudgets(config.budget_limits?.defaults ?? config.budgets); setRunLimits(draftRunLimits(seed, config)); configuredBudget.current = true; }
   }, [config]);
   useEffect(() => {
     active.current = true;
@@ -86,6 +181,18 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     }).catch((exc) => { if (!abort.signal.aborted) { setLoading(false); setError(`源码快照读取失败：${errorText(exc)}`); } });
     return () => abort.abort();
   }, [selected, seed, snapshotRevision, project?.id]);
+
+  useEffect(() => {
+    setReadiness(null); setReadinessError(null);
+    if (!selected || pocMode === 'off') { setReadinessLoading(false); return; }
+    const abort = new AbortController();
+    setReadinessLoading(true);
+    api<PocReadiness>(`/poc/readiness?snapshot_id=${encodeURIComponent(selected)}`, { signal: abort.signal })
+      .then((value) => { if (!abort.signal.aborted) setReadiness(value); })
+      .catch((exc) => { if (!abort.signal.aborted) setReadinessError(errorText(exc)); })
+      .finally(() => { if (!abort.signal.aborted) setReadinessLoading(false); });
+    return () => abort.abort();
+  }, [selected, pocMode, readinessRevision]);
 
   const upload = async (file: File) => {
     if (starting || uploading || project) return;
@@ -112,16 +219,22 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     const objective = task.objective.trim();
     if ([...objective].length < 8 || [...objective].length > 2000) { setError('审计任务需填写 8–2000 个字符。'); objectiveRef.current?.focus(); return; }
     if (!config?.configured) { setError('模型尚未配置完成，请在工作空间设置中检查连接。'); return; }
+    if (pocMode === 'required' && (!readiness?.available || readinessLoading)) { setError('必须验证模式需要可用的自动验证环境，请先检查环境或选择其它模式。'); return; }
     startLock.current = true; setStarting(true);
     const generation = ++startGeneration.current;
     const sourceHash = window.location.hash;
     try {
-      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, task: startTask(task, objective) });
+      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, run_limits: runLimits, poc_mode: pocMode, task: startTask(task, objective, scope) });
       if (active.current) {
         onChanged();
         if (startGeneration.current === generation && window.location.hash === sourceHash) onOpenRun(run.id);
       }
-    } catch (exc) { if (active.current && startGeneration.current === generation) setError(`任务创建失败：${errorText(exc)}`); }
+    } catch (exc) {
+      if (active.current && startGeneration.current === generation) {
+        setError(`任务创建失败：${errorText(exc)}`);
+        if (exc instanceof ApiError && exc.status === 409 && pocMode !== 'off') setReadinessRevision((value) => value + 1);
+      }
+    }
     finally {
       if (startGeneration.current === generation) { startLock.current = false; if (active.current) setStarting(false); }
     }
@@ -129,6 +242,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const stats = snapshot?.stats ?? {};
   const textCount = stats.text_files ?? snapshot?.files.filter((file) => file.kind === 'text' || (file.kind === undefined && !file.excluded)).length ?? 0;
   const busy = uploading || loading || starting;
+  const runBounds = config?.run_budget_limits ?? FALLBACK_RUN_BOUNDS;
   return <section className={`draft-workspace${project ? ' source-draft' : ''}${dragging ? ' is-dragging' : ''}`}
     onDragEnter={(event) => { if (!project && event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current += 1; setDragging(true); } }}
     onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
@@ -141,7 +255,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       <span className="eyebrow">YOUR CODE. YOUR EVIDENCE.</span>
       <h1>{project ? '基于已有源码，开始审计。' : seed ? '开始新的漏洞审计方向' : '选择源码，开始漏洞审计。'}</h1>
       <p>{project ? `审计归属于 ${project.name}，发现将累计到该源码项目。` : '选择完整项目 ZIP，定义漏洞审计目标。'}<br />本次任务固定使用下方所选的 ZIP 快照。</p>
-      <div className="example-grid">{EXAMPLES.map((example, index) => <button type="button" key={example.title} className="example-card" disabled={busy} onClick={() => { setTask((value) => ({ ...value, objective: example.objective })); objectiveRef.current?.focus(); }}><span className="example-number">0{index + 1}</span><strong>{example.title}</strong><span>{example.description}</span><ArrowUp size={14} /></button>)}</div>
+      <div className="example-grid">{EXAMPLES.map((example, index) => <button type="button" key={example.title} className="example-card" disabled={busy} onClick={() => { setTask((value) => ({ ...value, objective: example.objective, scenario: null })); objectiveRef.current?.focus(); }}><span className="example-number">0{index + 1}</span><strong>{example.title}</strong><span>{example.description}</span><ArrowUp size={14} /></button>)}</div>
     </div>
     <div className="composer-wrap">
       {config && !config.configured && <div className="inline-notice"><span className="status-dot status-inconclusive" />模型尚未配置，上传后可前往<a href="#settings">设置</a>检查连接。</div>}
@@ -161,8 +275,26 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
         </div>}
         {attachmentError && <div className="composer-error" role="alert"><FileArchive size={16} /><span>{attachmentError}</span><button type="button" className="text-button" onClick={() => fileInput.current?.click()}>重新选择</button></div>}
         <div className="composer-fields">
-          <label className="composer-field"><span>审计任务 <span className="faint">/ 你想查清什么</span></span><textarea ref={objectiveRef} aria-label="审计任务" rows={2} maxLength={4000} disabled={starting} value={task.objective} onChange={(event) => setTask((value) => ({ ...value, objective: event.target.value }))} placeholder="例如：追踪文件上传入口，检查是否存在任意文件写入路径…" /></label>
-          <p className="field-hint">验收条件按平台默认要求冻结：结论需有原始源码行号证据、明确风险等级与触发条件。</p>
+          <label className="composer-field"><span>审计任务 <span className="faint">/ 你想查清什么</span></span><textarea ref={objectiveRef} aria-label="审计任务" rows={2} maxLength={4000} disabled={starting} value={task.objective} onChange={(event) => setTask((value) => ({ ...value, objective: event.target.value, scenario: null }))} placeholder="例如：追踪文件上传入口，检查是否存在任意文件写入路径…" /></label>
+          <div className="scenario-fill">
+            <span className="scenario-fill-label"><Sparkles size={13} />分场景快捷填充</span>
+            <div className="scenario-fill-options">
+              {SCENARIO_PRESETS.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  className={`scenario-chip${task.objective === preset.objective ? ' active' : ''}`}
+                  disabled={starting}
+                  title={`${preset.label} · ${preset.description}`}
+                  onClick={() => { setTask((value) => ({ ...value, objective: preset.objective, scenario: preset.key })); objectiveRef.current?.focus(); }}
+                >
+                  <preset.icon size={14} />
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="field-hint">验收条件按平台默认要求冻结：结论需有原始源码行号证据、明确风险等级与触发条件。{scope && <span className="scope-chip" title="提交时会拼进审计任务末尾"><span className="mono">{scope.path}:{scope.start}-{scope.end}</span><button type="button" className="icon-button" aria-label="移除重点范围" disabled={starting} onClick={() => setScope(null)}><X size={12} /></button></span>}</p>
         </div>
         {error && <div className="composer-error" role="alert">{error}{selected && !snapshot && !loading && <button className="text-button" type="button" onClick={() => setSnapshotRevision((value) => value + 1)}>重试读取 ZIP</button>}</div>}
         <div className="composer-toolbar"><div className="composer-tools">
@@ -172,7 +304,9 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
           <span className="toolbar-divider" />
           <button type="button" className="tool-button" disabled={!snapshot || busy} onClick={() => setDialog('snapshot')}><FileCode2 size={17} /><span>快照{snapshot ? ` · ${textCount}` : ''}</span><ChevronDown size={12} /></button>
           <button type="button" className="icon-button" disabled={busy} aria-label="高级执行设置" title="高级执行设置" onClick={() => setDialog('options')}><SlidersHorizontal size={17} /></button>
-        </div><button type="submit" className={`send-button${project ? ' source-start-button' : ''}`} disabled={busy || !config?.configured || !snapshot || snapshot.id !== selected} aria-label="开始审计">{starting ? <LoaderCircle size={19} className="spin" /> : <ArrowUp size={21} />}{project && <span>{starting ? '创建中…' : '开始审计'}</span>}</button></div>
+        </div><button type="submit" className={`send-button${project ? ' source-start-button' : ''}`} disabled={busy || !config?.configured || !snapshot || snapshot.id !== selected || (pocMode === 'required' && (!readiness?.available || readinessLoading))} aria-label="开始审计">{starting ? <LoaderCircle size={19} className="spin" /> : <ArrowUp size={21} />}{project && <span>{starting ? '创建中…' : '开始审计'}</span>}</button></div>
+        <p className="field-hint">整次上限：模型 {runLimits.responses} 次 · 工具 {runLimits.tools} 次 · 活跃 {runLimits.seconds} 秒；POC：{POC_MODE_LABELS[pocMode]}。可在高级执行设置调整。</p>
+        {pocMode === 'required' && !readiness?.available && <p className="field-hint" role="status">{readinessLoading ? '正在检查必须验证所需环境…' : readinessError ? '自动验证环境检查失败，请重新检查或切换模式。' : pocReason(readiness?.reason, readiness?.message)}</p>}
       </form>
       <div className="composer-footnote"><span><ShieldCheck size={12} /> 源码只读审计 · 执行过程持久保存</span><span>Ctrl / ⌘ + Enter 发送</span></div>
     </div>
@@ -184,17 +318,25 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       <p className="field-hint">依赖 / 生成目录 {stats.dependency_tree_files ?? 0} 个文件 · PHP 语法索引 {stats.php_files ?? 0} 个文件</p>
       {snapshot.warnings?.length > 0 && <Disclosure title={`导入告警（${snapshot.warnings.length}）`}><LongContent label="已保存的导入告警" value={snapshot.warnings.join('\n')} /></Disclosure>}
       {(snapshot.skipped_files?.length ?? 0) > 0 && <Disclosure title={`跳过的条目（${stats.skipped_count ?? snapshot.skipped_files?.length}）`}><LongContent label="跳过条目预览（最多 200 条）" value={snapshot.skipped_files} /></Disclosure>}
-      <Disclosure title="快照文件清单"><div className="scope-list">{snapshot.files.slice(0, fileLimit).map((file) => <div key={file.path} className="scope-item"><FileCode2 size={14} /><span><span className="mono">{file.path}</span><small>{file.kind === 'binary' ? '二进制 · 不可读' : `${file.line_count} 行 · ${file.language ?? '文本'}`}{file.dependency_tree ? ' · 依赖 / 生成目录' : ''}</small></span></div>)}</div>{snapshot.files.length > fileLimit && <button type="button" className="btn" onClick={() => setFileLimit((value) => value + 100)}>加载更多 100 个文件</button>}</Disclosure>
+      <Disclosure title="快照文件清单"><div className="scope-list">{snapshot.files.slice(0, fileLimit).map((file) => <div key={file.path} className="scope-item"><FileCode2 size={14} /><span><span className="mono">{file.path}</span><small>{file.kind === 'binary' ? '二进制 · 不可读' : `${file.line_count} 行 · ${file.language ?? '文本'}`}{file.dependency_tree ? ' · 依赖 / 生成目录' : ''}</small></span>{file.kind !== 'binary' && file.line_count > 0 && <button type="button" className="text-button" onClick={() => { setRangePath(file.path); setRangeStart(1); setRangeEnd(Math.min(file.line_count || 200, 200)); }}>选范围</button>}</div>)}</div>{snapshot.files.length > fileLimit && <button type="button" className="btn" onClick={() => setFileLimit((value) => value + 100)}>加载更多 100 个文件</button>}</Disclosure>
+      {rangePath && <div className="scope-picker"><div className="scope-picker-head"><span className="mono">{rangePath}</span><label>起始行 <input type="number" min={1} max={9999} value={rangeStart} onChange={(event) => setRangeStart(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} /></label><label>结束行 <input type="number" min={1} max={9999} value={rangeEnd} onChange={(event) => setRangeEnd(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} /></label><button type="button" className="btn btn-primary" onClick={() => { const file = snapshot.files.find((row) => row.path === rangePath); const top = Math.min(rangeStart, rangeEnd); const bottom = Math.max(rangeStart, rangeEnd); setScope({ path: rangePath, start: top, end: Math.min(bottom, file?.line_count || bottom) }); setDialog(null); }}>把该范围填入审计任务</button></div><SourceViewer snapshotId={snapshot.id} path={rangePath} start={Math.max(1, Math.min(rangeStart, rangeEnd) - 10)} end={Math.min(rangeEnd + 10, Math.max(rangeEnd, 220))} highlight={[{ start_line: Math.min(rangeStart, rangeEnd), end_line: Math.max(rangeStart, rangeEnd) }]} height={260} /></div>}
       <LongContent label="归档 SHA256" value={snapshot.archive_sha256} />
     </div></Overlay>}
     {dialog === 'options' && <Overlay title="高级执行设置" onClose={() => setDialog(null)}><div className="overlay-body">
       <div className="settings-section-label"><Sparkles size={16} />Planner 与 worker</div><div className="form-grid">
         {([{ key: 'max_iterations', label: '每个动态任务最大尝试', min: 1, max: 8 }, { key: 'max_total_attempts', label: '共享总尝试上限', min: 1, max: 512 }, { key: 'max_planner_rounds', label: 'Planner 最大回合', min: 1, max: 128 }, { key: 'max_workers', label: '并发 worker', min: 1, max: 4 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={task[field.key]} onChange={(event) => setTask((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
-      </div><div className="settings-section-label"><SlidersHorizontal size={16} />每次 Planner / worker 回合的预算</div><div className="form-grid">
+      </div><div className="settings-section-label"><SlidersHorizontal size={16} />整次审计硬预算</div><div className="form-grid">
+        {([{ key: 'responses', label: '整次模型请求上限' }, { key: 'tools', label: '整次工具调用上限' }, { key: 'seconds', label: '整次活跃时间（秒）' }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={runBounds.min[field.key]} max={runBounds.max[field.key]} value={runLimits[field.key]} onChange={(event) => setRunLimits((value) => ({ ...value, [field.key]: clamp(event.target.value, runBounds.min[field.key], runBounds.max[field.key]) }))} /><span className="field-hint">{runBounds.min[field.key]}–{runBounds.max[field.key]}</span></label>)}
+      </div><p className="field-hint">Planner、侦察、worker 与 POC 共享整次额度。失败请求也计入消耗；暂停不重置预算，暂停后的静止时间不计入活跃时间。达到上限将自动结束为未完成，并保存阶段报告。</p>
+      <div className="settings-section-label"><SlidersHorizontal size={16} />单次 Planner / worker 执行预算</div><div className="form-grid">
         {([{ key: 'responses', label: '模型响应次数', min: 1, max: 256 }, { key: 'tools', label: '工具调用次数', min: 0, max: 2048 }, { key: 'seconds', label: '墙钟时间（秒）', min: 30, max: 14400 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={budgets[field.key]} onChange={(event) => setBudgets((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
-      </div><p className="field-hint">预算按回合计算，所有 worker 共享总尝试上限。运行中可暂停并原样继续，目标与快照保持冻结。</p>
+      </div><p className="field-hint">单次执行和整次审计均受限，先到达的上限生效。所有 worker 还共享总尝试上限，暂停继续保留全部消耗。</p>
       <label className="checkbox option-checkbox"><input type="checkbox" checked={task.stop_on_achieved} onChange={(event) => setTask((value) => ({ ...value, stop_on_achieved: event.target.checked }))} /><span>目标达成后停止未开始的任务</span></label>
-      <label className="checkbox option-checkbox"><input type="checkbox" checked={task.require_poc} onChange={(event) => setTask((value) => ({ ...value, require_poc: event.target.checked }))} /><span>目标达成时要求 POC</span></label>
+      <div className="settings-section-label"><ShieldCheck size={16} />POC 自动验证</div>
+      <label className="field"><span className="field-label">自动验证模式</span><select value={pocMode} onChange={(event) => setPocMode(event.target.value as PocMode)}><option value="off">关闭 · 仅源码审计</option><option value="auto">自动 · 环境可用时验证</option><option value="required">必须 · 需要验证后收束</option></select></label>
+      <p className="field-hint">关闭时不启动 POC agent。自动模式环境不可用时跳过验证，源码结论仍保留为未验证；必须模式要求环境可用且结论已复现。</p>
+      {pocMode !== 'off' && <div className="poc-readiness" role="status"><p>{readinessLoading ? '正在检查自动验证环境…' : readinessError ? `环境检查失败：${readinessError}` : readiness ? `${readiness.available ? '环境可用' : '环境不可用'}：${pocReason(readiness.reason, readiness.message)}` : '请先选择源码 ZIP。'}</p>{readiness && <span className="faint small">检查于 {localDate(readiness.checked_at)} · 浏览器验证{readiness.capabilities.browser ? '可用' : '不可用'}</span>}<button type="button" className="text-button" disabled={!selected || readinessLoading} onClick={() => setReadinessRevision((value) => value + 1)}>重新检查环境</button></div>}
+      <label className="checkbox option-checkbox"><input type="checkbox" checked={task.require_poc} onChange={(event) => setTask((value) => ({ ...value, require_poc: event.target.checked }))} /><span>发现需附 POC 脚本（与自动验证独立）</span></label>
     </div><div className="overlay-footer"><button type="button" className="btn btn-primary" onClick={() => setDialog(null)}>保存设置</button></div></Overlay>}
   </section>;
 }

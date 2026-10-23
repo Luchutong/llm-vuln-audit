@@ -47,12 +47,12 @@ export function useEvents(runId: string | null, onEvent?: (event: AuditEvent) =>
     const drain = async () => {
       try {
         while (!disposed) {
-          const page = await api<{ events: AuditEvent[] }>(`/runs/${runId}/event-log?after=${cursor.current}`, { signal: abort.signal });
+          const page = await api<{ events: AuditEvent[]; remaining?: number }>(`/runs/${runId}/event-log?after=${cursor.current}`, { signal: abort.signal });
           if (disposed) return;
           const previous = cursor.current;
           accept(page.events);
           publish();
-          if (page.events.length < 2000 || cursor.current === previous) break;
+          if (cursor.current === previous || (page.remaining === undefined ? page.events.length < 2000 : page.remaining <= page.events.length)) break;
         }
         if (!disposed) setError(null);
       } catch (exc) { if (!disposed) setError(errorText(exc)); }

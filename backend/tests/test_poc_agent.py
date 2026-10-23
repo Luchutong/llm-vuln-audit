@@ -90,7 +90,7 @@ class FakeStore:
             "project_id": "project-1",
             "project_mode": "project",
             "target_profile": "dvwa",
-            "poc_policy": {},
+            "poc_policy": {"mode": "auto", "enabled": True},
         }
         self.records: list[dict] = []
         self.jobs: list[dict] = []
@@ -147,7 +147,7 @@ def test_policy_from_run_uses_defaults_and_clamps():
 def test_non_dvwa_project_is_not_applicable(tmp_path):
     store = FakeStore(run={
         "id": "run-1", "project_id": "p1", "project_mode": "project",
-        "target_profile": "unknown", "poc_policy": {},
+        "target_profile": "unknown", "poc_policy": {"mode": "auto", "enabled": True},
     })
     bus = FakeBus()
     verifier = make_verifier(tmp_path, store, bus, FakeClient())
@@ -155,11 +155,11 @@ def test_non_dvwa_project_is_not_applicable(tmp_path):
         "run-1", [FINDING], {}, model_config=CONFIG,
     ))
     assert summary["not_applicable"] == 1
-    assert store.records[0]["status"] == "not_applicable"
-    assert "poc_verification_recorded" in bus.kinds()
+    assert store.records == []
+    assert bus.kinds() == ["poc_verification_skipped"]
 
 
-def test_runner_unavailable_marks_every_finding(tmp_path):
+def test_runner_unavailable_keeps_one_run_notice_without_finding_records(tmp_path):
     store = FakeStore()
     bus = FakeBus()
     client = FakeClient(health_ok=False)
@@ -168,7 +168,7 @@ def test_runner_unavailable_marks_every_finding(tmp_path):
         "run-1", [FINDING], {}, model_config=CONFIG,
     ))
     assert summary["environment_unavailable"] == 1
-    assert store.records[0]["status"] == "environment_unavailable"
+    assert store.records == []
     assert "poc_verification_unavailable" in bus.kinds()
     assert client.closed is True
 
@@ -682,9 +682,10 @@ class CancelledClient(FakeClient):
 def test_runner_unavailable_is_still_a_paired_result():
     deps_, events = recorded_deps(UnavailableClient())
 
-    parsed = json.loads(asyncio.run(deps_.call("target_status", {})))
-
-    assert parsed["error"] == "runner_unavailable"
+    from audit.runtime import StopAudit
+    with pytest.raises(StopAudit, match="runner 不可用"):
+        asyncio.run(deps_.call("target_status", {}))
+    assert json.loads(events[-1]["preview"])["error"] == "runner_unavailable"
     assert [event["kind"] for event in events] == [
         "tool_call", "poc_runner_unavailable", "tool_result",
     ]

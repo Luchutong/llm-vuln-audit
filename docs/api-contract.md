@@ -1,6 +1,6 @@
 # API 契约
 
-所有 HTTP API 使用 `/api` 前缀，响应为 JSON（文件上传、下载和 SSE 除外）。错误响应形如 `{ "detail": "..." }`；时间均为 ISO 8601 UTC；ID 为字符串。
+所有 HTTP API 使用 `/api` 前缀，响应为 JSON（文件上传、下载、SSE 和 `204` 空响应除外）。错误响应形如 `{ "detail": "..." }` 或 `{ "detail": {"code":"...","message":"..."} }`；时间均为 ISO 8601 UTC；ID 为字符串。
 
 ## 主流程
 
@@ -68,6 +68,8 @@
 {
   "snapshot_id": "...",
   "budgets": {"responses": 24, "tools": 96, "seconds": 1800},
+  "run_limits": {"responses": 256, "tools": 2048, "seconds": 1800},
+  "poc_mode": "off",
   "task": {
     "objective": "确认未认证管理路由及其源码证据",
     "success_criteria": "每条结论给出原始行号、路由和中间件判断；否则说明未决原因",
@@ -92,12 +94,32 @@
  max_planner_rounds:1..128,max_workers:1..4,stop_on_achieved,require_poc}
 ```
 
-`max_total_attempts` 默认 64、`max_planner_rounds` 默认 24。预算默认 `{responses:24, tools:96, seconds:1800}`、上限 `{responses:256, tools:2048, seconds:14400}`：预算刻意放松，因为一个在结构化决策之前就耗尽响应的 Planner 回合产不出任何任务，代价是整次运行而不是几次调用。要提前停下运行请用 `pause` / `cancel`，不要靠一个会在决策中途过期的预算。`GET /config` 的 `budget_limits.defaults` 返回当前默认值。
+`max_total_attempts` 默认 64、`max_planner_rounds` 默认 24。`budgets` 保留单次 Planner/worker 执行含义，默认 `{responses:24,tools:96,seconds:1800}`，上限 `{responses:256,tools:2048,seconds:14400}`。探索与判定共用单次额度，预留最终提交和最多两次纠正，不突破硬上限。
 
-`require_poc=false` 时，漏洞候选仍需明确利用前提、安全影响、风险等级与源码证据；收束前仍会尝试自动验证，但未验证或环境不可用不阻止 `met`。设为 `true` 时，每条支撑 `achieved` 的漏洞结论都必须是自动验证的 `verified`；环境不可用且要求验证时，运行以 `inconclusive` 收束并写明原因。安全结论与普通源码事实单独保存为排查记录，不计为漏洞，也不能使漏洞审计目标达成。
+`run_limits` 是 Planner、侦察、worker、POC 共用的整次累计限额：默认 `{responses:256,tools:2048,seconds:1800}`，最小 `{responses:1,tools:0,seconds:30}`，最大 `{responses:4096,tools:32768,seconds:14400}`。缺省采用默认；非整数、布尔数值、越界及未知字段返回 `422`。失败请求、显式重试、重复工具、缓存命中及工具失败均计入；门禁拒绝不扣费，最终提交和纯进度不消耗工具额度。SDK 隐式重试关闭。暂停恢复保留消耗；排队和静止暂停时间不计时，并发执行不累加墙钟。整次耗尽自动以 `inconclusive` 结束，使用宿主事实生成阶段报告，不另请求模型。历史运行 `run_limits=null`，不猜算旧消耗或套入新默认。
+
+`require_poc` 仅要求漏洞发现附带可复核脚本，不控制动态执行。`poc_mode` 为 `off|auto|required`，新任务缺省 `off`；基于旧任务新建也默认 `off`。
+
+- `off`：不检查 runner 健康、不启动 POC Agent、不 prepare/reset、不提交实验；仍可要求脚本。
+- `auto`：配置、源码类型及 runner 健康均满足才验证，否则保留静态审计；未执行原因只写运行级说明，不产生逐发现“不适用”记录。
+- `required`：创建前作新鲜只读检查，环境不满足返回 `409`，不创建运行；收束须有至少一条同源码、当前版本、同目标的有效动态验证，且穷尽约束仍独立成立。执行中环境失效以 `inconclusive` 收束。
+
+历史冻结策略无 `mode` 时：`require_poc=true → required`；否则 `enabled=true → auto`；其余 `off`，并标记 legacy。`POC_ENABLED` 是服务端能力开关；`POC_REQUIRED` 不覆盖新任务选择。安全观察不计为漏洞，blocked、未知或未读方向不得当作安全。
+
+`GET /poc/readiness?snapshot_id=...` 返回 `{available,reason,message,checked_at,capabilities:{supported_targets:["dvwa"],browser,...}}`。原因枚举为 `ready/disabled/unsupported_target/runner_unconfigured/runner_unhealthy`。检查只读配置、目标适配和健康，不 prepare/reset/提交作业；总超时 5 秒，成功缓存 15 秒、失败 5 秒，同配置并发合并。无快照返回 `404`。`required` 创建失败结构：
+
+```json
+{"detail":{"code":"poc_not_ready","reason":"runner_unconfigured","message":"自动验证执行器尚未配置。","checked_at":"<UTC>"}}
+```
+
+`GET /config` 保留 `budget_limits.defaults`，新增 `run_budget_limits:{defaults,min,max}`；`poc` 提供服务端能力、支持类型及 runner 是否已配置，不包含内部地址或凭据。
+
+`Run.execution_summary` 包含 `policy_version,phase,run_limits,run_usage,run_remaining,active_executions,stop_reason,blocked_task_ids,poc,final_summary_available`。额度对象为 `{responses,tools,seconds}`，剩余不小于零；`active_executions` 每项含 invocation、角色、任务、阶段、实际单次额度和消耗。停止原因至少区分 `goal_met/run_budget_exhausted/planner_round_limit/worker_attempt_limit/unresolved_blockers/invalid_output_limit/environment_unavailable/worker_exit_without_terminal/user_cancelled/interrupted`；预算耗尽附 `dimension`。历史没有总限额时 `run_limits/run_remaining=null`。
+
+终结事务同时保存 run、goal、Planner、剩余任务、终结事件及 `Run.final_summary`。宿主摘要包含状态/完成性、停止原因、原始与有效发现数、按台账 ID 分组数、逐发现修订/证据/验证、任务状态、覆盖、预算和限制；没有模型叙述也可下载完整阶段报告。新 Markdown 报告以该事实快照渲染；旧模型内容保留在原始事件及 JSON 追溯记录中。模型报告引用采用 `finding_refs:[{finding_id,revision}]` 和 `no_evidence_task_ids`，遗漏、外部 ID、过期修订及受阻“安全”引用会被拒绝，任务图仍可提交。
 
 - `GET /runs` → 运行摘要（含 `project_id`、`project_name`、`project_mode`、`poc_policy`）。
-- `GET /runs/{id}` → `{run,goal,planner,project,project_findings,carried_findings,report_narrative,verification_summary,verification_jobs,project_map,plans,tasks,observations,investigations,findings,source_observations,metrics}`。`findings` 为漏洞候选，`source_observations` 为独立的排查记录。`project_findings` 是实时项目台账的有界投影（排除已撤回结论，最多 200 条），本次冻结基线保存在 `run.project_baseline`；`carried_findings` 是本次没有重新取证、以沿用关系挂到本次运行的开放结论。`report_narrative` 是 Planner 在收束复核回合提交的 `{summary,conclusion,limitations}`（没有则为 `null`）。`verification_summary` 按状态计数，`verification_jobs` 是 runner 作业摘要。Planner 运行的 `units` 与 `work_items` 为兼容字段且始终为空。`project_map` 在这里是**有界投影**（`stats`、入口候选、模块聚合、`binary_files`、`limitations` 等；不含 `files`/`symbols`/`includes`/`calls` 全量数组），以免整包快照让每次轮询变成数 MB JSON。`investigations` 是固定调查的无正文投影（见下）。
+- `GET /runs/{id}` → `{run,goal,planner,project,project_findings,carried_findings,report_narrative,verification_summary,verification_jobs,project_map,plans,tasks,observations,investigations,findings,source_observations,metrics}`。`findings` 为漏洞候选，`source_observations` 为独立的排查记录。`project_findings` 是实时项目台账的有界投影（排除已撤回结论，最多 200 条），本次冻结基线保存在 `run.project_baseline`；`carried_findings` 是本次没有重新取证、以沿用关系挂到本次运行的开放结论。`report_narrative` 是 Planner 在收束复核回合提交的 `{summary,conclusion,limitations,finding_refs,no_evidence_task_ids}`（没有则为 `null`）。`verification_summary` 按状态计数，`verification_jobs` 是 runner 作业摘要。Planner 运行的 `units` 与 `work_items` 为兼容字段且始终为空。`project_map` 在这里是**有界投影**（`stats`、入口候选、模块聚合、`binary_files`、`limitations` 等；不含 `files`/`symbols`/`includes`/`calls` 全量数组），以免整包快照让每次轮询变成数 MB JSON。`investigations` 是固定调查的无正文投影（见下）。
 - `GET /runs/{id}/project-map` → 完整冻结项目图，供导出与深挖使用。注意 `architecture.modules[]` 的目录键是 `directory`：该数组里的每一项都是**目录**，而这份投影里其它叫 `path` 的字段都是文件。存储的完整项目图保留原始键名，`GET /runs/{id}` 与 `GET /runs/{id}/project-overview` 使用 `directory`。
 - `GET /runs/{id}/project-overview` → Planner 首轮看到的那份有界概览。
 - `POST /runs/{id}/cancel` → 取消排队、运行中或已暂停的任务。
@@ -106,12 +128,21 @@
 
 目标任务的 `Run.status` 可能是 `pending`、`running`、`paused`、`completed`、`unreachable`、`inconclusive`、`cancelled`、`interrupted` 或 `failed`。`unreachable` 只在动态前沿的所有证据方向结算且无受阻项时产生；缺失源码、模型/预算失败、共享尝试上限、Planner 回合耗尽、取消和中断不会被转换为“不可达”。
 
+### 删除与清理记录
+
+- `DELETE /runs/{id}` → `{run_id,status_before,deleted:{表名:删除行数}}`。`pending`、`running` 或暂停尚未静止返回 `409`，其余状态可删除，**包含已静止的 `paused`**；删除已暂停任务会失去继续执行的前沿。不存在的任务返回 `404`。
+- `POST /runs/cleanup` 接受 `{}`（全局）或 `{"project_id":"..."}`（指定项目），返回 `{deleted_runs,runs:[上述删除结果]}`。自动跳过 `pending`、`running` 和尚未静止的执行，已静止的暂停任务同样在清理范围内。
+- `DELETE /snapshots/{id}` → `204`。任何审计引用该快照时返回 `409`，不存在时返回 `404`。删除数据库中的快照及关联真值记录，不删除磁盘上的归档或源码文件。
+- `DELETE /prompts/{id}` → `204`。内置提示词及被任一审计引用的提示词返回 `409`，不存在时返回 `404`；草稿列表沿用 `GET /prompts`，包含 `builtin` 标识。
+
+审计删除会清理该运行的发现、验证、执行轨迹与关联记录，保留源码项目和跨运行的 `project_findings` 台账；因此被删任务的来源链接、验证或工件可能不可用。删除 ZIP 也保留项目及累计台账。运行和 ZIP 删除后，项目对应的计数与最新记录指针会按剩余记录重算，没有剩余记录时指针为 `null`。这些操作无法从界面撤销，前端提交前明确确认范围与影响，成功后刷新列表和统计，并在当前审计被删时返回源码包工作台。
+
 ### 暂停与继续
 
 `paused` 不是终态：暂停只把运行停在回合边界，不放弃任何已完成的工作。已经领取的 worker 尝试与正在进行的 Planner 回合允许跑完并提交——一个被切断的模型调用会留下没有结果的尝试记录，而那正是继续时无法接上的状态——之后 `status` 变为 `paused`，`finished_at` 保持为空，探针事件为 `run_paused`。
 
 - 只有 `pending` 或 `running` 可以暂停，其余状态返回 `409`；不存在的运行返回 `404`。暂停请求本身先记 `run_pause_requested`。
-- `resume` 只接受 `paused`，其余返回 `409`。它把状态放回 `pending`，由既有的领取逻辑自然接管：前沿（任务、会话、`current_round`）原样续跑，`started_at` 保留首次开始的时间，不会重复产生 `run_started` / `planner_session_started`。目标的 `task_goals` 或会话已经结算（非 `open`）时无法继续，返回 `409`。
+- `resume` 只接受 `paused`，其余返回 `409`。仅在原执行已静止时把状态放回 `pending`；尚在途时返回 `409`，前端显示等待静止。新领取原子递增 claim_epoch，旧代次不能写入业务事实，由既有的领取逻辑自然接管：前沿（任务、会话、`current_round`）原样续跑，`started_at` 保留首次开始的时间，不会重复产生 `run_started` / `planner_session_started`。目标的 `task_goals` 或会话已经结算（非 `open`）时无法继续，返回 `409`。
 - `cancel` 对 `paused` 同样有效，直接结算为 `cancelled`：暂停是为了停下来看，如果必须先继续才能丢弃，那就是个陷阱。
 - 服务重启会把 `paused` 扫成 `interrupted`（`error` 写明是暂停期间重启），**不支持跨重启继续**：暂停意图只在内存里。
 
@@ -276,7 +307,7 @@ Planner 目标任务的统计 `truth_status=planner_goal_not_comparable`、`eval
 ModelProfile {id,label,model,base_url,credential_source:"environment"|"stored",
               api_key_configured,ordinal,created_at,updated_at,selected}
 Config {model,base_url,configured,thinking,missing,selected_profile_id,
-        model_profiles:ModelProfile[],budgets,budget_limits,agent_policy,worker,
+        model_profiles:ModelProfile[],budgets,budget_limits,run_budget_limits,poc,agent_policy,worker,
         model_health,version}
 ```
 

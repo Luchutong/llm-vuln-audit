@@ -168,6 +168,9 @@ class Execution:
     progress_messages: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
+        from .execution_state import CURRENT_EXECUTION, CURRENT_ROLE
+        self.run_execution = CURRENT_EXECUTION.get()
+        self.role_context = dict(CURRENT_ROLE.get())
         sink = self.emit
 
         def contextual_emit(event: dict) -> None:
@@ -179,6 +182,8 @@ class Execution:
                 "phase": self.phase,
                 **event,
             })
+            if self.run_execution is not None and str(event.get("kind", "")).endswith("_terminal"):
+                self.run_execution.store.update_execution_agent(self.run_execution.run_id, self.agent_invocation_id)
 
         self.emit = contextual_emit
 
@@ -207,6 +212,7 @@ class Execution:
     def enter(self, phase: str, **details) -> None:
         self.phase = phase
         self.phases.setdefault(phase, {"model_attempts": 0, "tool_calls": 0})
+        self._publish_execution()
         self.emit({"kind": "agent_phase", "phase": phase, **details, "remaining_seconds": round(max(0, self.remaining()), 2)})
 
     def before_model(self, *, deadline: float, limit: int, correction: bool, reason: str | None = None) -> float:
@@ -221,16 +227,10 @@ class Execution:
         """
         if self.remaining(deadline) <= 0:
             raise StopAudit("timeout", "单元或当前阶段的墙钟预算已到期")
-        if correction and self.corrections >= self.policy.output_corrections:
-            # A reply the host could not use at all is a format failure, not a budget
-            # one; the last refusal reason is the only trace of what went wrong, since
-            # no retry request follows it.
-            raise StopAudit(
-                "invalid_output",
-                "本单元的输出纠正重试已用尽" + (f"；最后一次拒绝：{reason[:300]}" if reason else ""),
-            )
         if self.attempts >= min(limit, self.budgets["responses"]):
             raise StopAudit("budget", "模型请求预算已用尽（包括纠正与失败请求）")
+        if self.run_execution is not None:
+            self.run_execution.admit("responses")
         if correction:
             self.corrections += 1
             # The rejection reason is the only record of *why* the previous output was
@@ -244,19 +244,30 @@ class Execution:
                 "reason": (reason or "")[:400] or None,
             })
         self.attempts += 1
+        self._publish_execution()
         self.phases[self.phase]["model_attempts"] += 1
         self.emit({"kind": "model_request", "phase": self.phase, "attempt": self.attempts})
-        return min(self.policy.request_seconds, self.remaining(deadline))
+        ceiling = min(self.policy.request_seconds, self.remaining(deadline))
+        if self.run_execution is not None:
+            summary = self.run_execution.store.execution_summary(self.run_execution.run_id)
+            remaining = summary.get("run_remaining") if summary else None
+            if remaining is not None:
+                ceiling = min(ceiling, max(0.001, remaining["seconds"]))
+        return ceiling
 
     def before_tool(self) -> None:
         if self.remaining() <= 0:
             raise StopAudit("timeout", "单元墙钟预算已到期")
         if self.tools >= self.budgets["tools"]:
             raise StopAudit("budget", "工具尝试预算已用尽")
+        if self.run_execution is not None:
+            self.run_execution.admit("tools")
         self.tools += 1
+        self._publish_execution()
         self.phases[self.phase]["tool_calls"] += 1
 
     def snapshot(self) -> dict:
+        self._publish_execution()
         return {
             "requests": self.usage.requests,
             "tool_calls": self.tools,
@@ -267,6 +278,15 @@ class Execution:
             "elapsed_seconds": round(time.monotonic() - self.started, 3),
             "phases": self.phases,
         }
+
+    def _publish_execution(self):
+        if self.run_execution is not None:
+            self.run_execution.store.update_execution_agent(self.run_execution.run_id, self.agent_invocation_id,
+                {"agent_invocation_id": self.agent_invocation_id, "phase": self.phase,
+                 "role": "planner" if self.phase.startswith("planner") else "poc" if self.phase.startswith("poc") else "recon" if self.phase.startswith("recon") else "worker",
+                 **self.role_context,
+                 "budgets": dict(self.budgets), "usage": {"responses": self.attempts, "tools": self.tools,
+                 "seconds": round(time.monotonic()-self.started, 3)}})
 
 
 @dataclass

@@ -1,0 +1,29 @@
+.dialog-panel.records-dialog { width: 520px; }
+.records-dialog-actions { gap: 8px; }
+.records-confirm { display: grid; gap: 14px; font-size: 12px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.records-confirm strong { color: var(--ink); font-weight: 550; }
+.records-confirm .mono { font-size: 11px; }
+.records-warning { padding: 10px 12px; background: var(--warn-bg); color: var(--warn); border-radius: var(--radius-sm); }
+.record-action { display: inline-flex; flex-shrink: 0; }
+.record-delete-icon { color: var(--ink-faint); }
+.record-delete-icon:hover:not(:disabled) { color: var(--danger); background: var(--danger-bg); }
+.history-record { display: flex; align-items: center; min-width: 0; }
+.history-record > .history-item { flex: 1; min-width: 0; }
+.history-record > .record-action { margin-right: 3px; }
+.records-history-title { align-items: center; gap: 6px; }
+.records-history-title > span:first-child { flex: 1; }
+.records-history-title .btn { font-size: 9px; padding: 4px 5px; }
+.records-run-row { display: flex; align-items: center; border-bottom: 1px solid var(--line-soft); }
+.records-run-row:last-child { border-bottom: 0; }
+.records-run-row > .source-run { flex: 1; border-bottom: 0; min-width: 0; }
+.records-run-row > .record-action { margin-right: 12px; }
+.records-snapshot-delete, .records-prompt-delete { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.records-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.records-prompts { margin-top: 26px; }
+.records-prompt-list { display: grid; gap: 16px; }
+.records-prompt-row { padding: 15px 0; border-top: 1px solid var(--line-soft); min-width: 0; }
+.records-prompt-row:first-child { border-top: 0; padding-top: 0; }
+.records-prompt-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.records-prompt-heading h3 { font-size: 13px; font-weight: 550; }
+.records-prompt-heading p { color: var(--ink-faint); font-size: 10px; margin-top: 4px; }
+@media (max-width: 480px) { .records-dialog-actions .btn { min-height: 38px; } .records-run-row > .record-action { margin-right: 7px; } .records-prompt-delete { align-items: flex-start; flex-direction: column; } }

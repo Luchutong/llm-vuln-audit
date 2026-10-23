@@ -483,6 +483,7 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
             <div>模型响应 {config.budgets.responses} 次</div>
             <div>工具调用 {config.budgets.tools} 次</div>
             <div>墙钟 {config.budgets.seconds} 秒</div>
+            {config.run_budget_limits && <div className="muted" style={{ marginTop: 8 }}>整次默认上限：模型 {config.run_budget_limits.defaults.responses} 次 · 工具 {config.run_budget_limits.defaults.tools} 次 · 活跃 {config.run_budget_limits.defaults.seconds} 秒</div>}
             <div className="muted" style={{ marginTop: 8 }}>
               预算在运行创建时冻结；当前进行中的审计结束或取消后才能切换模型档案。
             </div>

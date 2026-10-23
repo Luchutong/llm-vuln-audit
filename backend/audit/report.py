@@ -1315,6 +1315,10 @@ def _render_task_markdown(bundle: dict) -> str:
 
 
 def render_markdown(bundle: dict) -> str:
+    host = bundle.get("run", {}).get("final_summary")
+    if host:
+        from .report_facts import render_host_summary
+        return render_host_summary(host)
     bundle = _partition_bundle(bundle)
     run = bundle["run"]
     # Planner v2 runs carry a durable session and dynamic task graph.  Older goal

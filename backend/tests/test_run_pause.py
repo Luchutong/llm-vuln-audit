@@ -245,7 +245,7 @@ def test_a_paused_run_cannot_be_resumed_once_its_goal_has_settled(store, reposit
     store.finalize_goal(run["id"], "inconclusive", "测试用：目标已结算。")
 
     assert store.resume_run(run["id"]) is False
-    assert store.get_run(run["id"])["status"] == "paused"
+    assert store.get_run(run["id"])["status"] == "inconclusive"
 
 
 def test_the_endpoints_park_and_release_a_run_that_has_not_started(store, repository):
@@ -362,15 +362,12 @@ def test_a_restart_says_the_run_was_paused_rather_than_in_flight(store, reposito
     assert store.active_run_count() == 0
 
 
-def test_resuming_before_the_round_finishes_hands_the_run_back(store, repository, monkeypatch):
-    """Pause then resume mid-round is an ordinary click, and must not read as a cancel.
+def test_resume_waits_until_the_inflight_round_is_quiescent(store, repository, monkeypatch):
+    """An immediate resume is refused; a quiescent resume retains the frontier.
 
-    ``request_pause`` flips the status the moment it lands, so the resume button is live
-    while the round already in flight is still finishing -- and ``resume`` returns the run
-    to the claim queue right away.  For as long as this pass keeps working, then, the run
-    reads ``pending``: a status the running loop used to answer with an abandoned frontier
-    and a ``run_cancelled``, cancelling a run the user had just restarted.  The pass has to
-    hand it back instead, and the claim that follows must continue rather than restart.
+    The in-flight round commits under its existing epoch and parks as paused.
+    Only after it returns may resume queue another claim, without overlapping
+    ownership or resetting the budget and Planner round number.
     """
     from audit import worker as worker_module
 
@@ -383,7 +380,7 @@ def test_resuming_before_the_round_finishes_hands_the_run_back(store, repository
         # The user pauses and, seeing the button, resumes before this round has finished.
         store.request_pause(run["id"])
         worker.pause(run["id"])
-        assert store.resume_run(run["id"]) is True
+        assert store.resume_run(run["id"]) is False
         return {
             "decision": {
                 "goal_state": "continue",
@@ -401,7 +398,7 @@ def test_resuming_before_the_round_finishes_hands_the_run_back(store, repository
     asyncio.run(worker._execute(run))
 
     assert rounds == [1]
-    assert store.get_run(run["id"])["status"] == "pending"
+    assert store.get_run(run["id"])["status"] == "paused"
     # Handed back with everything the round committed: the queue, not a cancellation.
     assert task_states(store, run["id"]) == {"entry-flow": "ready", "file-operation": "ready"}
     assert store.get_task_goal(run["id"])["status"] == "open"
@@ -412,6 +409,7 @@ def test_resuming_before_the_round_finishes_hands_the_run_back(store, repository
 
     # The claim the loop makes next is an ordinary continuation, not a fresh start.
     worker._pauses.pop(run["id"], None)
+    assert store.resume_run(run["id"]) is True
     claimed = store.claim_next_run()
     assert claimed["id"] == run["id"] and claimed["status"] == "running"
 

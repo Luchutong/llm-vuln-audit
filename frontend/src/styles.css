@@ -203,6 +203,20 @@ code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", M
 .composer-field textarea:focus { outline: none; }
 .composer-field textarea::placeholder { color: var(--ink-faint); opacity: .8; }
 .composer-fields .field-hint { padding-bottom: 5px; }
+.scenario-fill { display: flex; flex-direction: column; gap: 7px; padding: 2px 0 4px; }
+.scenario-fill-label { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; letter-spacing: .4px; color: var(--ink-faint); }
+.scenario-fill-label svg { color: var(--accent); }
+.scenario-fill-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.scenario-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px;
+  font-size: 11px; font-weight: 500; color: var(--ink-soft);
+  background: var(--surface-sunken); border: 1px solid var(--line-soft); border-radius: 999px;
+  cursor: pointer; transition: border-color .15s, background .15s, color .15s, transform .12s;
+}
+.scenario-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); transform: translateY(-1px); }
+.scenario-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.scenario-chip:disabled { opacity: .5; cursor: not-allowed; }
+.scenario-chip svg { color: var(--accent); }
 .acceptance-field { border-top: 1px solid var(--line-soft); padding-top: 10px; margin-top: 3px; }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
 .composer-tools { display: flex; align-items: center; gap: 3px; min-width: 0; flex-wrap: wrap; }
@@ -557,3 +571,12 @@ th { font-weight: 600; color: var(--ink-faint); background: var(--surface-sunken
   .activity-message-byline { font-size: 9px; gap: 6px; }
   .activity-group-rows { margin-left: 7px; padding-left: 7px; }
 }
+
+/* 选定源码范围：快照对话框内的行窗口选择器与任务输入旁的范围标记 */
+.scope-picker { display: flex; flex-direction: column; gap: 9px; margin-top: 12px; }
+.scope-picker-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.scope-picker-head .mono { font-size: 12px; word-break: break-all; }
+.scope-picker-head label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-soft); }
+.scope-picker-head input { width: 76px; }
+.scope-chip { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding: 2px 4px 2px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--accent-soft); font-size: 11px; }
+.scope-chip .icon-button { width: 20px; height: 20px; }

@@ -26,6 +26,7 @@ CRITERIA = "引用输入来源、传播路径和敏感操作的原始行号；�
 LONG_VALUE = "LONG_PAYLOAD_START\n" + "工具返回的长文本与无空格路径/" * 700 + "\nLONG_PAYLOAD_END"
 LONG_LOG = "PRINT_LOG_START\n" + "已读取的源码观察与批处理日志。\n" * 600 + "PRINT_LOG_END\n[日志已截断]"
 BUDGET = {"responses": 24, "tools": 96, "seconds": 1800}
+RUN_LIMITS = {"responses": 256, "tools": 2048, "seconds": 1800}
 USAGE = {"requests": 4, "tool_calls": 2, "input_tokens": 2300, "output_tokens": 700}
 TASK = {"objective": OBJECTIVE, "success_criteria": CRITERIA, "max_iterations": 3,
         "max_total_attempts": 64, "max_planner_rounds": 24, "max_workers": 2,
@@ -396,7 +397,9 @@ class MockAPI:
         value = {"configured": selected["api_key_configured"], "model": selected["model"], "base_url": selected["base_url"],
                  "thinking": "disabled", "missing": [], "selected_profile_id": self.selected_profile_id, "model_profiles": public,
                  "version": "ui-codeagent-smoke", "worker": {"name": "fixture-worker", "busy": False, "alive": True},
-                 "budgets": BUDGET, "budget_limits": {"defaults": BUDGET}, "agent_policy": {"code_bytes": 4096, "code_output_bytes": 24576},
+                 "budgets": BUDGET, "budget_limits": {"defaults": BUDGET},
+                 "run_budget_limits": {"defaults": RUN_LIMITS, "min": {"responses": 1, "tools": 0, "seconds": 30}, "max": {"responses": 4096, "tools": 32768, "seconds": 14400}},
+                 "agent_policy": {"code_bytes": 4096, "code_output_bytes": 24576},
                  "model_health": {"status": "ok", "fails": 0, "trips": 0, "cooldown_seconds": 0}}
         self.config_responses.append(copy.deepcopy(value))
         return value
@@ -416,7 +419,8 @@ class MockAPI:
         created = run(CREATED_ID, "running")
         created.update(snapshot_id=body["snapshot_id"], snapshot_name=self.snapshot_records[body["snapshot_id"]]["name"],
                        project_id=self.snapshot_records[body["snapshot_id"]]["project_id"],
-                       task_spec=copy.deepcopy(TASK) | body["task"], budgets=body["budgets"])
+                       task_spec=copy.deepcopy(TASK) | body["task"], budgets=body["budgets"],
+                       run_limits=body["run_limits"], poc_mode=body["poc_mode"])
         self.runs[CREATED_ID] = created
         self.extra_events[CREATED_ID] = []
         self.findings[CREATED_ID] = finding(CREATED_ID)
@@ -545,7 +549,9 @@ class MockAPI:
         elif method == "POST" and path == "/runs":
             body = request.post_data_json
             assert "scope" not in body, "codeagent forbids the legacy scope field"
-            assert set(body) == {"snapshot_id", "budgets", "task"}, f"unexpected create fields: {set(body)}"
+            assert set(body) == {"snapshot_id", "budgets", "run_limits", "poc_mode", "task"}, f"unexpected create fields: {set(body)}"
+            assert set(body["run_limits"]) == {"responses", "tools", "seconds"}
+            assert body["poc_mode"] in {"off", "auto", "required"}
             self.create_count += 1
             self.create_bodies.append(body)
             if self.hold_create:

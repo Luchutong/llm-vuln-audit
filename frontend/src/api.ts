@@ -17,19 +17,31 @@ function detailText(detail: unknown): string | null {
     if (detail.length > lines.length) lines.push(`另有 ${detail.length - lines.length} 条校验错误`);
     return lines.join('；');
   }
-  if (detail && typeof detail === 'object') return JSON.stringify(detail);
+  if (detail && typeof detail === 'object') {
+    const message = (detail as { message?: unknown }).message;
+    return typeof message === 'string' ? message : JSON.stringify(detail);
+  }
   return null;
+}
+
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(status: number, message: string, detail?: unknown) { super(message); this.name = 'ApiError'; this.status = status; this.detail = detail; }
 }
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, { ...options, headers: { ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options?.headers } });
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
-    try { const body = await response.json(); message = detailText(body.detail) ?? JSON.stringify(body); } catch { /* HTML/network gateway error */ }
-    throw new Error(message);
+    let detail: unknown;
+    try { const body = await response.json(); detail = body.detail; message = detailText(detail) ?? JSON.stringify(body); } catch { /* HTML/network gateway error */ }
+    throw new ApiError(response.status, message, detail);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 export const post = <T>(path: string, body: unknown) => api<T>(path, { method: 'POST', body: JSON.stringify(body) });
+export const remove = <T = void>(path: string) => api<T>(path, { method: 'DELETE' });
 export const downloadUrl = (path: string) => `/api${path}`;
 export const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);

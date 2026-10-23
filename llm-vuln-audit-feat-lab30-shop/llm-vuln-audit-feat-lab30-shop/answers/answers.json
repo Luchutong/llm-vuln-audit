@@ -1,0 +1,368 @@
+[
+  {
+    "id": "01",
+    "locations": [
+      {
+        "path": "app/public/catalog/index.php",
+        "line": 4
+      }
+    ],
+    "type": "SQL 注入",
+    "severity": "高"
+  },
+  {
+    "id": "02",
+    "locations": [
+      {
+        "path": "app/public/catalog/greeting.php",
+        "line": 3
+      }
+    ],
+    "type": "反射型 XSS",
+    "severity": "中"
+  },
+  {
+    "id": "03",
+    "locations": [
+      {
+        "path": "app/public/ops/ping.php",
+        "line": 2
+      }
+    ],
+    "type": "命令注入",
+    "severity": "极高"
+  },
+  {
+    "id": "04",
+    "locations": [
+      {
+        "path": "app/public/support/download.php",
+        "line": 3
+      }
+    ],
+    "type": "路径遍历与文件读取",
+    "severity": "高"
+  },
+  {
+    "id": "05",
+    "locations": [
+      {
+        "path": "app/public/content/page.php",
+        "line": 3
+      }
+    ],
+    "type": "本地文件包含",
+    "severity": "高"
+  },
+  {
+    "id": "06",
+    "locations": [
+      {
+        "path": "app/public/ops/template-preview.php",
+        "line": 3
+      }
+    ],
+    "type": "远程文件包含",
+    "severity": "极高"
+  },
+  {
+    "id": "07",
+    "locations": [
+      {
+        "path": "app/public/ops/formula.php",
+        "line": 3
+      }
+    ],
+    "type": "动态函数调用导致代码执行",
+    "severity": "极高"
+  },
+  {
+    "id": "08",
+    "locations": [
+      {
+        "path": "app/public/auth/continue.php",
+        "line": 3
+      }
+    ],
+    "type": "开放重定向",
+    "severity": "中"
+  },
+  {
+    "id": "09",
+    "locations": [
+      {
+        "path": "app/public/ops/database.php",
+        "line": 3
+      }
+    ],
+    "type": "异常及堆栈信息泄露",
+    "severity": "中"
+  },
+  {
+    "id": "10",
+    "locations": [
+      {
+        "path": "app/public/auth/register.php",
+        "line": 8
+      },
+      {
+        "path": "app/src/setup.php",
+        "line": 17
+      }
+    ],
+    "type": "使用 MD5 存储密码",
+    "severity": "中"
+  },
+  {
+    "id": "11",
+    "locations": [
+      {
+        "path": "app/public/support/messages.php",
+        "line": 5
+      }
+    ],
+    "type": "存储型 XSS",
+    "severity": "高"
+  },
+  {
+    "id": "12",
+    "locations": [
+      {
+        "path": "app/public/ops/url-preview.php",
+        "line": 3
+      }
+    ],
+    "type": "服务端请求伪造（SSRF）",
+    "severity": "高"
+  },
+  {
+    "id": "13",
+    "locations": [
+      {
+        "path": "app/public/ops/xml-import.php",
+        "line": 3
+      }
+    ],
+    "type": "XML 外部实体（XXE）",
+    "severity": "高"
+  },
+  {
+    "id": "14",
+    "locations": [
+      {
+        "path": "app/public/account/settings.php",
+        "line": 5
+      }
+    ],
+    "type": "跨站请求伪造（CSRF）",
+    "severity": "中"
+  },
+  {
+    "id": "15",
+    "locations": [
+      {
+        "path": "app/public/account/backup.php",
+        "line": 5
+      }
+    ],
+    "type": "不安全反序列化导致会员权益篡改",
+    "severity": "中"
+  },
+  {
+    "id": "16",
+    "locations": [
+      {
+        "path": "app/public/orders/detail.php",
+        "line": 2
+      }
+    ],
+    "type": "订单对象越权访问（IDOR）",
+    "severity": "高"
+  },
+  {
+    "id": "17",
+    "locations": [
+      {
+        "path": "app/public/ops/users.php",
+        "line": 2
+      }
+    ],
+    "type": "信任客户端角色 Cookie 导致权限绕过",
+    "severity": "高"
+  },
+  {
+    "id": "18",
+    "locations": [
+      {
+        "path": "app/public/ops/maintenance.php",
+        "line": 3
+      }
+    ],
+    "type": "信任请求头导致认证绕过",
+    "severity": "高"
+  },
+  {
+    "id": "19",
+    "locations": [
+      {
+        "path": "app/public/orders/create.php",
+        "line": 3
+      },
+      {
+        "path": "app/public/orders/create.php",
+        "line": 5
+      }
+    ],
+    "type": "信任客户端单价导致订单金额篡改",
+    "severity": "高"
+  },
+  {
+    "id": "20",
+    "locations": [
+      {
+        "path": "app/public/wallet/withdraw.php",
+        "line": 3
+      },
+      {
+        "path": "app/public/wallet/withdraw.php",
+        "line": 7
+      }
+    ],
+    "type": "提现竞争条件与重复支付",
+    "severity": "高"
+  },
+  {
+    "id": "21",
+    "locations": [
+      {
+        "path": "app/src/bootstrap.php",
+        "line": 13
+      },
+      {
+        "path": "app/public/auth/login.php",
+        "line": 8
+      }
+    ],
+    "type": "会话固定",
+    "severity": "高"
+  },
+  {
+    "id": "22",
+    "locations": [
+      {
+        "path": "app/public/account/redeem.php",
+        "line": 5
+      }
+    ],
+    "type": "弱类型比较导致兑换码绕过",
+    "severity": "中"
+  },
+  {
+    "id": "23",
+    "locations": [
+      {
+        "path": "app/public/ops/members.php",
+        "line": 2
+      },
+      {
+        "path": "app/src/member_lookup.php",
+        "line": 3
+      }
+    ],
+    "type": "跨文件 SQL 注入",
+    "severity": "高"
+  },
+  {
+    "id": "24",
+    "locations": [
+      {
+        "path": "app/public/ops/batch-check.php",
+        "line": 2
+      },
+      {
+        "path": "app/src/host_check.php",
+        "line": 2
+      }
+    ],
+    "type": "跨文件命令注入",
+    "severity": "极高"
+  },
+  {
+    "id": "25",
+    "locations": [
+      {
+        "path": "app/public/account/profile.php",
+        "line": 3
+      }
+    ],
+    "type": "HTML 属性注入型 XSS",
+    "severity": "中"
+  },
+  {
+    "id": "26",
+    "locations": [
+      {
+        "path": "app/public/partner/portal.php",
+        "line": 2
+      }
+    ],
+    "type": "JWT 未校验签名导致身份伪造",
+    "severity": "高"
+  },
+  {
+    "id": "27",
+    "locations": [
+      {
+        "path": "app/public/ops/jobs.php",
+        "line": 3
+      },
+      {
+        "path": "app/src/dispatch_job.php",
+        "line": 4
+      }
+    ],
+    "type": "反序列化对象链导致命令执行",
+    "severity": "极高"
+  },
+  {
+    "id": "28",
+    "locations": [
+      {
+        "path": "app/public/account/update.php",
+        "line": 6
+      },
+      {
+        "path": "app/public/ops/report.php",
+        "line": 3
+      }
+    ],
+    "type": "二次 SQL 注入",
+    "severity": "高"
+  },
+  {
+    "id": "29",
+    "locations": [
+      {
+        "path": "app/public/ops/template-render.php",
+        "line": 3
+      }
+    ],
+    "type": "模板表达式执行（原 /e 场景的 PHP 8.4 等价实现）",
+    "severity": "极高"
+  },
+  {
+    "id": "30",
+    "locations": [
+      {
+        "path": "app/public/account/update.php",
+        "line": 4
+      },
+      {
+        "path": "app/public/account/update.php",
+        "line": 6
+      }
+    ],
+    "type": "批量赋值导致敏感字段修改",
+    "severity": "高"
+  }
+]

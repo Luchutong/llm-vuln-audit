@@ -19,7 +19,7 @@ FILES = {
 }
 
 
-def run_worker(tmp_path, monkeypatch, action, *, allowed=None, steps=2):
+def run_worker(tmp_path, monkeypatch, action, *, allowed=None, steps=5):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as archive:
         for path, text in FILES.items():
@@ -94,7 +94,7 @@ final_answer({'outcome':'no_evidence', 'summary':'仅列出配置路径，未实
  'reasoning':'此引用没有对应的源码读取，不应被宿主接受。',
  'observations':[{'title':'不能凭目录声明配置安全', 'kind':'security_boundary',
  'summary':'目录里列出了配置文件，但没有显示任何原始源码。', 'evidence':'config/.htaccess:1-3'}]})
-""", steps=1)
+""", steps=4)
     assert result["outcome"] != "achieved"
     assert not [event for event in events if event["kind"] == "task_assessment"]
     assert any("证据必须来自已显示源码" in event.get("error", "") for event in events if event["kind"] == "agent_code")

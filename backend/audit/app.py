@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -22,6 +23,7 @@ from .config import CredentialVault, DEFAULT_BUDGETS, VERSION, Settings, clamp_b
 from .db import Store, build_verification_records, now
 from .events import EventBus
 from .health import ModelHealth
+from . import lab_seed
 from .finding_policy import partition_findings, source_observations
 from .metrics import comparable_runs, prompt_diffs, summarise
 from .project_findings import backfill_project_ledger
@@ -47,6 +49,8 @@ from .evidence import validate_evidence
 from .execution_state import DEFAULT_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
 from .poc_readiness import PocReadinessService
 from .poc_store import poc_target_key
+
+logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
@@ -82,6 +86,7 @@ class Services:
         # Profile recognition evolves as supported targets change. Refresh it on each
         # startup even if the one-time project/ledger migration has already completed.
         ensure_projects(self.store, self.repository)
+        self.lab30 = self._seed_lab30()
         if self.store.schema_meta("project_backfill_v1") != "done":
             backfill_project_ledger(self.store)
             self.store.set_schema_meta("project_backfill_v1", "done")
@@ -102,6 +107,22 @@ class Services:
         )
         for prompt in builtin_prompt_records():
             self.store.upsert_builtin_prompt(prompt)
+
+    def _seed_lab30(self) -> dict | None:
+        """Register the bundled Lab30 shop so a fresh install is ready to audit.
+
+        The POC runner only verifies ``lab30`` targets, so an empty library leaves the
+        user staring at whatever unrelated archive they happen to have uploaded.  This is
+        convenience, not correctness: a missing or unreadable archive must never stop the
+        service from starting.
+        """
+        if not lab_seed.seeding_enabled():
+            return None
+        try:
+            return lab_seed.ensure_lab30_snapshot(self.store, self.repository)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            logger.warning("内置 Lab30 靶场登记失败，服务继续启动：%s: %s", type(exc).__name__, exc)
+            return None
 
     def model_config_for_profile(self, profile: dict):
         """Build the only runtime config used for a saved provider profile."""

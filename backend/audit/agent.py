@@ -1099,6 +1099,19 @@ def _planner_finding(item: dict, task_keys: dict[str, str] | None = None) -> dic
         # these two fields are what the report and the Planner act on now.
         "verification_status": item.get("verification_status") or "unverified",
         "verification_verdict": item.get("verification_verdict"),
+        # Concrete feedback the Planner reads when it cross-checks ("比对核实") a
+        # verified or rejected conclusion.  Only the latest automatic verification's
+        # host-captured observations are surfaced; the Planner must compare the
+        # finding's own claim against these, not against a status label alone.
+        "verification_normal_observation": _planner_text(
+            item.get("verification_normal_observation") or "", 240
+        ),
+        "verification_attack_observation": _planner_text(
+            item.get("verification_attack_observation") or "", 240
+        ),
+        "verification_evidence_notes": _planner_text(
+            item.get("verification_evidence_notes") or "", 240
+        ),
         "paths": [_planner_text(path, 120) for path in (item.get("paths") or [])[:6]],
     }
 
@@ -1120,6 +1133,17 @@ def _planner_project_finding(item: dict) -> dict:
         "disposition": item.get("disposition"),
         "verification_status": item.get("verification_status") or "unverified",
         "verification_verdict": item.get("verification_verdict"),
+        # See ``_planner_finding``: the cross-check needs the concrete observations,
+        # not just the verdict label.
+        "verification_normal_observation": _planner_text(
+            item.get("verification_normal_observation") or "", 240
+        ),
+        "verification_attack_observation": _planner_text(
+            item.get("verification_attack_observation") or "", 240
+        ),
+        "verification_evidence_notes": _planner_text(
+            item.get("verification_evidence_notes") or "", 240
+        ),
         "origin_run_id": item.get("origin_run_id"),
         "already_known": True,
         "paths": [_planner_text(path, 120) for path in (item.get("paths") or [])[:6]],
@@ -1218,6 +1242,14 @@ def _planner_situation(run_context: dict) -> dict:
         if isinstance(item, dict)
     ]
     verification_summary = run_context.get("verification_summary") or {}
+    pending_reviews = [
+        item for item in (run_context.get("verification_reviews_required") or [])
+        if isinstance(item, dict)
+    ]
+    received_reviews = [
+        item for item in (run_context.get("verification_reviews") or [])
+        if isinstance(item, dict)
+    ]
     stale = [item["task_key"] for item in settled if item.get("stale_dependency")]
     counts = {
         "frontier": len(frontier),
@@ -1277,6 +1309,16 @@ def _planner_situation(run_context: dict) -> dict:
             "并写明理由；reopen 之后仍需一个任务去重新取证。verification_status 为 verified 且 disposition 为 open "
             "的条目已由 POC 验证成立，可以作为收束依据，但仍须在本轮复核里被确认。"
         )
+    if pending_reviews:
+        notice += (
+            f" 本轮必须比对核实 {len(pending_reviews)} 条已验证结论（见 verification_reviews_required）："
+            "逐条读宿主记录的 normal_observation 与 attack_observation，判断它们是否真的支撑该结论，"
+            "并用 verification_reviews 明确表态："
+            '{"finding_id": "…", "revision": 1, "decision": "confirmed|contested", '
+            '"rationale_summary": "对观测的具体判读"}。'
+            "revision 必须与态势一致；漏答这条结论时宿主不会以它收束。"
+            "contested 只表示你的判读不成立，要真正撤回仍须用 updates 的 retract/reopen。"
+        )
     if stale:
         notice += (
             f" 其中 {', '.join(stale)} 的 stale_dependency 列出的方向正在被更正，它们的结论是建立在旧前提上的，"
@@ -1297,6 +1339,11 @@ def _planner_situation(run_context: dict) -> dict:
         "project": project,
         "project_findings": project_findings,
         "verification_summary": verification_summary,
+        # Two lists, deliberately separate: what the host still needs cross-checked, and
+        # what earlier rounds already cross-checked.  A round that only sees the second
+        # cannot tell whether its own work is done.
+        "verification_reviews_required": pending_reviews,
+        "verification_reviews": received_reviews,
         "observations": observations,
         "pinned_investigations": investigations,
         "counts": counts,

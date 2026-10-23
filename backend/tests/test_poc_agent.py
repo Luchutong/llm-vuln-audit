@@ -432,6 +432,33 @@ def test_observation_without_runner_token_is_downgraded(monkeypatch):
     assert "token" in result.evidence_notes
 
 
+def test_a_single_shared_token_does_not_support_verified(monkeypatch):
+    """One coincidental word is no longer enough to corroborate an attack observation."""
+    client = FakeClient(job={
+        "job_id": "job-1", "status": "finished", "exit_code": 0, "duration_ms": 12,
+        "stdout": "command executed\n", "stderr": "",
+        "truncated": False, "timed_out": False, "artifacts": [],
+    })
+    script = {
+        "poc_execute": [
+            call("run_poc", language="python", script=SCRIPT),
+            final_answer("探索结束"),
+        ],
+        "poc_conclude": [
+            final_answer({
+                "status": "verified",
+                "verdict": "confirmed",
+                "summary": "claimed",
+                "attack_observation": "sqlmap executed",
+                "jobs": ["job-1"],
+            }),
+        ],
+    }
+    result, _, _, _ = run_agent(monkeypatch, script, client)
+    assert result is not None and result.status == "inconclusive"
+    assert "共同关键 token" in result.evidence_notes
+
+
 def test_xss_requires_browser_execution(monkeypatch):
     finding = dict(FINDING, category="xss", title="reflected XSS", file_path="vulnerabilities/xss_r/index.php")
     client = FakeClient()

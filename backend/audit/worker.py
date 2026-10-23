@@ -22,7 +22,7 @@ from .events import EventBus
 from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
 from .finding_policy import is_vulnerability_finding
 from .health import ModelHealth
-from .poc import PocVerifier
+from .poc import PocPolicy, PocVerifier
 from .project_findings import canonical_fingerprint, ledger_record
 from .prompts import system_prompt
 from .source import SourceRepository
@@ -528,6 +528,11 @@ class AuditWorker:
         # The state the last pre-closure review round was run against.  A review that changes
         # nothing has already had its say, so the host closes instead of reviewing again.
         reviewed_for: tuple | None = None
+        # (finding id, revision) pairs this process has already given the Planner a chance
+        # to cross-check.  Kept apart from ``reviewed_for`` because a review round is not a
+        # frontier review: one asks the Planner to read the verdicts, the other asks it to
+        # confirm the frontier is finished.
+        reviewed_reviews_for: tuple = ()
         repaired_blockers: set[tuple] = set()
         # Set when a worker produces a conclusion the host would close the run on and
         # ``stop_on_achieved`` says to stop queued work.  It withholds the directions that
@@ -545,6 +550,13 @@ class AuditWorker:
         verified_for: dict[str, int] = {}
         poc_verifier = PocVerifier(store=self.store, bus=self.bus, settings=self.settings)
         project_mode = str(run.get("project_mode") or "legacy") == "project"
+        # POC verification is the layer this closure gate belongs to.  When it is off for
+        # this run (no runner, policy disabled) there is no verdict for anyone to
+        # cross-check, so the gate stays inert and a plain source run closes as before.
+        poc_review_required = bool(
+            PocPolicy.from_run(run, self.settings).enabled
+            or normalize_poc_mode(run)[0] != "off"
+        )
 
         # A run that was paused and resumed re-enters here with its session, its round
         # number and its frontier exactly as they were.  The two events below describe a
@@ -632,6 +644,10 @@ class AuditWorker:
                     # Strict mode: the run may only close on a finding the isolated POC
                     # runner actually reproduced, not on a static conclusion.
                     require_verified=normalize_poc_mode(run)[0] == "required",
+                    # Whenever POC verification is active at all, the Planner has to have
+                    # read the captured observations before a verified conclusion can
+                    # carry the closure: one agent's verdict, cross-checked by another.
+                    require_reviewed=poc_review_required,
                     stop_reason={"code": code, "message": basis},
                 )
             except ValueError as exc:
@@ -812,6 +828,22 @@ class AuditWorker:
                     "disposition": updated.get("disposition"),
                     "revision": int(updated.get("revision") or 1),
                     "reason": update.get("rationale_summary"),
+                })
+            # The round's own reading of the automatic verdicts.  Stored per revision, so a
+            # conclusion that is later corrected has to be read again rather than inheriting
+            # the old sign-off.  Deliberately not counted as a frontier mutation: reviewing a
+            # verdict is not a reason to release directions the host is withholding.
+            reviews = [item for item in (decision.get("verification_reviews") or []) if isinstance(item, dict)]
+            applied_reviews = self.store.record_verification_reviews(
+                run_id, reviews, plan_id=plan["id"]
+            )
+            if applied_reviews:
+                self.bus.emit(run_id, None, "verification_reviews_recorded", {
+                    "plan_id": plan["id"],
+                    "round": plan["round_no"],
+                    "confirmed": sum(1 for item in applied_reviews if item["decision"] == "confirmed"),
+                    "contested": sum(1 for item in applied_reviews if item["decision"] == "contested"),
+                    "finding_ids": [item["finding_id"] for item in applied_reviews][:32],
                 })
             round_mutations = len(tasks) + len(updates) + applied_projects
             self.bus.emit(run_id, None, "planner_round_committed", {
@@ -1217,6 +1249,27 @@ class AuditWorker:
                         # to planning instead of deferring ``met`` forever.
                         continue
                 signature = conclusion_state()
+                # One agent produced the verdict; a different one has to read the
+                # observations before the host may close on it.  This round is that
+                # reading, and the closure gate refuses a verified conclusion nobody
+                # cross-checked -- so the request is made while rounds remain, not after
+                # the run has already decided to close.
+                pending_reviews = self.store.unreviewed_verified_findings(run_id)
+                review_key = tuple(sorted(
+                    (str(item.get("id")), int(item.get("revision") or 1))
+                    for item in pending_reviews
+                ))
+                if (
+                    review_key
+                    and review_key != reviewed_reviews_for
+                    and int(session_state["current_round"]) < int(session_state["max_rounds"])
+                    and not stop.is_set()
+                ):
+                    reviewed_reviews_for = review_key
+                    state = await run_planner_round()
+                    if state == "closed" or stop.is_set():
+                        return
+                    continue
                 if (
                     reviewed_for != signature
                     and int(session_state["current_round"]) < int(session_state["max_rounds"])

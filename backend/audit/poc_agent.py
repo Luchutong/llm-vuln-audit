@@ -531,6 +531,23 @@ def _runner_text(job: dict) -> str:
     return "\n".join(pieces)
 
 
+def _attack_evidence_overlap(claim: str, jobs: list[dict]) -> tuple[int, int]:
+    """Distinctive tokens shared between a claimed attack observation and runner output.
+
+    The returned pair is ``(matched, required)``.  ``required`` demands more than one
+    shared token whenever the claim itself contains enough distinctive tokens, so a
+    model cannot label a ``verified`` conclusion with a single coincidental word (for
+    example a shared status verb) and have it accepted as corroboration.
+    """
+    claimed = _tokens(claim)
+    if not claimed:
+        return 0, 0
+    observed = _tokens(" ".join(_runner_text(job) for job in jobs))
+    matched = len(claimed & observed)
+    required = 2 if len(claimed) >= 2 else 1
+    return matched, required
+
+
 def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationResult:
     """Refuse a conclusion the runner's own records do not support.
 
@@ -572,20 +589,30 @@ def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationR
             if not result.browser_execution or not markers:
                 downgrade("XSS 结论缺少带对话框/求值标记的浏览器作业")
         if result.attack_observation:
-            observed = _tokens(" ".join(_runner_text(job) for job in referenced or jobs))
-            claimed = _tokens(result.attack_observation)
-            if claimed and not (claimed & observed):
-                downgrade("攻击侧观测与 runner 输出没有共同的关键 token")
+            matched, required = _attack_evidence_overlap(
+                result.attack_observation, referenced or jobs
+            )
+            if matched < required:
+                downgrade(
+                    f"攻击侧观测与 runner 输出仅有 {matched} 个共同关键 token"
+                    f"（至少需要 {required} 个）"
+                )
+            else:
+                notes.append(f"攻击侧观测与 runner 输出共同关键 token 数：{matched}")
     elif result.status == "rejected":
         if not ok_script and not ok_browser:
             downgrade("rejected 缺少一次成功执行")
         if not (result.normal_observation or "").strip() or not (result.attack_observation or "").strip():
             downgrade("rejected 需要正常侧与攻击侧两组观测")
         if result.attack_observation:
-            observed = _tokens(" ".join(_runner_text(job) for job in referenced or jobs))
-            claimed = _tokens(result.attack_observation)
-            if claimed and not (claimed & observed):
-                downgrade("攻击侧观测与 runner 输出没有共同的关键 token")
+            matched, required = _attack_evidence_overlap(
+                result.attack_observation, referenced or jobs
+            )
+            if matched < required:
+                downgrade(
+                    f"攻击侧观测与 runner 输出仅有 {matched} 个共同关键 token"
+                    f"（至少需要 {required} 个）"
+                )
 
     if result.adapted_script and deps.last_script and result.adapted_script != deps.last_script:
         result.adapted_script = deps.last_script

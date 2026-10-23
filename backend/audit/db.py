@@ -323,6 +323,24 @@ CREATE TABLE IF NOT EXISTS verifications (
 );
 CREATE INDEX IF NOT EXISTS idx_verifications_finding ON verifications(finding_id, created_at);
 
+-- The Planner's own cross-check of an automatic POC verdict.  Keyed by the exact
+-- revision it reviewed, because a conclusion that changed since must be read again:
+-- a review of revision 1 says nothing about revision 2.
+CREATE TABLE IF NOT EXISTS verification_reviews (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    plan_id TEXT,
+    finding_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    decision TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    observed_normal TEXT NOT NULL DEFAULT '',
+    observed_attack TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_verification_reviews_unique
+    ON verification_reviews(run_id, finding_id, revision);
+
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL,
@@ -2710,6 +2728,155 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             for row in rows
         ]
 
+    def _attach_verification_observations(self, items: list[dict]) -> None:
+        """Attach the latest automatic verification's host-captured observations.
+
+        The Planner's cross-check ("比对核实") reads ``verification_status`` together with
+        the runner's actual normal/attack observations and evidence notes, so a round
+        compares the finding's own claim against what was really executed instead of
+        trusting a bare label.  Fields are attached in place; findings without a matching
+        verification row keep the empty-string defaults the projections already tolerate.
+        """
+        if not items:
+            return
+        finding_ids = [str(item["id"]) for item in items if item.get("id")]
+        latest_ids = [
+            str(item["latest_verification_id"])
+            for item in items
+            if item.get("latest_verification_id")
+        ]
+        if not finding_ids and not latest_ids:
+            return
+        clauses: list[str] = []
+        params: list[str] = []
+        if finding_ids:
+            clauses.append("finding_id IN (" + ",".join("?" for _ in finding_ids) + ")")
+            params.extend(finding_ids)
+            clauses.append("project_finding_id IN (" + ",".join("?" for _ in finding_ids) + ")")
+            params.extend(finding_ids)
+        if latest_ids:
+            clauses.append("id IN (" + ",".join("?" for _ in latest_ids) + ")")
+            params.extend(latest_ids)
+        rows = self._rows(
+            "SELECT * FROM verifications WHERE " + " OR ".join(clauses)
+            + " ORDER BY created_at DESC, id DESC",
+            params,
+        )
+        by_id: dict[str, dict] = {}
+        by_finding: dict[str, dict] = {}
+        by_project: dict[str, dict] = {}
+        for row in rows:
+            record = self._verification_dict(row)
+            by_id.setdefault(str(record["id"]), record)
+            finding_id = record.get("finding_id")
+            project_id = record.get("project_finding_id")
+            if finding_id:
+                by_finding.setdefault(str(finding_id), record)
+            if project_id:
+                by_project.setdefault(str(project_id), record)
+        for item in items:
+            record = None
+            if item.get("latest_verification_id"):
+                record = by_id.get(str(item["latest_verification_id"]))
+            if record is None:
+                record = by_finding.get(str(item.get("id") or ""))
+            if record is None:
+                record = by_project.get(str(item.get("id") or ""))
+            if record is None:
+                continue
+            item["verification_normal_observation"] = record.get("normal_observation") or ""
+            item["verification_attack_observation"] = record.get("attack_observation") or ""
+            item["verification_evidence_notes"] = record.get("notes") or ""
+
+    def list_verification_reviews(self, run_id: str) -> list[dict]:
+        """Every Planner cross-check recorded for this run, newest last."""
+        return [dict(row) for row in self._rows(
+            "SELECT * FROM verification_reviews WHERE run_id = ? ORDER BY created_at, id",
+            (run_id,),
+        )]
+
+    def _unreviewed_verified(self, run_id: str) -> list[dict]:
+        """Verified conclusions the Planner has not cross-checked at their current revision."""
+        rows = self._rows(
+            "SELECT f.* FROM findings f"
+            " WHERE f.run_id = ? AND f.validation_state = 'candidate'"
+            f" AND f.disposition NOT IN {_WITHDRAWN_SQL}"
+            " AND COALESCE(f.verification_status, '') = 'verified'"
+            " AND NOT EXISTS (SELECT 1 FROM verification_reviews r"
+            "   WHERE r.run_id = f.run_id AND r.finding_id = f.id"
+            "   AND r.revision = COALESCE(f.revision, 1))"
+            " ORDER BY f.created_at, f.id",
+            (run_id,),
+        )
+        return [
+            dict(row) for row in rows
+            if is_vulnerability_finding(dict(row))
+        ]
+
+    def unreviewed_verified_findings(self, run_id: str) -> list[dict]:
+        """The verified conclusions the next Planner round must cross-check.
+
+        Each entry carries the observations the host actually captured, so the round has
+        something concrete to read rather than a status label to agree with.
+        """
+        items = self._unreviewed_verified(run_id)
+        self._attach_verification_observations(items)
+        return items
+
+    def record_verification_reviews(
+        self, run_id: str, reviews: list[dict], *, plan_id: str | None = None,
+    ) -> list[dict]:
+        """Persist the Planner's cross-checks; drop any the host cannot accept.
+
+        A review is only accepted for a verified conclusion that belongs to this run and
+        whose revision still matches what the round was shown.  Anything else is discarded
+        rather than stored, because a stale or invented review would later read as "this
+        was checked" when it never was.
+        """
+        if not reviews:
+            return []
+        findings = {item["id"]: item for item in self.list_findings(run_id)}
+        stored: list[dict] = []
+        for review in reviews:
+            finding_id = str(review.get("finding_id") or "")
+            finding = findings.get(finding_id)
+            if finding is None or str(finding.get("verification_status") or "") != "verified":
+                continue
+            revision = int(finding.get("revision") or 1)
+            if int(review.get("revision") or 0) != revision:
+                continue
+            decision = str(review.get("decision") or "")
+            rationale = str(review.get("rationale_summary") or "").strip()
+            if decision not in {"confirmed", "contested"} or not rationale:
+                continue
+            observed = [dict(finding)]
+            self._attach_verification_observations(observed)
+            record = {
+                "id": uuid.uuid4().hex,
+                "run_id": run_id,
+                "plan_id": plan_id,
+                "finding_id": finding_id,
+                "revision": revision,
+                "decision": decision,
+                "rationale": rationale,
+                "observed_normal": observed[0].get("verification_normal_observation") or "",
+                "observed_attack": observed[0].get("verification_attack_observation") or "",
+                "created_at": now(),
+            }
+            with self._lock:
+                self._db.execute(
+                    "INSERT OR REPLACE INTO verification_reviews (id, run_id, plan_id, finding_id,"
+                    " revision, decision, rationale, observed_normal, observed_attack, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        record["id"], run_id, plan_id, finding_id, revision, decision,
+                        rationale, record["observed_normal"], record["observed_attack"],
+                        record["created_at"],
+                    ),
+                )
+            stored.append(record)
+        return stored
+
     def list_planner_context(self, run_id: str, *, project_map: dict | None = None) -> dict:
         """Return the compact, durable state a new Planner round may inspect."""
         goal = self.get_task_goal(run_id)
@@ -2761,6 +2928,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             project_findings = self.list_project_findings(
                 project["id"], include_withdrawn=False, limit=40
             )
+            self._attach_verification_observations(project_findings)
             for row in self._rows(
                 "SELECT verification_status, COUNT(*) AS total FROM project_findings"
                 " WHERE project_id = ? GROUP BY verification_status",
@@ -2768,6 +2936,9 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             ):
                 status = str(row["verification_status"] or "unverified")
                 verification_summary[status] = int(row["total"] or 0)
+        planner_findings = self.list_planner_findings(run_id)
+        self._attach_verification_observations(planner_findings)
+        pending_reviews = self.unreviewed_verified_findings(run_id)
         return {
             "goal": goal,
             "planner": self.get_planner_session(run_id),
@@ -2799,7 +2970,24 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             "coverage": self.planner_coverage(run_id, project_map),
             # What the round must not redo: conclusions already in the database, and
             # questions already answered (see ``planner_investigations``).
-            "findings": self.list_planner_findings(run_id),
+            "findings": planner_findings,
+            # The verified conclusions the host has not yet had cross-checked, with the
+            # observations the runner actually captured.  The round must answer for each of
+            # them; a run does not get to close on a verdict nobody else read.
+            "verification_reviews_required": [
+                {
+                    "finding_id": item.get("id"),
+                    "revision": int(item.get("revision") or 1),
+                    "title": item.get("title"),
+                    "verification_status": item.get("verification_status"),
+                    "verification_verdict": item.get("verification_verdict"),
+                    "normal_observation": item.get("verification_normal_observation") or "",
+                    "attack_observation": item.get("verification_attack_observation") or "",
+                    "evidence_notes": item.get("verification_evidence_notes") or "",
+                }
+                for item in pending_reviews
+            ],
+            "verification_reviews": self.list_verification_reviews(run_id),
             "investigations": self.investigation_overview(run_id),
         }
 
@@ -3438,6 +3626,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
         missing_context: list[str] | None = None,
         *,
         require_verified: bool = False,
+        require_reviewed: bool = False,
         stop_reason: dict | None = None,
     ) -> dict:
         """Host-enforced terminal state for the only goal in a Planner run.
@@ -3447,6 +3636,13 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
         Without it an unverified finding still counts -- but one the runner executed and
         could *not* reproduce never does, and a project's existing verified conclusions
         count for a new run that did not have to rediscover them.
+
+        ``require_reviewed`` adds the second half of that defence: a verdict produced by
+        the POC agent is one model's reading of its own run, so the run may not close on a
+        verified conclusion until a *different* agent (the Planner) has recorded its own
+        reading of the same host-captured observations.  Only verified conclusions are
+        gated -- an uncontested-by-verification finding is unaffected, so this cannot make
+        a POC-less run harder to close.
         """
         if state not in {"met", "unreachable", "inconclusive"}:
             raise ValueError("unsupported Planner terminal state")
@@ -3503,6 +3699,17 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
                         raise ValueError(
                             "Planner cannot mark a goal met without a validated vulnerability finding"
                         )
+                    if require_reviewed:
+                        unreviewed = self._unreviewed_verified(run_id)
+                        if unreviewed:
+                            listing = "、".join(
+                                f"{item.get('title') or item['id']}（rev {int(item.get('revision') or 1)}）"
+                                for item in unreviewed[:5]
+                            )
+                            raise ValueError(
+                                f"仍有 {len(unreviewed)} 条已验证结论未经 Planner 比对核实，"
+                                f"不能以此收束：{listing}"
+                            )
                     # Scenario runs are "find every reachable instance of one class".  A
                     # standing finding is necessary but not sufficient: the run may not
                     # report completion until the whole frontier is settled and nothing is

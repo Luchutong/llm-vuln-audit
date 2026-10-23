@@ -230,7 +230,7 @@ class PocSettings:
     required: bool = False
     runner_url: str = ""
     runner_token: str = ""
-    target: str = "dvwa"
+    target: str = "lab30"
     job_seconds: int = 30
     max_steps: int = 8
     max_jobs: int = 8
@@ -267,7 +267,7 @@ class PocSettings:
             required=flag("POC_REQUIRED", False),
             runner_url=(env.get("POC_RUNNER_URL") or "").strip().rstrip("/"),
             runner_token=(env.get("POC_RUNNER_TOKEN") or "").strip(),
-            target=(env.get("POC_TARGET") or "dvwa").strip() or "dvwa",
+            target="lab30",
             job_seconds=number("POC_JOB_SECONDS", 30, 1, 120),
             max_steps=number("POC_MAX_STEPS", 8, 1, 32),
             max_jobs=number("POC_MAX_JOBS", 8, 1, 32),

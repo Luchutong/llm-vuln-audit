@@ -428,7 +428,7 @@ function ReviewSummary({ detail }: Pick<ReportViewProps, 'detail'>) {
   const rejected = candidates.filter((finding) => finding.verification_status === 'rejected').length;
   const pending = candidates.filter((finding) => !finding.verification_status || ['unverified', 'stale', 'inconclusive', 'environment_unavailable', 'not_applicable'].includes(finding.verification_status)).length;
   return <section className="panel" aria-label="POC 自动验证清单">
-    <div className="panel-head"><span className="panel-title">POC 自动验证</span><span className="faint small">由隔离 runner 在 DVWA 靶场执行</span></div>
+    <div className="panel-head"><span className="panel-title">POC 自动验证</span><span className="faint small">由隔离 runner 在 Lab30 商城 靶场执行</span></div>
     <div className="panel-body small">自动验证通过 {verified} 条 · 未通过 {rejected} 条 · 未验证或环境不可用 {pending} 条。未验证不等于排除；执行记录与产物见「发现与验证」。</div>
   </section>;
 }

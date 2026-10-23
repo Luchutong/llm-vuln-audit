@@ -1,0 +1,3 @@
+<?php
+require __DIR__.'/../../src/bootstrap.php';$u=require_user();$q=db()->prepare('SELECT o.*,p.name FROM orders o LEFT JOIN products p ON p.id=o.product_id WHERE user_id=? ORDER BY o.id DESC');$q->execute([$u['id']]);$orders=$q->fetchAll();
+page('我的订单',function()use($orders){echo '<section class="panel"><table><thead><tr><th>订单号</th><th>商品</th><th>实付金额</th><th>详情</th></tr></thead><tbody>';foreach($orders as$o)echo '<tr><td>'.h($o['order_no']).'</td><td>'.h($o['name']).' × '.(int)$o['quantity'].'</td><td>¥'.h($o['total']).'</td><td><a href="/orders/detail.php?id='.(int)$o['id'].'">查看订单</a></td></tr>';echo '</tbody></table></section>';},'订单中心');

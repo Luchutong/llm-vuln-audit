@@ -208,7 +208,7 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
     } else if (kind === 'recon_started') {
       message = text(payload.question); tone = 'progress';
     } else if (kind === 'poc_agent_phase') {
-      message = `准备隔离靶场：${text(payload.target) || 'dvwa'} · ${Number(payload.count ?? 0)} 条结论待验证`; tone = 'progress';
+      message = `准备隔离靶场：${text(payload.target) || 'lab30'} · ${Number(payload.count ?? 0)} 条结论待验证`; tone = 'progress';
     } else if (kind === 'poc_verification_started') {
       title = '开始自动验证'; message = text(payload.title) || '对一条审计结论执行 POC。';
       secondary = text(payload.target) ? `目标：${text(payload.target)}` : '';

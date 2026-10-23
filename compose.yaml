@@ -2,7 +2,7 @@ name: vuln-audit
 
 # One audit application plus an optional, isolated POC environment.  The default profile
 # set comes from COMPOSE_PROFILES in .env: with `poc`, `docker compose up` also starts a
-# local DVWA target and the poc-runner container that executes model-written POCs.  Empty
+# local Lab30 target and the poc-runner container that executes model-written POCs.  Empty
 # COMPOSE_PROFILES keeps the original single-service audit stack.
 #
 # The app never receives the Docker socket.  The runner has no published port, no volume,
@@ -28,7 +28,7 @@ services:
       # is reported as unverified.  .env.example points this at the Compose service.
       POC_ENABLED: ${POC_ENABLED:-1}
       POC_REQUIRED: ${POC_REQUIRED:-0}
-      POC_TARGET: ${POC_TARGET:-dvwa}
+      POC_TARGET: lab30
       POC_RUNNER_URL: ${POC_RUNNER_URL:-}
       POC_RUNNER_TOKEN: ${POC_RUNNER_TOKEN:-}
       POC_RUNNER_ADDRS: ${POC_RUNNER_ADDRS:-}
@@ -51,49 +51,73 @@ services:
 
   # ------------------------------------------------------------------ POC environment
 
-  dvwa-db:
-    # Pin by digest in production; the tag is only a readable default for a local lab.
-    image: ${DVWA_DB_IMAGE:-mariadb:10.11}
+  lab30-db:
+    build:
+      context: ./labs/lab30
+      dockerfile: docker/db.Dockerfile
+    image: vuln-audit-lab30-db:1.0.0
     profiles: ["poc"]
     environment:
-      MARIADB_ROOT_PASSWORD: ${DVWA_DB_ROOT_PASSWORD:-dvwa-local-root}
-      MARIADB_DATABASE: dvwa
-      MARIADB_USER: dvwa
-      MARIADB_PASSWORD: ${DVWA_DB_PASSWORD:-dvwa-local-password}
+      MARIADB_ROOT_PASSWORD: ${LAB30_DB_ROOT_PASSWORD:-lab30-local-root}
+      MARIADB_DATABASE: shop
+      MARIADB_USER: shop
+      MARIADB_PASSWORD: ${LAB30_DB_PASSWORD:-lab30-local-password}
     volumes:
-      - dvwa-db-data:/var/lib/mysql
-    networks:
-      - dvwa-db-net
+      - lab30-db-data:/var/lib/mysql
+    networks: [lab30-db-net]
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+
+  lab30-fixtures:
+    build:
+      context: ./labs/lab30
+      dockerfile: docker/fixtures.Dockerfile
+    image: vuln-audit-lab30-fixtures:1.0.0
+    profiles: ["poc"]
+    networks:
+      poc-target:
+        aliases: [fixtures]
+    read_only: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
       interval: 5s
       timeout: 3s
       retries: 20
     restart: unless-stopped
 
-  dvwa:
-    # Pin by digest in production, e.g. ghcr.io/digininja/dvwa@sha256:<digest>.
-    image: ${DVWA_IMAGE:-ghcr.io/digininja/dvwa:latest}
+  lab30:
+    build:
+      context: ./labs/lab30
+      dockerfile: docker/web.Dockerfile
+      args:
+        HTTP_PROXY: ${SHOP_BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${SHOP_BUILD_HTTPS_PROXY:-}
+    image: vuln-audit-lab30-web:1.0.0
     profiles: ["poc"]
     environment:
-      DB_SERVER: dvwa-db
-      DB_DATABASE: dvwa
-      DB_USER: dvwa
-      DB_PASSWORD: ${DVWA_DB_PASSWORD:-dvwa-local-password}
-      DEFAULT_SECURITY_LEVEL: low
-      RECAPTCHA_PRIV_KEY: ""
-      RECAPTCHA_PUB_KEY: ""
+      DB_HOST: lab30-db
+      DB_NAME: shop
+      DB_USER: shop
+      DB_PASSWORD: ${LAB30_DB_PASSWORD:-lab30-local-password}
+      SHOP_DATA_DIR: /var/lib/shop
+    ports:
+      - "127.0.0.1:${LAB30_PORT:-18880}:80"
+    volumes:
+      - lab30-runtime:/var/lib/shop
     depends_on:
-      dvwa-db:
+      lab30-db:
         condition: service_healthy
-    networks:
-      - dvwa-db-net
-      - poc-target
+      lab30-fixtures:
+        condition: service_healthy
+    networks: [lab30-db-net, poc-target]
     healthcheck:
-      # The DVWA image is PHP/Apache; use its PHP runtime rather than assuming curl.
-      test: ["CMD-SHELL", "php -r 'exit(@file_get_contents(\"http://127.0.0.1/login.php\") === false ? 1 : 0);'"]
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/health.php') === false ? 1 : 0);"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 30
     restart: unless-stopped
 
@@ -106,14 +130,14 @@ services:
     environment:
       POC_RUNNER_TOKEN: ${POC_RUNNER_TOKEN:-}
       POC_RUNNER_CONCURRENCY: ${POC_CONCURRENCY:-2}
-      DVWA_URL: http://dvwa
-      DVWA_USER: admin
-      DVWA_PASSWORD: password
+      LAB30_URL: http://lab30
+      LAB30_USER: ${LAB30_USER:-alice}
+      LAB30_PASSWORD: ${LAB30_PASSWORD:-Alice123!}
     networks:
       - poc-target
       - poc-control
     depends_on:
-      dvwa:
+      lab30:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -134,12 +158,13 @@ networks:
   # app <-> runner only; no gateway to the outside.
   poc-control:
     internal: true
-  # runner <-> DVWA only; neither side can reach the internet through it.
+  # runner <-> Lab30 and its fixture service only; neither side can reach the internet through it.
   poc-target:
     internal: true
-  dvwa-db-net:
+  lab30-db-net:
     internal: true
 
 volumes:
   audit-data:
-  dvwa-db-data:
+  lab30-db-data:
+  lab30-runtime:

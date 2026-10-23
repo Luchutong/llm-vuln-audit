@@ -1,4 +1,4 @@
-"""The POC agent: turn one source finding into an executable check in DVWA.
+"""The POC agent: turn one source finding into an executable check in Lab30 shop.
 
 The agent runs in two phases.  ``poc_execute`` is free to adapt the recorded POC and
 run it through the isolated runner; ``poc_conclude`` has the tools withdrawn and must
@@ -61,25 +61,24 @@ def _clip(value: Any, per_string: int, max_items: int) -> Any:
 POC_TOOLS: tuple[ToolSpec, ...] = (
     spec(
         "resolve_target",
-        "Return the executable mapping for this finding: the DVWA base URL, login credentials, "
-        "current security level, and the HTTP path that corresponds to the finding's source file. "
+        "Return the executable mapping for this finding: the Lab30 base URL, credential environment variable names, "
+        "and the HTTP path that corresponds to the finding's source file. "
         "This is host data; it does not prove anything.",
         finding_id=Arg("string", "本次验证的 finding id（必须与提示中的一致）。"),
     ),
     spec(
         "target_status",
-        "Return target reachability, authentication state, security level and version.",
+        "Return target reachability, authentication state and version.",
     ),
     spec(
         "target_prepare",
-        "Reset the DVWA database, log in and set the security level. The host runs this once before "
+        "Refresh the Lab30 member session without resetting data. The host runs this once before "
         "the agent starts; call it again only when the target state was disturbed.",
-        reset=Arg("boolean", "是否重置数据库。默认 True。", True),
     ),
     spec(
         "run_poc",
         "Execute a POC script inside the isolated runner and return bounded stdout/stderr, exit code "
-        "and artifact metadata. The script may reach only the DVWA base URL. It must log in itself: "
+        "and artifact metadata. The script may reach only the Lab30 base URL. It must log in itself: "
         "the runner does not inject cookies into scripts.",
         language=Arg("string", "php 或 python。"),
         script=Arg("string", "完整脚本内容（<= 32 KiB）。"),
@@ -88,19 +87,19 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
     ),
     spec(
         "http_observe",
-        "Send one GET/POST to an allowlisted DVWA path through the isolated runner and return status, "
+        "Send one GET/POST to an allowlisted Lab30 path through the isolated runner and return status, "
         "redirects and a bounded body preview. Use it for server-side checks; use browser_check for "
         "anything that depends on JavaScript executing.",
-        path=Arg("string", "DVWA 内的绝对路径，例如 /login.php 或 /vulnerabilities/sqli/?id=1。"),
+        path=Arg("string", "Lab30 内的绝对路径，例如 /auth/login.php 或 /catalog/detail.php?id=1。"),
         method=Arg("string", "GET 或 POST。默认 GET。", "GET"),
         body=Arg("string", "POST 请求体（application/x-www-form-urlencoded）。默认空串。", ""),
         content_type=Arg("string", "POST 的 Content-Type。默认 application/x-www-form-urlencoded。", "application/x-www-form-urlencoded"),
     ),
     spec(
         "browser_check",
-        "Load an allowlisted DVWA path in Chromium, wait, and return title, alert dialogs, console "
+        "Load an allowlisted Lab30 path in Chromium, wait, and return title, alert dialogs, console "
         "errors, body text, and a screenshot artifact. Required for XSS conclusions.",
-        path=Arg("string", "DVWA 内的绝对路径。"),
+        path=Arg("string", "Lab30 内的绝对路径。"),
         wait_ms=Arg("integer", "加载后等待毫秒数，0-10000。默认 1000。", 1000),
         script=Arg("string", "可选：在页面中求值的 JavaScript，用于构造触发条件。默认空串。", ""),
     ),
@@ -246,17 +245,16 @@ class PocDeps:
 
     async def _resolve_target(self, args: dict) -> str:
         finding = self.finding
-        path = str(finding.get("file_path") or "")
+        path = str(finding.get("file_path") or next((item.get("path") for item in finding.get("evidence") or [] if isinstance(item, dict)), "") or "")
         return self._reply({
             "finding_id": finding.get("id"),
             "source_path": path,
             "target": self.target,
             "base_url": self.prepared.get("base_url") or "",
-            "login": {"username": "admin", "password": "password"},
-            "security": self.prepared.get("security") or "low",
+            "login": {"path": "/auth/login.php", "username_env": "LAB30_USER", "password_env": "LAB30_PASSWORD", "user": self.prepared.get("user") or "alice"},
             "version": self.prepared.get("version") or "",
             "http_path_hint": _http_path_for(path),
-            "note": "上传源码树的根目录对应 DVWA 根 /；先按 http_path_hint 打开同一功能。",
+            "note": "源码 app/public 对应商城根 /；src 内部文件没有直接 HTTP 路由，须按源码调用关系确定入口。",
         })
 
     async def _target_status(self, args: dict) -> str:
@@ -264,7 +262,7 @@ class PocDeps:
 
     async def _target_prepare(self, args: dict) -> str:
         result = await self.client.prepare_target(
-            self.target, reset=bool(args.get("reset", True))
+            self.target, reset=False
         )
         self.prepared = result
         return self._reply(result)
@@ -477,13 +475,15 @@ class PocDeps:
 
 
 def _http_path_for(source_path: str) -> str:
-    """A best-effort mapping from a source file to the DVWA URL that exercises it."""
+    """Map the Lab30 public document root; internal source is not a web endpoint."""
     text = str(source_path or "").replace("\\", "/").strip("/")
-    match = re.match(r"vulnerabilities/([^/]+)/", text)
-    if match:
-        return f"/vulnerabilities/{match.group(1)}/"
-    if text in {"login.php", "setup.php", "security.php", "index.php"}:
-        return f"/{text}"
+    parts = text.split("/")
+    if ".." in parts:
+        return "/"
+    if "public" in parts:
+        text = "/".join(parts[parts.index("public") + 1:])
+    if text in {"index.php", "health.php"} or text.startswith(("auth/", "catalog/", "orders/", "wallet/", "account/", "ops/", "partner/", "support/", "content/")):
+        return "/" + text
     return "/"
 
 
@@ -605,134 +605,55 @@ def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationR
     return result
 
 
-EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的执行阶段。你的任务是在隔离的本地靶场中
-（DVWA 或 Lab30 拾光商城——按任务消息给出的目标页面路径判断是哪一个），
-为一条已经由源码审计得出的漏洞编写并实际执行最小 POC，取得正常侧与攻击侧的对照观测。
+EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent，只在隔离的 Lab30 拾光商城靶场中，
+为一条已有原始源码证据的漏洞执行最小、可复核的正常侧与攻击侧对照。
 
 工具契约：
-- 这里的工具是普通 Python 函数，直接调用；**返回值一律是 JSON 字符串**。用 `import json` 和
-  `json.loads(...)` 取字段，不要对返回值直接调用 `.get()`（那是 str，会报错）。
-- 你自己的解释器只能做内存计算：不能联网、不能读写文件、不能启动进程。真正接触靶场的只有
-  run_poc / http_observe / browser_check 三个工具，它们由宿主转发给隔离 runner。
-- 这里没有源码工具：`read_source`、`search_code`、`list_tree` 都不存在，`from tools import ...`
-  会直接失败。待验证的源码结论已经完整写在任务消息里。
+- 工具是普通 Python 函数，返回 JSON 字符串；使用 json.loads(...) 再取字段。
+- 你的动作解释器只能做内存计算，不能联网、读写文件、启动进程；没有源码工具。
+- run_poc 把脚本交给隔离 runner，只有脚本内部可用 urllib/curl 访问 LAB30_URL。
+- http_observe 恰好发送一个请求，不跟随重定向；首个 3xx 与 Location 本身就是观测。
+- browser_check 复用 runner 的会员会话；XSS 必须观察到弹窗或页面求值结果，HTTP 反射不算执行。
+- 脚本不继承 HTTP/浏览器的 CookieJar，必须自行登录。目标映射以 resolve_target 的主机与路径为准。
 
-访问语义：
-- run_poc：脚本在隔离容器里执行，只有脚本内部可以使用标准库 urllib / curl 等网络能力。
-  脚本必须自己登录 DVWA：GET /login.php，用正则
-  `name=['\"]user_token['\"]\\s+value=['\"]([^'\"]+)['\"]` 提取 user_token（DVWA 各版本
-  login 页的单引号/双引号写法都要兼容），再 POST username=admin、password=password、
-  Login=Login、user_token=...。只准访问 http://dvwa。
-- http_observe：宿主代发**恰好一个**请求，**不跟随重定向**。返回首个响应的 status、url、
-  headers（含 location）、redirects、body；`redirects` 只记录这个 Location，不代表它被访问过。
-  开放重定向类漏洞的证据就是首个 3xx 与它发出的 Location，不要试图把它"跟完"。
-- browser_check：在隔离浏览器中加载页面，返回对话框、console 错误与截图。XSS 类结论必须
-  用它观察到弹窗或页面求值结果；仅凭 HTTP 响应中的字符串不能算验证成功。
-
-标准库登录、切安全级别与表单提交的写法（这是交给 run_poc 的脚本内容，不是你的动作代码块）：
-
+脚本登录模板（这是交给 run_poc 的脚本内容，不是你的动作代码块）：
 ```python
-import urllib.request, urllib.error, urllib.parse, http.cookiejar, re, os
-
-BASE = os.environ.get("DVWA_URL", "http://dvwa")
+import os, urllib.request, urllib.parse, urllib.error, http.cookiejar
+BASE = os.environ["LAB30_URL"].rstrip("/")
 jar = http.cookiejar.CookieJar()
-
-def token_from(html):
-    # 兼容 login/security/漏洞页单引号与双引号两种 token 写法。
-    match = re.search(r"name=['\"]user_token['\"]\\s+value=['\"]([^'\"]+)['\"]", html)
-    return match.group(1) if match else ""
-
-# 登录用会跟随重定向的 opener：登录成功后 DVWA 返回 302 到 index.php。
 login = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-html = login.open(BASE + "/login.php", timeout=10).read().decode("utf-8", "replace")
-login.open(BASE + "/login.php", timeout=10, data=urllib.parse.urlencode({
-    "username": "admin", "password": "password", "Login": "Login",
-    "user_token": token_from(html),
+login.open(BASE + "/auth/login.php", timeout=10).read()
+login.open(BASE + "/auth/login.php", timeout=10, data=urllib.parse.urlencode({
+    "username": os.environ["LAB30_USER"], "password": os.environ["LAB30_PASSWORD"],
 }).encode()).read()
-
-# 新会话默认安全级别是 impossible，攻击不会生效：登录后必须先用 /security.php 切到 low。
-sec = login.open(BASE + "/security.php", timeout=10).read().decode("utf-8", "replace")
-login.open(BASE + "/security.php", timeout=10, data=urllib.parse.urlencode({
-    "security": "low", "seclev_submit": "Submit", "user_token": token_from(sec),
-}).encode()).read()
-
-# DVWA 2.x 每个漏洞页表单都带页面级 user_token：POST 前先 GET 页面提取，连同攻击参数一起提交，
-# 否则表单不会执行查询（页面只是重新渲染菜单）。
-def form_post(path, fields):
-    page = login.open(BASE + path, timeout=10).read().decode("utf-8", "replace")
-    payload = urllib.parse.urlencode({**fields, "user_token": token_from(page)}).encode()
-    return login.open(BASE + path, timeout=10, data=payload).read().decode("utf-8", "replace")
-
-normal = form_post("/vulnerabilities/sqli/", {"id": "1", "Submit": "Submit"})
-attack = form_post("/vulnerabilities/sqli/", {"id": "1' OR '1'='1", "Submit": "Submit"})
-print("CONTROL", normal.count("ID: "), "rows")
-print("ATTACK", attack.count("ID: "), "rows")
-
-# 观测用禁止重定向的 opener，并与登录共用同一个 CookieJar。
-# handler 必须在 build_opener 时传入；事后再 add_handler 不会覆盖默认的跳转 handler。
+member = login.open(BASE + "/orders/index.php", timeout=10)
+assert member.status == 200 and "/auth/login.php" not in member.url, "会员登录未生效"
+print("MEMBER_SESSION", member.status)
+# 后续请求继续使用同一个 CookieJar；正常输入和攻击输入依据任务中给出的源码构造。
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 observe = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar), NoRedirect)
-
-def location(path):
-    try:
-        response = observe.open(BASE + path, timeout=10)
-        return response.status, response.headers.get("Location")
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.headers.get("Location")
-
-print("CONTROL", location("/vulnerabilities/open_redirect/source/low.php?redirect=info.php%3Fid%3D1"))
-print("ATTACK", location("/vulnerabilities/open_redirect/source/low.php?redirect=%2F%2Fevil.com"))
 ```
 
-规则：
-- 先做正常请求（例如 id=1），再做攻击请求；两者输出都要保留，作为对照。
-- 每次执行都要把真正的命令行输出当作证据，不要编造；失败就换一种最小写法重试。
-
-适配要点（历史实测中反复导致验证失败的写法，必须避开）：
-- 登录自检：脚本每次请求后要确认已经处于登录态（例如 /index.php 响应含 Logout 或目标页面的
-  表单/功能链接）。登录失败或把登录页当结果输出时不要硬跑攻击，先修正登录再重试；
-  "脚本成功退出"不等于"验证成功"。
-- 安全级别：脚本自己的会话登录后默认是 impossible（DVWA 出厂默认），在这种级别下大多数攻击
-  （SQLi 参数化、命令注入被转义）不会生效；登录后必须先用 /security.php 把级别切到 low 再攻击。
-  宿主 prepare 记录的 security 属于宿主会话，脚本会话不会继承。
-- 表单 CSRF：DVWA 2.x 的每个漏洞页表单都带页面级 user_token；POST 攻击前必须先 GET 该页提取
-  user_token 一并提交，否则表单不执行查询（页面只是重新渲染菜单），攻击观测与正常观测会完全
-  相同而误判 rejected。
-- 提交方式：DVWA 内部不同页面读取方式不一致——sqli 用 $_REQUEST（GET/POST 皆可），sqli_blind
-  只认 $_GET。form_post 对某页无效（观测无变化）时，改成 GET query 再试。
-- 状态码侧信道：DVWA 盲注页用 HTTP 状态码表达查询结果的存在性（low 级别即如此：用户存在返回
-  200，不存在返回 404 + "User ID is MISSING"）。观测必须用禁止重定向的 opener 并捕获
-  HTTPError 取状态码与响应体，不能用跟随重定向的默认 opener 直接 open()——404 会抛 HTTPError
-  令脚本崩溃或误判请求失败。盲注判据优先按状态码（存在 200 / 不存在 404），再配合页面文本。
-- 对照优先：判断漏洞靠正常侧与攻击侧的**差异**，不是靠攻击响应里出现任何字符串。
-  SQLi 看结果行数/字段/报错的变化或唯一标记（例如行数从 1 变多、出现多条记录）；
-  命令注入看唯一回显标记（例如 PWNED_$(id -u) 这种专属字符串，不要 grep "root"、"/bin/sh" 等
-  常见词，避免正常侧误命中）；XSS 必须用 browser_check 观察到弹窗或页面求值，HTTP 反射出来
-  的 payload 不算。
-- payload 上下文：攻击 payload 必须适配目标页面的上下文（SQL 语句中的引号闭合、HTML 属性/标签
-  位置、URL 编码规则）。不确定时先发一次正常请求观察回显结构，再构造 payload；一次不成立就换
-  最小变体（如引号配对、注释符、编码方式），不要在一个错误 payload 上反复重试。
-- 结果自证：脚本要把正常侧与攻击侧的原始输出都打印出来，作为 attack_observation 里可以核对
-  的 token；观测里必须出现脚本真实输出的内容，不要凭假设复述。
-Lab30 商城靶场（拾光商城；目标路径形如 /auth/、/catalog/、/orders/、/wallet/、/account/、
-/ops/、/partner/、/support/，且任务消息提到"商城/订单/钱包/运营"时）：
-- BASE = os.environ.get("LAB30_URL", "http://127.0.0.1:18880")。登录表单在 /auth/login.php，
-  字段只有 username 与 password（**没有 user_token / CSRF 字段**，不要套用 DVWA 的 token 流程）。
-- 登录：先 GET /auth/login.php 拿到会话 CookieJar，再 POST username=alice、password=Alice123!，
-  成功返回 302 到 /。用跟随重定向的 opener 完成登录；之后会员页（/orders/、/wallet/、/account/）
-  都在同一 CookieJar 下访问。
-- 会话自检：未登录访问会员页会被重定向到 /auth/login.php（302）；已登录应直接 200。
-  观测到 302 说明登录没生效，先修正登录再跑攻击，不要把登录页当攻击结果。
-- 商城没有"安全级别"概念：不要 GET /security.php，也不要找 user_token。
-- 角色对比：alice 是普通会员。越权/权限类漏洞要对比 alice 会话直接访问 /ops/（运营后台）或
-  /partner/（合作服务）的结果——正常应被重定向/拒绝，越权则直接拿到运营数据。
-- 路径按任务消息里的源码文件定位：商品 /catalog/、订单 /orders/、钱包 /wallet/、
-  账户 /account/、运营 /ops/、合作 /partner/、客服 /support/。
-
-- 探索阶段结束时调用 final_answer("探索结束")；验证结论在下一阶段单独提交。
-- 不要输出隐藏思维链或逐步推理，代码块之外不要写长篇散文。
+Lab30 实际运行约定：
+- 登录 POST 只有 username/password，没有登录 CSRF 字段；会员页未认证可能返回 401 或 302。
+  必须先确认会话生效，不把登录页、401、403或脚本成功退出当成漏洞影响。
+- 业务表单可能有名为 csrf 的字段；需要时先 GET 对应表单，从真实 HTML 取值再 POST。
+  参数、方法、路由与权限前提都以本条发现的源码为准，不假定所有页面同一规则。
+- 普通会员默认 alice；bob、operator、admin 是靶场提供的其他测试身份。
+  若需要角色对照，分开会话；不能用管理员成功访问的结果冒充普通会员越权。
+- 商城没有安全等级切换流程。源码 app/public 对应 Web 根目录；app/src 的文件不能直接访问。
+- /catalog/、/orders/、/wallet/、/account/、/ops/、/partner/、/support/、/content/ 为业务入口。
+- HTTPError 中的状态码、响应头和正文仍是有效观测；捕获并打印，尤其是 401/403/404。
+- SQL 注入核对结果行、字段或条件差异；命令执行核对只会由攻击产生的唯一标记；
+  XSS 核对浏览器实际执行；不能凭常见字符串或成功响应作 verified。
+- 按源码中的引号、HTML上下文、编码与请求方法构造最小 payload；无效时最多尝试不同的最小变体。
+- 始终打印并保留正常侧和攻击侧的原始输出；观测说明必须对应实际 stdout、作业或浏览器结果。
+- target_prepare 只刷新会员会话，不重置商城数据。重置由操作者在审计间隙通过商城 CLI 完成。
+- 不读取答案、不猜内部标记、不编造执行结果。信息不足时交回 inconclusive。
+- 探索结束调用 final_answer("探索结束")；验证结论下一阶段单独提交。
+- 不输出隐藏思维链或长篇内部推理。
 """
 
 CONCLUDE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的结论阶段。执行阶段已经结束，**所有工具都已收回**：

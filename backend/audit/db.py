@@ -959,6 +959,18 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 self._db.execute("ROLLBACK")
                 raise
 
+    def refresh_target_profile(self, snapshot_id: str, profile: str) -> None:
+        """Reclassify an existing ZIP without changing its identity or activity order."""
+        with self._lock:
+            self._db.execute('BEGIN IMMEDIATE')
+            try:
+                self._db.execute('UPDATE snapshots SET target_profile=? WHERE id=?', (profile, snapshot_id))
+                self._db.execute('UPDATE projects SET target_profile=? WHERE id=(SELECT project_id FROM snapshots WHERE id=?)', (profile, snapshot_id))
+                self._db.execute('COMMIT')
+            except Exception:
+                self._db.execute('ROLLBACK')
+                raise
+
     def touch_project_run(self, project_id: str, run_id: str) -> None:
         self._write(
             "UPDATE projects SET latest_run_id = ?,"

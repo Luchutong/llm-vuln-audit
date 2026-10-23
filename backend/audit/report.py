@@ -531,13 +531,13 @@ def _pending_verification_reason(finding: dict) -> str:
 
     The status already says it; the reason says what it means for the reader.  Collapsing
     every non-verified status into "not reproduced" would read a runner outage or a
-    non-DVWA target as evidence against the finding.
+    non-Lab30 target as evidence against the finding.
     """
     status = str(finding.get("verification_status") or "unverified")
     return {
         "rejected": "隔离靶场执行成功但未能复现；静态源码证据仍保留。",
         "inconclusive": "隔离靶场未能给出决定性结果。",
-        "not_applicable": "目标不是受支持的 DVWA 环境，未执行自动验证。",
+        "not_applicable": "目标不是受支持的 Lab30 商城环境，未执行自动验证。",
         "environment_unavailable": "隔离靶场不可用，未执行自动验证。",
         "stale": "源码或结论已变更，历史验证不再适用于当前版本。",
         "unverified": "尚未执行自动验证。",
@@ -1001,7 +1001,7 @@ def _render_legacy_task_markdown(bundle: dict) -> str:
 
     The legacy report is intentionally retained below for historical P0/P1/P2 records.
     A target task is a different product flow: it must not describe an uploaded project
-    as DVWA or force every result through SQL/XSS/command-injection terminology.
+    as a fixture or force every result through SQL/XSS/command-injection terminology.
     """
     run = bundle["run"]
     task = run.get("task_spec") or {}
@@ -1307,7 +1307,7 @@ def _render_task_markdown(bundle: dict) -> str:
         "",
         "每轮 Planner 决策、任务创建/更新、依赖交接、worker 领取、工具调用、返回摘要、已读源码范围和尝试结果都先写入 SQLite 事件日志，再通过 SSE 推送。工作台的执行轨迹可按 Planner、worker、任务和尝试展开查看。",
         "",
-        "POC 由独立 POC Agent 在隔离的 `poc-runner` 容器中对本地 DVWA 靶场执行；审计主进程不执行任何上传源码或 POC 脚本。"
+        "POC 由独立 POC Agent 在隔离的 `poc-runner` 容器中对本地 Lab30 商城靶场执行；审计主进程不执行任何上传源码或 POC 脚本。"
         "对运行时依赖、动态路由、反射、动态 include 或外部服务产生的缺失信息，应结合自动验证记录与缺失上下文补充，"
         "而不是将其解释为不存在。",
         "",
@@ -1455,7 +1455,7 @@ def render_markdown(bundle: dict) -> str:
         "",
         f"- 审计单元总数：{metrics['total_units']}，其中完成 {metrics['completed_units']} 个，未完成 {metrics['incomplete_units']} 个。",
         "",
-        "> 边界说明：DVWA 六样本用于检验实验流程本身，不能据此宣称对未知 PHP 项目的检测能力。",
+        "> 边界说明：历史固定样本只用于检验实验流程，不能据此宣称对未知 PHP 项目的检测能力。",
         "",
         "## 2. 传统漏洞挖掘与 LLM 辅助漏洞挖掘技术对比",
         "",
@@ -1508,7 +1508,7 @@ def render_markdown(bundle: dict) -> str:
         "| 存储 | SQLite（WAL） | 快照、运行、单元、候选、验证记录与事件日志；事件先落库再推送，重启后据此恢复 |",
         "| 模型调用 | PydanticAI（OpenAIChatModel） | Agent、工具调用、输出纠正重试、用量与限额均由框架提供，**不自行实现 LLM 调用框架** |",
         "| 源码索引 | tree-sitter PHP | 只用于定位函数/方法与语句边界，属预处理，不做完整污点分析 |",
-        "| 部署 | Docker Compose（三服务） | `app` 审计应用、`db` 数据库、`dvwa` 靶机；靶机与 `demo/dvwa-source.zip` 由同一份源码构建 |",
+        "| 部署 | Docker Compose | 历史环境以运行记录为准；当前动态验证使用独立的 Lab30 商城、数据库、合作服务与 runner |",
         "",
         "API Key 只从服务端环境变量读取，不下发浏览器、不写入快照、数据库与报告。",
         "",
@@ -1692,7 +1692,7 @@ def render_markdown(bundle: dict) -> str:
         "  **混淆矩阵只统计证据通过校验的候选**，所以 FP 的含义是「有证据支持却与真值相反」，",
         "  不等于「模型没说过错话」。",
         "- 已知局限：动态 include 与动态调用无法静态解析；切片边界可能截断跨片数据流；",
-        "  模型输出稳定性与 POC 环境差异（PHP 版本、数据库分支、DVWA 安全等级）仍会带来噪声。",
+        "  模型输出稳定性与 POC 环境差异（PHP 版本、数据库分支、登录角色与部署配置）仍会带来噪声。",
         f"- 未接入传统扫描器对照，第 2 章对比实测数据为{NOT_MEASURED}。",
         "框架层面的实现到哪一步、哪些是有意不做的，见 3.5；本节只记录本次运行实测到的问题与归因。",
         "",

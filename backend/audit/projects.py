@@ -24,13 +24,13 @@ from typing import Iterable
 
 PROJECT_CONTENT_SCHEMA = 1
 
-# A project is recognised as the DVWA fixture only when its login/setup/security pages and
-# at least one DVWA-specific marker file or vulnerability module are all present.  The
-# three page names alone are common enough in other PHP applications to be a false
-# positive, and the target profile decides whether the POC runner is allowed to touch it.
-_DVWA_CORE = {"login.php", "setup.php", "security.php"}
-_DVWA_MARKER_SUFFIX = "includes/dvwapage.inc.php"
-_DVWA_MODULE_PREFIX = "vulnerabilities/"
+# Recognise the fixture by a set of implementation-specific files under one app root,
+# never by the ZIP filename or a generic login page. Both full and app-only ZIPs work.
+_LAB30_FILES = {
+    "VERSION", "src/bootstrap.php", "src/setup.php", "public/health.php",
+    "public/auth/login.php", "public/orders/index.php", "public/wallet/withdraw.php",
+    "public/ops/template-render.php", "public/partner/token.php",
+}
 
 
 def _normal_path(path: str) -> str:
@@ -61,7 +61,7 @@ def project_content_key(files: Iterable[dict]) -> str:
 def project_target_profile(files: Iterable[dict]) -> str:
     """Which runnable fixture this project maps onto, or ``unknown``.
 
-    Only ``dvwa`` is supported by the POC runner today; anything else is reported as
+    Only ``lab30`` is supported by the POC runner; anything else is reported as
     ``unknown`` and its findings are recorded as ``not_applicable`` for automatic
     execution rather than pretending a target exists.
     """
@@ -70,11 +70,13 @@ def project_target_profile(files: Iterable[dict]) -> str:
         for item in files or []
         if isinstance(item, dict) and item.get("path")
     }
-    if not _DVWA_CORE.issubset(paths):
-        return "unknown"
-    marker = any(path == _DVWA_MARKER_SUFFIX or path.endswith("/" + _DVWA_MARKER_SUFFIX) for path in paths)
-    modules = any(path.startswith(_DVWA_MODULE_PREFIX) for path in paths)
-    return "dvwa" if marker and modules else "unknown"
+    for path in paths:
+        suffix = "public/auth/login.php"
+        if path.endswith(suffix):
+            root = path[:-len(suffix)]
+            if all(root + item.casefold() in paths for item in _LAB30_FILES):
+                return "lab30"
+    return "unknown"
 
 
 def project_name(snapshot: dict) -> str:
@@ -100,7 +102,7 @@ def ensure_project(store, snapshot: dict) -> tuple[dict, bool]:
     keeps its original name, origin timestamps and creation order.
     """
     content_key = snapshot.get("content_key") or project_content_key(snapshot.get("files") or [])
-    target_profile = snapshot.get("target_profile") or project_target_profile(snapshot.get("files") or [])
+    target_profile = project_target_profile(snapshot.get("files") or [])
     existing = store.get_project_by_content_key(content_key)
     created = existing is None
     if created:
@@ -131,7 +133,7 @@ def ensure_project(store, snapshot: dict) -> tuple[dict, bool]:
 
 
 def ensure_projects(store, repository) -> int:
-    """Backfill projects for snapshots written before projects existed.
+    """Backfill projects and refresh derived target profiles of existing snapshots.
 
     Idempotent and best-effort: a snapshot whose directory has been removed (a test
     fixture, a pruned data dir) is skipped rather than stopping the server.  Returns the
@@ -139,12 +141,15 @@ def ensure_projects(store, repository) -> int:
     """
     bound = 0
     for row in store.list_snapshots():
-        if row.get("project_id"):
-            continue
         try:
-            snapshot = repository.get_snapshot(row["id"])
+            snapshot = dict(repository.get_snapshot(row["id"]))
         except (FileNotFoundError, ValueError, KeyError):
             continue
-        ensure_project(store, snapshot)
-        bound += 1
+        if row.get("project_id"):
+            profile = project_target_profile(snapshot.get("files") or [])
+            if row.get("target_profile") != profile:
+                store.refresh_target_profile(row["id"], profile)
+        else:
+            ensure_project(store, snapshot)
+            bound += 1
     return bound

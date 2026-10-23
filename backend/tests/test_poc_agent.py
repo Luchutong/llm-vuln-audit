@@ -59,11 +59,11 @@ class FakeClient:
             raise PocRunnerUnavailable("runner down")
         return {"ok": True, "capabilities": {"php": True, "python": True, "browser": self.browser}}
 
-    async def prepare_target(self, target="dvwa", *, reset=True, security="low"):
+    async def prepare_target(self, target="lab30", *, reset=True, security="low"):
         self.prepared.append({"target": target, "reset": reset, "security": security})
-        return {"ok": True, "base_url": "http://dvwa", "security": security, "version": "2.5", "authenticated": True}
+        return {"ok": True, "base_url": "http://lab30", "security": security, "version": "2.5", "authenticated": True}
 
-    async def target_status(self, target="dvwa"):
+    async def target_status(self, target="lab30"):
         return {"ok": True, "authenticated": True, "security": "low"}
 
     async def run_job(self, *, target, language, script, timeout_seconds=30, artifacts=None):
@@ -77,7 +77,7 @@ class FakeClient:
         return {"ok": True, "status": 200, "path": path, "body": "First name: admin"}
 
     async def browser_check(self, *, target, path, script=None, wait_ms=1000):
-        return {"ok": True, "available": True, "title": "DVWA", "dialogs": ["XSS"], "body_text": "XSS"}
+        return {"ok": True, "available": True, "title": "Lab30", "dialogs": ["XSS"], "body_text": "XSS"}
 
     async def aclose(self):
         self.closed = True
@@ -89,7 +89,7 @@ class FakeStore:
             "id": "run-1",
             "project_id": "project-1",
             "project_mode": "project",
-            "target_profile": "dvwa",
+            "target_profile": "lab30",
             "poc_policy": {"mode": "auto", "enabled": True},
         }
         self.records: list[dict] = []
@@ -122,7 +122,7 @@ def settings(tmp_path, **overrides):
 
 
 def deps(client, **overrides) -> PocDeps:
-    values = dict(client=client, policy=PocPolicy().snapshot(), target="dvwa", finding=FINDING)
+    values = dict(client=client, policy=PocPolicy().snapshot(), target="lab30", finding=FINDING)
     values.update(overrides)
     return PocDeps(**values)
 
@@ -144,7 +144,7 @@ def test_policy_from_run_uses_defaults_and_clamps():
     assert "runner_token" not in policy.snapshot()
 
 
-def test_non_dvwa_project_is_not_applicable(tmp_path):
+def test_non_lab30_project_is_not_applicable(tmp_path):
     store = FakeStore(run={
         "id": "run-1", "project_id": "p1", "project_mode": "project",
         "target_profile": "unknown", "poc_policy": {"mode": "auto", "enabled": True},
@@ -660,22 +660,22 @@ def test_a_successful_tool_call_is_paired_with_its_result():
 
 
 class UnavailableClient(FakeClient):
-    async def target_status(self, target="dvwa"):
+    async def target_status(self, target="lab30"):
         raise PocRunnerUnavailable("runner down")
 
 
 class RejectingClient(FakeClient):
-    async def target_status(self, target="dvwa"):
-        raise PocRunnerError("runner rejected the request (403): path is not in the DVWA allowlist")
+    async def target_status(self, target="lab30"):
+        raise PocRunnerError("runner rejected the request (403): path is not in the Lab30 allowlist")
 
 
 class BrokenClient(FakeClient):
-    async def target_status(self, target="dvwa"):
+    async def target_status(self, target="lab30"):
         raise ValueError("unexpected")
 
 
 class CancelledClient(FakeClient):
-    async def target_status(self, target="dvwa"):
+    async def target_status(self, target="lab30"):
         raise asyncio.CancelledError()
 
 
@@ -743,7 +743,7 @@ def test_http_only_observation_cannot_support_verified(monkeypatch):
     script = {
         "poc_execute": [
             call("run_poc", language="python", script=SCRIPT),
-            call("http_observe", path="/vulnerabilities/open_redirect/source/low.php?redirect=//evil.com"),
+            call("http_observe", path="/auth/continue.php?redirect=//evil.com"),
             final_answer("探索结束"),
         ],
         "poc_conclude": [final_answer({

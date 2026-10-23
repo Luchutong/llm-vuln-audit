@@ -69,7 +69,7 @@ const VERIFICATION_HINTS: Record<VerificationStatus, string> = {
   verified: '隔离靶场中执行成功并复现了预期差异。',
   rejected: '隔离靶场执行成功，但未能复现；静态源码证据仍然保留，等待 Planner 更正。',
   inconclusive: '靶场未能给出决定性结果（脚本、观测或浏览器证据不足）。',
-  not_applicable: '该项目不是受支持的 DVWA 环境，因此没有执行自动验证。',
+  not_applicable: '该项目不是受支持的 Lab30 商城 环境，因此没有执行自动验证。',
   environment_unavailable: '隔离靶场不可用，本次没有执行自动验证。',
   unverified: '尚未执行自动验证；未验证不等于排除。',
   stale: '结论或证据已变更，之前的验证结果不再适用于当前版本。',
@@ -427,7 +427,7 @@ export function FindingDetail({ finding, snapshotId, observation = false, pocDow
         <div className="panel-body grid">
           {!observation && <p className="small muted">
             {VERIFICATION_HINTS[verificationStatus(finding)]}
-            {' '}自动验证由独立的 POC Agent 在隔离的 <code>poc-runner</code> 中对本地 DVWA 执行；平台不会在应用进程里运行上传的源码或 POC 脚本。
+            {' '}自动验证由独立的 POC Agent 在隔离的 <code>poc-runner</code> 中对本地 Lab30 商城 执行；平台不会在应用进程里运行上传的源码或 POC 脚本。
           </p>}
           {!observation && <AutomaticVerificationPanel finding={finding} />}
           <HistoricalVerificationPanel finding={finding} observation={observation} />

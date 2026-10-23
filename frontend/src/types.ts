@@ -304,7 +304,7 @@ export interface Project {
   id: string;
   name: string;
   content_key: string;
-  target_profile: 'dvwa' | 'unknown' | string;
+  target_profile: 'lab30' | 'unknown' | string;
   created_at: string;
   updated_at: string;
   latest_snapshot_id?: string | null;

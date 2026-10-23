@@ -462,7 +462,7 @@ def _config_payload(state: Services) -> dict:
         "budget_limits": {"defaults": DEFAULT_BUDGETS},
         "run_budget_limits": {"defaults": DEFAULT_RUN_LIMITS, "min": MIN_RUN_LIMITS, "max": MAX_RUN_LIMITS},
         "agent_policy": AgentPolicy().snapshot(),
-        "poc": {**state.settings.poc.public(), "supported_targets": ["dvwa"]},
+        "poc": {**state.settings.poc.public(), "supported_targets": ["lab30"]},
         "worker": state.worker.status,
         "model_health": state.health.snapshot(),
         "version": VERSION,

@@ -3,7 +3,7 @@
 An open redirect is proven by the first 3xx and its ``Location``.  Following that header
 either replaces the evidence with the target's answer or, for an external host, fails on
 the isolated network -- which is exactly what happened in run 538f47d9: a 302 to
-``//evil.com`` was reported as almost certainly a 200 DVWA page.  These tests pin the
+``//evil.com`` was reported as almost certainly a 200 Lab30 page.  These tests pin the
 semantics with a real ``httpx.Client`` and a mock transport, so no container is needed.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
 
 runner = importlib.import_module("poc_runner.runner")
 
-PATH = "/vulnerabilities/open_redirect/source/low.php?redirect=//evil.com"
+PATH = "/auth/continue.php?redirect=//evil.com"
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 
 
@@ -36,12 +36,12 @@ def observe(monkeypatch, location: str, *, status: int = 302, body: bytes = b"mo
         return httpx.Response(status, headers=headers, content=body)
 
     client = httpx.Client(
-        base_url=runner.DVWA_URL,
+        base_url=runner.LAB30_URL,
         follow_redirects=False,
         transport=httpx.MockTransport(handler),
     )
-    monkeypatch.setattr(runner, "_dvwa_client", lambda: client)
-    result = runner._observe_sync(runner.HttpRequest(target="dvwa", path=PATH))
+    monkeypatch.setattr(runner, "_lab30_client", lambda: client)
+    result = runner._observe_sync(runner.HttpRequest(target="lab30", path=PATH))
     return result, seen
 
 
@@ -50,7 +50,7 @@ def test_a_redirect_is_reported_not_followed(monkeypatch, location):
     """Protocol-relative, absolute and directory-relative targets all stay one request."""
     result, seen = observe(monkeypatch, location)
 
-    assert seen == [f"{runner.DVWA_URL}{PATH}"], "runner followed a redirect it should only report"
+    assert seen == [f"{runner.LAB30_URL}{PATH}"], "runner followed a redirect it should only report"
     assert result["status"] == 302
     assert result["headers"]["location"] == location
     assert result["redirects"] == [location]
@@ -59,7 +59,7 @@ def test_a_redirect_is_reported_not_followed(monkeypatch, location):
 def test_a_normal_response_has_no_redirects(monkeypatch):
     result, seen = observe(monkeypatch, "", status=200, body="<html>ok</html>".encode())
 
-    assert seen == [f"{runner.DVWA_URL}{PATH}"]
+    assert seen == [f"{runner.LAB30_URL}{PATH}"]
     assert result["status"] == 200
     assert result["redirects"] == []
     assert "location" not in result["headers"]
@@ -68,7 +68,7 @@ def test_a_normal_response_has_no_redirects(monkeypatch):
 def test_protocol_relative_path_is_still_refused_at_the_entrypoint(monkeypatch):
     """Not following redirects must not loosen the allowlist on the requested path."""
     with pytest.raises(HTTPException) as error:
-        runner._observe_sync(runner.HttpRequest(target="dvwa", path="//evil.com"))
+        runner._observe_sync(runner.HttpRequest(target="lab30", path="//evil.com"))
     assert error.value.status_code == 400
 
 
@@ -82,12 +82,11 @@ def test_a_large_body_is_previewed_and_marked(monkeypatch):
 
 
 def test_lab30_target_is_allowed_and_unknown_targets_rejected():
-    """The runner prepares two targets now; dvwa is unchanged, lab30 joins it."""
+    """The runner prepares only prepares Lab30; removed and unknown targets are refused."""
     from fastapi import HTTPException
 
-    runner._check_target("dvwa")
     runner._check_target("lab30")
-    for bad in ("metasploitable", "", "dvwa-extra"):
+    for bad in ("dvwa", "metasploitable", "", "lab30-extra"):
         try:
             runner._check_target(bad)
         except HTTPException as exc:

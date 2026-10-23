@@ -433,6 +433,8 @@ class SourceRepository:
                 self._snapshot_cache.move_to_end(snapshot_id)
                 return hit[1], hit[2]
         snapshot = json.loads((directory / "index.json").read_text("utf-8"))
+        # Runtime profile recognition can evolve without rewriting immutable indexes.
+        snapshot["target_profile"] = project_target_profile(snapshot.get("files") or [])
         records = {item["path"]: item for item in snapshot.get("files") or []}
         with self._cache_lock:
             self._snapshot_cache[snapshot_id] = (stamp, snapshot, records)

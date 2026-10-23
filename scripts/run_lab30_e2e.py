@@ -48,7 +48,7 @@ OBJECTIVES = {
     ),
 }
 
-TERMINAL = {"met", "unmet", "failed", "cancelled", "stopped", "error"}
+TERMINAL = {"completed", "unreachable", "inconclusive", "interrupted", "failed", "cancelled"}
 SCENARIOS = tuple(OBJECTIVES)
 
 
@@ -77,7 +77,7 @@ def upload(client: httpx.Client, archive: Path) -> dict:
 
 
 def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, objective: str | None,
-               iterations: int, max_rounds: int, attempts: int) -> dict:
+               iterations: int, max_rounds: int, attempts: int, poc_mode: str = 'auto') -> dict:
     task: dict = {
         "objective": objective or OBJECTIVES[scenario or "sqli"],
         "max_iterations": iterations,
@@ -87,7 +87,7 @@ def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, obj
     if scenario:
         task["scenario"] = scenario
     print(f"[2/4] 创建审计任务（scenario={scenario or '未指定'}）")
-    response = client.post("/api/runs", json={"snapshot_id": snapshot_id, "task": task})
+    response = client.post("/api/runs", json={"snapshot_id": snapshot_id, "task": task, "poc_mode": poc_mode})
     if response.status_code >= 400:
         sys.exit(f"    创建失败 {response.status_code}: {response.text[:600]}")
     run = response.json()
@@ -102,7 +102,7 @@ def poll(client: httpx.Client, run_id: str, max_wait: int, interval: int) -> dic
     while True:
         bundle = client.get(f"/api/runs/{run_id}").json()
         run = bundle["run"]
-        findings = [f for f in bundle.get("findings") or [] if f.get("kind") == "vulnerability"]
+        findings = [f for f in bundle.get("findings") or [] if f.get("finding_kind", f.get("kind")) == "vulnerability"]
         goal = bundle.get("goal") or {}
         line = (
             f"    {run['status']:<10} 单元 {run.get('completed_units')}/{run.get('total_units')}"
@@ -121,7 +121,7 @@ def poll(client: httpx.Client, run_id: str, max_wait: int, interval: int) -> dic
 
 def summarize(bundle: dict) -> None:
     run = bundle["run"]
-    findings = [f for f in bundle.get("findings") or [] if f.get("kind") == "vulnerability"]
+    findings = [f for f in bundle.get("findings") or [] if f.get("finding_kind", f.get("kind")) == "vulnerability"]
     print()
     print(f"结果: {run['status']} · 目标 {((bundle.get('goal') or {}).get('status')) or '—'}"
           f" · 漏洞候选 {len(findings)} 条")
@@ -143,7 +143,7 @@ def score(run_id: str, base: str, scenario: str | None, out: Path) -> int:
     print("[4/4] 对数据集评分")
     cmd = [
         sys.executable, str(ROOT / "scripts" / "score_dataset.py"),
-        "--api", base, "--run", run_id, "--out", str(out),
+        "--api", base, "--run", run_id, "--out", str(out), "--check-severity", "--check-cvss",
     ]
     if scenario:
         cmd += ["--scenario", scenario]
@@ -153,7 +153,7 @@ def score(run_id: str, base: str, scenario: str | None, out: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", default="http://127.0.0.1:8899", help="审计实例基址")
-    parser.add_argument("--zip", required=True, help="靶场源码 zip")
+    parser.add_argument("--zip", help="靶场源码 zip，--follow 时无需提供")
     parser.add_argument("--scenario", choices=SCENARIOS, default="sqli", help="只跑某个漏洞类（默认 sqli）")
     parser.add_argument("--objective", default=None, help="覆盖默认任务目标文案")
     parser.add_argument("--iterations", type=int, default=3)
@@ -163,8 +163,11 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=5, help="轮询间隔秒数")
     parser.add_argument("--out", default=None, help="评分明细输出路径")
     parser.add_argument("--no-score", action="store_true", help="只跑审计不评分")
+    parser.add_argument("--poc-mode", choices=('off','auto','required'), default='auto', help="自动验证策略，默认 auto")
     parser.add_argument("--follow", default=None, help="接入已有 run（跳过上传与创建）")
     args = parser.parse_args()
+    if not args.follow and not args.zip:
+        parser.error('创建审计时需要 --zip；跟踪已有审计使用 --follow')
 
     base = args.base.rstrip("/")
     out = Path(args.out) if args.out else ROOT / "datasets" / "lab30-shop" / f"score_{args.scenario or 'all'}.json"
@@ -182,7 +185,7 @@ def main() -> int:
         else:
             snapshot = upload(client, Path(args.zip))
             run = create_run(client, snapshot["id"], args.scenario, args.objective,
-                             args.iterations, args.max_rounds, args.attempts)
+                             args.iterations, args.max_rounds, args.attempts, args.poc_mode)
             run_id = run["id"]
 
         bundle = poll(client, run_id, args.max_wait, args.interval)

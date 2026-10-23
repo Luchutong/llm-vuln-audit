@@ -84,7 +84,7 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
       {(detail.project || carried.length > 0) && <section className="panel" aria-label="项目与既有发现">
         <div className="panel-head">
           <div className="panel-title">项目 · {detail.project?.name ?? run.project_name ?? '未命名项目'}</div>
-          <span className="chip">{detail.project?.target_profile === 'dvwa' ? 'DVWA 靶场' : detail.project?.target_profile ?? run.project_mode ?? 'legacy'}</span>
+          <span className="chip">{detail.project?.target_profile === 'lab30' ? 'Lab30 商城 靶场' : detail.project?.target_profile ?? run.project_mode ?? 'legacy'}</span>
         </div>
         <div className="grid detail-fields panel-body">
           <div className="field"><span className="field-label">项目台账</span><span className="small">

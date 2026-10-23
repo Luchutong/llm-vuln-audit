@@ -26,7 +26,7 @@ def _project(store: Store, content_key: str = "key-1") -> dict:
         "id": uuid.uuid4().hex,
         "content_key": content_key,
         "name": "DVWA",
-        "target_profile": "dvwa",
+        "target_profile": "lab30",
     }
     store.add_project(project)
     return store.get_project_by_content_key(content_key)

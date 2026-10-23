@@ -79,3 +79,18 @@ def test_a_large_body_is_previewed_and_marked(monkeypatch):
     assert len(seen) == 1
     assert result["truncated"] is True
     assert len(result["body"].encode("utf-8")) <= runner.BODY_PREVIEW
+
+
+def test_lab30_target_is_allowed_and_unknown_targets_rejected():
+    """The runner prepares two targets now; dvwa is unchanged, lab30 joins it."""
+    from fastapi import HTTPException
+
+    runner._check_target("dvwa")
+    runner._check_target("lab30")
+    for bad in ("metasploitable", "", "dvwa-extra"):
+        try:
+            runner._check_target(bad)
+        except HTTPException as exc:
+            assert exc.status_code in (400, 404)
+        else:
+            raise AssertionError(f"{bad!r} must be rejected")

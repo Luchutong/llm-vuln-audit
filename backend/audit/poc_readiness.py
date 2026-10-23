@@ -15,9 +15,13 @@ from .poc_runner import PocRunnerClient, PocRunnerError, PocRunnerUnavailable
 
 
 POC_MODES = frozenset({"off", "auto", "required"})
+# Profiles (source-package identity) and runner target names that the automatic
+# verifier may prepare.  Lab30 shop (拾光商城) joins DVWA as a supported range.
+SUPPORTED_PROFILES = frozenset({"dvwa", "lab30"})
+SUPPORTED_TARGETS = frozenset({"dvwa", "lab30"})
 READINESS_MESSAGES = {
     "disabled": "服务端未开放自动执行 POC。",
-    "unsupported_target": "当前自动验证环境仅支持 DVWA，该源码包不适用。",
+    "unsupported_target": "当前自动验证环境仅支持 DVWA 与 Lab30 商城靶场，该源码包不适用。",
     "runner_unconfigured": "尚未配置隔离 POC runner。",
     "runner_unhealthy": "隔离 POC runner 当前不可用。",
     "ready": "隔离 POC runner 已就绪。",
@@ -60,7 +64,7 @@ class PocReadinessService:
             "target_profile": profile,
             "target": target,
             # Only booleans for known public capabilities cross the boundary.
-            "capabilities": {"supported_targets": ["dvwa"], **{
+            "capabilities": {"supported_targets": sorted(SUPPORTED_TARGETS), **{
                 name: bool((capabilities or {}).get(name, False)) and (name != "browser" or self.settings.poc.browser)
                 for name in ("php", "python", "browser")
             }},
@@ -75,7 +79,7 @@ class PocReadinessService:
         reason = (
             "disabled" if mode == "off" else
             "disabled" if not poc.enabled else
-            "unsupported_target" if profile != "dvwa" or target != "dvwa" else
+            "unsupported_target" if profile not in SUPPORTED_PROFILES or target not in SUPPORTED_TARGETS else
             "runner_unconfigured" if not poc.runner_url else None
         )
         if reason:

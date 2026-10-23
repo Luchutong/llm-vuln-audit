@@ -37,6 +37,10 @@ TOKEN = (os.environ.get("POC_RUNNER_TOKEN") or "").strip()
 DVWA_URL = (os.environ.get("DVWA_URL") or "http://dvwa").rstrip("/")
 DVWA_USER = os.environ.get("DVWA_USER") or "admin"
 DVWA_PASSWORD = os.environ.get("DVWA_PASSWORD") or "password"
+# Lab30 shop (拾光商城): PHP/Apache + MariaDB, member accounts required.
+LAB30_URL = (os.environ.get("LAB30_URL") or "http://127.0.0.1:18880").rstrip("/")
+LAB30_USER = os.environ.get("LAB30_USER") or "alice"
+LAB30_PASSWORD = os.environ.get("LAB30_PASSWORD") or "Alice123!"
 WORKDIR = Path(os.environ.get("POC_RUNNER_WORKDIR") or "/tmp/poc-runner")
 MAX_CONCURRENCY = max(1, min(8, int(os.environ.get("POC_RUNNER_CONCURRENCY") or 2)))
 JOB_TTL_SECONDS = 900
@@ -89,7 +93,8 @@ _semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 _targets: dict[str, dict] = {}
-_target_locks = {name: threading.Lock() for name in ("dvwa",)}
+_target_locks = {name: threading.Lock() for name in ("dvwa", "lab30")}
+SUPPORTED_TARGETS = frozenset({"dvwa", "lab30"})
 
 
 # --------------------------------------------------------------------------- auth
@@ -148,7 +153,7 @@ class BrowserRequest(BaseModel):
 def _check_target(target: str) -> None:
     if not SAFE_TARGET.fullmatch(target or ""):
         raise HTTPException(status_code=400, detail="invalid target")
-    if target != "dvwa":
+    if target not in SUPPORTED_TARGETS:
         raise HTTPException(status_code=404, detail="unknown target")
 
 
@@ -398,6 +403,15 @@ def _dvwa_client() -> httpx.Client:
     )
 
 
+def _lab30_client() -> httpx.Client:
+    return httpx.Client(
+        base_url=LAB30_URL,
+        timeout=httpx.Timeout(15.0, connect=5.0),
+        follow_redirects=False,
+        trust_env=False,
+    )
+
+
 def _session(session: httpx.Client, method: str, path: str, **kwargs) -> httpx.Response:
     return session.request(method, path, **kwargs)
 
@@ -419,7 +433,69 @@ def _form_token(session: httpx.Client, path: str) -> str:
     return match.group(1) if match else ""
 
 
-def _prepare_sync(security: str, reset: bool) -> dict:
+def _prepare_lab30_sync() -> dict:
+    """Bring up the Lab30 shop target and authenticate a member session.
+
+    Lab30 needs a logged-in member for most pages; unlike DVWA there is no CSRF
+    token on the login form and no security level to switch.  The prepared client
+    keeps the PHP session cookie so the runner's HTTP/Browser endpoints reuse it.
+    """
+    session = _lab30_client()
+    try:
+        deadline = time.time() + 30
+        last_error = ""
+        while time.time() < deadline:
+            try:
+                health = _session(session, "GET", "/health.php")
+                if health.status_code < 500:
+                    break
+            except httpx.HTTPError as exc:
+                last_error = type(exc).__name__
+            time.sleep(1)
+        else:
+            raise HTTPException(status_code=503, detail=f"target unreachable: {last_error or 'timeout'}")
+
+        login_page = _session(session, "GET", "/auth/login.php")
+        if login_page.status_code >= 400:
+            raise HTTPException(status_code=502, detail="lab30 login page unavailable")
+
+        response = _session(
+            session,
+            "POST",
+            "/auth/login.php",
+            data={"username": LAB30_USER, "password": LAB30_PASSWORD},
+        )
+        if response.status_code not in {302, 303}:
+            raise HTTPException(status_code=502, detail="lab30 login rejected")
+
+        # A member-only page must answer 200 once authenticated; unauthenticated
+        # requests are redirected to /auth/login.php.
+        account = _session(session, "GET", "/orders/")
+        authenticated = account.status_code == 200
+        snapshot = {
+            "base_url": LAB30_URL,
+            "version": "lab30-shop-1.0.0",
+            "security": "",
+            "user": LAB30_USER,
+            "authenticated": authenticated,
+            "prepared_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        previous = _targets.get("lab30")
+        if previous is not None:
+            try:
+                previous["client"].close()
+            except Exception:
+                pass
+        _targets["lab30"] = {"client": session, "status": snapshot}
+        return {"ok": authenticated, **snapshot}
+    except Exception:
+        session.close()
+        raise
+
+
+def _prepare_sync(security: str, reset: bool, target: str = "dvwa") -> dict:
+    if target == "lab30":
+        return _prepare_lab30_sync()
     if security not in {"low", "medium", "high", "impossible"}:
         raise HTTPException(status_code=400, detail="security must be low, medium, high or impossible")
     deadline = time.time() + 30
@@ -518,7 +594,7 @@ async def prepare_target(target: str, request: PrepareRequest) -> dict:
     lock = _target_locks.setdefault(target, threading.Lock())
     await asyncio.to_thread(lock.acquire)
     try:
-        return await asyncio.to_thread(_prepare_sync, request.security, request.reset)
+        return await asyncio.to_thread(_prepare_sync, request.security, request.reset, target)
     finally:
         lock.release()
 
@@ -532,7 +608,7 @@ async def target_status(target: str) -> dict:
         if state is None:
             return {
                 "ok": False,
-                "base_url": DVWA_URL,
+                "base_url": LAB30_URL if target == "lab30" else DVWA_URL,
                 "authenticated": False,
                 "security": "",
                 "version": "",
@@ -541,10 +617,15 @@ async def target_status(target: str) -> dict:
         session: httpx.Client = state["client"]
         status = dict(state["status"])
         try:
-            index = session.get("/index.php")
-            status["ok"] = index.status_code < 400
-            status["authenticated"] = "Logout" in index.text
-            status["security"] = session.cookies.get("security") or status.get("security", "")
+            if target == "lab30":
+                account = session.get("/orders/")
+                status["ok"] = account.status_code < 400
+                status["authenticated"] = account.status_code == 200
+            else:
+                index = session.get("/index.php")
+                status["ok"] = index.status_code < 400
+                status["authenticated"] = "Logout" in index.text
+                status["security"] = session.cookies.get("security") or status.get("security", "")
         except httpx.HTTPError:
             status["ok"] = False
         return status

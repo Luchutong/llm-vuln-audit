@@ -58,6 +58,27 @@ def test_old_library_reclassification_preserves_identity_and_activity(state):
     assert ensure_projects(state.store, state.repository) == 0
 
 
+def test_service_refreshes_profiles_after_one_time_migration_is_done(tmp_path):
+    from audit.config import Settings, ModelConfig
+    settings=Settings(data_dir=tmp_path,model=ModelConfig(model='test',base_url='http://127.0.0.1:1/v1',api_key='test'))
+    initial=app_module.Services(settings)
+    snapshot=initial.repository.import_zip(archive(),'lab30.zip')
+    initial.store.add_snapshot(snapshot)
+    project,_=ensure_project(initial.store,snapshot)
+    before=initial.store.get_project(project['id'])
+    initial.store._write("UPDATE snapshots SET target_profile='unknown' WHERE id=?",(snapshot['id'],))
+    initial.store._write("UPDATE projects SET target_profile='unknown' WHERE id=?",(project['id'],))
+    initial.store.set_schema_meta('project_backfill_v1','done')
+    initial.store.close()
+    restarted=app_module.Services(settings)
+    try:
+        assert restarted.store.schema_meta('project_backfill_v1')=='done'
+        assert restarted.store.get_snapshot(snapshot['id'])['target_profile']=='lab30'
+        assert restarted.store.get_project(project['id'])=={**before,'target_profile':'lab30'}
+        assert restarted.store.get_project(project['id'])['snapshot_count']==1
+    finally:restarted.store.close()
+
+
 def test_required_run_freezes_lab30_target_without_contacting_models(state):
     snapshot = state.repository.import_zip(archive(), 'lab30.zip')
     state.store.add_snapshot(snapshot)

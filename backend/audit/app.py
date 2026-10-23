@@ -79,10 +79,10 @@ class Services:
         if selected_profile is not None:
             self.settings.model = self.model_config_for_profile(selected_profile)
         self.repository = SourceRepository(settings.data_dir)
-        # Backfill is guarded by schema_meta and idempotent: an old data directory gains
-        # projects and a ledger exactly once, while a fresh one does nothing here.
+        # Profile recognition evolves as supported targets change. Refresh it on each
+        # startup even if the one-time project/ledger migration has already completed.
+        ensure_projects(self.store, self.repository)
         if self.store.schema_meta("project_backfill_v1") != "done":
-            ensure_projects(self.store, self.repository)
             backfill_project_ledger(self.store)
             self.store.set_schema_meta("project_backfill_v1", "done")
         self.bus = EventBus(self.store)

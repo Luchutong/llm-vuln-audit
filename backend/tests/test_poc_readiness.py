@@ -50,7 +50,7 @@ def test_obvious_unavailability_never_contacts_runner(mode, profile, enabled, ur
     service = PocReadinessService(SimpleNamespace(poc=PocSettings(enabled=enabled, runner_url=url)), client_factory=forbidden)
     result = asyncio.run(service.check(profile, mode=mode))
     assert not result["available"] and result["reason"] == reason
-    assert result["capabilities"]["supported_targets"] == ["dvwa"]
+    assert result["capabilities"]["supported_targets"] == ["dvwa", "lab30"]
 
 
 def test_health_cache_coalesces_and_fresh_bypasses_cached_answers():
@@ -86,4 +86,21 @@ def test_health_timeout_is_bounded_and_failures_have_short_cache():
         clock[0] = 5.1
         await service.check("dvwa")
         assert client.calls == 2
+    asyncio.run(scenario())
+
+
+def test_lab30_is_a_supported_target():
+    """Lab30 shop joins DVWA: profile/target pair must not be refused offline."""
+    async def scenario():
+        client = Client()
+        service = PocReadinessService(
+            SimpleNamespace(poc=PocSettings(runner_url="http://runner")),
+            client_factory=lambda: client,
+        )
+        # lab30 profile + lab30 target reaches the runner health check instead of
+        # being rejected as unsupported; unknown profile is still rejected.
+        lab30 = await service.check("lab30", target="lab30")
+        assert lab30["reason"] == "ready"
+        unknown = await service.check("some-other-lab", target="lab30")
+        assert unknown["reason"] == "unsupported_target"
     asyncio.run(scenario())

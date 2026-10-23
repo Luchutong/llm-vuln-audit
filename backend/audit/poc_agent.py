@@ -605,7 +605,8 @@ def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationR
     return result
 
 
-EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的执行阶段。你的任务是在隔离的本地 DVWA 靶场中，
+EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的执行阶段。你的任务是在隔离的本地靶场中
+（DVWA 或 Lab30 拾光商城——按任务消息给出的目标页面路径判断是哪一个），
 为一条已经由源码审计得出的漏洞编写并实际执行最小 POC，取得正常侧与攻击侧的对照观测。
 
 工具契约：
@@ -715,6 +716,21 @@ print("ATTACK", location("/vulnerabilities/open_redirect/source/low.php?redirect
   最小变体（如引号配对、注释符、编码方式），不要在一个错误 payload 上反复重试。
 - 结果自证：脚本要把正常侧与攻击侧的原始输出都打印出来，作为 attack_observation 里可以核对
   的 token；观测里必须出现脚本真实输出的内容，不要凭假设复述。
+Lab30 商城靶场（拾光商城；目标路径形如 /auth/、/catalog/、/orders/、/wallet/、/account/、
+/ops/、/partner/、/support/，且任务消息提到"商城/订单/钱包/运营"时）：
+- BASE = os.environ.get("LAB30_URL", "http://127.0.0.1:18880")。登录表单在 /auth/login.php，
+  字段只有 username 与 password（**没有 user_token / CSRF 字段**，不要套用 DVWA 的 token 流程）。
+- 登录：先 GET /auth/login.php 拿到会话 CookieJar，再 POST username=alice、password=Alice123!，
+  成功返回 302 到 /。用跟随重定向的 opener 完成登录；之后会员页（/orders/、/wallet/、/account/）
+  都在同一 CookieJar 下访问。
+- 会话自检：未登录访问会员页会被重定向到 /auth/login.php（302）；已登录应直接 200。
+  观测到 302 说明登录没生效，先修正登录再跑攻击，不要把登录页当攻击结果。
+- 商城没有"安全级别"概念：不要 GET /security.php，也不要找 user_token。
+- 角色对比：alice 是普通会员。越权/权限类漏洞要对比 alice 会话直接访问 /ops/（运营后台）或
+  /partner/（合作服务）的结果——正常应被重定向/拒绝，越权则直接拿到运营数据。
+- 路径按任务消息里的源码文件定位：商品 /catalog/、订单 /orders/、钱包 /wallet/、
+  账户 /account/、运营 /ops/、合作 /partner/、客服 /support/。
+
 - 探索阶段结束时调用 final_answer("探索结束")；验证结论在下一阶段单独提交。
 - 不要输出隐藏思维链或逐步推理，代码块之外不要写长篇散文。
 """

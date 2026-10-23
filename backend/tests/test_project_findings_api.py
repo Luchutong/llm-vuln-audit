@@ -49,14 +49,14 @@ def run(store, project_id, name="source.zip"):
     return ident, snapshot_id
 
 
-def finding(store, project_id, run_id, *, path="src/auth.php", severity="high", title="输入可触发注入"):
+def finding(store, project_id, run_id, *, path="src/auth.php", severity="high", title="输入可触发注入", corrected=False):
     ident = uuid.uuid4().hex
     record = {
         "id": ident, "run_id": run_id, "unit_id": ident, "file_path": path, "symbol": "handle",
         "fingerprint": canonical_fingerprint(path, "handle", "unsafe_query"),
         "category": "task_goal", "finding_kind": "vulnerability", "title": title,
         "severity": severity, "summary": title + "：攻击输入进入危险操作。",
-        "evidence": [{"path": path, "start_line": 2, "end_line": 3}],
+        "evidence": [{"path": path, "start_line": 2, "end_line": 4 if corrected else 3}],
         "input_source": "请求参数", "propagation": "直接拼接", "dangerous_operation": "unsafe_query",
         "protection": "未编码", "preconditions": ["可访问入口"], "missing_context": [],
         "poc": {"filename": "poc.py", "language": "python", "script": "print('proof')\n"},
@@ -118,7 +118,7 @@ def test_filters_use_canonical_status_and_literal_search(state):
     finding(state.store, p, r, path="src/ax1000.php", severity="medium")
     finding(state.store, other, other_run)
     state.store.set_project_finding_verification(target, "environment_unavailable", "uncertain", None)
-    params = {"project_id": p, "q": "a_100%", "severity": "critical", "verification_status": "environment_unavailable"}
+    params = {"project_id": p, "q": "a_100%", "severity": "unknown", "verification_status": "environment_unavailable"}
     response = state.client.get("/api/project-findings", params=params)
     assert response.status_code == 200
     row = response.json()["items"][0]
@@ -137,7 +137,7 @@ def test_current_detail_uses_latest_conclusion_and_actual_audited_zip(state):
     ledger, first_finding = finding(state.store, p, first_run, title="第一次结论")
     early_verification = verification(state.store, first_finding, ledger)
     last_run, last_snapshot = run(state.store, p, "second.zip")
-    same_ledger, last_finding = finding(state.store, p, last_run, severity="critical", title="更正后的结论")
+    same_ledger, last_finding = finding(state.store, p, last_run, severity="critical", title="更正后的结论", corrected=True)
     run(state.store, p, "newest-not-audited.zip")
     assert same_ledger == ledger
     response = state.client.get(f"/api/project-findings/{ledger}")

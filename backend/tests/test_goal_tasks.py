@@ -621,7 +621,6 @@ def test_safe_worker_observation_does_not_stop_the_remaining_frontier(store, rep
 
 @pytest.mark.parametrize("kind,severity", [
     ("source_observation", "informational"), ("data_flow", "high"),
-    ("vulnerability", "informational"), ("vulnerability", "unknown"),
 ])
 def test_historical_non_vulnerability_cannot_satisfy_goal(store, repository, kind, severity):
     run, _ = create_planner_run(store, repository)
@@ -718,7 +717,7 @@ def test_mixed_worker_results_keep_only_vulnerabilities_in_findings(store, repos
 
 
 @pytest.mark.parametrize("severity", [None, "informational", "unknown"])
-def test_vulnerability_without_a_risk_level_cannot_pass_host_validation(store, repository, severity):
+def test_vulnerability_without_a_grade_is_retained_as_needing_cvss(store, repository, severity):
     run, _ = create_planner_run(store, repository)
     worker = make_worker(store, repository)
     payload = {
@@ -732,8 +731,10 @@ def test_vulnerability_without_a_risk_level_cannot_pass_host_validation(store, r
     assert normalised["outcome"] == "achieved"
     assert normalised["result"]["observations"] == []
     prepared = worker._build_planner_findings(run, {"id": "test-task", **proposal("entry-flow")}, normalised)
-    assert len(prepared) == 1 and not prepared[0]["candidate"]
-    assert prepared[0]["record"]["validation_state"] == "invalid_finding"
+    assert len(prepared) == 1 and prepared[0]["candidate"]
+    assert prepared[0]["record"]["validation_state"] == "candidate"
+    assert prepared[0]["record"]["cvss"] is None
+    assert prepared[0]["record"]["cvss_assessment"]["status"] == "needs_information"
     assert store.get_task_goal(run["id"])["status"] == "open"
 
 

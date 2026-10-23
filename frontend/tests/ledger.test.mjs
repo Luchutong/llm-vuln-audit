@@ -60,3 +60,13 @@ test('canonical detail keeps ledger wording and status without promoting histori
   assert.deepEqual(display.verifications, [current]);
   assert.deepEqual(ledgerFindingForDisplay({ ...detail, current_verification: null, finding: { ...row, verification_status: 'stale' } }).verifications, []);
 });
+
+test('CVSS status and zero-score severity survive filters, history and reset', () => {
+  const filters=ledgerFilters('#findings?severity=none&cvss_status=scored&page=2');
+  assert.equal(filters.cvssStatus,'scored');
+  assert.equal(filters.severity,'none');
+  assert.equal(new URLSearchParams(ledgerQuery(filters)).get('cvss_status'),'scored');
+  assert.deepEqual(ledgerFilters(ledgerHash('#findings',filters)),filters);
+  assert.equal(new URLSearchParams(ledgerHash('#findings', {...filters,cvssStatus:''}).split('?')[1]).has('cvss_status'),false);
+  assert.equal(ledgerFilters('#findings?cvss_status=other').cvssStatus,undefined);
+});

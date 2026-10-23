@@ -333,7 +333,6 @@ def test_a_conclusion_that_cannot_close_the_run_is_not_reviewed():
         {"disposition": "superseded"},
         {"finding_kind": "security_boundary", "severity": "informational"},
         {"finding_kind": "data_flow", "severity": "low"},
-        {"severity": "informational"},
     ):
         situation = agent._planner_situation(closure_context(findings=[{**base, **override}]))
         assert situation["closure_review"] is False, override

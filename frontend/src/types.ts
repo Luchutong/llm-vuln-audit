@@ -232,7 +232,7 @@ export interface HostFinalSummary {
   raw_finding_count: number;
   valid_finding_count: number;
   ledger_group_count: number;
-  finding_groups: { id: string; project_finding_id?: string | null; finding_ids: string[]; findings?: { id: string; revision: number; project_revision?: number | null; title: string; severity: string; category: string; evidence: Evidence[]; verification_status?: VerificationStatus; disposition: FindingDisposition }[] }[];
+  finding_groups: { id: string; project_finding_id?: string | null; finding_ids: string[]; findings?: (CvssFields & { id: string; revision: number; project_revision?: number | null; title: string; severity: string; category: string; evidence: Evidence[]; verification_status?: VerificationStatus; disposition: FindingDisposition })[] }[];
   tasks: { id: string; title: string; state: string; error?: string | null; result?: unknown; depends_on?: string[] }[];
   coverage: Record<string, unknown>;
   execution?: Record<string, unknown>;
@@ -316,7 +316,7 @@ export interface Project {
   runs?: Run[];
   snapshots?: SnapshotSummary[];
 }
-export interface ProjectFinding {
+export interface ProjectFinding extends CvssFields {
   id: string;
   project_id: string;
   revision: number;
@@ -488,7 +488,7 @@ export interface VerificationArtifact { name?: string; path?: string; sha256?: s
 export interface VerificationTarget { name?: string; base_url?: string; security?: string; version?: string; prepared_at?: string }
 export interface VerificationAgent { jobs?: string[]; summary?: string; reason?: string; usage?: Record<string, unknown>; policy?: Record<string, unknown> }
 export interface Verification { id?: string; created_at?: string; source?: VerificationSource; status?: VerificationStatus; execution_status?: ExecutionStatus; verdict?: Verdict; original_script?: string; modified_script: string; modification_notes: string; target_version: string; command: string; expected_result: string; normal_observation: string; attack_observation: string; browser_execution: boolean; notes: string; files?: (string | {name?: string; filename?: string; path?: string; url?: string; stored?: string})[]; target?: VerificationTarget; agent?: VerificationAgent; artifacts?: VerificationArtifact[] }
-export interface Finding {
+export interface Finding extends CvssFields {
   file_path: string;
   symbol: string;
   line: number;
@@ -526,7 +526,7 @@ export interface Finding {
 export type FindingDisposition = 'open' | 'superseded' | 'retracted' | 'duplicate' | 'contested';
 
 /** One earlier occupant of a finding slot, archived when a re-run reused it. */
-export interface ArchivedRevision {
+export interface ArchivedRevision extends CvssFields {
   revision: number;
   title: string;
   severity: string;
@@ -797,3 +797,15 @@ export function scopeLabel(run: Run, projectMap?: ProjectMap | null): string {
   }
   return `${scopeFileCount(run, projectMap)} 个已冻结源码文件`;
 }
+
+
+export type CvssEvidence = Omit<Evidence, 'snapshot_id'> & { snapshot_id?: string };
+export interface CvssMetricDetail { value: string | null; rationale: string; evidence: CvssEvidence[]; assumption?: boolean; issues?: string[] }
+export interface CvssScore { version: '3.1'; score_basis: 'Base'; base_score: number; base_vector: string; metrics: Record<string,string>; severity: string }
+export interface CvssAssessment {
+  status: 'scored' | 'needs_information' | 'legacy_unrated' | 'stale'; source: 'auto' | 'manual' | 'legacy';
+  assessment_revision: number; conclusion_revision: number; engine_version?: string; metric_details: Record<string,CvssMetricDetail>;
+  issues?: string[]; reason?: string; created_at?: string; snapshot_id?: string | null; run_id?: string | null;
+}
+export interface CvssFields { cvss?: CvssScore | null; cvss_assessment?: CvssAssessment | null; legacy_severity?: string | null }
+export interface CvssHistoryPage { items: (CvssFields & {id:number; applicable:boolean; source_run_available:boolean})[]; total:number; offset:number; limit:number }

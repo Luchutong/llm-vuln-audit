@@ -402,7 +402,7 @@ def run_result_classification_checks(page: Page, base: str, api: MockAPI, checks
     if page.get_by_role("button", name="切换深色主题", exact=True).count():
         page.get_by_role("button", name="切换深色主题", exact=True).click()
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
-    expect(page.locator(".result-finding")).to_contain_text("low")
+    expect(page.locator(".result-finding")).to_contain_text("历史等级 低危 · 未量化")
     expect(page.locator(".result-card")).to_contain_text("另有 2 条排查记录，不计为漏洞")
     dialog = open_findings(page)
     expect(dialog.locator(".finding-layout")).to_contain_text(observed["title"])

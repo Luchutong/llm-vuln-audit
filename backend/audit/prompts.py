@@ -92,7 +92,8 @@ OUTPUT = """# 四、输出格式
 - `sqli`、`xss_r`、`command_injection` 三个字段各给出一个结论，三者都必须填写，不得省略。
 - `reasoning` 用简短几句话给出依据，并按「语法结构 → 漏洞语义 → 实际风险」组织。
 - `evidence` 填写原始文件的起止行号（路径必须与单元头部给出的路径完全一致）。
-- 判 candidate 时，`input_source`、`propagation`、`dangerous_operation`、`preconditions`、`severity`、`poc`、`remediation` 都必须填写，缺一不可：
+- 在 `cvss_input` 中逐项提供 CVSS 3.1 基础指标、依据和已读源码引用，未知填 null；最终分数和等级由宿主计算，评分缺项不丢弃已有证据支持的漏洞。
+- 判 candidate 时，`input_source`、`propagation`、`dangerous_operation`、`preconditions`、`poc`、`remediation` 都必须填写，缺一不可：
   - `poc.script` 必须是完整、可直接运行的脚本，包含目标地址、正常输入与攻击输入两段；
   - `poc.normal_input` 与 `poc.attack_input` 分别给出对照输入与攻击输入；
   - `poc.expected_result` 说明两者可观测的差异，而不是笼统地说"会报错"。
@@ -105,7 +106,8 @@ OUTPUT_P0 = """# 四、输出格式
 - `sqli`、`xss_r`、`command_injection` 三个字段各给出一个结论。
 - `reasoning` 给出判断依据。
 - `evidence` 填写原始文件的起止行号。
-- 判 candidate 时填写 `input_source`、`propagation`、`dangerous_operation`、`severity`、`poc`、`remediation`。
+- 判 candidate 时填写 `input_source`、`propagation`、`dangerous_operation`、`poc`、`remediation`。
+- 在 `cvss_input` 中提供基础指标与源码依据，未知填 null；宿主计算分数，指标不足时保留待评分漏洞。
 - `poc.script` 给出可运行的验证脚本，`poc.attack_input` 给出攻击输入。"""
 
 
@@ -190,7 +192,8 @@ SCENARIO_OUTPUT = """# 四、输出格式
 - `sqli`、`xss_r`、`command_injection` 三个字段各给出一个结论，三者都必须填写，不得省略；非目标场景一律 no_candidate，并在其 reasoning 里写一句"非本次目标场景"。
 - `reasoning` 用简短几句话给出依据，并按「语法结构 → 漏洞语义 → 实际风险」组织。
 - `evidence` 填写原始文件的起止行号（路径必须与单元头部给出的路径完全一致）。
-- 目标场景判 candidate 时，`input_source`、`propagation`、`dangerous_operation`、`preconditions`、`severity`、`poc`、`remediation` 都必须填写，缺一不可：
+- 在 `cvss_input` 中逐项提供基础指标与已读源码依据，未知填 null；等级由宿主计算，指标不足时保留待评分漏洞。
+- 目标场景判 candidate 时，`input_source`、`propagation`、`dangerous_operation`、`preconditions`、`poc`、`remediation` 都必须填写，缺一不可：
   - `poc.script` 必须是完整、可直接运行的脚本，包含目标地址、正常输入与攻击输入两段；
   - `poc.normal_input` 与 `poc.attack_input` 分别给出对照输入与攻击输入；
   - `poc.expected_result` 说明两者可观测的差异，而不是笼统地说"会报错"。

@@ -1,7 +1,7 @@
 """The shared boundary between vulnerability findings and audit observations.
 
 Evidence validity and severity do not decide whether a source fact is a vulnerability.
-New goal results must explicitly declare the vulnerability kind and a risk level.
+New goal results explicitly declare vulnerability kind; grading is independent.
 Historical fixed-category findings predate ``finding_kind`` and remain readable.
 """
 from __future__ import annotations
@@ -10,13 +10,12 @@ from collections.abc import Mapping
 from typing import Any
 
 LEGACY_VULNERABILITY_CATEGORIES = frozenset({"sqli", "xss_r", "command_injection"})
-VULNERABILITY_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
 
 
 def is_vulnerability_finding(finding: Mapping[str, Any]) -> bool:
     kind = str(finding.get("finding_kind") or finding.get("kind") or "").strip().casefold()
     if kind:
-        return kind == "vulnerability" and finding.get("severity") in VULNERABILITY_SEVERITIES
+        return kind == "vulnerability"
     return finding.get("category") in LEGACY_VULNERABILITY_CATEGORIES
 
 

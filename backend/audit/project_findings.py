@@ -160,6 +160,7 @@ def ledger_record(finding: dict) -> dict:
         "finding_kind": finding.get("finding_kind", ""),
         "title": finding.get("title") or "",
         "severity": finding.get("severity") or "unknown",
+        **{key: finding.get(key) for key in ("cvss", "cvss_assessment", "legacy_severity")},
         "summary": finding.get("summary") or "",
         "evidence": finding.get("evidence") or [],
         "input_source": finding.get("input_source") or "",

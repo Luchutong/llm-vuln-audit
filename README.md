@@ -190,6 +190,10 @@ docker compose up --build
 
 POC 适配脚本、runner 作业清单（目标、限额、job id、退出码、产物哈希）与产物会随报告和证据包导出；runner 不能作为数学意义上的沙箱，其威胁模型见 [poc_runner/README.md](poc_runner/README.md)。
 
+## CVSS 3.1 量化评级
+
+漏洞由宿主根据八项有证据支持的基础指标计算分数，划为低、中、高、严重四档；0.0和待评分分别显示。项目台账支持指标预览、人工修订与独立评分历史，保留任务当时的评分和POC验证。升级迁移、接口和验收见 [CVSS组件说明](docs/cvss31.md)。
+
 ## 验证与开发检查
 
 靶场检出与评级评价采用 CVSS 3.1 基础分，支持 JSON 导出或运行 API；使用方法和评分缺失的处理见 [Lab30 数据集说明](datasets/lab30-shop/README.md)。
@@ -219,6 +223,7 @@ scripts/ui_smoke.py      http://127.0.0.1:5173 <run-id>
 uv run --with playwright python scripts/ui_smoke.py http://127.0.0.1:5173 --mock --screenshots .run/screenshots
 uv run --with playwright python scripts/ui_sources_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-sources
 uv run --with playwright python scripts/ui_records_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-records
+uv run --with playwright python scripts/ui_cvss_smoke.py http://127.0.0.1:5173 --screenshots .run/screenshots-cvss
 ```
 
 已有 Chromium 可通过 `CHROME_BIN` 指定路径；不加 `--mock` 时只读检查真实服务，并阻止写入 API。模拟检查覆盖工具调用前的进展、并行与重试关联、工具原位更新、历史折叠、分页恢复、滚动与焦点保持，并保存 1440、1024、768、390px 的深浅主题截图。专用实时场景使用可控的模拟 SSE 帧，全部请求均留在浏览器内的模拟 API 中。

@@ -1,4 +1,5 @@
 """Validate narrative references; persisted host facts remain authoritative."""
+from .cvss_assessment import rating_text, rating_details_lines
 from .finding_policy import is_vulnerability_finding
 
 def validate_report_references(report: dict, run_context: dict) -> None:
@@ -21,10 +22,11 @@ def render_host_summary(summary: dict) -> str:
     for group in summary["finding_groups"]:
         doc += [f"### 台账 `{group['id']}`", ""]
         for finding in group["findings"]:
-            doc += [f"- {finding.get('title')}（{finding.get('severity')}，验证：{finding.get('verification_status')}）", f"  来源 `{finding['id']}` / 修订 {finding.get('revision')}", f"  证据：{finding.get('evidence') or '见漏洞详情'}"]
+            doc += [f"- {finding.get('title')}（{rating_text(finding)}，验证：{finding.get('verification_status')}）", f"  来源 `{finding['id']}` / 修订 {finding.get('revision')}", f"  证据：{finding.get('evidence') or '见漏洞详情'}"]
             for field, label in (("summary", "结论"), ("input_source", "输入"), ("propagation", "传播"), ("dangerous_operation", "危险操作"), ("protection", "保护"), ("preconditions", "前提"), ("remediation", "修复建议")):
                 if finding.get(field):
                     doc += [f"  {label}：{finding[field]}"]
+            doc += ['', *rating_details_lines(finding)]
             if finding.get("poc"):
                 doc += ["", "可复核 POC（是否执行以验证记录为准）：", "", "````text", str(finding["poc"]), "````", ""]
         doc += [""]

@@ -126,7 +126,8 @@ def load_findings(args: argparse.Namespace) -> list[dict]:
 def compare_rating(finding: dict, truth: dict, check_severity: bool, check_cvss: bool) -> dict:
     reported, error = None, None
     try:
-        reported = assessment(finding.get("cvss"))
+        info = finding.get("cvss_assessment") or {}
+        reported = assessment(finding.get("cvss")) if info.get("status", "scored") == "scored" else None
     except ValueError as exc:
         error = str(exc)
     label = normalise_severity(finding.get("severity"))
@@ -193,6 +194,7 @@ def evaluate(truth_payload: object, findings: list[dict], *, scenario: str | Non
                                 "accuracy": ratio(sum(item["severity_ok"] for item in severity_compared), len(severity_compared))},
         "cvss_evaluation": {
             "checked": check_cvss, "compared": len(compared),
+            "scoring_coverage": ratio(len(compared), len(matches)), "matched_findings": len(matches),
             "missing_truth": sum(item["cvss_status"] == "missing_truth" for item in matches),
             "missing_reported": sum(item["cvss_status"] == "missing_reported" for item in matches),
             "invalid_reported": sum(item["cvss_status"] == "invalid_reported" for item in matches),

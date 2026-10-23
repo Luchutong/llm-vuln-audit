@@ -5,6 +5,7 @@ was not actually measured is written as 待实测 rather than filled with a plau
 number, and ordinary uploaded projects report recall/FN/TN as not computable.
 """
 from __future__ import annotations
+from .cvss_assessment import rating_text, rating_details_lines
 
 import io
 import json
@@ -569,7 +570,7 @@ def _carried_section(bundle: dict) -> list[str]:
             "| {title} | {path} | {severity} | {revision} | {status} | `{origin}` | {discovered} |".format(
                 title=_md_cell(row.get("title")),
                 path=_md_cell(location),
-                severity=_md_cell(row.get("severity")),
+                severity=_md_cell(rating_text(row)),
                 revision=row.get("run_relation_revision") or row.get("revision") or "—",
                 status=_md_cell(verification_status_label(
                     row.get("verification_status"), row.get("verification_verdict")
@@ -629,6 +630,7 @@ def _archived_revision_lines(finding: dict) -> list[str]:
         was = DISPOSITION_LABELS.get(str(item.get("disposition") or ""))
         header = f"- {label}（{item.get('replaced_at') or '—'} 被取代）"
         lines.append(f"{header}：{item.get('title') or '—'}")
+        lines.append(f"  - 当时评级：{rating_text(item)}")
         lines.append(f"  - 当时的证据行号：{_evidence_text(item.get('evidence') or [])}")
         lines.append(
             "  - 当时的证据校验：" + ("通过" if item.get("validation_state") == "candidate" else "未通过")
@@ -674,7 +676,7 @@ def _finding_block(finding: dict, index: int, *, legacy_labels: bool = False) ->
     lines = [
         f"#### {index}. [{label}] {finding['title']}",
         "",
-        f"- 风险等级：{finding['severity']}",
+        f"- 风险等级：{rating_text(finding)}",
         f"- 证据行号：{_evidence_text(finding['evidence'])}",
         f"- 输入来源：{finding['input_source'] or '—'}",
         f"- 传播关系：{finding['propagation'] or '—'}",
@@ -691,6 +693,7 @@ def _finding_block(finding: dict, index: int, *, legacy_labels: bool = False) ->
         finding["summary"] or "—",
         "",
     ]
+    lines += rating_details_lines(finding)
     lines += _archived_revision_lines(finding)
     poc = finding.get("poc") or {}
     if poc:
@@ -728,8 +731,8 @@ def _task_finding_block(finding: dict, index: int, *, legacy_labels: bool = Fals
         f"- 自动验证结论：{_finding_verification_label(finding)}",
         *_standing_bullet(finding),
     ]
-    if finding.get("severity") and finding.get("severity") not in {"unknown", "informational"}:
-        lines.append(f"- 风险等级：{finding['severity']}")
+    if finding.get("finding_kind") != "source_observation":
+        lines.append(f"- 风险等级：{rating_text(finding)}")
     optional = (
         ("相关输入", finding.get("input_source")),
         ("数据或控制流", finding.get("propagation")),
@@ -740,6 +743,8 @@ def _task_finding_block(finding: dict, index: int, *, legacy_labels: bool = Fals
     )
     lines.extend(f"- {label}：{value}" for label, value in optional if value)
     lines += ["", "**审计结论与依据**", "", finding.get("summary") or "—", ""]
+    if is_vulnerability_finding(finding):
+        lines += rating_details_lines(finding)
     lines += _archived_revision_lines(finding)
     poc = finding.get("poc") or {}
     if poc:

@@ -21,6 +21,8 @@ from .finding_policy import is_vulnerability_finding
 from .project_findings import pick_merge_candidate
 from .execution_state import ExecutionStoreMixin, TERMINAL
 from .poc_store import PocStoreMixin, POC_SCHEMA
+from .cvss_store import CvssStoreMixin, decode_rating
+from .cvss_assessment import normalise_record
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -703,7 +705,7 @@ def _model_profile_snapshot(value: object) -> dict:
     }
 
 
-class Store(PocStoreMixin, ExecutionStoreMixin):
+class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def __init__(self, path: Path | str):
         self.path = str(path)
         self._lock = threading.RLock()
@@ -713,6 +715,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             self._db.executescript(SCHEMA)
             self._db.executescript(POC_SCHEMA)
             self._migrate()
+            self._init_cvss()
             self._init_execution_state()
 
     # Additive migrations so a database written by an earlier build keeps working.
@@ -991,6 +994,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
     def search_project_findings(
         self, *, project_id: str | None = None, q: str | None = None,
         severity: str | None = None, verification_status: str | None = None,
+        cvss_status: str | None = None,
         disposition: str | None = None, offset: int = 0, limit: int = 25,
     ) -> dict:
         """Page canonical conclusions without fetching every project's full ledger."""
@@ -1003,6 +1007,9 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             if value:
                 clauses.append(f"pf.{column} = ?")
                 params.append(value)
+        if cvss_status:
+            clauses.append("json_extract(pf.cvss_assessment, '$.status') = ?")
+            params.append(cvss_status)
         if disposition and disposition != "all":
             clauses.append("pf.disposition = ?")
             params.append(disposition)
@@ -1022,6 +1029,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             count = self._row("SELECT COUNT(*) AS total" + joins + where, params)
             rows = self._rows(
                 "SELECT pf.id, pf.project_id, pf.fingerprint, pf.title, pf.severity, pf.summary,"
+                " pf.cvss, pf.cvss_assessment, pf.legacy_severity,"
                 " pf.file_path, pf.symbol, pf.category, pf.finding_kind, pf.validation_state,"
                 " pf.disposition, pf.disposition_reason, pf.verification_status, pf.verification_verdict,"
                 " pf.revision, pf.origin_run_id, pf.origin_finding_id, pf.last_run_id, pf.last_finding_id,"
@@ -1039,7 +1047,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             )
         items = []
         for row in rows:
-            item = dict(row)
+            item = decode_rating(dict(row))
             for prefix in ("origin", "last"):
                 source_id = item.pop(f"{prefix}_source_id")
                 source = {"id": source_id}
@@ -1078,7 +1086,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
 
     @staticmethod
     def _project_finding_dict(row: sqlite3.Row) -> dict:
-        item = dict(row)
+        item = decode_rating(dict(row))
         for key, fallback in (
             ("evidence", []),
             ("preconditions", []),
@@ -1100,8 +1108,9 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
         """What counts as "the same conclusion" across runs.
 
         Wording of title/summary is deliberately excluded: a model rewording its own
-        finding every round must not count as a correction.  The anchors, the severity,
-        the sink and the cited line ranges are the facts a change of mind would move.
+        finding every round must not count as a correction. The source ranges, sink,
+        propagation, protection and attack preconditions define applicability. A change
+        of CVSS metrics alone has its own revision and keeps POC verification valid.
         """
         evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
         ranges = tuple(sorted(
@@ -1110,7 +1119,8 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             if isinstance(ref, dict)
         ))
         return (
-            str(item.get("severity") or ""),
+            str(item.get("protection") or ""),
+            tuple(item.get("preconditions") or []),
             str(item.get("dangerous_operation") or ""),
             str(item.get("input_source") or ""),
             str(item.get("propagation") or ""),
@@ -1124,6 +1134,8 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
         Returns ``{"action": "created"|"rediscovered"|"corrected", "project_finding_id",
         "revision", "disposition"}``.
         """
+        finding = normalise_record(finding)
+        previous = None
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
@@ -1180,6 +1192,8 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
                             "revision": int(previous["revision"] or 1),
                             "title": previous["title"],
                             "severity": previous["severity"],
+                            "cvss": previous.get("cvss"), "cvss_assessment": previous.get("cvss_assessment"),
+                            "legacy_severity": previous.get("legacy_severity"),
                             "summary": previous["summary"],
                             "dangerous_operation": previous["dangerous_operation"],
                             "evidence": previous["evidence"],
@@ -1216,6 +1230,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
                     " run_finding_id, relation, revision, created_at) VALUES (?,?,?,?,?,?,?)",
                     (project_id, project_finding_id, run_id, finding["id"], relation, revision, stamp),
                 )
+                self._merge_cvss(project_finding_id, finding, revision, previous, run_id)
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -2673,7 +2688,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
         the finding's own evidence text stays the authoritative record.
         """
         rows = self._rows(
-            "SELECT id, unit_id, category, finding_kind, title, severity, summary, evidence,"
+            "SELECT id, unit_id, category, finding_kind, title, severity, summary, evidence, cvss, cvss_assessment, legacy_severity,"
             " validation_state, verdict, disposition, disposition_reason, revision,"
             " derived_from_finding_id, project_finding_id, verification_status,"
             " verification_verdict, created_at FROM findings WHERE run_id = ?"
@@ -2688,6 +2703,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
                 "finding_kind": row["finding_kind"],
                 "title": row["title"],
                 "severity": row["severity"],
+                **{key: decode_rating(dict(row)).get(key) for key in ("cvss", "cvss_assessment", "legacy_severity")},
                 "summary": row["summary"],
                 "validation_state": row["validation_state"],
                 "verdict": row["verdict"],
@@ -3598,12 +3614,26 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
 
         Called with ``_lock`` held and possibly inside a transaction.
         """
+        finding = normalise_record(finding)
         existing = self._db.execute(
-            "SELECT id, title, severity, summary, evidence, validation_state, validation_errors,"
-            " disposition, disposition_reason, disposition_by, revision, superseded_summary, created_at"
+            "SELECT *"
             " FROM findings WHERE run_id = ? AND unit_id = ? AND category = ?",
             (finding["run_id"], finding["unit_id"], finding["category"]),
         ).fetchone()
+        if existing is not None:
+            current = self._finding_dict(existing)
+            unchanged = (self._project_content_signature(current) == self._project_content_signature(finding)
+                         and all(current.get(key) == finding.get(key) for key in
+                                 ("title", "summary", "finding_kind", "validation_state", "poc", "remediation")))
+            rating_changed = (current.get("cvss") != finding.get("cvss") or
+                              (current.get("cvss_assessment") or {}).get("metric_details") !=
+                              finding["cvss_assessment"].get("metric_details"))
+            if unchanged and rating_changed:
+                info = finding["cvss_assessment"]
+                previous_info = current.get("cvss_assessment") or {}
+                info["assessment_revision"] = int(previous_info.get("assessment_revision") or 0) + 1
+                self._write_cvss("findings", existing["id"], finding, int(existing["revision"] or 1))
+                return {"action": "rated", "finding_id": existing["id"], "revision": existing["revision"]}
         if existing is None:
             self._db.execute(
                 "INSERT INTO findings (id, run_id, unit_id, fingerprint, category, finding_kind, title, severity,"
@@ -3639,6 +3669,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
                     finding.get("derived_from_finding_id"),
                 ),
             )
+            self._write_cvss("findings", finding["id"], finding, 1)
             return {"action": "created", "finding_id": str(finding["id"]), "revision": 1}
         previous = _loads(existing["superseded_summary"], [])
         if not isinstance(previous, list):
@@ -3652,6 +3683,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             "revision": int(existing["revision"] or 1),
             "title": existing["title"],
             "severity": existing["severity"],
+            **{key: decode_rating(dict(existing)).get(key) for key in ("cvss", "cvss_assessment", "legacy_severity")},
             "summary": existing["summary"],
             "evidence": _loads(existing["evidence"], []),
             "validation_state": existing["validation_state"],
@@ -3690,6 +3722,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
                 existing["id"],
             ),
         )
+        self._write_cvss("findings", existing["id"], finding, int(existing["revision"] or 1) + 1)
         return {
             "action": "superseded",
             "finding_id": str(existing["id"]),
@@ -3774,7 +3807,7 @@ class Store(PocStoreMixin, ExecutionStoreMixin):
             return self._insert_finding(finding)
 
     def _finding_dict(self, row: sqlite3.Row) -> dict:
-        finding = dict(row)
+        finding = decode_rating(dict(row))
         for name in ("evidence", "preconditions", "missing_context", "validation_errors", "superseded_summary"):
             finding[name] = _loads(finding.get(name), [])
         finding["poc"] = _loads(finding.get("poc"), None)

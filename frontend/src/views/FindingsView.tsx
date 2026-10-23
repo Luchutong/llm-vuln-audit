@@ -1,3 +1,4 @@
+import { CvssPanel, SeverityBadge } from '../components/CvssPanel';
 import { useMemo, useState } from 'react';
 import { downloadUrl } from '../api';
 import type { Evidence, Finding, ProjectFinding, RunDetail, Verification, VerificationStatus } from '../types';
@@ -209,7 +210,7 @@ export function FindingsView({ detail, snapshotId }: { detail: RunDetail; snapsh
                 <span className={`chip chip-${finding.validation_state}`}>
                   {finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}
                 </span>
-                <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>
+                <SeverityBadge finding={finding} />
                 <span className={verificationChip(verificationStatus(finding))}>{verificationSummary(finding)}</span>
                 {dispositionLabel(finding) && <span className="chip chip-paused">{dispositionLabel(finding)}</span>}
                 {finding.known_state === 'known' && <span className="chip">项目已有</span>}
@@ -277,7 +278,7 @@ function ProjectLedgerView({ detail }: { detail: RunDetail }) {
       </p>
       {carried.length > 0 && <Disclosure title={`本次沿用（${carried.length}）`}>
         {carried.map((row) => <div key={row.id} className="row" style={{ flexWrap: 'wrap', padding: '4px 0' }}>
-          <span className={`chip sev-${row.severity}`}>{row.severity}</span>
+          <SeverityBadge finding={row} />
           <a className="small" style={{ flex: 1 }} href={`#findings/${encodeURIComponent(row.id)}`}>{row.title}</a>
           <span className={verificationChip(row.verification_status)}>{VERIFICATION_LABELS[row.verification_status] ?? row.verification_status}</span>
           <span className="chip">沿用</span>
@@ -286,7 +287,7 @@ function ProjectLedgerView({ detail }: { detail: RunDetail }) {
       </Disclosure>}
       <Disclosure title={`全部项目结论（${rows.length}）`}>
         {!rows.length ? <p className="small faint">项目台账尚无结论。</p> : rows.map((row) => <div key={row.id} className="row" style={{ flexWrap: 'wrap', padding: '4px 0', borderBottom: '1px solid var(--line-soft)' }}>
-          <span className={`chip sev-${row.severity}`}>{row.severity}</span>
+          <SeverityBadge finding={row} />
           <a className="small" style={{ flex: 1 }} href={`#findings/${encodeURIComponent(row.id)}`}>{row.title}</a>
           <span className={verificationChip(row.verification_status ?? 'unverified')}>
             {VERIFICATION_LABELS[row.verification_status ?? 'unverified'] ?? row.verification_status}
@@ -338,7 +339,7 @@ export function FindingDetail({ finding, snapshotId, observation = false, pocDow
           </div>
           <div className="row" style={{ flexWrap: 'wrap' }}>
             {!canonical && finding.project_finding_id && <a className="btn" href={`#findings/${encodeURIComponent(finding.project_finding_id)}`}>查看源码包漏洞</a>}
-            {!observation && <span className={`chip sev-${finding.severity}`}>{finding.severity}</span>}
+            {!observation && <SeverityBadge finding={finding} />}
             <span className={`chip chip-${finding.validation_state}`}>
               {observation ? (finding.validation_state === 'invalid_evidence' ? '引用不通过' : '排查依据') : finding.validation_state === 'candidate' ? '证据通过' : '证据不通过'}
             </span>
@@ -350,6 +351,7 @@ export function FindingDetail({ finding, snapshotId, observation = false, pocDow
         </div>
         <div className="panel-body grid">
           <p className="small muted">{observation ? '此记录用于追溯排查过程，不构成漏洞确认或项目安全保证。历史人工记录原样保留。' : '源码引用通过只表示证据可核验，漏洞是否成立还要看隔离靶场的自动验证结果。未验证不等于排除。'}</p>
+          {!observation && <CvssPanel finding={finding} />}
           <LongContent value={auditUnitLocation(finding)} label="审计来源" />
           <LongContent value={finding.summary} label={observation ? '排查原文' : '分析依据'} />
           {observation && <Disclosure title="查看原始排查记录"><LongContent value={finding} label="原始排查记录" /></Disclosure>}
@@ -455,6 +457,7 @@ function Lineage({ finding }: { finding: Finding }) {
           <Chain label="历史标题" value={revision.title} />
           <Chain label="历史摘要" value={revision.summary} />
           <LongContent value={revision.evidence} label="历史源码引用" />
+          <CvssPanel finding={{...revision, legacy_severity:revision.legacy_severity ?? (!revision.cvss ? revision.severity : null)}} />
           <LongContent value={{ 严重性: revision.severity, 引用校验: revision.validation_state, 引用问题: revision.validation_errors, 处置: revision.disposition, 处置理由: revision.disposition_reason, 标注者: revision.disposition_by }} label="历史结论状态" />
         </Disclosure>)}
       </Disclosure>

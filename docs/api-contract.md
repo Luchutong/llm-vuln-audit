@@ -60,6 +60,12 @@
 
 `current_verification` 按台账 `latest_verification_id` 与当前修订匹配：重发现可以沿用早期运行的有效验证；台账状态为 `stale` 时始终为 `null`，早期记录仅作为历史展示，不能计为当前已验证。当前 POC 与最近运行发现一致时，`poc_download_path` 为带 `/api` 前缀的原有 `/api/findings/{poc_finding_id}/poc`；没有匹配的下载来源时两字段为 `null`，内联台账 POC 仍可阅读。台账 ID 不存在返回 `404`。这些端点只读，不改变审计、归组或台账写入语义。
 
+### CVSS 3.1 基础评级与人工修订
+
+运行发现及项目台账返回 `cvss`（有效基础分、标准向量、八项指标或null）、`cvss_assessment`（状态、来源、独立评分版本、结论版本、依据和实际快照）及 `legacy_severity`。有效 severity 由宿主计算：none/low/medium/high/critical，未评分为unknown。漏洞分类不依赖评分是否完成，0.0与未知保持独立。
+
+新增 `POST /project-findings/{id}/cvss/preview`、`PUT /project-findings/{id}/cvss` 及 `GET /project-findings/{id}/cvss-history`，前两者接受八项 `metrics`、修订原因 `reason`、`expected_revision`、`expected_assessment_revision`；版本冲突409，指标或依据无效422，对象不存在404。人工评分修改项目台账，不覆盖历史任务或纯调分时的POC验证。列表 severity 支持none，新增cvss_status筛选与URL恢复。完整契约和迁移步骤见 [CVSS组件说明](cvss31.md)。
+
 ### 创建目标审计
 
 `POST /runs`：

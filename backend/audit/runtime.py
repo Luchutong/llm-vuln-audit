@@ -31,6 +31,7 @@ class Usage:
 @dataclass(frozen=True)
 class AgentPolicy:
     version: str = "whitebox-2"
+    cvss_version: str = "cvss31-base-1"
     # Wall clock one model request may take, applied both to the HTTP client and to the
     # surrounding wait.  It is a safety net against a hung connection, not a latency
     # target, and it has to clear what a decisive request actually costs: measured

@@ -59,8 +59,8 @@ def test_explicit_observations_never_become_vulnerabilities_even_with_high_sever
 
 
 @pytest.mark.parametrize("severity", [None, "informational", "unknown"])
-def test_incomplete_risk_claims_do_not_count_as_vulnerability_findings(severity):
-    assert not is_vulnerability_finding(finding(severity=severity))
+def test_unrated_explicit_vulnerabilities_are_not_observations(severity):
+    assert is_vulnerability_finding(finding(severity=severity))
 
 
 def test_low_risk_and_historical_fixed_category_vulnerabilities_are_retained():

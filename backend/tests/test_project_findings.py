@@ -134,7 +134,7 @@ def test_a_correction_marks_the_previous_verification_stale(store):
         merged["project_finding_id"], "verified", "confirmed", "verification-1"
     )
 
-    _merge(store, project, "run-2", _finding(severity="critical"))
+    _merge(store, project, "run-2", _finding(evidence=[{"path":"vulnerabilities/sqli/index.php", "start_line":10,"end_line":13}]))
 
     row = store.get_project_finding(merged["project_finding_id"])
     assert row["revision"] == 2

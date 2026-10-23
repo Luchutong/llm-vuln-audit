@@ -223,3 +223,12 @@ def test_invalid_truth_stops_scoring_instead_of_falling_back_to_old_rating(tmp_p
     assert caught.value.code == 2
     assert "不一致" in capsys.readouterr().err
     assert not (tmp_path / "score.json").exists()
+
+
+def test_new_pending_assessments_and_coverage_have_explicit_denominator():
+    report = scorer.evaluate(truth(), [finding(cvss=None, cvss_assessment={'status':'needs_information'})], check_cvss=True)
+    assert report['TP'] == 1
+    assert report['cvss_evaluation']['missing_reported'] == 1
+    assert report['cvss_evaluation']['invalid_reported'] == 0
+    assert report['cvss_evaluation']['scoring_coverage'] == 0
+    assert report['cvss_evaluation']['score_mae'] is None

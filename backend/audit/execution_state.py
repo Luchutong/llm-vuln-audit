@@ -201,7 +201,7 @@ class ExecutionStoreMixin:
             identity = finding.get("project_finding_id") or finding["id"]
             group = groups.setdefault(identity, {"id": identity, "project_finding_id": finding.get("project_finding_id"), "current_ledger": self.get_project_finding(identity) if finding.get("project_finding_id") else None, "finding_ids": [], "findings": []})
             group["finding_ids"].append(finding["id"])
-            group["findings"].append({k: finding.get(k) for k in ("id", "revision", "project_revision", "title", "severity", "category", "evidence", "verification_status", "disposition", "file_path", "snapshot_id", "summary", "input_source", "propagation", "dangerous_operation", "protection", "preconditions", "poc", "remediation", "verifications")})
+            group["findings"].append({k: finding.get(k) for k in ("id", "revision", "project_revision", "title", "severity", "cvss", "cvss_assessment", "legacy_severity", "category", "evidence", "verification_status", "disposition", "file_path", "snapshot_id", "summary", "input_source", "propagation", "dangerous_operation", "protection", "preconditions", "poc", "remediation", "verifications")})
         tasks = self.list_tasks(run_id)
         return {"source": "host", "policy_version": POLICY_VERSION, "generated_at": stamp(), "run_id": run_id, "status": status, "complete": status in ("completed", "unreachable"), "stop_reason": stop_reason,
                 "raw_finding_count": len(findings), "valid_finding_count": len(valid), "ledger_group_count": len(groups), "finding_groups": list(groups.values()),

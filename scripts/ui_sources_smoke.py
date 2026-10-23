@@ -220,7 +220,7 @@ def ledger_flows(page: Page, api: MockAPI, checks: Checks) -> None:
     checks.passed("withdrawn findings remain accessible through disposition filters and empty searches can be reset")
     page.get_by_role("combobox", name="严重性", exact=True).select_option("unknown")
     ledger_ready(page, 1)
-    expect(page.locator(".ledger-table tbody")).to_contain_text("未标注")
+    expect(page.locator(".ledger-table tbody")).to_contain_text("待评分")
     checks.passed("findings with missing severity remain visible and can be filtered explicitly")
 
 

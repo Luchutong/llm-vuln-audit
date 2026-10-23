@@ -33,6 +33,7 @@ from .executor import attach_phase, build_agent, drive_phase
 from .finding_policy import is_vulnerability_finding
 from .navigation import ProjectIndex, clean_path
 from .runtime import AgentPolicy, Execution, SourceLedger, StopAudit, canonical_call
+from .cvss_assessment import INSTRUCTION as CVSS_INSTRUCTION
 from .schemas import (
     CATEGORIES,
     CATEGORY_LABELS,
@@ -1088,6 +1089,7 @@ def _planner_finding(item: dict, task_keys: dict[str, str] | None = None) -> dic
         "finding_kind": item.get("finding_kind"),
         "title": _planner_text(item.get("title"), 160),
         "severity": item.get("severity"),
+        "cvss": item.get("cvss"), "cvss_assessment": {key:(item.get("cvss_assessment") or {}).get(key) for key in ("status", "source", "assessment_revision")},
         "validation_state": item.get("validation_state"),
         "verdict": item.get("verdict"),
         # Whether the conclusion still stands, and how many conclusions this slot has
@@ -1117,6 +1119,7 @@ def _planner_project_finding(item: dict) -> dict:
         "file_path": _planner_text(item.get("file_path"), 160),
         "symbol": _planner_text(item.get("symbol"), 120),
         "severity": item.get("severity"),
+        "cvss": item.get("cvss"), "cvss_assessment": {key:(item.get("cvss_assessment") or {}).get(key) for key in ("status", "source", "assessment_revision")},
         "disposition": item.get("disposition"),
         "verification_status": item.get("verification_status") or "unverified",
         "verification_verdict": item.get("verification_verdict"),
@@ -1703,7 +1706,7 @@ async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot
                 gate,
                 final_answer=FinalAnswerTool.for_model(gate, output_model, output_model.__name__),
             ),
-            instructions=instruction,
+            instructions=instruction + CVSS_INSTRUCTION,
             max_steps=max_steps,
             name="unit",
         )
@@ -2122,6 +2125,7 @@ def _to_check(name: str, verdict: CategoryVerdict, proof: CategoryPoc | None) ->
         "protection": verdict.protection,
         "preconditions": _parse_list(verdict.preconditions),
         "severity": verdict.severity,
+        "cvss_input": verdict.cvss_input,
         "poc": proof.poc,
         "remediation": proof.remediation,
     })
@@ -2253,7 +2257,7 @@ async def pursue_task_work(
 
 需要确认路径时先用 find_files(pattern=...) 或 list_tree(path=...) 查询冻结快照，再 read_source；导航只给文件名与行数，不是源码证据。源码里提到的上传输出目录、部署配置或 .htaccess 不一定包含在上传包中；查询没有结果时记录缺失上下文，不要导入 os/pathlib 或反复尝试猜测路径。
 
-每次只处理当前工作项。仅当原始行号证据直接支撑目标相关的漏洞风险及验收条件时，返回 achieved 并给出一条或多条完整 findings。每条 finding 必须明确 kind="vulnerability"，提供 low/medium/high/critical 中的 severity，并解释攻击者可控输入、可达路径、危险操作、触发前提和保护为何不足；只报告源码能够支撑的事实。在 finding.poc 中可以提供脚本与运行说明，是否必须附带由 require_poc 决定；是否执行由宿主的 poc_mode 与环境决定。你不得执行它，也不得请求网络。
+每次只处理当前工作项。仅当原始行号证据直接支撑目标相关的漏洞风险及验收条件时，返回 achieved 并给出一条或多条完整 findings。每条 finding 必须明确 kind="vulnerability"，提供 cvss_input 中的基础指标与源码依据，解释攻击者可控输入、可达路径、危险操作、触发前提和保护为何不足；最终分数与等级由宿主计算，指标未知时保留待评分漏洞。只报告源码能够支撑的事实。在 finding.poc 中可以提供脚本与运行说明，是否必须附带由 require_poc 决定；是否执行由宿主的 poc_mode 与环境决定。你不得执行它，也不得请求网络。
 
 安全结论、有效防护、正常数据流、架构事实和已排除的风险只写入 observations（title、kind、summary、evidence；kind 为 source_observation/data_flow/security_boundary），保留为排查依据，绝不能放入 findings，也不能单独触发 achieved。观察也必须引用你实际读取的原始源码行。不要仅因使用 basename、随机文件名或某个函数就推断所有攻击路径安全，排除结论只能覆盖已验证的具体路径。
 
@@ -2348,7 +2352,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                 if model is None:
                     model = build_code_model(config, gate=gate, max_tokens=4096)
                     agent = build_agent(model=model, gate=gate, tools=table,
-                                        instructions=instruction, max_steps=response_cap + 1, name="task")
+                                        instructions=instruction + CVSS_INSTRUCTION, max_steps=response_cap + 1, name="task")
                 else:
                     attach_phase(agent, tools=table, gate=gate, model=model)
                 return gate
@@ -3046,7 +3050,7 @@ async def plan_audit_frontier(
     prior_tasks = list(run_context.get("tasks") or [])
     instruction = """你是漏洞白盒审计平台的主 Planner。你负责基于冻结的项目图和前序 worker 的可审计摘要，维护一个项目级、多 worker 的漏洞探索前沿。
 
-平台只把明确的漏洞风险计入 findings：必须有漏洞类型和风险等级。安全结论、有效防护、普通数据流和架构事实由 worker 写入 observations，作为排查依据保留，不是漏洞发现，不能据此建议 met 或提前结束漏洞审计。没有证实漏洞仅表示当前方向未发现，不能宣称整个项目安全；请继续调查其他具体可达的风险方向。
+平台只把明确的漏洞风险计入 findings：必须有漏洞类型与源码证据。等级由宿主按 CVSS 3.1 基础指标计算，评分未知不影响有证据支持的漏洞归类。安全结论、有效防护、普通数据流和架构事实由 worker 写入 observations，作为排查依据保留，不是漏洞发现，不能据此建议 met 或提前结束漏洞审计。没有证实漏洞仅表示当前方向未发现，不能宣称整个项目安全；请继续调查其他具体可达的风险方向。
 
 围绕用户目标把工作拆成少量、彼此不同的证据方向，例如入口到敏感操作的数据/控制流、鉴权边界、配置加载、跨文件调用或框架适配层。一个任务可以并且通常应覆盖多个文件；绝不能按文件逐个派发，也不要套用固定漏洞类别。为每个任务指定可复核的任务目标、验收条件、为什么它与项目图相关、必要的源码窗口/符号和依赖。worker 会自行使用只读源码工具补读；项目图只是规划依据，不是发现证据。
 
@@ -3182,7 +3186,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                         model=model,
                         gate=gate,
                         tools=phase_tools(gate, specs),
-                        instructions=instruction,
+                        instructions=instruction + CVSS_INSTRUCTION,
                         max_steps=max_steps,
                     )
                 else:

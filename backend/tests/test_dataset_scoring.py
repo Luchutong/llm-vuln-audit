@@ -1,4 +1,4 @@
-"""Exercise the offline evaluator against API/export shapes and CVSS 3.1."""
+﻿"""Exercise the offline evaluator against API/export shapes and CVSS 3.1."""
 from __future__ import annotations
 
 import copy
@@ -80,7 +80,7 @@ def test_vector_order_is_irrelevant_but_contradictory_scores_or_vectors_fail():
 
 
 def test_dataset_retains_all_official_scores_metrics_and_assessment_boundaries():
-    dataset = json.loads((ROOT / "datasets/lab30-shop/ground_truth.json").read_text())
+    dataset = json.loads((ROOT / "datasets/lab30-shop/ground_truth.json").read_text(encoding="utf-8"))
     normalised = scorer.normalise_truth(dataset)
     assert dataset["provenance"]["commit"] == "30364ecd8f1c7c8c10e3f2e66107dfc38ecd1434"
     expected = [7.5, 6.1, 7.2, 6.5, 5.3, 7.2, 7.2, 0.0, 2.7, 5.3, 5.4, 4.9, 4.9, 3.1, 4.3,
@@ -206,7 +206,7 @@ def test_cli_writes_cvss_report_for_realistic_export(tmp_path, capsys):
     findings.write_text(json.dumps({"findings": [finding(cvss={"base_vector": SQL})]}))
     output = tmp_path / "report.json"
     assert scorer.main(["--truth", str(source), "--findings", str(findings), "--check-severity", "--check-cvss", "--out", str(output)]) == 0
-    report = json.loads(output.read_text())
+    report = json.loads(output.read_text(encoding="utf-8"))
     assert report["rating_standard"] == "CVSS:3.1"
     assert report["cvss_evaluation"]["score_mae"] == 0
     assert "CVSS 3.1 Base 7.5" in capsys.readouterr().out

@@ -7,6 +7,8 @@ test('source library is default and legacy audit/settings links keep working', (
   assert.deepEqual(parseRoute('#sources?q=app'), { page: 'sources' });
   assert.deepEqual(parseRoute('#run/task-1'), { page: 'run', runId: 'task-1' });
   assert.deepEqual(parseRoute('#settings'), { page: 'settings' });
+  assert.deepEqual(parseRoute('#prompts'), { page: 'prompts' });
+  assert.deepEqual(parseRoute('#experiments'), { page: 'experiments' });
 });
 
 test('source tasks keep an explicit ZIP identifier and decode identifiers safely', () => {

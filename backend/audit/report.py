@@ -996,6 +996,40 @@ def _prompt_rounds(bundle: dict) -> list[str]:
     return lines
 
 
+def _defence_section(defence: dict | None) -> list[str]:
+    """The defence rates behind this run's conclusions, and what was left out of them.
+
+    A report that lists findings without saying how many conclusions its own validator
+    rejected, or how many automatic verdicts a second agent contested, overstates itself.
+    """
+    if not defence or defence.get("score") is None:
+        return []
+    lines = [
+        "### 防御与可信度评分",
+        "",
+        f"总分 **{defence['score']:.3f}**（按可用成分权重归一化，分母 {defence.get('denominator_weight')}）。",
+        "",
+        "| 成分 | 来源 | 权重 | 取值 | 说明 |",
+        "|---|---|---:|---:|---|",
+    ]
+    for item in defence.get("components") or []:
+        value = "缺失" if item.get("value") is None else f"{item['value']:.3f}"
+        source = "本次运行" if item.get("source") == "run" else "基准实验"
+        lines.append(
+            f"| {_md_cell(item.get('label'))} | {source} | {item.get('weight')} | {value} "
+            f"| {_md_cell(item.get('detail'))} |"
+        )
+    missing = defence.get("missing") or []
+    if missing:
+        lines += ["", f"未计入成分：{'、'.join(missing)}（缺失时不按 0 分代入）。"]
+    benchmark = defence.get("benchmark") or {}
+    if benchmark.get("experiment_id"):
+        variants = "、".join(benchmark.get("variants") or []) or "未记录"
+        lines += ["", f"基准来源：Prompt 对比实验 `{benchmark['experiment_id']}`（{variants}）。"]
+    lines.append("")
+    return lines
+
+
 def _render_legacy_task_markdown(bundle: dict) -> str:
     """Export a goal run as a general source-audit report.
 
@@ -1298,6 +1332,7 @@ def _render_task_markdown(bundle: dict) -> str:
     doc += _carried_section(bundle)
     doc += _withdrawn_section(withdrawn)
     doc += _source_observation_section(bundle)
+    doc += _defence_section(bundle.get("defence"))
     doc += ["## 6. 覆盖统计、固定调查与侦察简报", ""]
     doc.extend(
         _observation_block(bundle.get("observations") or [], bundle.get("investigations") or {})
@@ -1323,7 +1358,10 @@ def render_markdown(bundle: dict) -> str:
     host = bundle.get("run", {}).get("final_summary")
     if host:
         from .report_facts import render_host_summary
-        return render_host_summary(host)
+        # The frozen host summary is the narrative the model wrote at finalize time; the
+        # defence score is computed from the run's own records, so it is appended by the
+        # renderer instead of being frozen into that text.
+        return "\n".join([render_host_summary(host).rstrip("\n"), "", *_defence_section(bundle.get("defence"))])
     bundle = _partition_bundle(bundle)
     run = bundle["run"]
     # Planner v2 runs carry a durable session and dynamic task graph.  Older goal

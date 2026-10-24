@@ -297,27 +297,21 @@ if [[ "$POC" == true ]]; then
   grep -Eq '^[[:space:]]*(export[[:space:]]+)?POC_RUNNER_TOKEN=[^[:space:]]+' "$ROOT_DIR/.env" \
     || fail ".env 缺少 POC_RUNNER_TOKEN。"
   printf '启动本地 Lab30 靶场与隔离 POC runner…\n'
-  (cd "$ROOT_DIR" && docker compose --profile poc up --build -d --remove-orphans lab30-db lab30-fixtures lab30 poc-runner) \
+  (cd "$ROOT_DIR" && docker compose --profile poc up --build -d --remove-orphans lab30-db lab30-fixtures lab30 poc-runner poc-runner-dev) \
     || fail "无法启动 Lab30/poc-runner；请查看 docker compose 日志。"
-  RUNNER_ID="$(cd "$ROOT_DIR" && docker compose --profile poc ps -q poc-runner)"
-  [[ -n "$RUNNER_ID" ]] || fail "找不到 poc-runner 容器。"
-  # The runner lives only on `internal` networks, where Docker does not publish ports.
-  # The host can still reach the bridge address, so use it instead of weakening the
-  # isolation with a published port.
-  RUNNER_ADDR="$(docker inspect "$RUNNER_ID" --format '{{range $name, $net := .NetworkSettings.Networks}}{{if eq $name "vuln-audit_poc-control"}}{{$net.IPAddress}}{{end}}{{end}}')"
-  [[ -n "$RUNNER_ADDR" ]] || RUNNER_ADDR="$(docker inspect "$RUNNER_ID" --format '{{range $net := .NetworkSettings.Networks}}{{$net.IPAddress}} {{end}}' | awk '{print $1}')"
-  [[ -n "$RUNNER_ADDR" ]] || fail "无法解析 poc-runner 的内部地址。"
+  RUNNER_ADDR="$(cd "$ROOT_DIR" && docker compose --profile poc port poc-runner-dev 8080)"
+  [[ "$RUNNER_ADDR" == 127.0.0.1:* ]] || fail "找不到 runner 的本机转发端口。"
   for attempt in $(seq 1 240); do
-    probe_url "http://$RUNNER_ADDR:8080/healthz" && break
+    probe_url "http://$RUNNER_ADDR/healthz" && break
     if (( attempt == 240 )); then
       (cd "$ROOT_DIR" && docker compose --profile poc ps) >&2 || true
-      fail "等待 POC runner 就绪超时（$RUNNER_ADDR:8080）。"
+      fail "等待 POC runner 就绪超时（$RUNNER_ADDR）。"
     fi
     sleep 0.5
   done
   # Real environment variables win over .env, so the host-run backend reaches the
-  # runner's private Compose address.
-  export POC_RUNNER_URL="http://$RUNNER_ADDR:8080"
+  # runner through its loopback-only development bridge.
+  export POC_RUNNER_URL="http://$RUNNER_ADDR"
   export POC_ENABLED=1
 fi
 

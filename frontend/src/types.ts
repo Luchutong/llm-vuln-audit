@@ -460,7 +460,36 @@ export interface Snapshot {
   /** True when this source tree already had a project; the upload joined it. */
   project_reused?: boolean;
 }
-export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean }
+export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean; used_by_runs?: number }
+
+/** One worker-instruction variant in the Lab30 comparison, with the text it sends. */
+export interface PromptVariant { id: string; label: string; phase: string; focus: string; prompt: string }
+
+/** One variant's row as the comparison script scored it, kept verbatim. */
+export interface PromptExperimentRow {
+  variant: string;
+  score: { TP: number; FP: number; FN: number; precision: number | null; recall: number | null; f1: number | null; [key: string]: unknown };
+  discipline: { reported: number; with_chain: number; with_protection: number; with_preconditions: number; chain_rate: number | null };
+  injection: { canaries: number; tested?: number; unmeasured?: number; total_canaries?: number; reported: number; resisted: number; obeyed: number; resistance_rate: number | null; reported_paths: string[] };
+  stats: { units: number; achieved: number; no_evidence: number; blocked: number; failed: number; requests: number; tool_calls: number; tokens: number };
+  findings: unknown[];
+}
+
+export interface PromptExperiment {
+  id: string;
+  created_at: string;
+  finished_at: string | null;
+  status: 'running' | 'completed' | 'failed' | 'cancelled' | string;
+  variants: string[];
+  units_limit: number;
+  scenario: string | null;
+  model: string;
+  budgets: Record<string, number>;
+  report_path: string;
+  rows: PromptExperimentRow[];
+  progress: { current?: string | null; done?: { variant: string; TP: number; FP: number; FN: number }[]; tail?: string[] };
+  error: string;
+}
 /** Public provider identity frozen with a run. It deliberately has no credential. */
 export interface ModelProfileSnapshot { profile_id: string; model: string; base_url: string }
 export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; run_limits?: Budget | null; poc_mode?: PocMode; execution_summary?: ExecutionSummary | null; final_summary?: HostFinalSummary | null; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number; project_id?: string | null; project_name?: string | null; project_mode?: 'project' | 'legacy'; poc_policy?: Record<string, unknown> }
@@ -491,6 +520,18 @@ export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' |
 export type VerificationStatus = 'verified' | 'rejected' | 'inconclusive' | 'not_applicable' | 'environment_unavailable' | 'unverified' | 'stale';
 /** Where a verification row came from: the isolated POC agent, or a pre-migration human record. */
 export type VerificationSource = 'poc_agent' | 'legacy_human';
+/** A Planner cross-check of one automatic verdict, at the revision it reviewed. */
+export interface VerificationReview {
+  id?: string;
+  finding_id: string;
+  verification_id?: string;
+  revision: number;
+  decision: 'confirmed' | 'contested' | string;
+  rationale: string;
+  observed_normal?: string;
+  observed_attack?: string;
+  created_at?: string;
+}
 export interface VerificationArtifact { name?: string; path?: string; sha256?: string; size?: number }
 export interface VerificationTarget { name?: string; base_url?: string; security?: string; version?: string; prepared_at?: string }
 export interface VerificationEvidenceReference { job_id: string; channel: string; excerpt: string }
@@ -513,6 +554,11 @@ export interface Finding extends CvssFields {
   unit_end_line: number;
   validation_state: 'candidate' | 'invalid_evidence' | 'invalid_finding' | 'observation';
   validation_errors: string[]; id: string; run_id: string; unit_id?: string; task_id?: string; task_key?: string; fingerprint: string; category: string; finding_kind?: string; title: string; severity: string; summary: string; evidence: Evidence[]; input_source: string; propagation: string; dangerous_operation: string; protection: string; preconditions: string[]; missing_context: string[]; poc: POC | null; remediation: string; verdict?: Verdict; verifications: Verification[];
+  /**
+   * The Planner's own reading of those verifications, one row per reviewed revision.
+   * Present so the page can show that the verdict was cross-checked, not just recorded.
+   */
+  verification_reviews?: VerificationReview[];
   /** The POC agent's latest verdict, denormalised onto the finding for cheap listing. */
   verification_status?: VerificationStatus;
   verification_verdict?: Verdict | null;
@@ -593,6 +639,30 @@ export interface Metrics {
   evaluation: Evaluation | null;
 }
 export interface Attribution { id?: string; file_path: string; category: string; kind: string; cause: string; check_item: string; finding_id?: string; created_at?: string }
+/** One rate in the defence score, with where it was measured. */
+export interface DefenceComponent {
+  key: 'evidence' | 'poc' | 'review' | 'injection' | 'chain' | string;
+  label: string;
+  weight: number;
+  value: number | null;
+  source: 'run' | 'benchmark' | string;
+  detail: string;
+}
+
+/**
+ * How much of this run's output survived its own defences.  Three components come from the
+ * run itself, two from the latest finished prompt benchmark; missing ones are left out of
+ * the total instead of counting as zero.
+ */
+export interface DefenceScore {
+  score: number | null;
+  components: DefenceComponent[];
+  missing: string[];
+  denominator_weight: number;
+  benchmark: { experiment_id?: string | null; finished_at?: string | null; variants?: string[] };
+  note?: string;
+}
+
 export interface RunDetail {
   execution_summary?: ExecutionSummary | null;
   run: Run;
@@ -604,6 +674,10 @@ export interface RunDetail {
   report_narrative?: { summary?: string; conclusion?: string; limitations?: string[] } | null;
   verification_summary?: Partial<Record<VerificationStatus, number>>;
   verification_jobs?: VerificationJob[];
+  /** Every Planner cross-check in this run, newest last. */
+  verification_reviews?: VerificationReview[];
+  /** The defence score: run-level rates plus the benchmark's two defence rates. */
+  defence?: DefenceScore | null;
   planner?: PlannerState | null;
   project_map?: ProjectMap | null;
   plans?: PlanVersion[];

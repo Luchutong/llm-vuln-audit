@@ -490,10 +490,8 @@ function VerificationReferences({ references, label }: { references: Verificatio
 
 export function AutomaticVerificationPanel({ finding, jobs: runJobs = [] }: { finding: Finding; jobs?: VerificationJob[] }) {
   const records = (finding.verifications ?? []).filter((record) => recordSource(record) === 'poc_agent');
-  if (!records.length) {
-    return <p className="small faint">没有自动验证记录。未验证不等于排除：静态源码证据仍然成立。</p>;
-  }
   return <div className="grid">
+    {!records.length && <p className="small faint">没有自动验证记录。未验证不等于排除：静态源码证据仍然成立。</p>}
     {records.map((record, index) => {
       const status = (record.status ?? 'inconclusive') as VerificationStatus;
       const target = record.target ?? {};
@@ -545,12 +543,46 @@ export function AutomaticVerificationPanel({ finding, jobs: runJobs = [] }: { fi
         <Artifacts record={record} />
       </Disclosure>;
     })}
+    <Disclosure title={`Planner 比对核实${(finding.verification_reviews ?? []).length ? `（${(finding.verification_reviews ?? []).length}）` : ''}`}>
+      <PlannerReviewPanel finding={finding} />
+    </Disclosure>
+  </div>;
+}
+
+/**
+ * The Planner's own reading of the automatic verdict.
+ *
+ * The isolated runner says what happened; a second agent reads the same observations and
+ * records whether they actually support the conclusion.  Without this block the defence
+ * would exist only in the database, which is the difference between "a verdict was
+ * recorded" and "the cross-check can be inspected".
+ */
+export function PlannerReviewPanel({ finding }: { finding: Finding }) {
+  const reviews = finding.verification_reviews ?? [];
+  if (!reviews.length) {
+    return <p className="small faint">
+      没有 Planner 比对核实记录。只有自动验证为「已验证」的结论才需要复核；未复核的结论不会计入收束。
+    </p>;
+  }
+  return <div className="grid">
+    {reviews.map((review, index) => (
+      <div key={review.id ?? index} className="panel panel-body grid">
+        <div className="row" style={{ gap: 8 }}>
+          <span className={`chip ${review.decision === 'confirmed' ? 'chip-confirmed' : 'chip-failed'}`}>
+            {review.decision === 'confirmed' ? '观测支持结论' : '观测不支持结论'}
+          </span>
+          <span className="faint small">复核第 {review.revision} 版 · {review.created_at?.slice(0, 19).replace('T', ' ')}</span>
+        </div>
+        <Chain label="复核理由" value={review.rationale} />
+        <Chain label="复核时读到的攻击观测" value={review.observed_attack || ''} />
+        <Chain label="复核时读到的对照观测" value={review.observed_normal || ''} />
+      </div>
+    ))}
   </div>;
 }
 
 /** Pre-migration records stay visible, under a label that says what they are. */
-export function HistoricalVerificationPanel({ finding, observation }: { finding: Finding; observation: boolean }) {
-  const records = (finding.verifications ?? []).filter((record) => recordSource(record) !== 'poc_agent');
+export function HistoricalVerificationPanel({ finding, observation }: { finding: Finding; observation: boolean }) {  const records = (finding.verifications ?? []).filter((record) => recordSource(record) !== 'poc_agent');
   if (!records.length) {
     return observation ? <p className="small faint">没有历史人工记录。</p> : null;
   }

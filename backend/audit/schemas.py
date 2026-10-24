@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import ClassVar, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationInfo, field_validator, model_validator
 
 CATEGORIES = ("sqli", "xss_r", "command_injection")
 CATEGORY_LABELS = {
@@ -531,6 +531,38 @@ class PlannerProjectUpdate(BaseModel):
     )
 
 
+class PlannerVerificationReview(BaseModel):
+    """The Planner's explicit cross-check of one automatic POC verdict.
+
+    The POC agent produces a verdict; the host records the observations it actually
+    captured.  This is a second, independent reading of those observations, made by the
+    Planner rather than by the agent that produced them.  Two things follow from that:
+
+    * the round must name the finding and its exact revision, so a review can never be
+      silently re-used after the conclusion changed;
+    * the decision is stored as its own durable row, so "was this conclusion ever
+      cross-checked, and by which round?" stays answerable after the run ended.
+
+    A ``contested`` review does not retract anything by itself: retracting is what
+    ``updates`` does.  It records that the cross-check disagreed, which the host treats as
+    "not a closure basis" until something changes.
+    """
+
+    finding_id: str = Field(
+        min_length=8,
+        max_length=64,
+        description="态势 findings 里的 id；必须是本轮需要复核的已验证结论",
+    )
+    revision: int = Field(ge=1, description="态势里显示的该结论修订号，必须完全一致")
+    verification_id: str = Field(default="", max_length=64, description="态势里本次实际验证记录的 verification_id，必须完全一致；旧记录无 ID 时为空")
+    decision: Literal["confirmed", "contested"]
+    rationale_summary: str = Field(
+        min_length=3,
+        max_length=1200,
+        description="对宿主记录的正常侧/攻击侧观测的具体判读，不能只复述 verification_status",
+    )
+
+
 class ReportFindingRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
     finding_id: str
@@ -572,6 +604,10 @@ class PlannerDecision(BaseModel):
     # Dispositions on the project ledger.  Kept separate from `updates` because those are
     # keyed by task, and a project row deliberately belongs to no single run's task.
     project_updates: list[PlannerProjectUpdate] = Field(default_factory=list, max_length=16)
+    # The round's own reading of the automatic POC verdicts.  Required for every verified
+    # conclusion the host has not yet had cross-checked, because "the agent said verified"
+    # and "someone else read the observations and agreed" are different levels of trust.
+    verification_reviews: list[PlannerVerificationReview] = Field(default_factory=list, max_length=32)
     # Accepted only on a closure review or a terminal proposal; the host discards it
     # elsewhere rather than sending the round back for a bookkeeping slip.
     report: ReportNarrative | None = None
@@ -790,6 +826,26 @@ class PromptCreateRequest(BaseModel):
     reason: str = ""
     issues: list[str] = Field(default_factory=list)
     parent_id: str | None = None
+
+
+class PromptUpdateRequest(BaseModel):
+    """A draft's editable fields. Identity, phase and parent are not editable."""
+
+    label: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1)
+    reason: str = ""
+    issues: list[str] = Field(default_factory=list)
+
+
+class PromptExperimentRequest(BaseModel):
+    """A comparison run: which worker-instruction variants, over how much of the target."""
+
+    variants: list[str] = Field(default_factory=list, max_length=8)
+    # ``0`` means every file the ground truth cites.  The cap exists so a first look at the
+    # feature costs minutes instead of hours.
+    units_limit: int = Field(default=0, ge=0, le=200)
+    scenario: Literal["sqli", "xss_r", "command_injection"] | None = None
+    budgets: dict[str, StrictInt] | None = None
 
 
 class TruthSample(BaseModel):

@@ -31,6 +31,8 @@ COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 # root.  Both stay read-only at runtime; score_dataset.py takes --out for writable dirs.
 COPY scripts/ /app/scripts/
 COPY datasets/ /app/datasets/
+# Startup seeding and prompt comparisons use the same versioned source archive.
+COPY llm-vuln-audit-feat-lab30-shop/llm-vuln-audit-feat-lab30-shop/lab30-shop-1.0.0-source.zip /app/llm-vuln-audit-feat-lab30-shop/llm-vuln-audit-feat-lab30-shop/lab30-shop-1.0.0-source.zip
 WORKDIR /app/backend
 USER audit
 EXPOSE 8899

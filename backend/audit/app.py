@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -19,9 +20,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from .config import CredentialVault, DEFAULT_BUDGETS, VERSION, Settings, clamp_budgets, find_env_file, load_env_file
-from .db import Store, now
+from .db import Store, build_verification_records, now
+from . import defence
 from .events import EventBus
 from .health import ModelHealth
+from . import lab_seed
 from .finding_policy import partition_findings, source_observations
 from .metrics import comparable_runs, prompt_diffs, summarise
 from .project_findings import backfill_project_ledger
@@ -34,6 +37,8 @@ from .schemas import (
     ModelProfileCreateRequest,
     ModelProfileUpdateRequest,
     PromptCreateRequest,
+    PromptExperimentRequest,
+    PromptUpdateRequest,
     TruthRequest,
 )
 from .source import MAX_LISTED_PATHS, SourceRepository
@@ -47,6 +52,10 @@ from .evidence import validate_evidence
 from .execution_state import DEFAULT_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
 from .poc_readiness import PocReadinessService
 from .poc_store import poc_target_key
+
+from . import prompt_experiments
+
+logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
@@ -82,6 +91,7 @@ class Services:
         # Profile recognition evolves as supported targets change. Refresh it on each
         # startup even if the one-time project/ledger migration has already completed.
         ensure_projects(self.store, self.repository)
+        self.lab30 = self._seed_lab30()
         if self.store.schema_meta("project_backfill_v1") != "done":
             backfill_project_ledger(self.store)
             self.store.set_schema_meta("project_backfill_v1", "done")
@@ -102,6 +112,23 @@ class Services:
         )
         for prompt in builtin_prompt_records():
             self.store.upsert_builtin_prompt(prompt)
+        self.prompt_experiments = prompt_experiments.ExperimentRunner(self.store, self.settings)
+
+    def _seed_lab30(self) -> dict | None:
+        """Register the bundled Lab30 shop so a fresh install is ready to audit.
+
+        The POC runner only verifies ``lab30`` targets, so an empty library leaves the
+        user staring at whatever unrelated archive they happen to have uploaded.  This is
+        convenience, not correctness: a missing or unreadable archive must never stop the
+        service from starting.
+        """
+        if not lab_seed.seeding_enabled():
+            return None
+        try:
+            return lab_seed.ensure_lab30_snapshot(self.store, self.repository)
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            logger.warning("内置 Lab30 靶场登记失败，服务继续启动：%s: %s", type(exc).__name__, exc)
+            return None
 
     def model_config_for_profile(self, profile: dict):
         """Build the only runtime config used for a saved provider profile."""
@@ -166,6 +193,11 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # A prompt comparison started from the UI must not outlive its owner: it is a child
+        # process that spends tokens.
+        runner = getattr(services, "prompt_experiments", None)
+        if runner is not None:
+            await runner.shutdown()
         await services.worker.stop()
         services.store.close()
 
@@ -307,42 +339,22 @@ def _verification_summary(findings: list[dict]) -> dict:
 
 
 def _verification_records(store, findings: list[dict]) -> list[dict]:
-    """The per-finding POC verification detail the Planner acts on.
+    """Shared with the Planner context, so the bundle cannot drift from what it reads."""
+    # Resolved lazily: findings with no verification never ask the store, and test
+    # doubles that model only the endpoints they exercise stay usable.
+    return build_verification_records(lambda finding_id: store.list_verifications(finding_id), findings)
 
-    The summary only counts statuses; this is the feedback loop the audit agent
-    actually needs: for every finding the run has already verified or judged, the
-    latest record's observation, verdict and evidence notes, bounded to keep the
-    prompt readable.  A rejected verdict with a contradictory observation means
-    the finding itself is wrong (retract), while an inconclusive record with a
-    healthy-looking observation points at insufficient evidence (re-verify), and
-    the Planner can only tell the two apart with these details in front of it.
-    """
-    records: list[dict] = []
-    for finding in findings:
-        status = str(finding.get("verification_status") or "unverified")
-        if status == "unverified":
-            continue
-        rows = store.list_verifications(finding["id"]) if finding.get("id") else []
-        if not rows:
-            continue
-        row = rows[-1]
-        agent = row.get("agent") or {}
-        title = str(finding.get("title") or "")[:160]
-        records.append({
-            "finding_id": finding.get("id"),
-            "finding_title": title,
-            "status": str(row.get("status") or status),
-            "verdict": row.get("verdict"),
-            "execution_status": str(row.get("execution_status") or ""),
-            "summary": str(agent.get("summary") or "")[:400],
-            "normal_observation": str(row.get("normal_observation") or "")[:600],
-            "attack_observation": str(row.get("attack_observation") or "")[:1200],
-            "evidence_notes": str(row.get("notes") or "")[:600],
-            "browser_execution": bool(row.get("browser_execution")),
-            "jobs": list(agent.get("jobs") or [])[:8],
-            "verification_id": row.get("id"),
-        })
-    return records
+
+def _verification_reviews(store, run_id: str) -> list[dict]:
+    """The Planner's cross-checks of this run's automatic verdicts, for the UI to show."""
+    reader = getattr(store, "list_verification_reviews", None)
+    return list(reader(run_id)) if reader is not None else []
+
+
+def _benchmark_experiment(store) -> dict | None:
+    """The benchmark the injection/chain rates are read from, if one has finished."""
+    reader = getattr(store, "latest_finished_prompt_experiment", None)
+    return reader() if reader is not None else None
 
 
 def _project_projection(
@@ -364,6 +376,13 @@ def _project_projection(
             "verification_jobs": [],
             "verification_summary": _verification_summary(findings),
             "verification_records": _verification_records(state.store, findings),
+            "verification_reviews": _verification_reviews(state.store, run["id"]),
+            "defence": defence.summarise(
+                findings,
+                _verification_summary(findings),
+                _verification_reviews(state.store, run["id"]),
+                _benchmark_experiment(state.store),
+            ),
             # Narratives only exist for project-mode runs; a legacy run's report must not
             # gain a section it never produced.
             "report_narrative": {},
@@ -380,6 +399,13 @@ def _project_projection(
         "verification_jobs": state.store.list_run_verification_jobs(run["id"]),
         "verification_summary": _verification_summary(findings),
         "verification_records": _verification_records(state.store, findings),
+        "verification_reviews": _verification_reviews(state.store, run["id"]),
+        "defence": defence.summarise(
+            findings,
+            _verification_summary(findings),
+            _verification_reviews(state.store, run["id"]),
+            _benchmark_experiment(state.store),
+        ),
         "report_narrative": state.store.latest_plan_narrative(run["id"]),
     }
 
@@ -1367,6 +1393,27 @@ async def create_prompt(request: Request, payload: PromptCreateRequest) -> dict:
     return state.store.get_prompt(prompt["id"])
 
 
+@app.put("/api/prompts/{prompt_id}")
+async def update_prompt(request: Request, prompt_id: str, payload: PromptUpdateRequest) -> dict:
+    """Edit a prompt draft in place.
+
+    Only a draft nobody quoted can change: a built-in is refreshed from the release, and a
+    text a run already used is part of that run's record.  Both answer 409 with the same
+    advice -- save it as a new version instead, which keeps the parent link and the reason.
+    """
+    state = services(request)
+    if state.store.get_prompt(prompt_id) is None:
+        raise HTTPException(status_code=404, detail="提示词不存在")
+    try:
+        return await asyncio.to_thread(
+            state.store.update_prompt,
+            prompt_id,
+            payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.delete("/api/prompts/{prompt_id}")
 async def delete_prompt(request: Request, prompt_id: str) -> Response:
     """Remove a user-defined prompt draft.
@@ -1382,6 +1429,70 @@ async def delete_prompt(request: Request, prompt_id: str) -> Response:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=204)
+
+
+# --- prompt-variant experiments ---------------------------------------------
+
+
+@app.get("/api/prompt-experiments/variants")
+async def prompt_experiment_variants() -> list[dict]:
+    """The worker-instruction variants, with the text each one actually sends."""
+    return prompt_experiments.catalog()
+
+
+@app.get("/api/prompt-experiments")
+async def list_prompt_experiments(request: Request, limit: int = Query(20, ge=1, le=100)) -> list[dict]:
+    return services(request).prompt_experiments.list(limit)
+
+
+@app.post("/api/prompt-experiments", status_code=201)
+async def start_prompt_experiment(request: Request, payload: PromptExperimentRequest) -> dict:
+    state = services(request)
+    try:
+        return state.prompt_experiments.start(
+            payload.variants,
+            payload.units_limit,
+            payload.scenario,
+            payload.budgets,
+        )
+    except prompt_experiments.ExperimentError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/prompt-experiments/{experiment_id}")
+async def get_prompt_experiment(request: Request, experiment_id: str) -> dict:
+    try:
+        return services(request).prompt_experiments.get(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Experiment does not exist") from exc
+
+
+@app.post("/api/prompt-experiments/{experiment_id}/cancel")
+async def cancel_prompt_experiment(request: Request, experiment_id: str) -> dict:
+    state = services(request)
+    try:
+        return await state.prompt_experiments.cancel(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Experiment does not exist") from exc
+
+
+@app.get("/api/prompt-experiments/{experiment_id}/report")
+async def download_prompt_experiment(request: Request, experiment_id: str, format: str = Query("markdown")):
+    """The written report the comparison produced, so the page can hand over the artefact."""
+    state = services(request)
+    try:
+        row = state.prompt_experiments.get(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Experiment does not exist") from exc
+    if row["status"] != "completed":
+        raise HTTPException(status_code=409, detail="对比尚未完成，没有可下载的报告。")
+    path = Path(row["report_path"] if format == "markdown" else row["report_path"]).with_suffix(
+        ".md" if format == "markdown" else ".json"
+    )
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="报告文件已不存在")
+    media = "text/markdown; charset=utf-8" if format == "markdown" else "application/json"
+    return Response(content=path.read_text(encoding="utf-8"), media_type=media)
 
 
 # --- truths and attributions ------------------------------------------------

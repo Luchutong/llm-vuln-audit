@@ -444,6 +444,37 @@ def test_observation_without_runner_token_is_downgraded(monkeypatch):
     assert "原文证据引用" in result.evidence_notes
 
 
+def test_a_single_shared_token_does_not_support_verified(monkeypatch):
+    """Coincidental words cannot replace the host's exact paired evidence check."""
+    client = FakeClient(job={
+        "job_id": "job-1", "status": "finished", "exit_code": 0, "duration_ms": 12,
+        "stdout": "normal request denied\ncommand executed\n", "stderr": "",
+        "truncated": False, "timed_out": False, "artifacts": [],
+    })
+    script = {
+        "poc_execute": [
+            call("run_poc", language="python", script=SCRIPT),
+            final_answer("探索结束"),
+        ],
+        "poc_conclude": [
+            final_answer({
+                "status": "verified",
+                "verdict": "confirmed",
+                "summary": "claimed",
+                "normal_observation": "normal request denied",
+                "attack_observation": "sqlmap executed",
+                "jobs": ["job-1"],
+                "normal_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "normal request denied"}],
+                "attack_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "sqlmap executed"}],
+            }),
+        ],
+    }
+    result, _, _, _ = run_agent(monkeypatch, script, client)
+    assert result is not None and result.status == "inconclusive"
+    assert "攻击侧原文片段不在作业" in result.evidence_notes
+    assert result.adapted_script == ""
+
+
 def test_xss_requires_browser_execution(monkeypatch):
     finding = dict(FINDING, category="xss", title="reflected XSS", file_path="vulnerabilities/xss_r/index.php")
     client = FakeClient()

@@ -37,6 +37,7 @@ from .schemas import (
     ModelProfileUpdateRequest,
     PromptCreateRequest,
     PromptExperimentRequest,
+    PromptUpdateRequest,
     TruthRequest,
 )
 from .source import MAX_LISTED_PATHS, SourceRepository
@@ -1371,6 +1372,27 @@ async def create_prompt(request: Request, payload: PromptCreateRequest) -> dict:
     }
     state.store.add_prompt(prompt)
     return state.store.get_prompt(prompt["id"])
+
+
+@app.put("/api/prompts/{prompt_id}")
+async def update_prompt(request: Request, prompt_id: str, payload: PromptUpdateRequest) -> dict:
+    """Edit a prompt draft in place.
+
+    Only a draft nobody quoted can change: a built-in is refreshed from the release, and a
+    text a run already used is part of that run's record.  Both answer 409 with the same
+    advice -- save it as a new version instead, which keeps the parent link and the reason.
+    """
+    state = services(request)
+    if state.store.get_prompt(prompt_id) is None:
+        raise HTTPException(status_code=404, detail="提示词不存在")
+    try:
+        return await asyncio.to_thread(
+            state.store.update_prompt,
+            prompt_id,
+            payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.delete("/api/prompts/{prompt_id}")

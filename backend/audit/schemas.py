@@ -827,6 +827,15 @@ class PromptCreateRequest(BaseModel):
     parent_id: str | None = None
 
 
+class PromptUpdateRequest(BaseModel):
+    """A draft's editable fields. Identity, phase and parent are not editable."""
+
+    label: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1)
+    reason: str = ""
+    issues: list[str] = Field(default_factory=list)
+
+
 class PromptExperimentRequest(BaseModel):
     """A comparison run: which worker-instruction variants, over how much of the target."""
 

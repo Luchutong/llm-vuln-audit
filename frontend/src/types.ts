@@ -460,7 +460,7 @@ export interface Snapshot {
   /** True when this source tree already had a project; the upload joined it. */
   project_reused?: boolean;
 }
-export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean }
+export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean; used_by_runs?: number }
 
 /** One worker-instruction variant in the Lab30 comparison, with the text it sends. */
 export interface PromptVariant { id: string; label: string; phase: string; focus: string; prompt: string }

@@ -4339,11 +4339,13 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     def list_prompts(self) -> list[dict]:
         rows = self._rows("SELECT * FROM prompts ORDER BY builtin DESC, phase, created_at")
+        usage = self._prompt_usage_map()
         prompts = []
         for row in rows:
             prompt = dict(row)
             prompt["issues"] = _loads(prompt.get("issues"), [])
             prompt["builtin"] = bool(prompt["builtin"])
+            prompt["used_by_runs"] = usage.get(prompt["id"], 0)
             prompts.append(prompt)
         return prompts
 
@@ -4354,7 +4356,48 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         prompt = dict(row)
         prompt["issues"] = _loads(prompt.get("issues"), [])
         prompt["builtin"] = bool(prompt["builtin"])
+        prompt["used_by_runs"] = self.prompt_usage(prompt_id)
         return prompt
+
+    def _prompt_usage_map(self) -> dict[str, int]:
+        rows = self._rows(
+            "SELECT prompt_id, COUNT(*) AS n FROM runs WHERE prompt_id IS NOT NULL GROUP BY prompt_id"
+        )
+        return {str(row["prompt_id"]): int(row["n"]) for row in rows}
+
+    def prompt_usage(self, prompt_id: str) -> int:
+        row = self._row("SELECT COUNT(*) AS n FROM runs WHERE prompt_id = ?", (prompt_id,))
+        return int(row["n"]) if row is not None else 0
+
+    def update_prompt(self, prompt_id: str, fields: dict) -> dict:
+        """Edit a draft in place, and only a draft.
+
+        A built-in is refreshed from the release, and a prompt a run already quoted is part
+        of that run's record -- editing either would rewrite what a finished report says it
+        used.  Both are refused; the caller derives a new version instead, which keeps the
+        parent link and the reason for the change.
+        """
+        prompt = self.get_prompt(prompt_id)
+        if prompt is None:
+            raise KeyError(prompt_id)
+        if prompt.get("builtin"):
+            raise ValueError("内置提示词不能就地修改；请基于它另存为新版本。")
+        used = prompt["used_by_runs"]
+        if used:
+            raise ValueError(
+                f"这份提示词已被 {used} 次审计引用；请另存为新版本，让历史报告仍对应它当时使用的文本。"
+            )
+        self._write(
+            "UPDATE prompts SET label = ?, text = ?, reason = ?, issues = ? WHERE id = ?",
+            (
+                fields["label"],
+                fields["text"],
+                fields.get("reason", ""),
+                _dumps(fields.get("issues", [])),
+                prompt_id,
+            ),
+        )
+        return self.get_prompt(prompt_id)
 
     # --- prompt experiments ------------------------------------------------
 

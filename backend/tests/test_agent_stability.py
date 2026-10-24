@@ -48,7 +48,8 @@ def test_navigation_error_remains_parseable_json():
         result = json.loads(await deps.call("list_tree", {"path": "../"}))
         assert result["ok"] is False
         assert "outside frozen scope" in result["error"]
-        assert deps.notes
+        assert result["error_code"] == "scope_denied"
+        assert not deps.notes  # A scope/usage error is not missing source context.
     asyncio.run(scenario())
 
 

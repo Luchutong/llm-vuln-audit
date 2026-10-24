@@ -1,7 +1,8 @@
 import { CvssPanel, SeverityBadge } from '../components/CvssPanel';
 import { useMemo, useState } from 'react';
 import { downloadUrl } from '../api';
-import type { Evidence, Finding, ProjectFinding, RunDetail, Verification, VerificationStatus } from '../types';
+import type { Evidence, Finding, ProjectFinding, RunDetail, Verification, VerificationStatus, VerificationJob, VerificationEvidenceReference } from '../types';
+import { verificationExecution, verificationJobOutcome } from '../diagnostics';
 import { SourceViewer } from '../components/SourceViewer';
 import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
@@ -227,7 +228,7 @@ export function FindingsView({ detail, snapshotId }: { detail: RunDetail; snapsh
         </div>
       </div>
 
-      {current && <FindingDetail key={current.id} finding={current} snapshotId={snapshotId} />}
+      {current && <FindingDetail key={current.id} finding={current} snapshotId={snapshotId} verificationJobs={detail.verification_jobs} />}
     </div>
     )}
     <SourceObservationsView detail={detail} snapshotId={snapshotId} />
@@ -323,7 +324,7 @@ export function SourceObservationsView({ detail, snapshotId }: { detail: RunDeta
   </section>;
 }
 
-export function FindingDetail({ finding, snapshotId, observation = false, pocDownloadPath, canonical = false }: { finding: Finding; snapshotId: string; observation?: boolean; pocDownloadPath?: string | null; canonical?: boolean }) {
+export function FindingDetail({ finding, snapshotId, observation = false, pocDownloadPath, canonical = false, verificationJobs = [] }: { finding: Finding; snapshotId: string; observation?: boolean; pocDownloadPath?: string | null; canonical?: boolean; verificationJobs?: VerificationJob[] }) {
   const poc = finding.poc;
   const evidenceKey = JSON.stringify(finding.evidence);
   const evidenceGroups = useMemo(() => groupLedgerEvidence(JSON.parse(evidenceKey) as Evidence[], snapshotId).map((group) => ({ ...group, windows: evidenceWindows(group.references) })), [evidenceKey, snapshotId]);
@@ -429,7 +430,7 @@ export function FindingDetail({ finding, snapshotId, observation = false, pocDow
             {VERIFICATION_HINTS[verificationStatus(finding)]}
             {' '}自动验证由独立的 POC Agent 在隔离的 <code>poc-runner</code> 中对本地 Lab30 商城 执行；平台不会在应用进程里运行上传的源码或 POC 脚本。
           </p>}
-          {!observation && <AutomaticVerificationPanel finding={finding} />}
+          {!observation && <AutomaticVerificationPanel finding={finding} jobs={verificationJobs} />}
           <HistoricalVerificationPanel finding={finding} observation={observation} />
         </div>
       </section>
@@ -478,7 +479,16 @@ function Chain({ label, value }: { label: string; value: string }) {
  * artifacts it copied out. A finding with no automatic record is not concealed: the
  * status chip above and the counts here say "unverified" out loud.
  */
-export function AutomaticVerificationPanel({ finding }: { finding: Finding }) {
+function VerificationReferences({ references, label }: { references: VerificationEvidenceReference[]; label: string }) {
+  return <Disclosure title={`${label}（${references.length}）`}>
+    {references.length ? references.map((ref, index) => <div className="verification-evidence-ref" key={`${ref.job_id}:${index}`}>
+      <span className="trace-meta">作业 {ref.job_id} · 输出通道 {ref.channel}</span>
+      <LongContent value={ref.excerpt} label="实际输出原文" previewLines={4} />
+    </div>) : <p className="small faint">此历史记录未保存可核对的输出引用。</p>}
+  </Disclosure>;
+}
+
+export function AutomaticVerificationPanel({ finding, jobs: runJobs = [] }: { finding: Finding; jobs?: VerificationJob[] }) {
   const records = (finding.verifications ?? []).filter((record) => recordSource(record) === 'poc_agent');
   if (!records.length) {
     return <p className="small faint">没有自动验证记录。未验证不等于排除：静态源码证据仍然成立。</p>;
@@ -488,6 +498,11 @@ export function AutomaticVerificationPanel({ finding }: { finding: Finding }) {
       const status = (record.status ?? 'inconclusive') as VerificationStatus;
       const target = record.target ?? {};
       const jobs = record.agent?.jobs ?? [];
+      const savedJobs = record.agent?.job_results ?? runJobs.filter((job) => job.verification_id === record.id);
+      const normalRefs = record.agent?.normal_evidence ?? record.normal_evidence;
+      const attackRefs = record.agent?.attack_evidence ?? record.attack_evidence;
+      const preconditions = record.agent?.preconditions ?? record.preconditions;
+      const changes = record.agent?.state_changes ?? record.state_changes;
       const targetText = [target.name, target.base_url, target.security ? `security=${target.security}` : '', target.version]
         .filter(Boolean).join(' · ');
       return <Disclosure key={record.id ?? index} title={<span className="disclosure-heading">
@@ -495,7 +510,8 @@ export function AutomaticVerificationPanel({ finding }: { finding: Finding }) {
         <span className="faint small">{record.created_at?.slice(0, 19).replace('T', ' ')}</span>
       </span>}>
         <div className="grid detail-fields">
-          <Chain label="自动验证状态" value={verdictLabels(record.status, record.verdict)} />
+          <Chain label="验证结论" value={verdictLabels(record.status, record.verdict)} />
+          <Chain label="作业执行结果" value={verificationExecution(record)} />
           <Chain label="目标环境" value={targetText} />
           <Chain label="runner 作业" value={jobs.join('、')} />
           <Chain label="执行命令" value={record.command || ''} />
@@ -504,6 +520,25 @@ export function AutomaticVerificationPanel({ finding }: { finding: Finding }) {
           <Chain label="脚本适配与归因" value={record.modification_notes || ''} />
           <Chain label="备注" value={record.notes || ''} />
         </div>
+        {(record.agent?.context_id ?? record.context_id) && <Chain label="独立验证上下文" value={record.agent?.context_id ?? record.context_id ?? ''} />}
+        {preconditions !== undefined && <Disclosure title="实验前提与实际身份"><LongContent value={preconditions} label="runner 前提检查" /></Disclosure>}
+        {changes !== undefined && <Disclosure title="已观测到的状态变化"><p className="small faint">会话隔离不会恢复数据库或文件。后续实验仍需核实前提，必要时人工重置靶场。</p><LongContent value={changes} label="状态变化记录" /></Disclosure>}
+        {(normalRefs !== undefined || attackRefs !== undefined) && <div className="verification-references">
+          <VerificationReferences references={normalRefs ?? []} label="正常侧证据引用" />
+          <VerificationReferences references={attackRefs ?? []} label="攻击侧证据引用" />
+        </div>}
+        {savedJobs.length > 0 && <Disclosure title={`作业执行历史（${savedJobs.length}）`}>
+          <p className="small faint">执行结果与漏洞结论分别记录；HTTP 状态码仅表示目标响应，退出码 0 也不等同于验证成立。</p>
+          {savedJobs.map((job, jobIndex) => {
+            const outcome = verificationJobOutcome(job);
+            return <Disclosure key={job.id ?? `${job.job_id}:${jobIndex}`} title={<span className="disclosure-heading"><span>{job.kind} · {job.job_id}</span><span className={outcome?.executionFailed ? 'diagnostic-error' : 'faint'}>{outcome?.executionText || '作业详情已记录'}</span>{outcome?.httpStatus !== null && outcome?.httpStatus !== undefined && <span>HTTP {outcome.httpStatus}</span>}</span>}>
+              {job.script && <LongContent value={job.script} label="此作业执行的脚本" previewLines={3} />}
+              <LongContent value={job.request ?? {}} label="已保存的执行请求与脚本" previewLines={3} />
+              <LongContent value={job.result ?? {}} label="已保存的执行结果" previewLines={5} />
+            </Disclosure>;
+          })}
+        </Disclosure>}
+        {!savedJobs.length && jobs.length > 0 && <p className="small faint">此历史记录只保存作业标识，未保存可展示的执行详情。</p>}
         {record.modified_script && <Disclosure title="查看适配后的脚本">
           <LongContent value={record.modified_script} label="适配脚本全文" />
         </Disclosure>}

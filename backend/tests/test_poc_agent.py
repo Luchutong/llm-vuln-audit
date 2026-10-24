@@ -44,7 +44,7 @@ class FakeClient:
             "status": "finished",
             "exit_code": 0,
             "duration_ms": 12,
-            "stdout": "First name: admin\nSurname: admin\n",
+            "stdout": "normal id returned one user\nFirst name: admin\nSurname: admin\n",
             "stderr": "",
             "truncated": False,
             "timed_out": False,
@@ -57,26 +57,33 @@ class FakeClient:
     async def health(self):
         if not self.health_ok:
             raise PocRunnerUnavailable("runner down")
-        return {"ok": True, "capabilities": {"php": True, "python": True, "browser": self.browser}}
+        return {"ok": True, "capabilities": {"php": True, "python": True, "browser": self.browser, "verification_contexts": True}}
 
-    async def prepare_target(self, target="lab30", *, reset=True, security="low"):
+    async def create_context(self, *, target="lab30", run_id, finding_id, context_id=None):
+        self.context_id = context_id or "test-context"
+        return {"ok": True, "context_id": self.context_id}
+
+    async def close_context(self, context_id):
+        return {"ok": True, "context_id": context_id, "status": "closed"}
+
+    async def prepare_target(self, target="lab30", *, reset=False, security="low", context_id="test-context", identity="alice", expected_role=None, expected_state=None):
         self.prepared.append({"target": target, "reset": reset, "security": security})
-        return {"ok": True, "base_url": "http://lab30", "security": security, "version": "2.5", "authenticated": True}
+        return {"ok": True, "base_url": "http://lab30", "security": security, "version": "2.5", "authenticated": True, "context_id": context_id, "identity": identity, "precondition": {"ok": True}}
 
-    async def target_status(self, target="lab30"):
+    async def target_status(self, target="lab30", **kwargs):
         return {"ok": True, "authenticated": True, "security": "low"}
 
-    async def run_job(self, *, target, language, script, timeout_seconds=30, artifacts=None):
+    async def run_job(self, *, target, language, script, timeout_seconds=30, artifacts=None, context_id="test-context", identity="alice", job_id=None):
         self.jobs.append({"target": target, "language": language, "script": script})
-        return dict(self.job)
+        return {**self.job, "context_id": context_id, "identity": identity, "precondition": {"ok": True}}
 
     async def fetch_artifact(self, job_id, name):
         return b"data"
 
-    async def http_observe(self, *, target, method, path, body=None, headers=None):
+    async def http_observe(self, *, target, method, path, body=None, headers=None, **kwargs):
         return {"ok": True, "status": 200, "path": path, "body": "First name: admin"}
 
-    async def browser_check(self, *, target, path, script=None, wait_ms=1000):
+    async def browser_check(self, *, target, path, script=None, wait_ms=1000, **kwargs):
         return {"ok": True, "available": True, "title": "Lab30", "dialogs": ["XSS"], "body_text": "XSS"}
 
     async def aclose(self):
@@ -122,7 +129,7 @@ def settings(tmp_path, **overrides):
 
 
 def deps(client, **overrides) -> PocDeps:
-    values = dict(client=client, policy=PocPolicy().snapshot(), target="lab30", finding=FINDING)
+    values = dict(client=client, policy=PocPolicy().snapshot(), target="lab30", finding=FINDING, context_id="test-context")
     values.update(overrides)
     return PocDeps(**values)
 
@@ -353,6 +360,8 @@ def test_successful_job_supports_verified(monkeypatch):
                 "normal_observation": "normal id returned one user",
                 "attack_observation": "First name: admin",
                 "jobs": ["job-1"],
+                "normal_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "normal id returned one user"}],
+                "attack_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "First name: admin"}],
                 "adapted_script": SCRIPT,
             }),
         ],
@@ -374,8 +383,11 @@ def test_exhausting_the_exploration_budget_still_leaves_a_conclusion(monkeypatch
                 "status": "verified",
                 "verdict": "confirmed",
                 "summary": "union result returned admin rows",
+                "normal_observation": "normal id returned one user",
                 "attack_observation": "First name: admin",
                 "jobs": ["job-1"],
+                "normal_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "normal id returned one user"}],
+                "attack_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "First name: admin"}],
             }),
         ],
     }
@@ -429,7 +441,7 @@ def test_observation_without_runner_token_is_downgraded(monkeypatch):
     }
     result, _, _, _ = run_agent(monkeypatch, script, client)
     assert result is not None and result.status == "inconclusive"
-    assert "token" in result.evidence_notes
+    assert "原文证据引用" in result.evidence_notes
 
 
 def test_xss_requires_browser_execution(monkeypatch):
@@ -513,12 +525,12 @@ def test_model_reported_environment_state_is_overridden(monkeypatch):
     assert result is not None and result.status == "inconclusive"
 
 
-def test_host_check_forces_last_executed_script():
+def test_host_check_does_not_publish_an_unreferenced_script():
     deps_ = deps(FakeClient(), scripts=[SCRIPT, "print('second')\n"])
-    result = PocVerificationResult(status="verified", summary="ok")
-    result.adapted_script = "print('invented')\n"
+    result = PocVerificationResult(status="verified", summary="ok", adapted_script="print('invented')\n")
     checked = host_check(result, deps_)
-    assert checked.adapted_script == "print('second')\n"
+    assert checked.status == "inconclusive"
+    assert checked.adapted_script == ""
 
 
 def test_verifier_persists_jobs_and_artifacts(tmp_path, monkeypatch):
@@ -536,8 +548,11 @@ def test_verifier_persists_jobs_and_artifacts(tmp_path, monkeypatch):
                 "status": "verified",
                 "verdict": "confirmed",
                 "summary": "union result returned admin rows",
+                "normal_observation": "normal id returned one user",
                 "attack_observation": "First name: admin",
                 "jobs": ["job-1"],
+                "normal_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "normal id returned one user"}],
+                "attack_evidence": [{"job_id": "job-1", "channel": "stdout", "excerpt": "First name: admin"}],
             }),
         ],
     }
@@ -604,7 +619,7 @@ def test_each_poc_phase_carries_its_own_rules_and_tool_table(monkeypatch):
     # Named only to forbid constructing it inside the interpreter.
     assert "PocVerificationResult(" not in conclude
     # The host supplies the last executed script, so the model is not asked to repeat it.
-    assert "宿主会按实际执行的最后一份脚本补齐" in conclude
+    assert "宿主仅从支撑结论的成功作业补齐" in conclude
 
 
 def test_a_large_reply_is_clipped_but_stays_valid_json():
@@ -629,7 +644,7 @@ def test_a_small_reply_is_not_marked_truncated():
     deps_ = deps(FakeClient())
     parsed = json.loads(deps_._reply({"status": "ok", "job_id": "job-1"}))
 
-    assert parsed == {"status": "ok", "job_id": "job-1"}
+    assert parsed == {"ok": True, "status": "ok", "job_id": "job-1"}
 
 
 def recorded_deps(client):
@@ -660,22 +675,22 @@ def test_a_successful_tool_call_is_paired_with_its_result():
 
 
 class UnavailableClient(FakeClient):
-    async def target_status(self, target="lab30"):
+    async def target_status(self, target="lab30", **kwargs):
         raise PocRunnerUnavailable("runner down")
 
 
 class RejectingClient(FakeClient):
-    async def target_status(self, target="lab30"):
+    async def target_status(self, target="lab30", **kwargs):
         raise PocRunnerError("runner rejected the request (403): path is not in the Lab30 allowlist")
 
 
 class BrokenClient(FakeClient):
-    async def target_status(self, target="lab30"):
+    async def target_status(self, target="lab30", **kwargs):
         raise ValueError("unexpected")
 
 
 class CancelledClient(FakeClient):
-    async def target_status(self, target="lab30"):
+    async def target_status(self, target="lab30", **kwargs):
         raise asyncio.CancelledError()
 
 

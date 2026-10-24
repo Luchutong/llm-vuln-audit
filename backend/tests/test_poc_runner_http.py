@@ -41,7 +41,8 @@ def observe(monkeypatch, location: str, *, status: int = 302, body: bytes = b"mo
         transport=httpx.MockTransport(handler),
     )
     monkeypatch.setattr(runner, "_lab30_client", lambda: client)
-    result = runner._observe_sync(runner.HttpRequest(target="lab30", path=PATH))
+    monkeypatch.setattr(runner, "_contexts", {"test": {"target": "lab30", "state": "open", "sessions": {"alice": {"client": client}}}})
+    result = runner._observe_sync(runner.HttpRequest(target="lab30", path=PATH, context_id="test"))
     return result, seen
 
 

@@ -86,7 +86,11 @@ def test_binary_assets_are_navigable_but_reading_them_reports_missing_context(re
     run = {"snapshot_id": snapshot["id"], "scope": [], "scope_mode": "snapshot"}
     deps = _deps(repository, snapshot["id"], run)
     text = asyncio.run(deps.call("read_source", {"path": "assets/logo.png", "start": 1, "end": 2}))
-    assert "未能补读" in text and "cannot be decoded" in text
+    assert "调用失败" in text and "cannot be decoded" in text
+    assert "二进制资源" in text and "不要修改参数反复读取" in text
+    failure = next(iter(deps.call_failures.values()))
+    assert failure.code == "context_missing" and failure.cacheable
+    assert deps.notes and deps.reads == []
     # The unreadable asset is registered in the snapshot for navigation.
     snapshot_json = repository.get_snapshot(snapshot["id"])
     assert snapshot_json["stats"]["binary_files"] == 1

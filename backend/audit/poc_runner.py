@@ -35,6 +35,14 @@ class PocRunnerUnavailable(RuntimeError):
 class PocRunnerError(RuntimeError):
     """The runner rejected a request or returned a malformed response."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class PocRunnerBusy(PocRunnerError):
+    """A target lease is occupied; callers may wait within their own budget."""
+
 
 def _segment(value: object, name: str) -> str:
     text = str(value or "")
@@ -171,7 +179,8 @@ class PocRunnerClient:
         )
         if response.status_code >= 400:
             detail = await self._error_detail(response, body)
-            raise PocRunnerError(f"POC runner rejected the request ({response.status_code}): {detail}")
+            error = PocRunnerBusy if response.status_code == 409 else PocRunnerError
+            raise error(f"POC runner rejected the request ({response.status_code}): {detail}", status_code=response.status_code)
         try:
             parsed = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as exc:
@@ -185,20 +194,30 @@ class PocRunnerClient:
     async def health(self) -> dict:
         return await self._json("GET", "/healthz", timeout=min(self.timeout, 5.0))
 
+    async def create_context(self, target: str = "lab30", *, run_id: str, finding_id: str, context_id: str = "") -> dict:
+        payload = {"target": _target(target), "run_id": run_id, "finding_id": finding_id}
+        if context_id:
+            payload["context_id"] = _segment(context_id, "context id")
+        return await self._json("POST", "/v1/verification-contexts", payload=payload)
+
+    async def close_context(self, context_id: str) -> dict:
+        return await self._json("DELETE", f"/v1/verification-contexts/{quote(_segment(context_id, 'context id'))}")
+
     async def prepare_target(
-        self, target: str = "lab30", *, reset: bool = False
+        self, target: str = "lab30", *, reset: bool = False, context_id: str = "", identity: str = "alice", expected_role: str | None = None, expected_state: dict | None = None
     ) -> dict:
         name = _target(target)
         return await self._json(
             "POST",
             f"/v1/targets/{quote(name)}/prepare",
-            payload={"reset": bool(reset)},
+            payload={"reset": bool(reset), "context_id": context_id, "identity": identity, "expected_role": expected_role, "expected_state": expected_state},
             timeout=max(self.timeout, 90.0),
         )
 
-    async def target_status(self, target: str = "lab30") -> dict:
+    async def target_status(self, target: str = "lab30", *, context_id: str = "", identity: str = "alice") -> dict:
         name = _target(target)
-        return await self._json("GET", f"/v1/targets/{quote(name)}/status")
+        query = f"?context_id={quote(context_id)}&identity={quote(identity)}" if context_id else ""
+        return await self._json("GET", f"/v1/targets/{quote(name)}/status{query}")
 
     # ---- jobs -------------------------------------------------------------------
 
@@ -210,6 +229,9 @@ class PocRunnerClient:
         script: str,
         timeout_seconds: int = 30,
         artifacts: list[str] | None = None,
+        context_id: str = "",
+        identity: str = "alice",
+        job_id: str = "",
     ) -> dict:
         name = _target(target)
         lang = str(language or "").casefold()
@@ -227,6 +249,9 @@ class PocRunnerClient:
                 "script": script,
                 "timeout_seconds": seconds,
                 "artifacts": [str(item) for item in (artifacts or [])][:8],
+                "context_id": context_id,
+                "identity": identity,
+                "job_id": _segment(job_id, "job id") if job_id else "",
             },
             # The job itself may take the whole budget; leave room for upload and
             # artifact copying so a slow script is not misreported as a dead runner.
@@ -259,6 +284,8 @@ class PocRunnerClient:
         path: str,
         body: str | None = None,
         headers: dict[str, str] | None = None,
+        context_id: str = "",
+        identity: str = "alice",
     ) -> dict:
         return await self._json(
             "POST",
@@ -269,6 +296,8 @@ class PocRunnerClient:
                 "path": str(path or "/"),
                 "body": body or "",
                 "headers": dict(headers or {}),
+                "context_id": context_id,
+                "identity": identity,
             },
             timeout=max(self.timeout, 45.0),
         )
@@ -280,6 +309,8 @@ class PocRunnerClient:
         path: str,
         script: str | None = None,
         wait_ms: int = 1000,
+        context_id: str = "",
+        identity: str = "alice",
     ) -> dict:
         return await self._json(
             "POST",
@@ -289,6 +320,8 @@ class PocRunnerClient:
                 "path": str(path or "/"),
                 "script": script or "",
                 "wait_ms": max(0, min(10000, int(wait_ms or 0))),
+                "context_id": context_id,
+                "identity": identity,
             },
             timeout=max(self.timeout, 60.0),
         )

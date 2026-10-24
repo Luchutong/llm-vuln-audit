@@ -67,18 +67,22 @@ class CvssStoreMixin:
             (encoded(item.get('cvss')), encoded(info), item.get('legacy_severity'), item['severity'], ident))
 
     def _merge_cvss(self, ident, finding, revision, previous, run_id):
-        # Re-discovery must not replace a still-applicable human decision.
+        # The ledger rating belongs to a conclusion version. A re-score inside the run
+        # that produced it is a correction; another run's rediscovery of the *same*
+        # conclusion must not churn it and keeps its own score in that run. Only a
+        # manual revision or a genuinely corrected conclusion otherwise replaces it.
         old_info = (previous or {}).get('cvss_assessment') or {}
-        if old_info.get('source') == 'manual' and old_info.get('conclusion_revision') == revision:
+        same_origin = old_info.get('run_id') is not None and old_info.get('run_id') == run_id
+        if (previous and old_info.get('conclusion_revision') == revision
+                and (old_info.get('source') == 'manual'
+                     or (previous.get('cvss') and not same_origin))):
+            # A manual rating, or another run's automatic rating of the same conclusion,
+            # is not churn for a rediscovery to erase.  A re-score inside the very run
+            # that produced the rating is a correction and may replace it.
             self._write_cvss('project_findings', ident, previous, revision)
             return
         item = normalise_record(finding)
         info = item['cvss_assessment']
-        if previous and previous.get('cvss') and not item['cvss'] and old_info.get('conclusion_revision') == revision:
-            # An incomplete re-discovery is not a reason to discard a valid rating
-            # of the very same conclusion; the new run still keeps its own gap.
-            self._write_cvss('project_findings', ident, previous, revision)
-            return
         info['run_id'] = info.get('run_id') or run_id
         source = self.get_run(run_id)
         if source:

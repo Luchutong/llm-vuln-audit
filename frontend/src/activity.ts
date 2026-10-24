@@ -2,6 +2,7 @@ import type { AuditEvent, RunDetail } from './types';
 import { normalizeTrace, pairToolCalls, scalar, shortText, traceRunState } from './trace.ts';
 import type { ToolSpan, TraceContext, TraceEntry } from './trace';
 import { pocReason } from './execution.ts';
+import { ERROR_LABELS, toolOutcome } from './diagnostics.ts';
 
 interface ActivityBase {
   key: string;
@@ -45,7 +46,6 @@ export interface ActivityToolGroup {
 }
 export type ActivityDisplayItem = ActivityItem | ActivityToolGroup;
 
-const FAILURE_STATUSES = new Set(['error', 'failed', 'timeout', 'invalid_arguments']);
 const SUCCESS_STATUSES = new Set(['ok', 'success', 'completed']);
 const TOOL_LABELS: Record<string, string> = {
   read_source: '读取源码', search_code: '检索代码', find_files: '查找文件', list_directory: '浏览目录',
@@ -141,6 +141,7 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
     }
   }
   const items: ActivityItem[] = [];
+  const explicitExecutionErrors = new Set(entries.filter((entry) => entry.event.kind === 'agent_execution_error').map(requestKey));
   const latestRequests = new Map<string, { invocation: string; request: string }>();
   const pending = new Map<string, TraceEntry>();
   for (const entry of entries) {
@@ -165,29 +166,31 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
     }
     if (kind === 'model_retry' || kind === 'model_error' || kind === 'agent_parse_error'
       || TASK_END.test(kind) || PLANNER_END.test(kind)
-      || ['task_agent_terminal', 'agent_terminal', 'recon_terminal'].includes(kind)) {
+      || ['agent_execution_error', 'task_agent_terminal', 'agent_terminal', 'recon_terminal'].includes(kind)) {
       for (const [key, previous] of pending) if (ownerKey(previous.context) === owner) pending.delete(key);
     }
     if (kind === 'tool_call' || kind === 'tool_result' || kind === 'agent_code') {
       if (kind !== 'tool_result') pending.delete(requestKey(entry));
       if (kind !== 'agent_code' || !text(payload.error)) continue;
+      if (explicitExecutionErrors.has(requestKey(entry))) continue;
     }
     let title = '', message = '', secondary = '';
     let tone: ActivityMessage['tone'] = 'neutral';
     if (kind === 'audit_progress') {
       pending.delete(requestKey(entry));
       message = text(payload.message); tone = 'progress';
-    } else if (kind === 'agent_code') {
+    } else if (kind === 'agent_code' || kind === 'agent_execution_error') {
       title = '动作执行提示'; message = `执行动作遇到问题：${shortText(payload.error, 280)}`; tone = 'warning';
+      secondary = text(payload.hint);
     } else if (kind === 'agent_parse_error') {
       // A reply with no code block is a format problem, not a failed action: saying
       // "code execution failed" here sent readers looking for an interpreter error that
       // never happened. The durable event is the log entry; the hint is not model text.
       const step = Number(payload.step ?? 0);
-      title = '输出格式错误';
-      message = `${Number.isSafeInteger(step) && step > 0 ? `第 ${step} 步` : '本条'}回复没有可解析的代码块；`
-        + '已要求模型按格式重新提交。';
-      secondary = '这不是代码执行失败；执行日志中保留了对应的解析事件。';
+      const category = text(payload.category);
+      title = category === 'no_code_block' ? '输出格式错误' : '动作提交不符合要求';
+      message = `${Number.isSafeInteger(step) && step > 0 ? `第 ${step} 步` : '本条'}回复${category === 'no_code_block' ? '没有可解析的代码块' : `：${ERROR_LABELS[category] || category || '无法解析动作'}`}；已要求模型重新提交。`;
+      secondary = category === 'no_code_block' ? '回复尚未执行；执行日志中保留了解析诊断与修正建议。' : text(payload.hint) || '执行日志中保留了对应的解析事件。';
       tone = 'warning';
     } else if (kind === 'planner_assessment' || kind === 'planner_round_committed') {
       if (kind === 'planner_round_committed' && formalSummaries.has(summaryScope(entry))) continue;
@@ -218,13 +221,17 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
     } else if (kind === 'poc_job_finished') {
       const exit = payload.exit_code;
       const seconds = Number(payload.duration_ms ?? 0) / 1000;
-      message = Number.isFinite(Number(exit)) ? `runner 作业结束 · 退出码 ${exit} · ${seconds.toFixed(1)}s`
+      message = payload.timed_out === true ? 'runner 作业执行超时；本作业不能支撑确定性验证结论。' : typeof exit === 'number' ? `runner 作业${exit === 0 ? '执行完成' : '执行失败'} · 退出码 ${exit} · ${seconds.toFixed(1)}s`
         : `runner 作业结束 · ${text(payload.status) || '状态未知'}`;
-      tone = exit === 0 ? 'neutral' : 'warning';
+      tone = exit === 0 && payload.timed_out !== true ? 'neutral' : 'warning';
     } else if (kind === 'poc_http_observed') {
       title = '靶场 HTTP 观测';
-      message = `${text(payload.method) || 'GET'} ${text(payload.path) || '/'} · HTTP ${text(payload.status) || '—'}`;
+      message = `${text(payload.method) || 'GET'} ${text(payload.path) || '/'} · HTTP ${scalar(payload.http_status ?? payload.status) || '—'}`;
       tone = 'progress';
+    } else if (kind === 'poc_preconditions_checked' || kind === 'poc_precondition_failed' || kind === 'poc_context_blocked') {
+      title = kind === 'poc_preconditions_checked' ? '实验前提检查' : '实验前提不符';
+      message = text(payload.message) || text(payload.reason) || text(payload.error) || '已保存身份与实验前提检查结果。';
+      secondary = text(payload.hint); tone = kind === 'poc_preconditions_checked' ? 'neutral' : 'warning';
     } else if (kind === 'poc_verification_recorded') {
       const status = text(payload.status);
       title = '自动验证结论';
@@ -314,7 +321,8 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       && latest.request === span.context.requestIndex);
     let status: ActivityTool['status'];
     if (!result) status = running && latestRequest && (ended.get(owner) ?? 0) < entry.event.id ? 'running' : 'missing';
-    else if (FAILURE_STATUSES.has(statusText) || result.error || result.error_type) status = 'error';
+    else if (toolOutcome(result)?.failed) status = 'error';
+    else if (toolOutcome(result)?.executionFailed) status = 'warning';
     else status = SUCCESS_STATUSES.has(statusText) ? 'success' : 'warning';
     const current = running && latestRequest && (ended.get(owner) ?? 0) < entry.event.id;
     items.push({ ...base(entry, taskNames), key: `tool:${span.key}`, type: 'tool', span, status,

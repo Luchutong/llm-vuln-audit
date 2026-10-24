@@ -33,9 +33,9 @@ docker compose --profile poc up --build -d --remove-orphans
 
 上传源码按同一应用根下的登录、会员、钱包、运营模板、合作服务和初始化文件联合识别，不依靠 ZIP 名称。完整源码包和 app 子目录源码包都能识别。已有源码库在服务启动时更新识别元数据，保留项目 ID、ZIP ID、最近活动顺序和历史审计。
 
-runner 准备阶段先检查商城 `health.php` 的 `ok`，再 GET/POST `/auth/login.php`，最后确认 `/orders/index.php` 返回200。登录失败或会员页仍为401/403时不宣布准备完成。
+runner 先获取绑定审计任务与发现的独占验证上下文，准备阶段检查商城 `health.php` 的 `ok`，再 POST `/auth/login.php`，最后通过 `/account/me.php` 核对实际账号及角色。访客不登录，会员接口必须返回401。登录失败、角色或必要账号前提不符时不宣布准备完成。
 
-- HTTP 观测和 Chromium 使用准备好的会员会话。
+- HTTP 观测和 Chromium 使用对应验证上下文及身份的独立会话，支持访客、Alice、Bob、运营员和管理员；并发审计不会同时占用同一靶场。
 - 独立 Python/PHP 脚本从子进程环境读取 `LAB30_URL/LAB30_USER/LAB30_PASSWORD`，自行建立会话；原始认证信息不会写入脚本。
 - 登录表单只有用户名与密码；业务表单可能要求名为 `csrf` 的字段，Agent 按源码及真实表单取值。
 - 未登录会员页可能返回401；HTTP 观测保留首个响应，不跟随重定向。
@@ -47,6 +47,10 @@ runner 准备阶段先检查商城 `health.php` 的 `ok`，再 GET/POST `/auth/l
 ```bash
 docker compose --profile poc exec lab30 php /var/www/shop/bin/reset.php
 ```
+
+每条实验前后保存身份、角色及账号变化，观测到的持久状态污染会阻断后续实验。准备接口可明确余额等账号字段断言；
+会话隔离不代表数据库和文件已复原。runner 进程重启遗留的上下文保持未决，确认旧作业结束后需人工重新创建 runner，
+再重置或核实商城。新的宿主要求 runner 健康接口提供 `verification_contexts` 能力，升级时应重新构建 runner。
 
 ## 环境验收
 

@@ -61,7 +61,7 @@ def test_the_template_carries_every_key_the_library_requires():
 
 
 def test_the_prompt_states_the_format_the_parser_implements(prompt):
-    assert "<code>" in prompt and "</code>" in prompt
+    assert "<audit_action_" in prompt and "</audit_action_" in prompt
     assert "Observation" in prompt
     assert "print(" in prompt
     assert "final_answer" in prompt
@@ -104,7 +104,11 @@ def test_the_prompt_lists_the_phase_tools_and_nothing_else():
 
 
 def test_the_navigation_example_can_run_against_the_declared_json_contract():
-    example = prompt_for().split("导航示例", 1)[1].split("<code>", 1)[1].split("</code>", 1)[0]
+    from audit.actions import extract_action
+    prompt = prompt_for().split("导航示例", 1)[1].split("Observation:", 1)[0]
+    import re
+    marker = re.search(r"<audit_action_([a-f0-9]+)>", prompt).group(1)
+    example, _, _ = extract_action(prompt, transport_tags=(f"<audit_action_{marker}>", f"</audit_action_{marker}>"))
     host = Host({
         "list_tree": '{"files_here":[]}',
         "find_files": '{"matches":[{"path":"src/upload.php"}]}',
@@ -167,9 +171,10 @@ def test_the_interpreter_limits_come_from_the_policy():
     assert agent.python_executor.max_print_outputs_length == 1234
     assert agent.python_executor.timeout_seconds == 7
     # JSON is pure data parsing for the structured navigation tool results.
-    assert agent.additional_authorized_imports == ["json"]
-    assert agent.python_executor.additional_authorized_imports == ["json"]
-    assert agent.code_block_tags == ("<code>", "</code>")
+    assert agent.additional_authorized_imports == ["json", "base64"]
+    assert agent.python_executor.additional_authorized_imports == ["json", "base64"]
+    assert agent.code_block_tags[0].startswith("<audit_action_")
+    assert agent.code_block_tags[1] == agent.code_block_tags[0].replace("<", "</", 1)
 
 
 def test_the_agent_library_cannot_phone_home():

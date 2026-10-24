@@ -20,14 +20,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+import time
+from concurrent.futures import TimeoutError as CallbackTimeout
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel, ValidationError
 from smolagents.models import ChatMessage, OpenAIModel
 
 from .config import ModelConfig
+from .actions import ActionIssue, extract_action
 from .runtime import Execution, StopAudit
+from .tool_errors import ToolFailure, note_tool_result, public_value
 
 # How long a single phase waits for the loop to answer a host callback.  The loop only
 # ever does local work here (ledger bookkeeping, one sqlite write, one emit), so this is
@@ -198,6 +202,7 @@ class PhaseGate:
     dispatch: Callable[[str, dict], Awaitable[str]]
     deadline: float
     limit: int
+    callback_seconds: float = CALLBACK_SECONDS
     output_model: type[BaseModel] | None = None
     validate: Callable[[Any], Any] | None = None
     published: Any = None
@@ -205,6 +210,13 @@ class PhaseGate:
     closed: bool = False
     tool_calls: int = 0
     consecutive_corrections: int = 0
+    action_diagnostics: dict = field(default_factory=dict)
+    action_issue: ActionIssue | None = None
+    error_counts: dict = field(default_factory=dict)
+    outstanding_error: str | None = None
+    action_tags: tuple[str, str] = ("<code>", "</code>")
+    request_tool_errors: dict = field(default_factory=dict)
+    callback_abort: StopAudit | None = None
 
     def _on_loop(self, callback: Callable[[], Awaitable]) -> Any:
         """Run one host callback on the event loop and wait for its answer.
@@ -218,12 +230,20 @@ class PhaseGate:
         the payload it builds -- an event dict, a snapshot -- is then built on the loop
         thread, which is the only thread allowed to read ``Execution``.
         """
+        if self.callback_abort is not None:
+            raise HostStop(self.callback_abort)
         if self.closed:
             raise HostStop(StopAudit("cancelled", "本阶段已经结束，宿主不再受理模型侧的动作"))
+        ceiling = min(self.callback_seconds, self.deadline - time.monotonic())
+        if ceiling <= 0:
+            self.callback_abort = StopAudit("timeout", "本阶段截止时间已到，停止宿主回调且不重复提交动作。")
+            raise HostStop(self.callback_abort)
         async def restored_callback():
             from .execution_state import execution_context
             owner = getattr(self.execution, "run_execution", None)
             try:
+                if self.callback_abort is not None:
+                    raise HostStop(self.callback_abort)
                 if owner is None:
                     return await callback()
                 with execution_context(owner.store, owner.run_id, owner.epoch):
@@ -232,7 +252,16 @@ class PhaseGate:
                 raise HostStop(stop) from None
 
         future = asyncio.run_coroutine_threadsafe(restored_callback(), self.loop)
-        return future.result(timeout=CALLBACK_SECONDS)
+        try:
+            return future.result(timeout=ceiling)
+        except CallbackTimeout:
+            if future.done():
+                # A completed callback may itself have raised TimeoutError; it no
+                # longer has outstanding work and retains its original taxonomy.
+                return future.result()
+            self.callback_abort = StopAudit("timeout", "宿主回调等待超时，已取消原回调；停止本阶段，不重复提交可能仍有副作用的动作。")
+            future.cancel()
+            raise HostStop(self.callback_abort) from None
 
     def request_ceiling(self, messages: Any) -> float:
         """Open one model request and return how long it may take."""
@@ -242,14 +271,21 @@ class PhaseGate:
         """Run one host tool and return the text the model reads as its observation."""
         return self._on_loop(lambda: self._call_tool(name, args))
 
-    def reject_tool_call(self, name: str, error: str) -> None:
+    def reject_tool_call(self, name: str, error: str, *, args: dict | None = None, hint: str = "") -> None:
         """A registered call with invalid arguments is still a charged attempt."""
         async def rejected():
             self.execution.before_tool()
+            self.tool_calls += 1
             call_id = f"invalid-tool-{self.execution.tools}"
-            self.execution.emit({"kind": "tool_call", "tool": name, "args": {}, "call_id": call_id})
+            envelope = {"tool": name, "args": public_value(args or {}), "call_id": call_id,
+                        "span_id": f"{self.execution.phase}:{call_id}", "phase": self.execution.phase}
+            self.execution.emit({"kind": "tool_call", **envelope})
             self.execution.emit({"kind": "tool_result", "tool": name, "call_id": call_id,
-                                 "status": "invalid_arguments", "error_type": "TypeError", "output": error})
+                                 **envelope, "status": "invalid_arguments", "error_type": "TypeError",
+                                 "output": public_value(error), "preview": public_value(error),
+                                 "error_code": "invalid_arguments", "error": public_value(error), "hint": hint})
+            note_tool_result(self.execution, f"{name}:arguments", ToolFailure("invalid_arguments", error, hint))
+            self.request_tool_errors[name] = {"error_code": "invalid_arguments", "error": public_value(error), "hint": hint}
         self._on_loop(rejected)
 
     def accept(self, payload: Any) -> str:
@@ -274,7 +310,7 @@ class PhaseGate:
         nothing saying why.  Only the fixed category and hint are kept -- the framework
         exception quotes the whole reply, which this run never persists.
         """
-        category = PARSE_ERROR_CATEGORIES.get(type(error).__name__)
+        category = self.action_issue.category if self.action_issue else PARSE_ERROR_CATEGORIES.get(type(error).__name__)
         if category is None or self.closed:
             return
         self._on_loop(lambda: self._emit_parse_error(step=step, category=category))
@@ -312,7 +348,18 @@ class PhaseGate:
 
     def close(self) -> None:
         """End the phase: from here on the loop gets host stops instead of callbacks."""
+        tool_counts = getattr(self.execution, "tool_diagnostics", {}).get(self.execution.phase, {})
+        if not self.closed and (self.error_counts or tool_counts):
+            self.execution.emit({"kind": "agent_error_summary", "phase": self.execution.phase,
+                                 "role": getattr(self.execution, "role_context", {}).get("role") or self.execution.phase.partition("_")[0],
+                                 "categories": self.error_counts,
+                                 "tool_categories": tool_counts})
         self.closed = True
+
+    def _count_error(self, category: str) -> None:
+        counts = self.error_counts.setdefault(category, {"errors": 0, "recovered": 0})
+        counts["errors"] += 1
+        self.outstanding_error = category
 
     def failure(self, exc: BaseException) -> BaseException:
         """Label a failed request without touching anything shared.
@@ -357,7 +404,28 @@ class PhaseGate:
     async def _call_tool(self, name: str, args: dict) -> str:
         self.tool_calls += 1
         try:
-            return await self.dispatch(name, args)
+            result = await self.dispatch(name, args)
+            # A corrected argument call may use different values; record recovery
+            # only once an actual dispatch succeeds, not merely because Python ran.
+            failed = isinstance(result, str) and result.startswith(f"{name} 调用失败：")
+            failure_fields = {}
+            try:
+                payload = json.loads(result)
+                failed = failed or (isinstance(payload, dict) and (payload.get("ok") is False or bool(payload.get("error"))))
+                if failed and isinstance(payload, dict):
+                    failure_fields = {key: payload.get(key) for key in ("error_code", "error", "hint")}
+            except (TypeError, ValueError):
+                pass
+            source = getattr(self.dispatch, "__self__", None)
+            last_failure = getattr(source, "last_failure", None) or getattr(getattr(source, "reader", None), "last_failure", None)
+            if last_failure:
+                failed, failure_fields = True, last_failure.fields()
+            if failed:
+                self.request_tool_errors[name] = failure_fields or {"error_code": "tool_contract", "error": "工具调用失败", "hint": "依据错误及工具契约修正调用。"}
+            if not failed:
+                self.request_tool_errors.pop(name, None)
+                note_tool_result(self.execution, f"{name}:arguments", None)
+            return result
         except StopAudit as stop:
             raise HostStop(stop) from None
 
@@ -385,6 +453,7 @@ class PhaseGate:
         except (ValidationError, ValueError) as exc:
             reason = rejection_reason(exc)
             self.pending_correction = reason
+            self._count_error("evidence" if "证据" in reason or "evidence" in reason else "invalid_output")
             raise OutputRejected(reason) from None
         self.published = value
         return FINAL_ANSWER_ACCEPTED
@@ -414,6 +483,16 @@ class PhaseGate:
             output_tokens=getattr(usage, "output_tokens", 0) or 0,
         )
         content = message.content if isinstance(message.content, str) else str(message.content or "")
+        self.request_tool_errors = {}
+        action, self.action_diagnostics, self.action_issue = extract_action(content, finish_reason(message), self.action_tags)
+        if finish := finish_reason(message):
+            self.action_diagnostics["finish_reason"] = finish
+        if action is not None:
+            # The project's extraction is shared by all roles. Canonicalize one valid
+            # action for the dependency parser without preserving its surrounding prose.
+            if self.action_tags[0] in action or self.action_tags[1] in action:
+                self.action_issue = ActionIssue("ambiguous_code_blocks", "动作正文含内部传输边界，请重新提交单个动作。")
+            message.content = self.action_tags[0] + "\n" + action + "\n" + self.action_tags[1]
         event = {
             "kind": "model_response",
             "phase": self.execution.phase,
@@ -438,36 +517,62 @@ class PhaseGate:
             return
         # The next request is a correction: it is bounded by the same allowance a rejected
         # final answer uses, and it tells the model exactly how to answer instead.
-        self.pending_correction = PARSE_CORRECTION
+        hint = self.action_issue.hint if self.action_issue else PARSE_CORRECTION
+        self.pending_correction = hint
+        self._count_error(category)
         self.execution.emit({
             "kind": "agent_parse_error",
             "phase": self.execution.phase,
             "step": step,
             "request_index": self.execution.attempts,
             "category": category,
-            "hint": PARSE_CORRECTION,
+            "hint": hint,
+            "error_code": category,
+            "diagnostics": dict(self.action_diagnostics),
             "usage": self.execution.snapshot(),
         })
 
     async def _emit_code(self, event: dict) -> None:
         self.execution.emit(event)
         error = str(event.get("error") or "")
-        if not error:
+        if not error and self.request_tool_errors:
+            failure = next(iter(self.request_tool_errors.values()))
+            hint = failure.get("hint") or "按工具契约修正调用；失败返回不能视为成功。"
+            category = failure.get("error_code") or "tool_contract"
+            self.pending_correction = f"{category}: {failure.get('error') or '工具调用失败'} {hint}"[:800]
+            self._count_error(category)
+            self.execution.emit({"kind": "agent_execution_error", "phase": self.execution.phase,
+                                 "category": category, "error_code": category, "hint": hint,
+                                 "step": event.get("step"), "reason": public_value(failure.get("error") or "工具调用失败")})
+        elif not error:
             self.consecutive_corrections = 0
+            if self.outstanding_error:
+                self.error_counts[self.outstanding_error]["recovered"] += 1
+                self.outstanding_error = None
         elif not self.closed and self.published is None and self.pending_correction is None:
             # Interpreter failures are model actions too. Previously only schema and
             # fence errors spent corrections, so invalid Python consumed the entire
             # request allowance without ever reaching a bounded correction path.
             kind = error.partition(":")[0]
-            category = (
+            category = self.action_issue.category if self.action_issue else (
+                error.split(": ", 2)[1] if kind == "ActionIssue" else
                 "invalid_python" if kind in {"SyntaxError", "NameError", "InterpreterError"}
                 else "tool_contract" if kind in {"JSONDecodeError", "TypeError", "KeyError", "IndexError"}
                 else "runtime_error"
             )
-            self.pending_correction = error[:400]
+            hints = {
+                "invalid_python": "仅使用已赋值变量；语句必须完整，循环含冒号和缩进体；json 已预载。",
+                "unauthorized_import": "宿主只允许系统提示列出的内存处理模块；网络/文件/进程代码放进 runner 脚本。",
+                "tool_contract": "按工具声明修正类型、参数名和范围；JSON 工具先检查 error 再访问成功字段。",
+            }
+            hint = self.action_issue.hint if self.action_issue else hints.get(category, "根据错误位置修正动作，保留已获取的证据。")
+            self.pending_correction = (error[:400] + " " + hint)[:800]
+            self._count_error(category)
             self.execution.emit({
                 "kind": "agent_execution_error", "category": category,
                 "step": event.get("step"), "reason": error[:400],
+                "phase": self.execution.phase, "error_code": category, "hint": hint,
+                "diagnostics": dict(self.action_diagnostics),
                 "consecutive_corrections": self.consecutive_corrections,
             })
 

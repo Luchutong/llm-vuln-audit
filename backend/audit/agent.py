@@ -28,10 +28,11 @@ from pydantic_ai import ModelRetry
 from .codemodel import AuditCodeModel, ModelCallFailed, PhaseGate
 from .config import ModelConfig
 from .db import WITHDRAWN_FINDING_DISPOSITIONS
-from .evidence import seen_ranges, validate_evidence
+from .evidence import seen_ranges, validate_evidence, evidence_inventory
 from .executor import attach_phase, build_agent, drive_phase
 from .finding_policy import is_vulnerability_finding
 from .navigation import ProjectIndex, clean_path
+from .tool_errors import ToolFailure, classify_failure, public_value, note_tool_result
 from .runtime import AgentPolicy, Execution, SourceLedger, StopAudit, canonical_call
 from .cvss_assessment import INSTRUCTION as CVSS_INSTRUCTION
 from .schemas import (
@@ -120,6 +121,9 @@ class AuditDeps:
     peer_trace_read: Callable[[str, list[int] | None], list[dict]] | None = None
     calls: set = field(default_factory=set)
     call_results: dict[str, str] = field(default_factory=dict)
+    call_failures: dict[str, ToolFailure] = field(default_factory=dict)
+    timeout_attempts: dict[str, int] = field(default_factory=dict)
+    last_failure: ToolFailure | None = None
     repeats: int = 0
     stagnant: int = 0
     notes: list[str] = field(default_factory=list)
@@ -208,7 +212,7 @@ class AuditDeps:
         execution.emit({
             "kind": "tool_call",
             "tool": name,
-            "args": args,
+            "args": public_value(args),
             "turn": execution.tools,
             "call_id": call_id,
             "span_id": span_id,
@@ -220,16 +224,25 @@ class AuditDeps:
         ledger_full = False
         deferred_error: BaseException | None = None
         error_type = ""
+        failure = None
+        cached = False
         dynamic = name in {"search_peer_traces", "get_peer_trace"}
         json_output = name in self.local_tools or name in {"search_peer_traces", "get_peer_trace"}
         if key in self.calls and not dynamic:
             self.repeats += 1
             text = self.call_results[key]
-            status = "duplicate"
+            failure = self.call_failures.get(key)
+            status = "context_missing" if failure else "duplicate"
+            cached = True
         else:
             self.repeats = 0
-            self.calls.add(key)
             try:
+                declared = next((item for item in (*WORKER_TOOLS, *WORKER_NAVIGATION_TOOLS, *PEER_TRACE_TOOLS) if item.name == name), None)
+                if declared is not None:
+                    args = declared.bind((), args)
+                if self.timeout_attempts.get(key, 0) >= 2:
+                    failure = ToolFailure("retry_exhausted", "相同只读查询的两次尝试均超时。", "已用尽一次显式重试；请缩小范围或基于现有证据交回未决结论。")
+                    raise TimeoutError(failure.error)
                 if name == "read_source":
                     text, added, ledger_full = await self.read_source_text(args)
                 elif name == "search_code":
@@ -311,30 +324,40 @@ class AuditDeps:
                 else:
                     raise ValueError(f"Unknown audit tool: {name}")
                 status = "ok"
-            except (ValueError, FileNotFoundError, OSError, asyncio.TimeoutError) as exc:
-                text = f"{name} 未能补读：{type(exc).__name__}: {str(exc)[:200]}。缺失依赖应记录为 missing_context。"
-                if isinstance(exc, FileNotFoundError) and "find_files" in self.local_tools:
-                    text += " 先用 find_files 或 list_tree 核对快照中的实际路径；源码提及的运行时目录不一定已上传，不要反复猜测文件名。"
-                status = "context_missing"
-                self.notes.append(text)
+            except (ValueError, TypeError, FileNotFoundError, OSError, asyncio.TimeoutError) as exc:
+                failure = failure or classify_failure(exc)
+                if failure.code == "timeout":
+                    self.timeout_attempts[key] = self.timeout_attempts.get(key, 0) + 1
+                text = f"{name} 调用失败：{failure.error}。{failure.hint}"
+                status = "context_missing" if failure.code in {"path_not_found", "context_missing"} else failure.code
+                error_type = type(exc).__name__
+                if failure.code in {"path_not_found", "context_missing"}:
+                    self.notes.append(text)
                 if json_output:
-                    text = json.dumps({"ok": False, "error": text, "tool": name}, ensure_ascii=False)
+                    text = json.dumps({"ok": False, "tool": name, **failure.fields()}, ensure_ascii=False)
             except asyncio.CancelledError as exc:
                 # A cancellation still closes the trace span before it propagates to
                 # the worker, which makes an interrupted run reviewable.
                 text = f"{name} 调用已取消。"
                 status = "cancelled"
                 error_type = type(exc).__name__
+                failure = ToolFailure("cancelled", text, "调用已取消，停止后续动作。")
                 deferred_error = exc
             except Exception as exc:
                 # Preserve the existing failure path (the caller marks this work
                 # item incomplete), but do not leave a dangling tool call in trace.
                 text = f"{name} 未预期失败：{type(exc).__name__}: {str(exc)[:200]}。"
                 status = "error"
+                failure = classify_failure(exc)
                 error_type = type(exc).__name__
                 deferred_error = exc
-        if not dynamic:
+        if not dynamic and (status in {"ok", "duplicate"} or (failure is not None and failure.cacheable)):
+            self.calls.add(key)
             self.call_results[key] = text
+            if failure:
+                self.call_failures[key] = failure
+        self.last_failure = failure
+        note_tool_result(execution, key, failure)
         self.stagnant = 0 if added or useful else self.stagnant + 1
         result_event = {
             "kind": "tool_result",
@@ -349,6 +372,8 @@ class AuditDeps:
             "span_id": span_id,
             "phase": execution.phase,
             "duration_ms": round((time.monotonic() - started) * 1000),
+            "args": public_value(args), "cached": cached, "cache_hit": cached,
+            **(failure.fields() if failure else {}),
         }
         if error_type:
             result_event["error_type"] = error_type
@@ -363,7 +388,13 @@ class AuditDeps:
         # would make json.loads fail even though the tool itself succeeded.
         if json_output:
             return text
-        return text + f"\n[剩余工具 {execution.budgets['tools'] - execution.tools}；判定和 POC 共享总预算]"
+        budget_notice = f"\n[剩余工具 {execution.budgets['tools'] - execution.tools}；判定和 POC 共享总预算]"
+        if name in {"read_source", "search_code", "get_context"} and status in {"ok", "duplicate"}:
+            room = max(0, execution.policy.tool_bytes - len((text + budget_notice).encode("utf-8")) - 1)
+            inventory = evidence_inventory(seen_ranges(self.unit, self.reads, exact=True), max_bytes=min(1200, room))
+            if inventory:
+                text += "\n" + inventory
+        return text + budget_notice
 
 
 class InvestigationPins(Protocol):
@@ -415,6 +446,9 @@ class PlannerDeps:
     planning_overview: dict | None = None
     calls: set = field(default_factory=set)
     call_results: dict[str, str] = field(default_factory=dict)
+    call_failures: dict[str, ToolFailure] = field(default_factory=dict)
+    timeout_attempts: dict[str, int] = field(default_factory=dict)
+    last_failure: ToolFailure | None = None
     repeats: int = 0
     # ``investigate_project`` needs the same immutable snapshot the workers read, plus
     # the run's frozen path policy.  They stay optional so the index-only Planner of a
@@ -545,7 +579,7 @@ class PlannerDeps:
             "tool": tool,
             "topic": topic,
             "topic_key": topic_key,
-            "args": args,
+            "args": public_value(args),
             "payload": payload,
             "files_read": files_read or [],
             "usage": usage or self.execution.snapshot(),
@@ -657,7 +691,7 @@ class PlannerDeps:
         execution.emit({
             "kind": "tool_call",
             "tool": name,
-            "args": args,
+            "args": public_value(args),
             "turn": execution.tools,
             "call_id": call_id,
             "span_id": span_id,
@@ -665,48 +699,72 @@ class PlannerDeps:
             "started_elapsed_ms": round((started - execution.started) * 1000),
         })
         status = "ok"
+        failure = None
+        cached = False
         dynamic = name in {"get_task_results", "get_coverage"}
         json_output = next(item for item in PLANNER_TOOLS if item.name == name).output_format == "json" if name in {item.name for item in PLANNER_TOOLS} else False
-        if dynamic and self.context_reader is not None:
-            self.run_context = await asyncio.to_thread(self.context_reader)
         if key in self.calls and not dynamic:
             self.repeats += 1
             text = self.call_results[key]
-            status = "duplicate"
+            failure = self.call_failures.get(key)
+            status = "context_missing" if failure else "duplicate"
+            cached = True
         else:
             self.repeats = 0
-            self.calls.add(key)
             try:
+                declared = next((item for item in PLANNER_TOOLS if item.name == name), None)
+                if declared is not None:
+                    args = declared.bind((), args)
+                if self.timeout_attempts.get(key, 0) >= 2:
+                    failure = ToolFailure("retry_exhausted", "相同只读查询的两次尝试均超时。", "请缩小范围或基于现有证据交回未决结论。")
+                    raise TimeoutError(failure.error)
+                if dynamic and self.context_reader is not None:
+                    self.run_context = await asyncio.to_thread(self.context_reader)
                 handler = self._handlers().get(name)
                 if handler is None:
-                    # Never fall through to a default lookup.  A tool registered without a
-                    # branch used to be answered with a project search, which looked like
-                    # a successful call that returned the wrong thing.
-                    raise ValueError(
-                        f"{name} 不是本回合可用的 Planner 工具；没有执行任何查询。"
-                        "可用工具见系统提示中的工具列表。"
-                    )
+                    raise ValueError(f"{name} 不是本回合可用的 Planner 工具；没有执行任何查询。可用工具见系统提示中的工具列表。")
                 text = await self._pinned_call(name, args, handler)
-            except (ValueError, TypeError, FileNotFoundError, OSError) as exc:
-                status = "context_missing"
-                text = f"{name} 无法执行：{type(exc).__name__}: {str(exc)[:200]}"
+            except (ValueError, TypeError, FileNotFoundError, OSError, asyncio.TimeoutError) as exc:
+                failure = failure or classify_failure(exc)
+                if failure.code == "timeout":
+                    self.timeout_attempts[key] = self.timeout_attempts.get(key, 0) + 1
+                status = "context_missing" if failure.code in {"path_not_found", "context_missing"} else failure.code
+                text = f"{name} 调用失败：{failure.error}。{failure.hint}"
                 if json_output:
-                    text = json.dumps({"ok": False, "tool": name, "error": text}, ensure_ascii=False)
-        if not dynamic:
+                    text = json.dumps({"ok": False, "tool": name, **failure.fields()}, ensure_ascii=False)
+            except asyncio.CancelledError:
+                execution.emit({"kind": "tool_result", "tool": name, "status": "cancelled",
+                                "call_id": call_id, "span_id": span_id, "phase": execution.phase,
+                                "args": public_value(args), "error_code": "cancelled",
+                                "error": "调用已取消", "hint": "停止后续动作。"})
+                raise
+            except StopAudit:
+                execution.emit({"kind": "tool_result", "tool": name, "status": "cancelled",
+                                "call_id": call_id, "span_id": span_id, "phase": execution.phase,
+                                "args": public_value(args), "error_code": "cancelled",
+                                "error": "宿主已停止此阶段", "hint": "停止后续动作。"})
+                raise
+            except Exception as exc:
+                failure = classify_failure(exc)
+                execution.emit({"kind": "tool_result", "tool": name, "status": "error",
+                                "call_id": call_id, "span_id": span_id, "phase": execution.phase,
+                                "args": public_value(args), **failure.fields()})
+                raise
+        if not dynamic and (status in {"ok", "duplicate"} or (failure is not None and failure.cacheable)):
+            self.calls.add(key)
             self.call_results[key] = text
+            if failure:
+                self.call_failures[key] = failure
         execution.emit({
-            "kind": "tool_result",
-            "tool": name,
-            "status": status,
-            "new_lines": 0,
-            "chars": len(text),
-            "preview": text[:1200],
-            "usage": execution.snapshot(),
-            "call_id": call_id,
-            "span_id": span_id,
-            "phase": execution.phase,
-            "duration_ms": round((time.monotonic() - started) * 1000),
+            "kind": "tool_result", "tool": name, "status": status,
+            "new_lines": 0, "chars": len(text), "preview": text[:1200],
+            "usage": execution.snapshot(), "call_id": call_id, "span_id": span_id,
+            "phase": execution.phase, "duration_ms": round((time.monotonic() - started) * 1000),
+            "args": public_value(args), "cached": cached, "cache_hit": cached,
+            **(failure.fields() if failure else {}),
         })
+        self.last_failure = failure
+        note_tool_result(execution, key, failure)
         # The brake is an exploration brake, and only that.  It exists to stop a round that
         # keeps re-reading the same handful of paths from spending its allowance on
         # nothing.  The decision phase is not that: the model is re-checking a fact and
@@ -1730,7 +1788,7 @@ async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot
             # checks original file bounds before a finding can be persisted.
             _, problems = validate_evidence(refs, {path: 10**9 for path in paths}, seen_ranges(unit, deps.reads, exact=True))
             if problems:
-                raise ValueError(f"{name} 的证据不在已显示源码中：{'; '.join(problems)}。补读或写 insufficient_context。")
+                raise ValueError(f"{name} 的证据不在已显示源码中：{'; '.join(problems)}。补读或写 insufficient_context。" + evidence_inventory(seen_ranges(unit, deps.reads, exact=True)))
         return result
 
     async def verdict_call(*, tools: bool, deadline: float, limit: int):
@@ -1745,6 +1803,7 @@ async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot
             message += "\nget_context 已执行，结果在上文。针对决定结论的变量补读即可；不要重复读取上方代码。"
         else:
             message += "\n# 已读代码（只回放实际返回的行）\n" + ledger.replay() + "\n工具已停用。请直接提交三类判定；没有证据的类别写 insufficient_context。"
+        message += "\n" + evidence_inventory(seen_ranges(unit, deps.reads, exact=True))
         message += "\n# 上下文缺失记录\n" + "\n".join(deps.notes[-8:])
         gate = phase_gate(deadline=deadline, limit=limit, output_model=UnitVerdicts,
                           validate=validate_verdicts)
@@ -2309,7 +2368,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                 )
                 if not refs or problems:
                     detail = "; ".join(problems) if problems else "未解析到 path:start-end 引用"
-                    raise ValueError(f"第 {index} 条 {label} 的证据必须来自已显示源码：{detail}")
+                    raise ValueError(f"第 {index} 条 {label} 的证据必须来自已显示源码：{detail}。" + evidence_inventory(seen_ranges(unit, deps.reads, exact=True)))
         return result
 
     try:
@@ -2415,6 +2474,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                                 reserved_responses=reserve)
                 gate = task_phase(tools=False, limit=response_cap, deadline=execution.deadline)
                 publish_message = message + "\n# 探索后新增的原始源码（仅实际显示过的行）\n" + ledger.replay(exclude=prepared_keys)
+                publish_message += "\n" + evidence_inventory(seen_ranges(unit, deps.reads, exact=True))
                 publish_message += "\n# 宿主记录的上下文缺失\n" + "\n".join(deps.notes[-8:])
                 publish_message += (
                     "\n探索已经结束，源码和导航工具现已收回。只基于上面实际读过的代码，"

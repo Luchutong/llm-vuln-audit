@@ -322,7 +322,7 @@ def test_a_second_reconnaissance_call_in_the_same_round_is_refused(monkeypatch, 
     refusals = [
         event for event in events
         if event["kind"] == "tool_result" and event.get("tool") == "investigate_project"
-        and event.get("status") == "context_missing"
+        and event.get("status") == "invalid_arguments"
     ]
     assert len(refusals) == 1
     assert "侦察调用已用尽" in refusals[0]["preview"]

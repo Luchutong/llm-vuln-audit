@@ -496,6 +496,19 @@ th { font-weight: 600; color: var(--ink-faint); background: var(--surface-sunken
 .chip-paused { background: var(--warn-bg); color: var(--warn); }
 .trace-code .long-content-text { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 11px; }
 .trace-code > .disclosure-toggle .trace-item-primary > svg { color: var(--accent); }
+.agent-diagnostics { min-width: 0; border: 1px solid var(--line-soft); border-radius: 8px; margin: 8px 0; background: var(--surface-sunken); }
+.trace > .agent-diagnostics { margin: 0 12px 10px; }
+.agent-diagnostics > .disclosure { margin-top: 0; }
+.diagnostic-counts { display: grid; gap: 8px; margin: 9px 0; }
+.diagnostic-counts > div { display: grid; gap: 3px; font-size: 11px; overflow-wrap: anywhere; }
+.diagnostic-counts span { color: var(--ink-faint); }
+.diagnostic-entry { padding: 8px 0; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+.diagnostic-entry > p { font-size: 11px; }
+.diagnostic-error { color: var(--danger); overflow-wrap: anywhere; }
+.tool-outcomes { display: grid; gap: 6px; min-width: 0; margin: 6px 0 10px; font-size: 11px; }
+.activity-tool-status > span { display: block; white-space: normal; overflow-wrap: anywhere; max-width: 210px; }
+.verification-evidence-ref { padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.verification-references { min-width: 0; }
 
 /* Public execution activity belongs to the conversation; technical logs stay in the drawer. */
 .activity-stream { min-width: 0; margin: 18px 0 8px; }

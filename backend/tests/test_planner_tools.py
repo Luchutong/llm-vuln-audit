@@ -184,7 +184,7 @@ def test_a_path_outside_the_frozen_scope_is_refused_without_being_read(monkeypat
     # Selected by outcome rather than by position: how many exploration turns the round
     # grants is the host's allowance to set, and this test is about which answer each
     # path gets, not about how many times the model may ask.
-    refused = next(item for item in tool_results(events, "read_source") if item["status"] == "context_missing")
+    refused = next(item for item in tool_results(events, "read_source") if item.get("error_code") == "scope_denied")
     allowed = next(item for item in tool_results(events, "read_source") if item["status"] == "ok")
     assert "outside this task's frozen scope" in refused["preview"]
     assert "local-only" not in refused["preview"]
@@ -209,7 +209,7 @@ def test_an_unknown_tool_name_is_refused_instead_of_answered_with_a_map_search()
     assert "不是本回合可用的 Planner 工具" in text
     assert "files" not in text
     refusal = [event for event in events if event["kind"] == "tool_result"][0]
-    assert refusal["status"] == "context_missing"
+    assert refusal["status"] == "invalid_arguments"
 
 
 def test_lines_the_planner_read_are_still_not_evidence_a_worker_can_cite(project):

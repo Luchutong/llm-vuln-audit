@@ -836,6 +836,14 @@ class PocArtifact(BaseModel):
     size: int = Field(default=0, ge=0)
 
 
+class PocEvidenceReference(BaseModel):
+    """An exact excerpt from a successful runner job, never model-generated proof."""
+
+    job_id: str = Field(min_length=1, max_length=64)
+    channel: Literal["stdout", "stderr", "body_text", "dialogs", "evaluated"]
+    excerpt: str = Field(min_length=1, max_length=4000)
+
+
 class PocVerificationResult(BaseModel):
     """What the POC agent hands back for one finding.
 
@@ -862,6 +870,8 @@ class PocVerificationResult(BaseModel):
     evidence_notes: str = Field(default="", max_length=4000)
     artifacts: list[PocArtifact] = Field(default_factory=list, max_length=8)
     jobs: list[str] = Field(default_factory=list, max_length=16)
+    normal_evidence: list[PocEvidenceReference] = Field(default_factory=list, max_length=16)
+    attack_evidence: list[PocEvidenceReference] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode="after")
     def _coherent_verdict(self) -> "PocVerificationResult":

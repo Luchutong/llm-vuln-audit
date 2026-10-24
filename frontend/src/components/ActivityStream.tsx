@@ -4,6 +4,8 @@ import type { AuditEvent, RunDetail } from '../types';
 import type { ActivityDisplayItem, ActivityMessage, ActivityTool, ActivityToolGroup } from '../activity';
 import { activityPage, activitySubject, groupCompletedTools, projectActivity } from '../activity';
 import { scalar } from '../trace';
+import { toolOutcome } from '../diagnostics';
+import { AgentDiagnostics, ToolOutcome } from './AgentDiagnostics';
 import { LongContent } from './LongContent';
 import { SourceViewer } from './SourceViewer';
 
@@ -38,7 +40,7 @@ function duration(item: ActivityTool): string {
   if (milliseconds === null) return '';
   return milliseconds < 1000 ? `${Math.round(milliseconds)} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
 }
-const STATUS_TEXT = { running: '执行中', success: '成功', warning: '已返回，需留意', error: '失败', missing: '结果未记录' };
+const STATUS_TEXT = { running: '调用中', success: '调用完成', warning: '已返回，需留意', error: '调用失败', missing: '结果未记录' };
 
 function ToolDetails({ item, snapshotId }: { item: ActivityTool; snapshotId: string }) {
   const [choice, setChoice] = useState<DetailTab>(() => item.status === 'error' ? 'error' : item.span.result ? 'preview' : 'parameters');
@@ -49,7 +51,7 @@ function ToolDetails({ item, snapshotId }: { item: ActivityTool; snapshotId: str
   const error = result?.error ?? result?.error_type;
   const ranges = sourceRanges(item);
   const tabs: { id: DetailTab; label: string }[] = [];
-  if (call) tabs.push({ id: 'parameters', label: '参数' });
+  if (call || result?.args) tabs.push({ id: 'parameters', label: '参数' });
   if (result) tabs.push({ id: 'preview', label: '返回预览' });
   if (ranges.length && snapshotId) tabs.push({ id: 'source', label: '源码' });
   if (item.status === 'error' || error !== undefined) tabs.push({ id: 'error', label: '异常' });
@@ -58,12 +60,13 @@ function ToolDetails({ item, snapshotId }: { item: ActivityTool; snapshotId: str
   const range = ranges[Math.min(sourceIndex, ranges.length - 1)];
   const context = item.context;
   return <div className="activity-tool-detail">
+    <ToolOutcome payload={result} />
     <div className="activity-detail-tabs" role="tablist" aria-label="工具详情内容">
       {tabs.map((tab) => <button type="button" role="tab" id={`${id}-${tab.id}`} aria-controls={`${id}-panel`} aria-selected={selected === tab.id}
         className={selected === tab.id ? 'active' : ''} key={tab.id} onClick={() => setChoice(tab.id)}>{tab.label}</button>)}
     </div>
     <div className="activity-detail-content" id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-${selected}`}>
-      {selected === 'parameters' && <LongContent value={call?.args ?? {}} label="已保存的参数" />}
+      {selected === 'parameters' && <LongContent value={call?.args ?? result?.args ?? {}} label="已保存的参数" />}
       {selected === 'preview' && <>
         <p className="activity-detail-note">服务端受限预览：最多保存 1200 字符；这里展示已保存片段。
           {typeof result?.chars === 'number' && ` 原始返回共 ${result.chars.toLocaleString()} 字符。`}</p>
@@ -88,7 +91,8 @@ function ToolDetails({ item, snapshotId }: { item: ActivityTool; snapshotId: str
         request_index: context.requestIndex || undefined, span_id: call?.span_id ?? result?.span_id,
         call_id: call?.call_id ?? result?.call_id, call_event: item.span.call?.event.id,
         result_event: item.span.result?.event.id, duration_ms: item.span.durationMs,
-        status: result?.status, seen: result?.seen,
+        status: result?.status, seen: result?.seen, phase: result?.phase ?? call?.phase,
+        error_code: result?.error_code, retryable: result?.retryable, cached: result?.cached ?? result?.cache_hit,
       }} />
     </details>
   </div>;
@@ -98,13 +102,16 @@ function ToolRow({ item, snapshotId, expanded, onToggle }: {
   item: ActivityTool; snapshotId: string; expanded: boolean; onToggle: () => void;
 }) {
   const id = useId();
+  const outcome = toolOutcome(item.span.result?.payload);
   return <div className={`activity-tool activity-tool-${item.status}`} data-activity-key={item.key} data-tool={item.span.name} data-status={item.status}>
     <button type="button" className="activity-tool-toggle" aria-label={`工具详情：${item.label}${item.subject ? ` ${activitySubject(item.subject)}` : ''}`}
       aria-expanded={expanded} aria-controls={id} onClick={onToggle}>
       <span className="activity-tool-icon">{item.status === 'running' ? <LoaderCircle size={15} className="spin" /> : item.status === 'error' ? <CircleAlert size={15} /> : item.status === 'success' ? <Check size={15} /> : <Wrench size={15} />}</span>
       <span className="activity-tool-action"><span>{item.label}</span>{item.subject && <span className="activity-tool-subject">{activitySubject(item.subject)}</span>}</span>
       <span className="activity-tool-owner">{item.actor}{item.context.attempt && Number(item.context.attempt) > 1 ? ` · 第 ${item.context.attempt} 次尝试` : ''}</span>
-      <span className="activity-tool-status">{STATUS_TEXT[item.status]}{duration(item) && ` · ${duration(item)}`}</span>
+      <span className="activity-tool-status">{outcome?.failed ? outcome.callText : STATUS_TEXT[item.status]}{duration(item) && ` · ${duration(item)}`}
+        {outcome?.executionText && <span className={outcome.executionFailed ? 'diagnostic-error' : ''}>{outcome.executionText}</span>}
+        {outcome?.httpStatus !== null && outcome?.httpStatus !== undefined && <span>HTTP {outcome.httpStatus}</span>}</span>
       <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
     </button>
     {item.status === 'error' && !expanded && <p className="activity-tool-error">{activitySubject(scalar(item.span.result?.payload.error ?? item.span.result?.payload.error_type) || '工具执行失败，点击查看异常详情。', 240)}</p>}
@@ -192,6 +199,7 @@ export function ActivityStream({ events, detail, connected, reconnects = 0, onOp
     <div className="activity-stream-toolbar"><span className="activity-stream-connection">{live ? <><span className={`status-dot ${connected ? 'status-completed' : 'status-inconclusive'}`} />{connected ? '实时同步' : '正在恢复连接'}</> : detail.run.status === 'paused' ? <><Clock3 size={13} />已暂停，记录已保存</> : <><Check size={13} />执行记录已恢复</>}{reconnects > 0 && ` · 重连 ${reconnects} 次`}</span>
       <button type="button" className="text-button" onClick={onOpenLogs}><Terminal size={13} />完整执行日志</button></div>
     {activeTasks.length > 0 && <div className="activity-active-tasks"><FileCode2 size={13} /><span>正在排查：{activeTasks.map((task) => task.title).join('、')}</span></div>}
+    <AgentDiagnostics events={events} onInspect={onInspect} />
     {visible.length < groups.length && <div className="activity-history"><button type="button" className="text-button" onClick={loadEarlier}>加载更早的 50 项活动</button><span>当前显示 {visible.length} / {groups.length} 项</span></div>}
     <div className="activity-feed" onFocusCapture={(event) => preserveInteraction(event.target)} onClickCapture={(event) => preserveInteraction(event.target)}>{visible.length ? visible.map((item, index) => <div className="activity-slot" key={item.key}>
       {index > 0 && groups.indexOf(item) > groups.indexOf(visible[index - 1]) + 1 && <button type="button" className="activity-gap text-button" onClick={loadEarlier}>展开中间的历史活动</button>}

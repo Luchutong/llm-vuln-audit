@@ -50,6 +50,7 @@ export function pocReason(reason?: string | null, message?: string | null): stri
     environment_unavailable: '自动验证环境不可用，结论保留为未验证。',
     not_configured: '尚未配置自动验证环境，源码审计照常进行。',
     runner_unavailable: '隔离执行器不可用，结论保留为未验证。',
+    runner_upgrade_required: '隔离执行器需要升级以支持独立验证上下文；源码审计仍可继续。',
     browser_unavailable: '浏览器验证环境不可用，结论保留为未验证。',
   };
   return labels[reason ?? ''] ?? reason ?? '尚未检查自动验证环境。';

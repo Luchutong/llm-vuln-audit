@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from dataclasses import dataclass, field
 
 # Navigation is cheap, so its listings stay far smaller than a project map.
@@ -22,7 +23,11 @@ MAX_LISTED_FILES = 60
 
 def clean_path(value: object) -> str:
     """Normalize a model-supplied project-relative path, refusing escapes."""
-    path = str(value or "").strip().replace("\\", "/").strip("/")
+    if value is not None and not isinstance(value, str):
+        raise TypeError("path must be a snapshot-relative string")
+    path = (value or "").strip().replace("\\", "/")
+    if path.startswith("/") or re.match(r"^[A-Za-z]:", path):
+        raise ValueError("path must stay inside the frozen project; absolute paths are not allowed")
     if path in {"", "."}:
         return ""
     parts = [part for part in path.split("/") if part not in {"", "."}]
@@ -107,6 +112,8 @@ class ProjectIndex:
             depth = 2
         depth = max(1, min(depth, 3))
         prefix = f"{base}/" if base else ""
+        if base and base not in self.directories and not any(path.startswith(prefix) for path in self.files_by_path):
+            raise FileNotFoundError(f"snapshot directory not found: {base}")
         # One pass over the files, attributing each file to every displayed ancestor
         # bucket it sits under, so ``files_below`` is a real subtree count.
         counts: dict[str, int] = {}
@@ -139,7 +146,7 @@ class ProjectIndex:
         payload = {
             "path": base or ".",
             "child_directories": [
-                {"path": name, "files_below": counts.get(name, 0)} for name in names[:MAX_LISTED_DIRECTORIES]
+                {"path": prefix + name, "files_below": counts.get(name, 0)} for name in names[:MAX_LISTED_DIRECTORIES]
             ],
             "files_here": here[:MAX_LISTED_FILES],
             "binary_files_here": [{"path": path, "readable": False} for path in binaries[:20]],
@@ -178,7 +185,7 @@ class ProjectIndex:
         path = clean_path(args.get("path"))
         record = self.files_by_path.get(path)
         if record is None:
-            raise ValueError("path is not a readable text file in the frozen project")
+            raise FileNotFoundError("path is not a readable text file in the frozen project")
         outline = self.symbols_by_path.get(path) or {}
         functions = [
             {"symbol": item.get("symbol"), "start_line": item.get("start_line"), "end_line": item.get("end_line")}

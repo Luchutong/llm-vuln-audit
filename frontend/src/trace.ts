@@ -330,9 +330,12 @@ export function eventSummary(entry: TraceEntry): string {
   if (event.kind === 'agent_parse_error') {
     const details = ['输出格式错误'];
     if (payload.step !== undefined && payload.step !== null) details.push(`第 ${shortText(payload.step, 12)} 步`);
-    details.push(payload.category === 'no_code_block' ? '回复中没有可解析的代码块' : shortText(payload.category, 40) || '无法解析回复');
+    const categories: Record<string, string> = { no_code_block: '回复中没有可解析的代码块', ambiguous_code_blocks: '存在多个动作代码块',
+      incomplete_code: '动作代码不完整', invalid_python: 'Python 语法错误', unauthorized_import: '模块不在允许导入范围' };
+    details.push(categories[scalar(payload.category)] || shortText(payload.category, 40) || '无法解析回复');
     return details.join(' · ');
   }
+  if (event.kind === 'agent_execution_error') return `动作执行错误 · ${shortText(payload.error_code, 40) || shortText(payload.error, 100) || '查看错误详情'}`;
   if (event.kind === 'poc_execution_finished') return `POC 执行阶段结束 · ${shortText(payload.reason, 40) || '未知原因'}`;
   if (event.kind === 'poc_conclusion_failed') return `结论生成失败 · ${shortText(payload.reason, 40) || '未知原因'}`;
   if (event.kind === 'agent_phase') return '进入新阶段';

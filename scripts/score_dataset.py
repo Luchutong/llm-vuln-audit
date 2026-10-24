@@ -213,6 +213,7 @@ def evaluate(truth_payload: object, findings: list[dict], *, scenario: str | Non
                                 "accuracy": ratio(sum(item["severity_ok"] for item in severity_compared), len(severity_compared))},
         "cvss_evaluation": {
             "checked": check_cvss, "compared": len(compared),
+            "scoring_coverage": ratio(len(compared), tp),
             "missing_truth": sum(item["cvss_status"] == "missing_truth" for item in matches),
             "missing_reported": sum(item["cvss_status"] == "missing_reported" for item in matches),
             "invalid_reported": sum(item["cvss_status"] == "invalid_reported" for item in matches),

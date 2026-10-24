@@ -46,6 +46,58 @@ class Arg:
     type: str
     description: str
     default: Any = REQUIRED
+    minimum: int | None = None
+    maximum: int | None = None
+    max_length: int | None = None
+    nullable: bool = False
+    value_type: str | None = None
+    item_type: str | None = None
+    max_items: int | None = None
+
+    def validate(self, name: str, value: Any) -> None:
+        if value is None and (self.nullable or self.default is None):
+            return
+        kind = self.value_type or self.type
+        valid = {
+            "string": lambda: isinstance(value, str),
+            "integer": lambda: type(value) is int,
+            "number": lambda: type(value) in {int, float},
+            "boolean": lambda: type(value) is bool,
+            "array": lambda: isinstance(value, list),
+            "object": lambda: isinstance(value, dict),
+            "any": lambda: True,
+        }.get(kind)
+        if valid is not None and not valid():
+            raise TypeError(f"{name} 必须是 {kind}，收到 {type(value).__name__}")
+        if self.minimum is not None and value < self.minimum:
+            raise TypeError(f"{name} 必须 >= {self.minimum}")
+        if self.maximum is not None and value > self.maximum:
+            raise TypeError(f"{name} 必须 <= {self.maximum}")
+        if self.max_length is not None and len(value) > self.max_length:
+            raise TypeError(f"{name} 长度必须 <= {self.max_length}")
+        if self.max_items is not None and len(value) > self.max_items:
+            raise TypeError(f"{name} 元素数量必须 <= {self.max_items}")
+        if self.item_type and isinstance(value, list):
+            for index, item in enumerate(value):
+                Arg(self.item_type, "数组元素").validate(f"{name}[{index}]", item)
+
+    def prompt_description(self) -> str:
+        constraints = []
+        if self.default is not REQUIRED:
+            constraints.append(f"默认 {self.default!r}")
+        if self.minimum is not None:
+            constraints.append(f">= {self.minimum}")
+        if self.maximum is not None:
+            constraints.append(f"<= {self.maximum}")
+        if self.max_length is not None:
+            constraints.append(f"长度 <= {self.max_length}")
+        if self.value_type:
+            constraints.append(self.value_type + (" 或 None" if self.default is None else ""))
+        if self.item_type:
+            constraints.append(f"元素类型 {self.item_type}")
+        if self.max_items is not None:
+            constraints.append(f"元素数量 <= {self.max_items}")
+        return self.description + (" [" + "; ".join(constraints) + "]" if constraints else "")
 
 
 @dataclass(frozen=True)
@@ -60,10 +112,11 @@ class ToolSpec:
     # the dispatcher is asked for ``search_code``.
     route: str | None = None
     output_format: Literal["text", "json"] = "text"
+    output_fields: tuple[str, ...] = ()
 
     @property
     def inputs(self) -> dict[str, dict]:
-        return {name: {"type": arg.type, "description": arg.description} for name, arg in self.args.items()}
+        return {name: {"type": arg.type, "description": arg.prompt_description()} for name, arg in self.args.items()}
 
     def signature(self) -> inspect.Signature:
         """The call shape the model was shown, as a real signature."""
@@ -89,12 +142,18 @@ class ToolSpec:
         except TypeError as exc:
             raise TypeError(f"{self.name}: {exc}") from None
         bound.apply_defaults()
-        return dict(bound.arguments)
+        values = dict(bound.arguments)
+        for name, value in values.items():
+            self.args[name].validate(name, value)
+        if "start" in values and "end" in values and values["end"] != 0 and values["end"] < values["start"]:
+            raise TypeError(f"{self.name}: end 必须 >= start（0 仅在声明允许时使用）")
+        return values
 
 
 def spec(name: str, description: str, *, route: str | None = None,
-         output_format: Literal["text", "json"] = "text", **args: Arg) -> ToolSpec:
-    return ToolSpec(name=name, description=description, args=args, route=route, output_format=output_format)
+         output_format: Literal["text", "json"] = "text", output_fields: tuple[str, ...] = (), **args: Arg) -> ToolSpec:
+    return ToolSpec(name=name, description=description, args=args, route=route, output_format=output_format,
+                    output_fields=output_fields)
 
 
 class HostTool(Tool):
@@ -120,6 +179,8 @@ class HostTool(Tool):
             "返回可直接阅读的文本，不是 JSON；不要用 json.loads 解析。"
         )
         self.description = spec.description + "\n" + contract
+        if spec.output_fields:
+            self.description += " 成功字段：" + ", ".join(spec.output_fields) + "。失败时先检查 ok/error。"
         self.inputs = spec.inputs
         self.output_type = "string"
         self._signature = spec.signature()
@@ -129,8 +190,14 @@ class HostTool(Tool):
             bound = self.spec.bind(args, kwargs)
         except TypeError as exc:
             reject = getattr(self.gate, "reject_tool_call", None)
+            hint = f"正确签名：{self.spec.name}{self._signature}"
             if reject:
-                reject(self.spec.name, str(exc))
+                reject(self.spec.name, str(exc), args={"positional": list(args), "keywords": kwargs},
+                       hint=hint)
+            if self.spec.output_format == "json":
+                from .tool_errors import public_value
+                return json.dumps({"ok": False, "tool": self.spec.name, "error_code": "invalid_arguments",
+                                   "error": public_value(str(exc)), "hint": hint}, ensure_ascii=False)
             raise
         return self.gate.call_tool(self.spec.route or self.spec.name, bound)
 
@@ -293,27 +360,32 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
     spec(
         "get_project_map",
         "Return the compact frozen project overview; use focused search for detailed paths, symbols, includes or calls.",
+        output_fields=('overview', 'project_stats', 'architecture', 'high_confidence_entrypoints'),
         output_format="json",
     ),
     spec(
         "search_project_map",
         "Find a path, symbol, include expression or call name in the frozen project map.",
-        query=Arg("string", "要查找的路径片段、符号名、include 表达式或调用名，<= 200 字符。"),
+        output_fields=('query', 'matches_by_kind', 'truncated'),
+        query=Arg("string", "要查找的路径片段、符号名、include 表达式或调用名，<= 200 字符。", max_length=200),
         output_format="json",
     ),
     spec(
         "get_task_results",
         "Return durable summaries from previous Planner tasks and rounds, without hidden reasoning.",
+        output_fields=('goal', 'tasks', 'findings', 'plans'),
         output_format="json",
     ),
     spec(
         "get_coverage",
         "Return the host-computed reading coverage for this round: which files workers really read, and which first-party modules nobody has read.",
+        output_fields=('files_read',),
         output_format="json",
     ),
     spec(
         "get_investigation",
         "Return one pinned investigation in full, by its topic_key or its 1-based position in the situation block; these records never change, and re-asking their question replays them.",
+        output_fields=('id', 'topic', 'payload'),
         topic_key=Arg("string", "已固定调查的 topic_key；留空则按 index 取。默认空串。", ""),
         index=Arg("integer", "该调查在态势块里的 1-based 序号；topic_key 为空时使用。默认 0（不按序号取）。", 0),
         output_format="json",
@@ -322,39 +394,43 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
         "read_source",
         "Read original lines from one frozen project file so a proposed reading window is checked against the real source instead of guessed; at most 200 lines per call, and the lines you read here are never evidence.",
         path=Arg("string", "快照内相对路径，例如 app/main.py。"),
-        start=Arg("integer", "起始行号（1-based，含）。默认 1。", 1),
-        end=Arg("integer", "结束行号（含）；0 表示从 start 起最多 200 行。默认 0。", 0),
+        start=Arg("integer", "起始行号（1-based，含）。默认 1。", 1, minimum=1),
+        end=Arg("integer", "结束行号（含）；0 表示从 start 起最多 200 行。默认 0。", 0, minimum=0),
     ),
     spec(
         "search_code",
-        "Find a literal string or identifier in project text files; query <=200 characters; optional snapshot-relative file or directory; dependency trees are skipped unless included. The snapshot is frozen, so a query this run already ran replays that answer instead of searching again.",
-        query=Arg("string", "要查找的字面量字符串或标识符，<= 200 字符。"),
-        path=Arg("any", "可选的快照内相对文件或目录；为 None（默认）时搜索整个项目。", None),
+        "Find a literal string or identifier, NOT a regex or OR expression (run search_code(query='login') and search_code(query='role') separately), in project text files; query <=200 characters; optional snapshot-relative file or directory; dependency trees are skipped unless included. The snapshot is frozen, so a query this run already ran replays that answer instead of searching again.",
+        query=Arg("string", "要查找的字面量字符串或标识符，<= 200 字符。", max_length=200),
+        path=Arg("any", "可选的快照内相对文件或目录；为 None（默认）时搜索整个项目。", None, value_type="string"),
         include_dependencies=Arg("boolean", "是否一并搜索依赖/vendor 目录。默认 False。", False),
     ),
     spec(
         "list_tree",
         "List directories and files below a project-relative path; the cheapest way to learn the layout. The snapshot is frozen, so an identical listing replays the answer this run already pinned.",
+        output_fields=('path', 'child_directories', 'files_here', 'truncated'),
         path=Arg("string", "项目内相对目录；空串表示项目根。默认空串。", ""),
-        depth=Arg("integer", "展开层数。默认 2。", 2),
+        depth=Arg("integer", "展开层数，宿主最多展开 3 层。默认 2。", 2, minimum=1),
         output_format="json",
     ),
     spec(
         "find_files",
         "Find files by name, glob (for example **/*.js) or substring; returns paths and metadata only. The snapshot is frozen, so an identical search replays the answer this run already pinned.",
+        output_fields=('pattern', 'matches', 'match_count', 'truncated'),
         pattern=Arg("string", "文件名子串或 glob，例如 **/*.py。"),
-        limit=Arg("integer", "最多返回多少条。默认 20。", 20),
+        limit=Arg("integer", "最多返回多少条，宿主上限 40。默认 20。", 20, minimum=1),
         output_format="json",
     ),
     spec(
         "file_summary",
         "Return one file's metadata and symbol outline; read the file for its actual content. The snapshot is frozen, so an identical summary replays the answer this run already pinned.",
+        output_fields=('path', 'language', 'line_count', 'symbols'),
         path=Arg("string", "快照内相对路径。"),
         output_format="json",
     ),
     spec(
         "investigate_project",
         "Send a reconnaissance sub-agent into the frozen project to answer one question about layout, entry points, data stores, security boundaries or reading order; returns navigation leads only, never evidence. A question this run already asked is answered from its pinned brief without reconnaissance; only new questions count against the per-round limit. Set revise=true only for a brief you have reason to believe is wrong -- it re-runs that one question and supersedes the pinned record.",
+        output_fields=('summary', 'uncertainties'),
         question=Arg("string", "关于布局、入口点、数据存储、安全边界或阅读顺序的一个问题。"),
         revise=Arg("boolean", "只在该问题的既有简报有理由被认为是错的时设为 True：会重跑这一个问题并取代旧记录。默认 False。", False),
         output_format="json",
@@ -373,16 +449,16 @@ WORKER_TOOLS: tuple[ToolSpec, ...] = (
         "read_source",
         "Read original snapshot lines; path is snapshot-relative, start/end are inclusive original line numbers.",
         path=Arg("string", "快照内相对路径。"),
-        start=Arg("integer", "起始行号（1-based，含）。"),
-        end=Arg("integer", "结束行号（含）。"),
+        start=Arg("integer", "起始行号（1-based，含）。", minimum=1),
+        end=Arg("integer", "结束行号（含）。", minimum=1),
     ),
     spec(
         "search_code",
-        "Find a literal symbol, call or variable in the project's text files; query <=200 characters; "
+        "Find a literal symbol, call or variable, NOT a regex/OR expression; use separate queries for separate terms; query <=200 characters; "
         "path optionally narrows to one snapshot-relative file or directory; set include_dependencies to "
         "also scan vendor/build trees.",
-        query=Arg("string", "要查找的字面量符号、调用或变量，<= 200 字符。"),
-        path=Arg("any", "可选的快照内相对文件或目录；为 None（默认）时搜索整个项目。", None),
+        query=Arg("string", "要查找的字面量符号、调用或变量，<= 200 字符。", max_length=200),
+        path=Arg("any", "可选的快照内相对文件或目录；为 None（默认）时搜索整个项目。", None, value_type="string"),
         include_dependencies=Arg("boolean", "是否一并扫描依赖/vendor 目录。默认 False。", False),
     ),
     spec(
@@ -398,6 +474,7 @@ WORKER_NAVIGATION_TOOLS = tuple(
     ToolSpec(
         name=item.name,
         output_format="json",
+        output_fields=item.output_fields,
         description=(
             "Return JSON paths and metadata within this worker's frozen snapshot scope. "
             + ("List directories and files below a project-relative directory. " if item.name == "list_tree"
@@ -423,7 +500,7 @@ PEER_TRACE_TOOLS: tuple[ToolSpec, ...] = (
         "get_peer_trace",
         "Read selected public trace entries for one other dynamic task in this run.",
         task_key=Arg("string", "另一个动态任务的 task_key。"),
-        event_ids=Arg("array", "要读取的事件 id 列表；留空表示该任务的全部公开条目。默认空列表。", []),
+        event_ids=Arg("array", "要读取的事件 id 列表；留空表示该任务的全部公开条目。默认空列表。", [], item_type="integer", max_items=24),
         output_format="json",
     ),
 )
@@ -440,22 +517,22 @@ RECON_TOOLS: tuple[ToolSpec, ...] = (
         "list_tree",
         "列出某个项目相对路径下的目录与文件；了解项目布局最便宜的方式。",
         path=Arg("string", "项目内相对目录；空串表示项目根。默认空串。", ""),
-        depth=Arg("integer", "展开层数。默认 2。", 2),
+        depth=Arg("integer", "展开层数，宿主最多展开 3 层。默认 2。", 2, minimum=1),
         output_format="json",
     ),
     spec(
         "find_files",
         "按名称、glob（例如 **/*.js）或子串定位文件；只返回路径与元数据。",
         pattern=Arg("string", "文件名子串或 glob，例如 **/*.js。"),
-        limit=Arg("integer", "最多返回多少条。默认 20。", 20),
+        limit=Arg("integer", "最多返回多少条，宿主上限 40。默认 20。", 20, minimum=1),
         output_format="json",
     ),
     spec(
         "grep",
         "在项目文本文件中查找字面量字符串或标识符，含依赖目录；query <= 200 字符；可指定快照内相对文件或目录。",
         route="search_code",
-        query=Arg("string", "要查找的字面量字符串或标识符，<= 200 字符。"),
-        path=Arg("any", "可选的快照内相对文件或目录；为 None（默认）时搜索整个项目。", None),
+        query=Arg("string", "要查找的字面量字符串或标识符，<= 200 字符。", max_length=200),
+        path=Arg("any", "可选的快照内相对文件或目录；为 None（默认）时搜索整个项目。", None, value_type="string"),
         include_dependencies=Arg("boolean", "是否一并搜索依赖/vendor 目录。默认 True。", True),
     ),
     spec(
@@ -463,8 +540,8 @@ RECON_TOOLS: tuple[ToolSpec, ...] = (
         "读取某个项目文本文件的原始行片段；二进制文件无法读取。每次调用有行数上限。",
         route="read_source",
         path=Arg("string", "快照内相对路径。"),
-        start=Arg("integer", "起始行号（1-based，含）。默认 1。", 1),
-        end=Arg("integer", "结束行号（含）；0 表示从 start 起读满上限。默认 0。", 0),
+        start=Arg("integer", "起始行号（1-based，含）。默认 1。", 1, minimum=1),
+        end=Arg("integer", "结束行号（含）；0 表示从 start 起读满上限。默认 0。", 0, minimum=0),
     ),
     spec(
         "file_summary",

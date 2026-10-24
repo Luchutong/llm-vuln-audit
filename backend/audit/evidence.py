@@ -8,8 +8,26 @@ report's "original line number" claim checkable.
 from __future__ import annotations
 
 import hashlib
+from difflib import get_close_matches
 
 MAX_REPORTED_ERRORS = 8
+
+
+def evidence_inventory(ranges: list[tuple[str, int, int]], limit: int = 20, max_bytes: int = 1200) -> str:
+    """Only ranges actually delivered; navigation can never grow this inventory."""
+    heading = "已读证据（路径均相对快照根，保留源码包根目录）："
+    if len(heading.encode("utf-8")) + 3 > max_bytes:
+        return ""
+    shown = []
+    for path, start, end in ranges[:limit]:
+        entry = f"{path}:{start}-{end}"
+        if len((heading + "；".join([*shown, entry])).encode("utf-8")) + 60 > max_bytes:
+            break
+        shown.append(entry)
+    text = heading + ("；".join(shown) or "无已列出范围")
+    omitted = len(ranges) - len(shown)
+    suffix = f"；另 {omitted} 段未列出" if omitted else ""
+    return text + suffix if len((text + suffix).encode("utf-8")) <= max_bytes else heading
 
 
 def seen_ranges(unit: dict, tool_reads: list[dict], *, exact: bool = False) -> list[tuple[str, int, int]]:
@@ -78,9 +96,17 @@ def validate_evidence(
         end = ref.get("end_line")
 
         if not isinstance(path, str) or path not in file_lines:
-            problems.append(f"evidence[{index}]: path {path!r} is not a file in this snapshot")
+            # Suggestions are drawn exclusively from delivered evidence. An unseen
+            # similarly named file must not become visible through a rejection hint.
+            visible = sorted({item[0] for item in ranges})
+            candidates = []
+            if isinstance(path, str):
+                candidates = [item for item in visible if item.endswith("/" + path)]
+                candidates = candidates[:3] or get_close_matches(path, visible, n=3, cutoff=0.6)
+            hint = f"; 已读候选路径（需原样引用并核对行号）: {', '.join(candidates)}" if candidates else ""
+            problems.append(f"evidence[{index}]: path {path!r} is not a file in this snapshot{hint}")
             continue
-        if not isinstance(start, int) or not isinstance(end, int) or start < 1 or end < start:
+        if type(start) is not int or type(end) is not int or start < 1 or end < start:
             problems.append(f"evidence[{index}]: line range {start!r}-{end!r} is not a valid range")
             continue
         if end > file_lines[path]:

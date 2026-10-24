@@ -173,3 +173,36 @@ def test_artifact_manifest_keeps_only_safe_entries():
         }
     )
     assert manifest == [{"name": "out.txt", "sha256": "abc", "size": 3}]
+
+
+def test_context_lifecycle_and_identity_contract():
+    seen = []
+    def handler(request):
+        seen.append((request.method, request.url.path, dict(request.url.params), json.loads(request.content) if request.content else None))
+        return httpx.Response(200, json={'ok': True, 'context_id': 'stable-context'})
+    client = _client(handler)
+    async def exercise():
+        await client.create_context(run_id='r1', finding_id='f1', context_id='stable-context')
+        await client.prepare_target(context_id='stable-context', identity='bob', expected_role='customer', expected_state={'balance': '100.00'})
+        await client.target_status(context_id='stable-context', identity='guest')
+        await client.run_job(target='lab30', language='python', script='print(1)', context_id='stable-context', identity='bob', job_id='stable-job')
+        await client.http_observe(target='lab30', method='GET', path='/', context_id='stable-context', identity='guest')
+        await client.browser_check(target='lab30', path='/', context_id='stable-context', identity='admin')
+        await client.close_context('stable-context')
+    _run(client, exercise)
+    assert seen[0][3] == {'target':'lab30', 'run_id':'r1', 'finding_id':'f1', 'context_id':'stable-context'}
+    assert seen[1][3]['expected_state'] == {'balance':'100.00'}
+    assert seen[2][2] == {'context_id':'stable-context', 'identity':'guest'}
+    assert seen[3][3]['job_id'] == 'stable-job'
+    assert seen[3][3]['identity'] == 'bob'
+    assert seen[4][3]['identity'] == 'guest'
+    assert seen[5][3]['identity'] == 'admin'
+    assert seen[6][:2] == ('DELETE', '/v1/verification-contexts/stable-context')
+
+
+def test_busy_context_has_explicit_status_code():
+    from audit.poc_runner import PocRunnerBusy
+    client = _client(lambda _: httpx.Response(409, json={'detail':'target busy'}))
+    with pytest.raises(PocRunnerBusy) as error:
+        _run(client, lambda: client.create_context(run_id='r', finding_id='f'))
+    assert error.value.status_code == 409

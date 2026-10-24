@@ -9,7 +9,9 @@ POC 脚本，并把有界输出、退出码和产物清单回传。审计应用�
 | 接口 | 作用 |
 |---|---|
 | `GET /healthz` | 无需令牌；返回服务版本、目标与 `php`/`python`/浏览器能力 |
-| `POST /v1/targets/lab30/prepare` | 等待靶场、登录并确认会员会话，不重置数据，会话 cookie 只留在 runner 内存 |
+| `POST /v1/verification-contexts` | 绑定 `target/run_id/finding_id`，独占靶场；可由宿主提供 `context_id` 幂等重试创建 |
+| `DELETE /v1/verification-contexts/{id}` | 停止接收新动作；已有动作结束后释放靶场 |
+| `POST /v1/targets/lab30/prepare` | 根据 `context_id/identity` 登录，核对 `/account/me.php`，不重置数据 |
 | `GET /v1/targets/lab30/status` | 可达性、认证状态、登录会员 |
 | `POST /v1/jobs` | 在白名单语言（`php`/`python`）中执行一段脚本 |
 | `GET /v1/jobs/{id}` | 作业状态与有界 stdout/stderr |
@@ -19,9 +21,31 @@ POC 脚本，并把有界输出、退出码和产物清单回传。审计应用�
 
 除 `/healthz` 外都需要 `Authorization: Bearer $POC_RUNNER_TOKEN`。
 
-`/v1/browser/check` 复用 `prepare` 建立的登录会话：cookie 按目标 URL 注入 Chromium，
+所有 prepare/status/作业/HTTP/浏览器调用均要求有效的 `context_id`，没有上下文的旧客户端会被拒绝。
+`identity` 可选 `guest/alice/bob/operator/admin`，默认 Alice；每个上下文、每个身份使用独立 Cookie。
+`/v1/browser/check` 复用对应上下文和身份的登录会话：cookie 按目标 URL 注入 Chromium，
 因此能直接打开需要登录的 Lab30 漏洞页面并捕获 `alert`。会话 cookie 只存在于 runner
 内存，既不会返回给模型，也不会写入作业目录。
+
+会员必须匹配已配置用户名及固定角色（Alice、Bob 为 `customer`），访客必须在会员接口得到401。
+准备接口可附加 `expected_state`，支持 `id/balance/tier/nickname/homepage` 的严格等值断言；数值与字符串须符合
+实际 JSON 类型，例如商城余额为 `"100.00"`。同一上下文只能追加断言，不能改写或清空既有断言。
+每个动作前重查身份及账号前提，结束后返回 `precondition/postcondition/state_changes`。
+前提不符返回 `precondition_failed`，不执行脚本或发送实验请求。前一实验已观测到的账号变化会阻断后续实验，
+直到人工重置或恢复；会话隔离不恢复数据库、文件或用户通过浏览器改变的状态。
+
+脚本环境中的 `LAB30_USER/LAB30_PASSWORD/LAB30_IDENTITY` 仅对应选定身份，不继承宿主凭据。
+Alice 沿用 `LAB30_USER/LAB30_PASSWORD`；其他身份分别使用 `LAB30_BOB_*`、`LAB30_OPERATOR_*`、`LAB30_ADMIN_*`。
+
+脚本提交可提供稳定 `job_id`，作业在执行前登记为 `running`，重复同一请求只返回原作业。
+宿主请求超时应通过 `GET /v1/jobs/{id}` 查询，不重新执行。HTTP、浏览器同样登记作业，HTTP 状态码与作业执行状态分别保留。
+关闭尚未知晓的宿主上下文 ID 会持久保存取消标记，阻止超时创建请求迟到后重新占用靶场；取消标记保留24小时。
+正常退出及超时均清理整个作业进程组，防止后台子进程跨实验继续修改靶场。
+无法确认进程组结束时，作业保留 `unresolved`、`process_confirmed_stopped=false`，靶场租约不会释放。
+
+runner 进程重启后，租约日志中未关闭的上下文标为 `unresolved`，旧上下文及新实验均不能执行。
+应先确认旧进程及子进程结束，再人工重新创建 runner 容器以重建 `/tmp`，并重置或核实商城；不得只重提交丢失的作业。
+健康接口的 `capabilities.verification_contexts=true` 用于宿主检查版本兼容性。
 
 ## 限额
 

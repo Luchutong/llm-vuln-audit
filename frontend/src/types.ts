@@ -210,7 +210,7 @@ export interface PocReadiness {
   reason: string;
   message: string;
   checked_at: string;
-  capabilities: { supported_targets: string[]; browser: boolean };
+  capabilities: { supported_targets: string[]; browser: boolean; verification_contexts?: boolean };
 }
 export interface ExecutionSummary {
   policy_version?: string;
@@ -472,6 +472,13 @@ export interface VerificationJob {
   job_id: string;
   kind: 'script' | 'http' | 'browser' | string;
   exit_code?: number | null;
+  execution_status?: string;
+  timed_out?: boolean;
+  http_status?: number | null;
+  script?: string;
+  language?: string;
+  status?: string;
+  precondition?: Record<string, unknown>;
   duration_ms?: number | null;
   created_at?: string;
   request?: Record<string, unknown>;
@@ -480,14 +487,24 @@ export interface VerificationJob {
 export interface POC { filename: string; language: string; script: string; instructions: string; normal_input: string; attack_input: string; expected_result: string }
 export type Verdict = 'confirmed' | 'rejected' | 'uncertain';
 export type Conclusion = 'candidate' | 'no_candidate' | 'insufficient_context';
-export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'not_triggered' | 'not_run' | 'other_error';
+export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'not_triggered' | 'not_run' | 'other_error' | 'timeout' | 'precondition_failed';
 export type VerificationStatus = 'verified' | 'rejected' | 'inconclusive' | 'not_applicable' | 'environment_unavailable' | 'unverified' | 'stale';
 /** Where a verification row came from: the isolated POC agent, or a pre-migration human record. */
 export type VerificationSource = 'poc_agent' | 'legacy_human';
 export interface VerificationArtifact { name?: string; path?: string; sha256?: string; size?: number }
 export interface VerificationTarget { name?: string; base_url?: string; security?: string; version?: string; prepared_at?: string }
-export interface VerificationAgent { jobs?: string[]; summary?: string; reason?: string; usage?: Record<string, unknown>; policy?: Record<string, unknown> }
-export interface Verification { id?: string; created_at?: string; source?: VerificationSource; status?: VerificationStatus; execution_status?: ExecutionStatus; verdict?: Verdict; original_script?: string; modified_script: string; modification_notes: string; target_version: string; command: string; expected_result: string; normal_observation: string; attack_observation: string; browser_execution: boolean; notes: string; files?: (string | {name?: string; filename?: string; path?: string; url?: string; stored?: string})[]; target?: VerificationTarget; agent?: VerificationAgent; artifacts?: VerificationArtifact[] }
+export interface VerificationEvidenceReference { job_id: string; channel: string; excerpt: string }
+export interface VerificationAgent {
+  jobs?: string[]; summary?: string; reason?: string; usage?: Record<string, unknown>; policy?: Record<string, unknown>;
+  context_id?: string;
+  /** Runner-owned identity/precondition observations; absent on legacy records. */
+  preconditions?: Record<string, unknown> | unknown[];
+  state_changes?: Record<string, unknown> | unknown[];
+  normal_evidence?: VerificationEvidenceReference[];
+  attack_evidence?: VerificationEvidenceReference[];
+  job_results?: VerificationJob[];
+}
+export interface Verification { id?: string; created_at?: string; source?: VerificationSource; status?: VerificationStatus; execution_status?: ExecutionStatus; verdict?: Verdict; original_script?: string; modified_script: string; modification_notes: string; target_version: string; command: string; expected_result: string; normal_observation: string; attack_observation: string; browser_execution: boolean; notes: string; files?: (string | {name?: string; filename?: string; path?: string; url?: string; stored?: string})[]; target?: VerificationTarget; agent?: VerificationAgent; artifacts?: VerificationArtifact[]; context_id?: string; preconditions?: Record<string, unknown> | unknown[]; state_changes?: Record<string, unknown> | unknown[]; normal_evidence?: VerificationEvidenceReference[]; attack_evidence?: VerificationEvidenceReference[] }
 export interface Finding extends CvssFields {
   file_path: string;
   symbol: string;

@@ -8,6 +8,8 @@ import {
 import type { ToolSpan, TraceContext, TraceEntry, TraceFilters, TraceGroup } from '../trace';
 import { Disclosure } from './Disclosure';
 import { LongContent } from './LongContent';
+import { toolOutcome } from '../diagnostics';
+import { AgentDiagnostics, ToolOutcome } from './AgentDiagnostics';
 
 const LABELS: Record<string, string> = {
   run_started: '运行开始', run_finished: '运行结束', run_failed: '运行失败',
@@ -36,7 +38,7 @@ const LABELS: Record<string, string> = {
   planner_task_completed: '动态任务完成', planner_task_exhausted: '动态任务方向耗尽',
   planner_task_blocked: '动态任务受阻', planner_task_cancelled: '动态任务取消',
   run_pause_requested: '暂停请求', run_paused: '运行已暂停', run_resumed: '运行已继续',
-  agent_code: '模型代码动作', agent_parse_error: '输出格式错误',
+  agent_code: '模型代码动作', agent_parse_error: '动作解析错误', agent_execution_error: '动作执行错误', agent_error_summary: '纠错统计',
   planner_round_failed: '规划回合未产出可用决策',
   planner_coverage_prepared: '读取覆盖统计已准备', planner_situational_prepared: '本轮任务态势已准备',
   planner_decision_sanitized: '规划决策字段已清洗', planner_tools_withdrawn: '确认预算耗尽，工具已收回',
@@ -53,6 +55,8 @@ const LABELS: Record<string, string> = {
   poc_verification_recorded: '自动验证结论记录', poc_verification_skipped: '自动验证跳过',
   poc_verification_unavailable: '自动验证环境不可用',
   poc_execution_finished: 'POC 执行阶段结束', poc_conclusion_failed: 'POC 结论生成失败',
+  poc_preconditions_checked: '实验前提检查', poc_precondition_failed: '实验前提不符', poc_context_blocked: '验证上下文受阻',
+  poc_context_acquired: '取得靶场验证租约', poc_context_released: '释放靶场验证租约',
   project_findings_baseline_frozen: '项目台账基线已冻结',
   project_finding_created: '写入项目台账', project_finding_rediscovered: '项目台账再次命中',
   project_finding_corrected: '项目台账结论更正', project_finding_retracted: '台账结论撤回',
@@ -71,7 +75,6 @@ const PHASES: Record<string, string> = {
 };
 
 const ROLES: Record<string, string> = { planner: 'Planner', worker: 'Worker', recon: '侦察子 Agent', poc: 'POC Agent', host: '运行服务' };
-const ERROR_STATUSES = new Set(['error', 'failed', 'timeout', 'invalid_arguments']);
 const STATUS_LABELS: Record<string, string> = {
   ok: '成功', success: '成功', completed: '完成', error: '失败', failed: '失败', timeout: '超时',
   context_missing: '缺少上下文', repeated: '重复调用', no_progress: '无新增进展',
@@ -100,11 +103,11 @@ function timeLabel(value: string): string {
 function toolStatus(span: ToolSpan, active: boolean): { text: string; tone: string } {
   if (!span.result) return { text: active ? '等待结果' : '结果未记录', tone: active ? 'active' : 'warning' };
   const status = scalar(span.result.payload.status);
+  const outcome = toolOutcome(span.result.payload)!;
   if (status === 'cancelled') return { text: '已取消', tone: 'warning' };
-  if (ERROR_STATUSES.has(status) || span.result.payload.error || span.result.payload.error_type) {
-    return { text: STATUS_LABELS[status] ?? '失败', tone: 'error' };
-  }
-  return { text: STATUS_LABELS[status] ?? shortText(status || '已返回', 24),
+  if (outcome.failed) return { text: outcome.callText, tone: 'error' };
+  if (outcome.executionFailed) return { text: '调用完成 · 作业需检查', tone: 'warning' };
+  return { text: outcome.cached ? '已返回 · 复用结果' : ['ok', 'success', 'completed'].includes(status) ? '调用完成' : STATUS_LABELS[status] ?? shortText(status || '已返回', 24),
     tone: ['ok', 'success', 'completed'].includes(status) ? 'success' : 'warning' };
 }
 
@@ -133,9 +136,10 @@ function ToolCard({ span, active, names }: { span: ToolSpan; active: boolean; na
       </span>
     }>
       <div className="trace-tool-content">
+        <ToolOutcome payload={result} />
         {!span.call && <p className="trace-notice">此历史记录仅保留了返回事件，未找到对应调用。</p>}
         {!span.result && <p className="trace-notice">{active ? '调用已记录，等待服务端返回。' : '事件日志中没有保存此调用的结果。'}</p>}
-        {call && <Disclosure title="调用参数"><LongContent value={call.args ?? {}} label="已保存的参数" /></Disclosure>}
+        {Boolean(call || result?.args) && <Disclosure title="调用参数"><LongContent value={call?.args ?? result?.args ?? {}} label="已保存的参数" /></Disclosure>}
         {result && <Disclosure title="已保存的返回预览">
           <p className="trace-notice">服务端受限预览：最多保存 1200 字符；这里展示已保存片段。</p>
           {typeof result.chars === 'number' && <p className="trace-notice">原始返回共 {result.chars.toLocaleString()} 字符{typeof result.new_lines === 'number' ? ` · 新增 ${result.new_lines} 行源码证据` : ''}。</p>}
@@ -150,7 +154,8 @@ function ToolCard({ span, active, names }: { span: ToolSpan; active: boolean; na
           recon_invocation: context.invocation || undefined,
           span_id: call?.span_id ?? result?.span_id, call_id: call?.call_id ?? result?.call_id,
           call_event: span.call?.event.id, result_event: span.result?.event.id,
-          status: result?.status, duration_ms: span.durationMs,
+          status: result?.status, duration_ms: span.durationMs, phase: result?.phase ?? call?.phase,
+          error_code: result?.error_code, retryable: result?.retryable, cached: result?.cached ?? result?.cache_hit,
         }} label="持久化轨迹标识" /></Disclosure>
       </div>
     </Disclosure>
@@ -190,6 +195,11 @@ function EventCard({ entry }: { entry: TraceEntry }) {
     </span>
   }>
     <div className="trace-event-content">
+      {['agent_parse_error', 'agent_execution_error'].includes(event.kind) && <>
+        {scalar(payload.error) && <LongContent value={payload.error} label="错误原因" />}
+        {scalar(payload.hint) && <LongContent value={payload.hint} label="修正建议" />}
+        {payload.diagnostics !== undefined && <LongContent value={payload.diagnostics} label="动作解析诊断" />}
+      </>}
       {event.kind === 'planner_coverage_prepared' && <p className="trace-notice">读取覆盖率是宿主计算的导航统计，需要结合源码引用复核结论。</p>}
       {event.kind === 'recon_brief_prepared' && <p className="trace-notice">侦察简报提供项目导航线索，结论仍需 Worker 读取原始源码后形成证据。</p>}
       {event.kind === 'planner_investigation_reused' && <p className="trace-notice">此事件复用了已有固定调查，没有再次执行该主题的侦察或查询。</p>}
@@ -279,6 +289,7 @@ export function Timeline({ events, detail, compact = false }: { events: AuditEve
       <span className="trace-overview-title"><Workflow size={17} />执行活动</span>
       <span className="trace-counts">{tools.length} 次工具活动 · {codeCount} 个代码动作 · {allGroups.filter((group) => group.context.role === 'worker').length} 个工作轮次 · {events.length} 条事件{state === 'paused' ? ' · 已暂停，可继续' : ''}</span>
     </div>
+    <AgentDiagnostics events={events} />
     <Disclosure className="trace-filter-panel" title={`筛选轨迹 · ${matching.length} 条匹配`} defaultOpen={!compact}>{controls}</Disclosure>
     <div className="trace-groups">{groups.length ? groups.map((group) => <TraceGroupCard key={group.key} group={group} current={currentGroups.has(group.key)} names={names} running={running} />)
       : <div className="trace-empty">没有符合筛选条件的事件。</div>}</div>

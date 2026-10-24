@@ -69,7 +69,8 @@ OBJECTIVES = {
 
 # 后端 scenario 字段只接受这三个分场景；all 是本地全量模式，不下发给后端。
 SPECIFIC_SCENARIOS = ("sqli", "xss_r", "command_injection")
-TERMINAL = {"met", "unmet", "failed", "cancelled", "stopped", "error"}
+TERMINAL = {"completed", "unreachable", "inconclusive", "interrupted", "failed", "cancelled",
+            "met", "unmet", "stopped", "error"}
 SCENARIOS = ("all",) + SPECIFIC_SCENARIOS
 
 
@@ -101,7 +102,7 @@ def upload(client: httpx.Client, archive: Path) -> dict:
 
 
 def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, objective: str | None,
-               iterations: int, max_rounds: int, attempts: int) -> dict:
+               iterations: int, max_rounds: int, attempts: int, poc_mode: str = "auto") -> dict:
     # ``all`` (or None) is the local full-audit mode: do not send a scenario, and
     # turn off stop-on-achieved ourselves so the planner keeps settling every class.
     specific = scenario if scenario in SPECIFIC_SCENARIOS else None
@@ -110,12 +111,12 @@ def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, obj
         "max_iterations": iterations,
         "max_planner_rounds": max_rounds,
         "max_total_attempts": attempts,
-        "stop_on_achieved": specific is None,
+        "stop_on_achieved": False,
     }
     if specific:
         task["scenario"] = specific
     print(f"[2/4] 创建审计任务（scenario={specific or 'all 全量'}）")
-    response = client.post("/api/runs", json={"snapshot_id": snapshot_id, "task": task})
+    response = client.post("/api/runs", json={"snapshot_id": snapshot_id, "task": task, "poc_mode": poc_mode})
     if response.status_code >= 400:
         sys.exit(f"    创建失败 {response.status_code}: {response.text[:600]}")
     run = response.json()
@@ -130,7 +131,7 @@ def poll(client: httpx.Client, run_id: str, max_wait: int, interval: int) -> dic
     while True:
         bundle = client.get(f"/api/runs/{run_id}").json()
         run = bundle["run"]
-        findings = [f for f in bundle.get("findings") or [] if f.get("kind") == "vulnerability"]
+        findings = [f for f in bundle.get("findings") or [] if f.get("finding_kind", f.get("kind")) == "vulnerability"]
         goal = bundle.get("goal") or {}
         line = (
             f"    {run['status']:<10} 单元 {run.get('completed_units')}/{run.get('total_units')}"
@@ -149,7 +150,7 @@ def poll(client: httpx.Client, run_id: str, max_wait: int, interval: int) -> dic
 
 def summarize(bundle: dict) -> None:
     run = bundle["run"]
-    findings = [f for f in bundle.get("findings") or [] if f.get("kind") == "vulnerability"]
+    findings = [f for f in bundle.get("findings") or [] if f.get("finding_kind", f.get("kind")) == "vulnerability"]
     print()
     print(f"结果: {run['status']} · 目标 {((bundle.get('goal') or {}).get('status')) or '—'}"
           f" · 漏洞候选 {len(findings)} 条")
@@ -167,7 +168,7 @@ def summarize(bundle: dict) -> None:
 
 
 def score(run_id: str | None, base: str, scenario: str | None, out: Path,
-          *, offline: Path | None = None, check_severity: bool = False, check_cvss: bool = False,
+          *, offline: Path | None = None, check_severity: bool = True, check_cvss: bool = True,
           klass: str | None = None) -> int:
     print()
     print("[4/4] 对数据集评分" + ("（离线 findings）" if offline else ""))
@@ -204,6 +205,7 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=5, help="轮询间隔秒数")
     parser.add_argument("--out", default=None, help="评分明细输出路径")
     parser.add_argument("--no-score", action="store_true", help="只跑审计不评分")
+    parser.add_argument("--poc-mode", choices=("off", "auto", "required"), default="auto", help="自动验证策略，默认 auto")
     parser.add_argument("--follow", default=None, help="接入已有 run（跳过上传与创建）")
     parser.add_argument("--offline", default=None,
                         help="离线模式：直接对已导出的 findings.json 评分，不起服务、不跑模型")
@@ -240,7 +242,7 @@ def main() -> int:
         else:
             snapshot = upload(client, Path(args.zip))
             run = create_run(client, snapshot["id"], args.scenario, args.objective,
-                             args.iterations, args.max_rounds, args.attempts)
+                             args.iterations, args.max_rounds, args.attempts, args.poc_mode)
             run_id = run["id"]
 
         bundle = poll(client, run_id, args.max_wait, args.interval)

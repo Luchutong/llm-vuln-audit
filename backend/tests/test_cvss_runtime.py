@@ -1,7 +1,10 @@
 """Host CVSS calculation, provenance, project revisions and migration."""
+import threading
+
 import pytest
 from audit.cvss31 import BASE
 from audit.cvss_assessment import propose
+from audit.cvss_store import CvssConflict
 from audit.evidence import validate_evidence
 from audit.db import Store
 from test_project_findings_api import state, project, run, finding, verification
@@ -182,6 +185,76 @@ def test_pre_cvss_database_is_backed_up_before_additive_migration(tmp_path):
     store.close()
     store=Store(path);store.close()
     assert len(list(tmp_path.glob('legacy.db.pre-cvss31-*.bak')))==1
+
+
+def test_concurrent_manual_saves_serialise_and_lose_explicitly(state):
+    p=project(state.store);r,_=run(state.store,p);ledger,_=finding(state.store,p,r)
+    row=state.store.get_project_finding(ledger)
+    versions={'expected_revision':row['revision'],
+              'expected_assessment_revision':row['cvss_assessment']['assessment_revision']}
+    barrier=threading.Barrier(2);outcomes=[]
+    def save():
+        rating=propose(metrics(True),source='manual')
+        barrier.wait()
+        try:
+            state.store.update_project_cvss(ledger,rating,reason='并发修订同一结论',**versions)
+            outcomes.append('saved')
+        except CvssConflict:
+            outcomes.append('conflict')
+    threads=[threading.Thread(target=save) for _ in range(2)]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join(timeout=10)
+    assert sorted(outcomes)==['conflict','saved']
+    current=state.store.get_project_finding(ledger)
+    assert current['cvss']['base_score']==7.5
+    assert current['cvss_assessment']['assessment_revision']==2
+    assert state.store.project_cvss_history(ledger)['total']==2
+
+
+def test_unchanged_conclusion_keeps_ledger_rating_and_new_run_keeps_its_own(state):
+    from audit.project_findings import ledger_record
+    p=project(state.store);r,snapshot=run(state.store,p);ledger,fid=finding(state.store,p,r)
+    record=state.store.get_finding(fid)
+    record.update(propose(metrics(),snapshot_id=snapshot,run_id=r))
+    state.store.add_finding(record)
+    state.store.merge_project_finding(p,r,ledger_record(record))
+    assert state.store.get_project_finding(ledger)['cvss']['base_score']==7.5
+    # A second run re-discovers the same conclusion but rates it differently.  The
+    # ledger's rating stays with its conclusion version; the new run keeps its own.
+    r2,snapshot2=run(state.store,p,'repacked.zip');same,new_fid=finding(state.store,p,r2)
+    assert same==ledger
+    changed=metrics();changed['C']['value']='N'
+    record2=state.store.get_finding(new_fid)
+    record2.update(propose(changed,snapshot_id=snapshot2,run_id=r2))
+    state.store.add_finding(record2)
+    state.store.merge_project_finding(p,r2,ledger_record(record2))
+    current=state.store.get_project_finding(ledger)
+    assert current['revision']==1 and current['cvss']['base_score']==7.5
+    assert current['cvss_assessment']['run_id']==r
+    fresh=state.store.get_finding(new_fid)
+    assert fresh['cvss']['base_score']==0 and fresh['severity']=='none'
+    # Only the first automatic rating and the initial legacy record: the later
+    # rediscovery added a run relation, not a ledger rating revision.
+    assert state.store.project_cvss_history(ledger)['total']==2
+
+
+def test_conclusion_change_replaces_the_rating_and_marks_it_not_applicable(state):
+    from audit.project_findings import ledger_record
+    p=project(state.store);r,snapshot=run(state.store,p);ledger,fid=finding(state.store,p,r)
+    record=state.store.get_finding(fid)
+    record.update(propose(metrics(),snapshot_id=snapshot,run_id=r))
+    state.store.add_finding(record)
+    state.store.merge_project_finding(p,r,ledger_record(record))
+    r2,_=run(state.store,p,'corrected.zip');finding(state.store,p,r2,corrected=True)
+    current=state.store.get_project_finding(ledger)
+    assert current['revision']==2 and current['cvss'] is None
+    assert current['cvss_assessment']['status'] in ('needs_information','legacy_unrated')
+    history=state.store.project_cvss_history(ledger)['items']
+    applicable=[item for item in history if item['applicable']]
+    superseded=[item for item in history if not item['applicable'] and item['cvss']]
+    assert len(applicable)==1 and superseded
+    assert superseded[0]['cvss']['base_score']==7.5
+    assert superseded[0]['cvss_assessment']['status']=='stale'
 
 
 def test_manual_source_refs_use_actual_snapshot_and_reject_invented_lines(state,tmp_path):

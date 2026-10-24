@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 import uuid
 from dataclasses import dataclass, replace
 
@@ -16,7 +17,7 @@ from .config import ModelConfig, Settings
 from .db import Store, now
 from .events import EventBus
 from .poc_agent import PocDeps, run_poc_agent
-from .poc_runner import PocRunnerClient, PocRunnerError, PocRunnerUnavailable
+from .poc_runner import PocRunnerClient, PocRunnerError, PocRunnerUnavailable, PocRunnerBusy
 from .poc_readiness import PocReadinessService, normalize_poc_mode
 from .poc_store import poc_target_key
 from .runtime import StopAudit
@@ -244,9 +245,7 @@ class PocVerifier:
             client = self._make_client(policy)
             if not readiness.get("capabilities", {}).get("browser", True):
                 policy = replace(policy, browser=False)
-            prepared = await client.prepare_target(policy.target, reset=False)
-            if not prepared.get("ok", False):
-                raise PocRunnerUnavailable("target is not ready for verification")
+            prepared = {}  # Every finding acquires and prepares its own verification context.
         except (PocRunnerUnavailable, PocRunnerError):
             if save_state:
                 save_state(run_id, {**readiness, "available": False, "reason": "runner_unhealthy",
@@ -301,6 +300,54 @@ class PocVerifier:
         return summary
 
     async def verify_finding(
+        self, run: dict, finding: dict, policy: PocPolicy, prepared: dict,
+        client: PocRunnerClient, *, model_config: ModelConfig,
+        attempt_key: str | None = None, target_key: str = "",
+    ) -> tuple[PocVerificationResult, str, dict, dict[str, bytes], list[dict]]:
+        context_id = uuid.uuid4().hex
+        deadline = time.monotonic() + policy.max_seconds
+        run_id = str(run.get("id") or "")
+        try:
+            while True:
+                if not self._allowed(run_id, run.get("execution_epoch")):
+                    raise StopAudit("interrupted", "排队中的验证已停止")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("等待独占验证环境的预算已用尽")
+                try:
+                    await asyncio.wait_for(client.create_context(
+                        target=policy.target, run_id=run_id, finding_id=str(finding.get("id") or ""),
+                        context_id=context_id,
+                    ), timeout=min(remaining, 10))
+                    break
+                except PocRunnerBusy:
+                    await asyncio.sleep(min(.5, max(.01, remaining)))
+            prepared = await asyncio.wait_for(client.prepare_target(
+                policy.target, reset=False, context_id=context_id, identity="alice",
+            ), timeout=max(.01, min(10, deadline - time.monotonic())))
+            remaining_policy = replace(policy, max_seconds=max(1, int(deadline - time.monotonic())))
+            return await self._verify_with_context(
+                run, finding, remaining_policy, prepared, client, model_config=model_config,
+                attempt_key=attempt_key, target_key=target_key, context_id=context_id,
+            )
+        except (PocRunnerUnavailable, PocRunnerError, TimeoutError) as exc:
+            result = PocVerificationResult(
+                status="inconclusive", summary="验证环境未能准备完成，未执行新实验。",
+                evidence_notes=("目标正在被其他验证占用或实验前提无法核实：" + type(exc).__name__),
+            )
+            record = self._record(run, finding, policy, result, prepared={"context_id": context_id},
+                                  jobs=[], artifacts={}, usage={}, reason="environment_unavailable",
+                                  attempt_key=attempt_key, target_key=target_key)
+            return result, "environment_unavailable", record, {}, []
+        finally:
+            # A closing context retains its lease until every accepted runner job ends.
+            # Shield cleanup against cancellation; it never authorizes another action.
+            try:
+                await asyncio.wait_for(asyncio.shield(client.close_context(context_id)), timeout=5)
+            except (Exception, asyncio.CancelledError):
+                pass
+
+    async def _verify_with_context(
         self,
         run: dict,
         finding: dict,
@@ -311,6 +358,7 @@ class PocVerifier:
         model_config: ModelConfig,
         attempt_key: str | None = None,
         target_key: str = "",
+        context_id: str = "",
     ) -> tuple[PocVerificationResult, str, dict, dict[str, bytes], list[dict]]:
         run_id = str(run.get("id") or "")
         finding_id = str(finding.get("id") or "")
@@ -343,9 +391,11 @@ class PocVerifier:
             max_jobs=policy.max_jobs,
             max_script_bytes=policy.max_script_bytes,
             should_stop=lambda: not self._allowed(run_id, run.get("execution_epoch")),
+            context_id=context_id,
             on_job=lambda job_id: self.store.note_poc_job(attempt_key, job_id, run.get("execution_epoch"))
                 if attempt_key and hasattr(self.store, "note_poc_job") else None,
         )
+        deps._remember_state(prepared)
         result, reason = await run_poc_agent(
             finding=finding,
             deps=deps,
@@ -367,7 +417,8 @@ class PocVerifier:
             )
         record = self._record(
             run, finding, policy, result,
-            prepared=prepared, jobs=deps.jobs, artifacts=deps.artifacts,
+            prepared={**prepared, "context_id": context_id, "preconditions": deps.preconditions, "state_changes": deps.state_changes},
+            jobs=deps.jobs, artifacts=deps.artifacts,
             usage=usage, reason=reason, attempt_key=attempt_key, target_key=target_key,
         )
         return result, reason, record, deps.artifacts, deps.jobs
@@ -400,9 +451,13 @@ class PocVerifier:
             stored_artifacts = [
                 item.model_dump() for item in result.artifacts
             ]
+        from .poc_agent import _successful_script, _successful_browser
+        succeeded = any(_successful_script(job) or _successful_browser(job) is not None for job in jobs)
         execution_status = (
-            "success" if result.status in {"verified", "rejected"}
-            else ("not_triggered" if jobs else ("not_run" if result.status in {"not_applicable", "environment_unavailable"} else "other_error"))
+            "success" if result.status in {"verified", "rejected"} else
+            "environment_mismatch" if any(item.get("ok") is False for item in prepared.get("preconditions", [])) and not succeeded else
+            "other_error" if jobs and not succeeded else
+            "not_triggered" if succeeded else "not_run"
         )
         record = {
             "id": verification_id,
@@ -424,6 +479,12 @@ class PocVerifier:
             "source": "poc_agent",
             "status": result.status,
             "agent": {
+                "context_id": prepared.get("context_id") or "",
+                "preconditions": prepared.get("preconditions") or [],
+                "state_changes": prepared.get("state_changes") or [],
+                "normal_evidence": [ref.model_dump() for ref in result.normal_evidence],
+                "attack_evidence": [ref.model_dump() for ref in result.attack_evidence],
+                "job_results": jobs,
                 "summary": result.summary[:4000],
                 "reason": reason,
                 "usage": usage,

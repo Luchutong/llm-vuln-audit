@@ -85,7 +85,7 @@ def test_required_run_freezes_lab30_target_without_contacting_models(state):
     ensure_project(state.store, snapshot)
     state.settings.poc = PocSettings(runner_url='http://test-runner')
     class Client:
-        async def health(self): return {'ok':True, 'supported_targets':['lab30']}
+        async def health(self): return {'ok':True, 'supported_targets':['lab30'], 'capabilities':{'verification_contexts':True}}
         async def aclose(self): pass
     state.poc_readiness = PocReadinessService(state.settings, client_factory=Client)
     result = asyncio.run(app_module.create_run(_request(state), CreateRunRequest(
@@ -126,7 +126,7 @@ def test_old_runner_requires_rebuild_before_lab30_is_ready():
 
 
 @pytest.mark.parametrize('login_status,member_status,success', [(302,200,True),(401,401,False),(302,401,False)])
-def test_prepare_authenticates_member_and_reuses_session(monkeypatch,login_status,member_status,success):
+def test_prepare_authenticates_member_and_reuses_session(tmp_path,monkeypatch,login_status,member_status,success):
     seen=[]
     def handle(request):
         seen.append(request)
@@ -137,22 +137,27 @@ def test_prepare_authenticates_member_and_reuses_session(monkeypatch,login_statu
             return httpx.Response(login_status,headers={'Location':'/','Set-Cookie':'SHOPSESSID=member-session; Path=/'})
         if request.url.path == '/auth/login.php': return httpx.Response(200,text='login')
         assert 'SHOPSESSID=member-session' in request.headers.get('cookie','')
+        if request.url.path == '/account/me.php':
+            return httpx.Response(member_status,json={'id':1,'username':'alice','role':'customer'})
         return httpx.Response(member_status,text='member')
     client=httpx.Client(base_url=runner.LAB30_URL,transport=httpx.MockTransport(handle),follow_redirects=False)
     monkeypatch.setattr(runner,'_lab30_client',lambda:client)
-    monkeypatch.setattr(runner,'_targets',{})
+    monkeypatch.setattr(runner,'WORKDIR',tmp_path)
+    monkeypatch.setattr(runner,'_contexts',{})
+    monkeypatch.setattr(runner,'_leases',{})
+    monkeypatch.setattr(runner,'_account_baselines',{})
     monkeypatch.setattr(runner,'LAB30_USER','alice');monkeypatch.setattr(runner,'LAB30_PASSWORD','Alice123!')
     try:
+        context=runner.create_context(runner.ContextRequest(run_id='test-run',finding_id='test-finding'))['context_id']
         if not success:
-            with pytest.raises(HTTPException):runner._prepare_sync()
-            assert not runner._targets
+            assert not runner._prepare_sync(context_id=context)['ok']
         else:
-            result=runner._prepare_sync()
+            result=runner._prepare_sync(context_id=context)
             assert result['ok'] and result['user']=='alice'
-            observed=runner._observe_sync(runner.HttpRequest(path='/orders/index.php'))
+            observed=runner._observe_sync(runner.HttpRequest(path='/orders/index.php',context_id=context))
             assert observed['status']==200
-            assert runner._prepared_cookies()==[{'name':'SHOPSESSID','value':'member-session','url':runner.LAB30_URL+'/'}]
-            assert asyncio.run(runner.target_status('lab30'))['authenticated']
+            assert runner._prepared_cookies(context)==[{'name':'SHOPSESSID','value':'member-session','url':runner.LAB30_URL+'/'}]
+            assert asyncio.run(runner.target_status('lab30',context_id=context))['authenticated']
             assert not any(request.url.path in {'/setup.php','/security.php'} for request in seen)
     finally:client.close()
 

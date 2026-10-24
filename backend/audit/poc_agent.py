@@ -25,6 +25,7 @@ from .poc_runner import PocRunnerClient, PocRunnerError, PocRunnerUnavailable
 from .runtime import AgentPolicy, Execution, StopAudit
 from .schemas import PocVerificationResult
 from .toolkit import Arg, FinalAnswerTool, ToolSpec, build_tools, spec
+from .tool_errors import public_value, classify_failure
 
 MAX_TOOL_REPLY = 16 * 1024
 MAX_SCRIPT = 32 * 1024
@@ -64,49 +65,62 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
         "Return the executable mapping for this finding: the Lab30 base URL, credential environment variable names, "
         "and the HTTP path that corresponds to the finding's source file. "
         "This is host data; it does not prove anything.",
+        output_format="json",
         finding_id=Arg("string", "本次验证的 finding id（必须与提示中的一致）。"),
     ),
     spec(
         "target_status",
         "Return target reachability, authentication state and version.",
+        output_format="json",
+        identity=Arg("string", "guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
     ),
     spec(
         "target_prepare",
-        "Refresh the Lab30 member session without resetting data. The host runs this once before "
-        "the agent starts; call it again only when the target state was disturbed.",
+        "Check a configured Lab30 identity in this verification context without resetting data. "
+        "A changed role blocks that identity; report missing preconditions instead of guessing credentials.",
+        output_format="json",
+        identity=Arg("string", "guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
+        expected_state=Arg("object", "需核实的账号前提，例如 {balance: '100.00', tier: 'standard'}；只声明源码要求的前提，不能猜测。默认空对象。", {}),
     ),
     spec(
         "run_poc",
         "Execute a POC script inside the isolated runner and return bounded stdout/stderr, exit code "
         "and artifact metadata. The script may reach only the Lab30 base URL. It must log in itself: "
         "the runner does not inject cookies into scripts.",
+        output_format="json",
         language=Arg("string", "php 或 python。"),
         script=Arg("string", "完整脚本内容（<= 32 KiB）。"),
-        timeout_seconds=Arg("integer", "执行超时（秒），1-120。默认 30。", 30),
-        artifacts=Arg("array", "脚本写出的、需要取回的相对文件名列表（<= 8 个）。默认空列表。", []),
+        timeout_seconds=Arg("integer", "执行超时（秒），1-120。默认 30。", 30, minimum=1, maximum=120),
+        artifacts=Arg("array", "脚本写出的、需要取回的相对文件名列表（<= 8 个）。默认空列表。", [], item_type="string", max_items=8),
+        identity=Arg("string", "脚本 LAB30_USER/PASSWORD 对应的已配置身份。默认 alice；无鉴权对照选 guest。", "alice"),
     ),
     spec(
         "http_observe",
         "Send one GET/POST to an allowlisted Lab30 path through the isolated runner and return status, "
         "redirects and a bounded body preview. Use it for server-side checks; use browser_check for "
         "anything that depends on JavaScript executing.",
+        output_format="json",
         path=Arg("string", "Lab30 内的绝对路径，例如 /auth/login.php 或 /catalog/detail.php?id=1。"),
         method=Arg("string", "GET 或 POST。默认 GET。", "GET"),
         body=Arg("string", "POST 请求体（application/x-www-form-urlencoded）。默认空串。", ""),
         content_type=Arg("string", "POST 的 Content-Type。默认 application/x-www-form-urlencoded。", "application/x-www-form-urlencoded"),
+        identity=Arg("string", "独立会话身份：guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
     ),
     spec(
         "browser_check",
         "Load an allowlisted Lab30 path in Chromium, wait, and return title, alert dialogs, console "
         "errors, body text, and a screenshot artifact. Required for XSS conclusions.",
+        output_format="json",
         path=Arg("string", "Lab30 内的绝对路径。"),
-        wait_ms=Arg("integer", "加载后等待毫秒数，0-10000。默认 1000。", 1000),
+        wait_ms=Arg("integer", "加载后等待毫秒数，0-10000。默认 1000。", 1000, minimum=0, maximum=10000),
         script=Arg("string", "可选：在页面中求值的 JavaScript，用于构造触发条件。默认空串。", ""),
+        identity=Arg("string", "独立会话身份：guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
     ),
     spec(
         "save_artifact",
         "Keep a small textual observation (<= 64 KiB) as an evidence artifact. Use it for derived "
         "analysis, not for replacing raw runner output.",
+        output_format="json",
         filename=Arg("string", "安全的文件名，例如 normal.txt。"),
         content=Arg("string", "要保存的文本内容。"),
     ),
@@ -134,6 +148,11 @@ class PocDeps:
     max_script_bytes: int = MAX_SCRIPT
     should_stop: Any = None
     on_job: Any = None
+    context_id: str = ""
+    preconditions: list[dict] = field(default_factory=list)
+    state_changes: list[dict] = field(default_factory=list)
+    job_scripts: dict[str, str] = field(default_factory=dict)
+    submission_unresolved: bool = False
 
     @property
     def last_script(self) -> str:
@@ -149,6 +168,10 @@ class PocDeps:
         ``host_truncated`` is a separate marker from the runner's own ``truncated``, which
         describes the script's output rather than the host's budget.
         """
+        if isinstance(payload, dict):
+            payload = {**payload, "ok": payload.get("ok") is not False and not bool(payload.get("error"))
+                       and (payload.get("precondition") or {}).get("ok") is not False
+                       and payload.get("status") != "precondition_failed"}
         text = json.dumps(payload, ensure_ascii=False, default=str)
         if len(text.encode("utf-8")) <= MAX_TOOL_REPLY:
             return text
@@ -160,6 +183,7 @@ class PocDeps:
             if len(text.encode("utf-8")) <= MAX_TOOL_REPLY:
                 return text
         return json.dumps({
+            "ok": False,
             "host_truncated": True,
             "error": "tool_reply_too_large",
             "message": "工具返回超出宿主限额，正文已省略；请缩小查询范围后重试。",
@@ -179,7 +203,7 @@ class PocDeps:
         execution.emit({
             "kind": "tool_call",
             "tool": name,
-            "args": args,
+            "args": public_value(args),
             "turn": execution.tools,
             "call_id": call_id,
             "span_id": span_id,
@@ -189,6 +213,8 @@ class PocDeps:
         status = "ok"
         error_type = ""
         text = ""
+        detail: dict = {}
+        failure: dict = {}
         try:
             handler = getattr(self, f"_{name}", None)
             if handler is None:
@@ -196,13 +222,17 @@ class PocDeps:
                 text = self._reply({"error": "unknown_tool", "tool": name})
             else:
                 text = await handler(args)
+                detail = json.loads(text)
+                if isinstance(detail, dict) and (detail.get("error") or detail.get("ok") is False):
+                    status = "precondition_failed" if detail.get("precondition", {}).get("ok") is False else "invalid_arguments"
                 if self.should_stop is not None and self.should_stop():
                     raise StopAudit("interrupted", "拒绝已停止 POC 的迟到工具结果")
         except asyncio.CancelledError:
             status = "cancelled"
             raise
-        except StopAudit:
-            status = "cancelled"
+        except StopAudit as exc:
+            status = "cancelled" if exc.reason in {"cancelled", "interrupted"} else "execution_incomplete"
+            failure = {"error_code": exc.reason, "error": str(exc), "hint": "保留原作业记录，查询完成状态；不要重复提交。"}
             raise
         except PocRunnerUnavailable as exc:
             status = "runner_unavailable"
@@ -210,17 +240,20 @@ class PocDeps:
             self.runner_error = str(exc)[:400]
             execution.emit({"kind": "poc_runner_unavailable", "error": self.runner_error})
             text = self._reply({"error": "runner_unavailable", "message": self.runner_error})
+            failure = {"error_code": "runner_unavailable", "error": self.runner_error, "hint": "检查隔离 runner；未确认的作业只能查询，不能重交。"}
             raise StopAudit("environment_unavailable", "POC runner 不可用，停止本次自动验证") from exc
         except PocRunnerError as exc:
             status = "runner_rejected"
             error_type = type(exc).__name__
             execution.emit({"kind": "poc_runner_rejected", "error": str(exc)[:400]})
             text = self._reply({"error": "runner_rejected", "message": str(exc)[:400]})
+            failure = {"error_code": "runner_rejected", "error": str(exc)[:400], "hint": "按 runner 返回原因核对上下文、身份和参数。"}
         except Exception as exc:
             # Hand the failure to the interpreter (which shows it as the step's
             # observation) but leave a paired result in the durable trace first.
             status = "error"
             error_type = type(exc).__name__
+            failure = classify_failure(exc).fields()
             raise
         finally:
             result = {
@@ -236,8 +269,20 @@ class PocDeps:
                 "phase": execution.phase,
                 "duration_ms": round((time.monotonic() - started) * 1000),
             }
+            if isinstance(detail, dict):
+                if detail.get("error") or detail.get("ok") is False:
+                    result.update(error_code=detail.get("error") or "precondition_failed",
+                                  error=detail.get("message") or detail.get("precondition", {}).get("reason") or detail.get("error") or "实验前提不符",
+                                  hint="核对身份和实验前提；必要时人工重置商城后重新检查。" if status == "precondition_failed" else "按工具声明修正后再调用。")
+                if name in {"run_poc", "browser_check"} and detail.get("job_id"):
+                    result.update(execution_status=("timeout" if detail.get("timed_out") else "success" if detail.get("exit_code") == 0 else "failed"),
+                                  exit_code=detail.get("exit_code"), timed_out=bool(detail.get("timed_out")))
+                if name == "http_observe":
+                    result["http_status"] = detail.get("status")
             if error_type:
                 result["error_type"] = error_type
+            result.update(failure)
+            result = public_value(result)
             execution.emit(result)
         return text
 
@@ -245,6 +290,8 @@ class PocDeps:
 
     async def _resolve_target(self, args: dict) -> str:
         finding = self.finding
+        if args.get("finding_id") != finding.get("id"):
+            return self._reply({"error": "invalid_arguments", "message": "finding_id 必须与当前发现一致。"})
         path = str(finding.get("file_path") or next((item.get("path") for item in finding.get("evidence") or [] if isinstance(item, dict)), "") or "")
         return self._reply({
             "finding_id": finding.get("id"),
@@ -253,21 +300,51 @@ class PocDeps:
             "base_url": self.prepared.get("base_url") or "",
             "login": {"path": "/auth/login.php", "username_env": "LAB30_USER", "password_env": "LAB30_PASSWORD", "user": self.prepared.get("user") or "alice"},
             "version": self.prepared.get("version") or "",
+            "context_id": self.context_id,
+            "identities": ["guest", "alice", "bob", "operator", "admin"],
             "http_path_hint": _http_path_for(path),
             "note": "源码 app/public 对应商城根 /；src 内部文件没有直接 HTTP 路由，须按源码调用关系确定入口。",
         })
 
     async def _target_status(self, args: dict) -> str:
-        return self._reply(await self.client.target_status(self.target))
+        result = await self.client.target_status(self.target, context_id=self.context_id, identity=args.get("identity", "alice"))
+        self._remember_state(result)
+        return self._reply(result)
 
     async def _target_prepare(self, args: dict) -> str:
         result = await self.client.prepare_target(
-            self.target, reset=False
+            self.target, reset=False, context_id=self.context_id, identity=args.get("identity", "alice"),
+            expected_state=args.get("expected_state") or None,
         )
         self.prepared = result
+        self._remember_state(result)
         return self._reply(result)
 
+    def _remember_state(self, result: dict) -> None:
+        if isinstance(result.get("precondition"), dict):
+            self.preconditions.append({"identity": result.get("identity", "alice"), **result["precondition"]})
+        for change in result.get("state_changes") or []:
+            if change not in self.state_changes:
+                self.state_changes.append(change)
+
+    def _remember_failed_job(self, kind: str, result: dict, args: dict) -> None:
+        """Business refusals and failed browser jobs remain reviewable experiments."""
+        ident = str(result.get("job_id") or "")
+        if not ident or any(job.get("job_id") == ident for job in self.jobs):
+            return
+        if self.on_job:
+            self.on_job(ident)
+        self.jobs.append({
+            "job_id": ident, "kind": kind, "context_id": result.get("context_id") or "",
+            "identity": args.get("identity", "alice"), "precondition": result.get("precondition") or {},
+            "postcondition": result.get("postcondition") or {}, "state_changes": result.get("state_changes") or [],
+            "request": dict(args), "result": dict(result), "exit_code": result.get("exit_code"),
+            "duration_ms": result.get("duration_ms", 0),
+        })
+
     async def _run_poc(self, args: dict) -> str:
+        if self.submission_unresolved:
+            raise StopAudit("submission_unresolved", "上一作业执行状态未确认，不重复提交脚本。")
         if len(self.jobs) >= self.max_jobs:
             return self._reply({"error": "job_limit", "message": f"本 finding 最多执行 {self.max_jobs} 个作业"})
         language = str(args.get("language") or "").casefold()
@@ -279,20 +356,34 @@ class PocDeps:
         if language not in {"php", "python"}:
             return self._reply({"error": "unsupported_language", "allowed": ["php", "python"]})
         requested = [str(item) for item in (args.get("artifacts") or [])][:8]
-        timeout = max(1, min(120, int(args.get("timeout_seconds") or self.job_seconds)))
-        job = await self.client.run_job(
-            target=self.target,
-            language=language,
-            script=script,
-            timeout_seconds=timeout,
-            artifacts=requested,
-        )
-        job_id = str(job.get("job_id") or "")
+        timeout = max(1, min(120, self.job_seconds, int(args.get("timeout_seconds") or self.job_seconds)))
+        job_id = uuid.uuid4().hex
         if self.on_job is not None and job_id:
             self.on_job(job_id)
+        self.execution.emit({"kind": "poc_job_started", "job_id": job_id,
+                             "language": language, "script_bytes": len(script.encode("utf-8"))})
+        try:
+            job = await self.client.run_job(
+                target=self.target, language=language, script=script,
+                timeout_seconds=timeout, artifacts=requested, job_id=job_id,
+                context_id=self.context_id, identity=args.get("identity", "alice"),
+            )
+        except (PocRunnerUnavailable, asyncio.TimeoutError):
+            # Submission may already be executing. Query its stable id, never submit again.
+            try:
+                job = await asyncio.wait_for(self.client.get_job(job_id), timeout=5)
+            except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError):
+                job = {"job_id": job_id, "status": "unknown", "exit_code": None}
+        if job.get("ok") is False or job.get("error"):
+            self._remember_state(job)
+            self._remember_failed_job("script", job, args)
+            return self._reply(job)
+        job_id = str(job.get("job_id") or job_id)
         if self.should_stop is not None and self.should_stop():
             raise StopAudit("interrupted", "拒绝已停止 POC 的迟到作业结果")
         self.scripts.append(script)
+        self.job_scripts[job_id] = script
+        self._remember_state(job)
         artifacts = []
         for item in job.get("artifacts") or []:
             name = str(item.get("name") or "")
@@ -302,20 +393,28 @@ class PocDeps:
                 payload = await self.client.fetch_artifact(job_id, name)
             except (PocRunnerUnavailable, PocRunnerError):
                 continue
-            self.artifacts[name] = payload
+            stored_name = f"{job_id}-{name}"
+            self.artifacts[stored_name] = payload
             artifacts.append({
-                "name": name,
+                "name": stored_name,
+                "original_name": name,
+                "job_id": job_id,
                 "sha256": item.get("sha256") or hashlib.sha256(payload).hexdigest(),
                 "size": len(payload),
             })
         record = {
             "job_id": job_id,
             "kind": "script",
+            "context_id": job.get("context_id") or "",
+            "identity": args.get("identity", "alice"),
+            "precondition": job.get("precondition") or {},
+            "postcondition": job.get("postcondition") or {},
+            "state_changes": job.get("state_changes") or [],
             "request": {
                 "target": self.target,
                 "language": language,
                 "script_sha256": hashlib.sha256(script.encode("utf-8")).hexdigest(),
-                "script": script[:4096],
+                "script": script,
                 "timeout_seconds": timeout,
                 "artifacts": requested,
             },
@@ -334,21 +433,23 @@ class PocDeps:
         }
         self.jobs.append(record)
         self.execution.emit({
-            "kind": "poc_job_started",
-            "job_id": job_id,
-            "language": language,
-            "script_bytes": len(script.encode("utf-8")),
-        })
-        self.execution.emit({
             "kind": "poc_job_finished",
             "job_id": job_id,
             "exit_code": job.get("exit_code"),
             "status": job.get("status"),
             "duration_ms": job.get("duration_ms"),
             "truncated": bool(job.get("truncated")),
+            "timed_out": bool(job.get("timed_out")),
         })
+        if job.get("status") in {"running", "queued", "unknown", "unresolved"}:
+            self.submission_unresolved = True
+            raise StopAudit("submission_unresolved", "原作业执行状态未确认，保留未决结果，不重复执行。")
         return self._reply(record["result"] | {
             "job_id": job_id,
+            "context_id": record["context_id"],
+            "precondition": record["precondition"],
+            "postcondition": record["postcondition"],
+            "state_changes": record["state_changes"],
             "artifacts": artifacts,
             "job_number": len(self.jobs),
         })
@@ -363,7 +464,12 @@ class PocDeps:
             headers={"Content-Type": str(args.get("content_type") or "application/x-www-form-urlencoded")}
             if str(args.get("body") or "")
             else None,
+            context_id=self.context_id, identity=args.get("identity", "alice"),
         )
+        self._remember_state(result)
+        if result.get("ok") is False or result.get("error"):
+            self._remember_failed_job("http", result, args)
+            return self._reply(result)
         method = str(args.get("method") or "GET").upper()
         # The runner sends exactly one request and does not follow redirects, so the
         # status and Location below describe the response the vulnerable code produced.
@@ -384,8 +490,19 @@ class PocDeps:
             "body": str(result.get("body") or "")[:8192],
             "truncated": bool(result.get("truncated")),
             "followed_redirects": False,
+            "identity": args.get("identity", "alice"),
+            "context_id": self.context_id,
+            "precondition": result.get("precondition") or {},
+            "state_changes": result.get("state_changes") or [],
         }
         self.observations.append(record)
+        if result.get("job_id"):
+            self.jobs.append({
+                "job_id": result["job_id"], "kind": "http", "context_id": result.get("context_id") or "",
+                "identity": args.get("identity", "alice"), "precondition": result.get("precondition") or {},
+                "request": {"method": method, "path": path}, "result": {**record, "http_status": record["status"], "status": "finished"},
+                "exit_code": result.get("exit_code", 0), "duration_ms": result.get("duration_ms", 0),
+            })
         self.execution.emit({
             "kind": "poc_http_observed", "method": method,
             "path": path, "status": result.get("status"),
@@ -405,8 +522,13 @@ class PocDeps:
             target=self.target,
             path=str(args.get("path") or ""),
             script=str(args.get("script") or ""),
-            wait_ms=int(args.get("wait_ms") or 1000),
+            wait_ms=int(args.get("wait_ms", 1000)),
+            context_id=self.context_id, identity=args.get("identity", "alice"),
         )
+        self._remember_state(result)
+        if result.get("ok") is False or result.get("error"):
+            self._remember_failed_job("browser", result, args)
+            return self._reply(result)
         if not result.get("available", False):
             self.browser_available = False
             return self._reply({"error": "browser_unavailable", "message": "runner 未安装浏览器"})
@@ -424,15 +546,23 @@ class PocDeps:
                 payload = await self.client.fetch_artifact(job_id, name)
             except (PocRunnerUnavailable, PocRunnerError):
                 continue
-            self.artifacts[name] = payload
+            stored_name = f"{job_id}-{name}"
+            self.artifacts[stored_name] = payload
             artifacts.append({
-                "name": name,
+                "name": stored_name,
+                "original_name": name,
+                "job_id": job_id,
                 "sha256": item.get("sha256") or hashlib.sha256(payload).hexdigest(),
                 "size": len(payload),
             })
         record = {
             "job_id": job_id,
             "kind": "browser",
+            "context_id": result.get("context_id") or "",
+            "identity": args.get("identity", "alice"),
+            "precondition": result.get("precondition") or {},
+            "postcondition": result.get("postcondition") or {},
+            "state_changes": result.get("state_changes") or [],
             "request": {"path": str(args.get("path") or ""), "wait_ms": int(args.get("wait_ms") or 1000)},
             "result": {
                 "status": "finished" if not result.get("error") else "failed",
@@ -457,7 +587,10 @@ class PocDeps:
             "dialogs": len(record["result"]["dialogs"]),
             "status": record["result"]["status"],
         })
-        return self._reply(record["result"] | {"job_id": job_id, "artifacts": artifacts})
+        return self._reply(record["result"] | {"job_id": job_id, "artifacts": artifacts,
+                           "exit_code": record["exit_code"], "context_id": record["context_id"],
+                           "precondition": record["precondition"], "postcondition": record["postcondition"],
+                           "state_changes": record["state_changes"]})
 
     async def _save_artifact(self, args: dict) -> str:
         name = str(args.get("filename") or "")
@@ -466,6 +599,7 @@ class PocDeps:
         payload = str(args.get("content") or "").encode("utf-8")
         if len(payload) > 64 * 1024:
             return self._reply({"error": "too_large", "limit": 65536})
+        name = "derived-" + name
         self.artifacts[name] = payload
         return self._reply({
             "name": name,
@@ -510,6 +644,7 @@ def _successful_script(job: dict) -> bool:
         job.get("kind") == "script"
         and str(job.get("result", {}).get("status") or "") == "finished"
         and job.get("exit_code") == 0
+        and not job.get("result", {}).get("timed_out")
     )
 
 
@@ -517,7 +652,7 @@ def _successful_browser(job: dict) -> dict | None:
     if job.get("kind") != "browser":
         return None
     result = job.get("result") or {}
-    if not result.get("available") or result.get("error"):
+    if not result.get("available") or result.get("error") or result.get("timed_out") or result.get("status") != "finished":
         return None
     return result
 
@@ -533,75 +668,79 @@ def _runner_text(job: dict) -> str:
     return "\n".join(pieces)
 
 
+def _evidence_channel(job: dict, channel: str) -> str:
+    result = job.get("result") or {}
+    allowed = {"stdout", "stderr"} if job.get("kind") == "script" else {"body_text", "dialogs", "evaluated"}
+    if channel not in allowed:
+        return ""
+    value = result.get(channel)
+    return "\n".join(str(item) for item in value) if isinstance(value, list) else str(value or "")
+
+
 def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationResult:
-    """Refuse a conclusion the runner's own records do not support.
-
-    Returns the (possibly downgraded) result rather than raising: the agent is not asked
-    to re-run an experiment because of a bookkeeping mismatch, and the durable record must
-    say what the host actually accepted.  Reasons are appended to ``evidence_notes``.
-    """
+    """Accept only exact, paired citations to successful jobs in this experiment."""
     notes: list[str] = []
-    jobs = deps.jobs
-    by_id = {str(job.get("job_id") or ""): job for job in jobs if job.get("job_id")}
-    referenced = [by_id[ident] for ident in result.jobs if ident in by_id]
-    script_jobs = [job for job in jobs if job.get("kind") == "script"]
-    browser_jobs = [job for job in jobs if job.get("kind") == "browser"]
-    ok_script = [job for job in script_jobs if _successful_script(job)]
-    ok_browser = [job for job in browser_jobs if _successful_browser(job)]
-    downgraded = False
+    by_id = {str(job.get("job_id") or ""): job for job in deps.jobs if job.get("job_id")}
 
-    def downgrade(reason: str) -> None:
-        nonlocal downgraded
-        downgraded = True
-        notes.append(reason)
+    def usable(job: dict) -> bool:
+        return (
+            bool(deps.context_id) and job.get("context_id") == deps.context_id
+            and (job.get("precondition") or {}).get("ok") is True
+            and not (job.get("result") or {}).get("timed_out")
+            and not (job.get("result") or {}).get("error")
+            and (_successful_script(job) or _successful_browser(job) is not None)
+        )
 
-    if result.status == "not_applicable" or result.status == "environment_unavailable":
-        # The host, not the model, owns these two verdicts.
-        notes.append("模型自报的 not_applicable/environment_unavailable 被宿主覆盖为 inconclusive")
-        result.status = "inconclusive"
-        result.verdict = "uncertain"
+    if result.status in {"not_applicable", "environment_unavailable"}:
+        result.status, result.verdict = "inconclusive", "uncertain"
+        notes.append("模型自报的环境结论由宿主覆盖为 inconclusive")
 
-    if result.status == "verified":
-        if not ok_script and not ok_browser:
-            downgrade("verified 缺少成功作业支撑")
-        if not (result.attack_observation or "").strip():
-            downgrade("verified 缺少攻击侧观测")
-        if _is_xss(deps.finding):
-            markers = [
-                item for item in ok_browser
-                if (item.get("result", {}).get("dialogs") or item.get("result", {}).get("evaluated"))
-            ]
-            if not result.browser_execution or not markers:
-                downgrade("XSS 结论缺少带对话框/求值标记的浏览器作业")
-        if result.attack_observation:
-            observed = _tokens(" ".join(_runner_text(job) for job in referenced or jobs))
-            claimed = _tokens(result.attack_observation)
-            if claimed and not (claimed & observed):
-                downgrade("攻击侧观测与 runner 输出没有共同的关键 token")
-    elif result.status == "rejected":
-        if not ok_script and not ok_browser:
-            downgrade("rejected 缺少一次成功执行")
-        if not (result.normal_observation or "").strip() or not (result.attack_observation or "").strip():
-            downgrade("rejected 需要正常侧与攻击侧两组观测")
-        if result.attack_observation:
-            observed = _tokens(" ".join(_runner_text(job) for job in referenced or jobs))
-            claimed = _tokens(result.attack_observation)
-            if claimed and not (claimed & observed):
-                downgrade("攻击侧观测与 runner 输出没有共同的关键 token")
+    supporting: list[dict] = []
+    if result.status in {"verified", "rejected"}:
+        if not result.jobs:
+            notes.append("缺少成功作业支撑：jobs 必须明确引用本次验证的成功作业")
+        for ident in result.jobs:
+            job = by_id.get(ident)
+            if job is None:
+                notes.append(f"未知作业引用：{ident}")
+            elif not usable(job):
+                notes.append(f"作业 {ident} 未成功、身份前提未核实或不属于本次上下文")
+            else:
+                supporting.append(job)
+        if not supporting:
+            notes.append("缺少成功作业支撑")
+        for label, observation, references in (
+            ("正常侧", result.normal_observation, result.normal_evidence),
+            ("攻击侧", result.attack_observation, result.attack_evidence),
+        ):
+            if not observation.strip() or not references:
+                notes.append(f"{label}缺少观测或原文证据引用")
+            for ref in references:
+                job = by_id.get(ref.job_id)
+                if ref.job_id not in result.jobs or job is None or not usable(job):
+                    notes.append(f"{label}引用的作业 {ref.job_id} 不可作为成功证据")
+                elif not ref.excerpt.strip() or ref.excerpt not in _evidence_channel(job, ref.channel):
+                    notes.append(f"{label}原文片段不在作业 {ref.job_id} 的 {ref.channel} 中")
+        if result.status == "verified" and _is_xss(deps.finding):
+            attack_browser = [by_id[ref.job_id] for ref in result.attack_evidence
+                              if ref.job_id in by_id and usable(by_id[ref.job_id])
+                              and ref.channel in {"dialogs", "evaluated"}]
+            if not result.browser_execution or not any(
+                (job.get("result") or {}).get("dialogs") or (job.get("result") or {}).get("evaluated")
+                for job in attack_browser
+            ):
+                notes.append("XSS 结论缺少攻击侧浏览器执行证据")
 
-    if result.adapted_script and deps.last_script and result.adapted_script != deps.last_script:
-        result.adapted_script = deps.last_script
-        notes.append("adapted_script 已替换为实际执行的最后一份脚本")
-    elif not result.adapted_script and deps.last_script and result.status in {"verified", "rejected"}:
-        result.adapted_script = deps.last_script
-        notes.append("adapted_script 由宿主按实际执行的最后一份脚本补齐")
-
-    if downgraded and result.status in {"verified", "rejected"}:
-        result.status = "inconclusive"
-        result.verdict = "uncertain"
+    # Never replace a cited successful script with the last (possibly failed) attempt.
+    cited = [ref.job_id for ref in result.attack_evidence] + list(result.jobs)
+    selected = next((ident for ident in cited if ident in deps.job_scripts
+                     and ident in by_id and usable(by_id[ident])), None)
+    result.adapted_script = deps.job_scripts[selected] if selected else ""
+    if notes and result.status in {"verified", "rejected"}:
+        result.status, result.verdict = "inconclusive", "uncertain"
+        result.adapted_script = ""
     if notes:
-        prefix = "；".join(notes)
-        result.evidence_notes = (prefix + ("\n" + result.evidence_notes if result.evidence_notes else ""))[:4000]
+        result.evidence_notes = ("；".join(notes) + ("\n" + result.evidence_notes if result.evidence_notes else ""))[:4000]
     return result
 
 
@@ -615,6 +754,9 @@ EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent，只在隔离的 Lab30 
 - http_observe 恰好发送一个请求，不跟随重定向；首个 3xx 与 Location 本身就是观测。
 - browser_check 复用 runner 的会员会话；XSS 必须观察到弹窗或页面求值结果，HTTP 反射不算执行。
 - 脚本不继承 HTTP/浏览器的 CookieJar，必须自行登录。目标映射以 resolve_target 的主机与路径为准。
+- 各工具的 identity 可选 guest/alice/bob/operator/admin；凭据通过该身份的 LAB30_USER/PASSWORD 提供，禁止猜密码。
+- 每次执行前宿主核对实际角色。precondition_failed 表示前提不符，不能拿高权限会话冒充普通会员。
+- 会话彼此隔离，但数据库和文件仍共享；前序验证可能改变角色、余额等状态，必须核实本实验必要前提。
 
 脚本登录模板（这是交给 run_poc 的脚本内容，不是你的动作代码块）：
 ```python
@@ -660,6 +802,12 @@ CONCLUDE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的结论阶段。执�
 run_poc、http_observe、browser_check 都不再可用，你的解释器也没有网络能力（`import urllib`
 会失败）。不要再尝试执行脚本或访问靶场，只能根据宿主列出的作业记录与脚本提交结论。
 
+verified/rejected 必须填写 normal_observation、attack_observation，以及 normal_evidence、attack_evidence。
+每项证据为 {job_id: 作业ID, channel: stdout/stderr/body_text/dialogs/evaluated, excerpt: 输出原文片段}。
+两侧可以引用同一个成功脚本，但必须复制各自真实原文；jobs 只列支撑结论的成功作业。
+未知、非零退出、超时、身份前提不符及其他上下文的作业均不可引用。仅有 HTTP 观察不能形成确定结论。
+adapted_script 留空，宿主仅从支撑结论的成功作业补齐；失败脚本保存在执行历史。
+
 状态定义：
 - verified：至少一个成功作业复现了漏洞，并且攻击侧观测指向实际影响（SQL 数据回显、命令输出、
   文件读取、弹窗执行等）。
@@ -691,9 +839,9 @@ final_answer({
 
 字段要求：
 - summary 用一句话说明结论；verified/rejected 必须同时给出 normal_observation 与 attack_observation。
-- attack_observation 必须能在作业 stdout/stderr、浏览器对话框或产物名中找到对应 token；不能只复述
-  假设。http_observe 的单次观测可以写进 evidence_notes，但它不是成功作业，不能单独支撑 verified。
-- adapted_script 不用重复填写：宿主会按实际执行的最后一份脚本补齐（该脚本已列在任务消息里）。
+- 两侧 evidence 的 excerpt 必须逐字出现在引用作业的指定输出通道中；不能只复述假设或匹配公共词。
+  http_observe 的单次观测可以写进 evidence_notes，不能单独支撑 verified。
+- adapted_script 不用重复填写：宿主仅从支撑结论的成功作业补齐。
 - 宿主会按 job id 与退出码核对；没有成功作业支撑的 verified 会被降级为 inconclusive。
 
 只输出一个代码块，里面调用一次 final_answer；代码块之外只写一句话的 Thought，不要写散文。"""
@@ -745,6 +893,10 @@ def conclude_prompt(finding: dict, deps: PocDeps) -> str:
             "job_id": job.get("job_id"),
             "kind": job.get("kind"),
             "exit_code": job.get("exit_code"),
+            "context_id": job.get("context_id"),
+            "identity": job.get("identity"),
+            "precondition": job.get("precondition"),
+            "state_changes": job.get("state_changes"),
             "request": {
                 "path": (job.get("request") or {}).get("path"),
                 "language": (job.get("request") or {}).get("language"),
@@ -758,14 +910,14 @@ def conclude_prompt(finding: dict, deps: PocDeps) -> str:
         + _finding_block(finding)
         + "\n# 执行阶段实际发生的作业（宿主记录）\n"
         + _bound(json.dumps(jobs, ensure_ascii=False, indent=2), 24 * 1024)
-        + "\n# 实际执行的最后一份脚本\n"
-        + _bound(deps.last_script, 12 * 1024)
+        + "\n# 实验前提与状态变化\n"
+        + _bound(json.dumps({"preconditions": deps.preconditions, "state_changes": deps.state_changes}, ensure_ascii=False), 4 * 1024)
         + "\n# 其他观测（http_observe）\n"
         + _bound(json.dumps(deps.observations[-6:], ensure_ascii=False), 8 * 1024)
         + "\n# 产物\n"
         + json.dumps(sorted(deps.artifacts), ensure_ascii=False)
         + "\n现在在一个代码块里调用 final_answer(普通 dict) 提交结论。jobs 只能引用上面出现过的"
-        " job_id；adapted_script 留空即可，宿主会用上面这份脚本补齐。"
+        " job_id；normal_evidence/attack_evidence 复制成功作业输出的原文片段；adapted_script 留空。"
     )
 
 
@@ -792,11 +944,11 @@ async def run_poc_agent(
     budgets = {
         "responses": max(2, int(deps.policy.get("max_steps", 8))) + 3,
         "tools": max(4, int(deps.policy.get("max_jobs", 8)) * 3 + 12),
-        "seconds": max(30, int(deps.policy.get("max_seconds", 300))),
+        "seconds": max(1, int(deps.policy.get("max_seconds", 300))),
     }
     execution = Execution(
         budgets,
-        AgentPolicy(),
+        AgentPolicy(code_seconds=budgets["seconds"] + 5),
         emit,
         agent_invocation_id=agent_invocation_id or uuid.uuid4().hex,
     )
@@ -816,6 +968,7 @@ async def run_poc_agent(
         dispatch=deps.call,
         deadline=execution.started + budgets["seconds"] * 0.75,
         limit=max(1, budgets["responses"] - 3),
+        callback_seconds=min(budgets["seconds"], deps.job_seconds + 40),
         output_model=None,
     )
     try:
@@ -891,6 +1044,7 @@ async def run_poc_agent(
         dispatch=deps.call,
         deadline=execution.deadline,
         limit=execution.attempts + 1 + execution.policy.output_corrections,
+        callback_seconds=min(budgets["seconds"], deps.job_seconds + 40),
         output_model=PocVerificationResult,
         validate=lambda value: host_check(value, deps),
     )

@@ -131,7 +131,7 @@ test('a parse error is a format message, never a code action or a leaked reply',
   assert.ok(message, textOf(items));
   assert.equal(message.tone, 'warning');
   assert.match(message.text, /第 1 步回复没有可解析的代码块/);
-  assert.match(message.secondary || '', /不是代码执行失败/);
+  assert.match(message.secondary || '', /尚未执行/);
   assert.equal(items.filter((item) => item.type === 'tool').length, 0);
   assert.doesNotMatch(textOf(items), /HOST_PARSE_HINT|PRIVATE_MODEL_PROSE_MARKER/);
 });

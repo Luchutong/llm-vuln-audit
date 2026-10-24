@@ -364,10 +364,10 @@ def test_an_ordinary_spent_allowance_is_still_budget():
     assert host.events_of("agent_parse_error") == []
 
 
-def test_an_open_code_fence_is_completed_by_the_loop_and_still_parses():
+def test_a_stop_token_may_omit_the_fence_around_a_complete_python_action():
     host = Host()
     outcome = Phase(host, output_model=Answer).play([
-        '<code>\nfinal_answer({"note": "n"})',  # no closing tag; the loop appends it
+        '<code>\nfinal_answer({"note": "n"})',
     ])
 
     assert outcome.failure is None

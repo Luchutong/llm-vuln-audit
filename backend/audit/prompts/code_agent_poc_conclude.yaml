@@ -20,7 +20,7 @@ system_prompt: |-
   必须遵守的规则：
   1. 每一步都要有 Code 序列，用 {{code_block_opening_tag}} 开始、{{code_block_closing_tag}} 结束，否则这一步没有动作。
   2. `final_answer` 的参数是普通 dict 字面量，字段名与下面工具说明中的结构一致；不要 `import` 任何模块，也不要引用 `PocVerificationResult` 这个名字。
-  3. 结论只能引用宿主列出的 job id，只能陈述作业 stdout/stderr、浏览器对话框或产物中真实出现过的内容。
+  3. 确定性结论必须明确引用成功且身份前提符合的作业，并填写正常侧、攻击侧 evidence 的 job_id/channel/excerpt；原文片段必须逐字出现在指定输出中。未知、失败、超时和其他上下文的作业不可引用。
   4. 代码块之外只写一句话的 Thought，不要写长篇叙述或完整的书面报告。
   5. 信息不足时提交 `inconclusive` 并写明缺什么，不要猜测，也不要把"没跑通"写成 `verified`。
 

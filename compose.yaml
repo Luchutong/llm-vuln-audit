@@ -133,6 +133,12 @@ services:
       LAB30_URL: http://lab30
       LAB30_USER: ${LAB30_USER:-alice}
       LAB30_PASSWORD: ${LAB30_PASSWORD:-Alice123!}
+      LAB30_BOB_USER: ${LAB30_BOB_USER:-bob}
+      LAB30_BOB_PASSWORD: ${LAB30_BOB_PASSWORD:-Bob123!}
+      LAB30_OPERATOR_USER: ${LAB30_OPERATOR_USER:-operator}
+      LAB30_OPERATOR_PASSWORD: ${LAB30_OPERATOR_PASSWORD:-Ops123!}
+      LAB30_ADMIN_USER: ${LAB30_ADMIN_USER:-admin}
+      LAB30_ADMIN_PASSWORD: ${LAB30_ADMIN_PASSWORD:-Admin123!}
     networks:
       - poc-target
       - poc-control

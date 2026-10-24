@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,6 +26,8 @@ from smolagents.memory import ActionStep
 from smolagents.monitoring import LogLevel
 
 from .codemodel import AuditCodeModel, PhaseGate, unwrap_failure
+from .actions import check_action
+from .safe_encoding import FACADE_NAME, bind_encoding_imports, encoding_facade
 from .runtime import AgentPolicy
 from .toolkit import FinalAnswerTool, build_tools
 
@@ -33,7 +36,24 @@ POC_PROMPT_FILE = Path(__file__).with_name("prompts") / "code_agent_poc.yaml"
 POC_CONCLUDE_PROMPT_FILE = Path(__file__).with_name("prompts") / "code_agent_poc_conclude.yaml"
 # Tools return JSON navigation records. Parsing those records is an ordinary
 # in-memory operation, not access to the server filesystem or process environment.
-AUTHORIZED_DATA_IMPORTS = ["json"]
+AUTHORIZED_DATA_IMPORTS = ["json", "base64"]
+
+
+class AuditPythonExecutor(LocalPythonExecutor):
+    """Preflight a whole action before the library executes any statement."""
+
+    gate_reader: Callable | None = None
+
+    def __call__(self, code_action: str):
+        gate = self.gate_reader() if self.gate_reader else None
+        diagnostics = gate.action_diagnostics if gate is not None else {}
+        if gate is not None and gate.action_issue is not None:
+            raise gate.action_issue
+        check_action(code_action, self.authorized_imports, diagnostics)
+        # Explicit imports must not reintroduce the stdlib module's CLI helpers,
+        # whose globals contain real sys.argv and open despite import restrictions.
+        self.state[FACADE_NAME] = encoding_facade()
+        return super().__call__(bind_encoding_imports(code_action))
 
 
 @functools.lru_cache(maxsize=3)
@@ -69,11 +89,15 @@ def build_executor(policy: AgentPolicy) -> LocalPythonExecutor:
     already started: it bounds how long the host *waits* for a code block, not how long
     the block runs.  A runaway block therefore delays the phase by at most this much.
     """
-    return LocalPythonExecutor(
+    executor = AuditPythonExecutor(
         additional_authorized_imports=list(AUTHORIZED_DATA_IMPORTS),
         max_print_outputs_length=policy.code_output_bytes,
         timeout_seconds=policy.code_seconds,
     )
+    # Import using the same safe-module machinery as model code; no host module is
+    # exposed directly, and a failed action no longer leaves json undefined.
+    executor("import json")
+    return executor
 
 
 # The loop's wrappers whose message echoes the model's whole code block into its head.
@@ -133,6 +157,9 @@ def step_recorder(model: AuditCodeModel) -> Callable[[ActionStep], None]:
     """
 
     def record(step: ActionStep) -> None:
+        if model.gate.action_issue is not None and (step.code_action or type(step.error).__name__ == "AgentParsingError"):
+            model.gate.record_parse_error(step=step.step_number, error=model.gate.action_issue)
+            return
         if not step.code_action:
             if step.error is not None:
                 model.gate.record_parse_error(step=step.step_number, error=step.error)
@@ -157,13 +184,18 @@ def build_agent(*, model: AuditCodeModel, gate: PhaseGate, tools: dict, instruct
     existing caller already gets.  A caller that passes its own dict must not mutate it:
     the cached templates are shared by every agent built from them.
     """
+    executor = build_executor(gate.execution.policy)
+    executor.gate_reader = lambda: model.gate
+    token = uuid.uuid4().hex
+    tags = (f"<audit_action_{token}>", f"</audit_action_{token}>")
+    gate.action_tags = tags
     return CodeAgent(
         tools=list(tools.values()),
         model=model,
         prompt_templates=templates if templates is not None else prompt_templates(),
         instructions=instructions,
         max_steps=max_steps,
-        executor=build_executor(gate.execution.policy),
+        executor=executor,
         # Parsing tool JSON is allowed; host IO modules remain unavailable.
         additional_authorized_imports=list(AUTHORIZED_DATA_IMPORTS),
         # Both of these would spend a model request on something the host already does.
@@ -173,6 +205,7 @@ def build_agent(*, model: AuditCodeModel, gate: PhaseGate, tools: dict, instruct
         verbosity_level=LogLevel.OFF,
         stream_outputs=False,
         use_structured_outputs_internally=False,
+        code_block_tags=tags,
         # Typed registration: the closing step and the last-chance request are not actions.
         # The recorder follows the model's gate, so it is registered once for the driver.
         step_callbacks={ActionStep: step_recorder(model)},
@@ -206,6 +239,7 @@ def attach_phase(agent: CodeAgent, *, tools: dict, gate: PhaseGate, model: Audit
     stale = sorted(name for name, tool in tools.items() if tool.gate is not gate)
     assert not stale, f"这些工具还是上一个阶段的闸门，调用会被当作已结束的阶段拒绝：{stale}"
     agent.tools = dict(tools)
+    gate.action_tags = agent.code_block_tags
     if templates is not None:
         # The cached dictionaries are shared and read-only during rendering; assigning
         # one to the agent does not mutate it.

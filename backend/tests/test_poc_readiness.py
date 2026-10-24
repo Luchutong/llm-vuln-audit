@@ -21,7 +21,7 @@ class Client:
         await asyncio.sleep(self.delay)
         if not self.healthy:
             raise PocRunnerUnavailable("private internal URL and token must not leak")
-        return {"ok": True, "capabilities": {"python": True, "browser": False}, "token": "private"}
+        return {"ok": True, "capabilities": {"python": True, "browser": False, "verification_contexts": True}, "token": "private"}
 
     async def aclose(self):
         self.closed += 1

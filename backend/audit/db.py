@@ -4459,6 +4459,14 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         )
         return None if row is None else self._experiment_dict(row)
 
+    def latest_finished_prompt_experiment(self) -> dict | None:
+        """The most recent experiment that produced numbers, for benchmark-side metrics."""
+        row = self._row(
+            "SELECT * FROM prompt_experiments WHERE status = 'completed' AND rows <> '[]'"
+            " ORDER BY COALESCE(finished_at, created_at) DESC LIMIT 1"
+        )
+        return None if row is None else self._experiment_dict(row)
+
     # --- truths ------------------------------------------------------------
 
     def replace_truths(self, snapshot_id: str, samples: list[dict]) -> None:

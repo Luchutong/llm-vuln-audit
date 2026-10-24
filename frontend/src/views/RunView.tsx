@@ -17,6 +17,7 @@ import { localDate, runLabel, TERMINAL } from '../status';
 import { sourceHref } from '../routes';
 import { activeVulnerabilityFindings, sourceObservations, vulnerabilityFindings } from '../results';
 import { ExecutionStatus, HostSummary } from '../components/ExecutionStatus';
+import { DefencePanel } from '../components/DefencePanel';
 import { executionSummary } from '../execution';
 import { SeverityBadge } from '../components/CvssPanel';
 
@@ -27,7 +28,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [drawer, setDrawer] = useState(false);
-  const [tab, setTab] = useState<'overview' | 'findings' | 'report' | 'logs'>('overview');
+  const [tab, setTab] = useState<'overview' | 'findings' | 'defence' | 'report' | 'logs'>('overview');
   const [newActivity, setNewActivity] = useState(false);
   const scrollbox = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
@@ -129,6 +130,10 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
             <HostSummary detail={detail} />
             <p className="muted small">共保存 {findings.length} 项漏洞候选，其中 {evidenceFindings.length} 项仍被本次运行主张且通过源码证据校验。另有 {observations.length} 条排查记录，不计为漏洞。处置、历史版本及自动验证记录见详情。</p>
             {reviews.length > 0 && <p className="small muted">Planner 比对核实了 {reviews.length} 条自动验证结论，其中 {contested} 条被判为观测不支持。未复核的已验证结论不会被当作收束依据。</p>}
+            {detail.defence?.score !== null && detail.defence?.score !== undefined && <div className="panel panel-body grid">
+              <DefencePanel defence={detail.defence} compact />
+              <button className="text-button" onClick={() => openDetails('defence')}>查看防御评分明细</button>
+            </div>}
             {achieved && !evidenceFindings.length && <p className="small muted">历史任务状态沿用原判定；排查记录不表示发现漏洞，也不保证项目安全。</p>}
             {evidenceFindings.slice(0, 3).map((finding) => <button key={finding.id} className="result-finding" onClick={() => openDetails('findings')}><SeverityBadge finding={finding} /><span>{finding.title}</span><ArrowUpRight size={15} /></button>)}
             <div className="result-actions"><button className="btn" onClick={() => openDetails('findings')}>发现与验证<ArrowUpRight size={14} /></button>{observations.length > 0 && <button className="btn" onClick={() => openDetails('findings')}>排查记录 · {observations.length}</button>}<button className="btn" onClick={() => openDetails('report')}>查看报告</button><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=markdown`)}><Download size={14} />Markdown</a></div>
@@ -138,6 +143,6 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
     </div>
     {newActivity && <button className="new-activity-button" onClick={() => { follow.current = true; scrollbox.current?.scrollTo({ top: scrollbox.current.scrollHeight, behavior: 'smooth' }); setNewActivity(false); }}><ArrowDown size={15} />有新活动</button>}
     <footer className="session-footer"><span><ShieldCheck size={14} />任务目标与项目快照已冻结</span><button className="btn" onClick={() => onNewTask(run)}><Plus size={16} />基于此任务新建</button></footer>
-    {drawer && <Overlay title="审计详情" onClose={() => setDrawer(false)} drawer className="run-details"><div className="drawer-context"><strong>{run.snapshot_name}</strong><span className={`chip chip-${run.status}`}>{statusLabel}</span></div><div className="tabs" role="tablist" aria-label="审计详情视图">{([{ key: 'overview', label: '项目与任务图' }, { key: 'findings', label: '发现与验证' }, { key: 'report', label: '结果报告' }, { key: 'logs', label: '执行日志' }] as const).map((item) => <button key={item.key} role="tab" id={`tab-${item.key}`} aria-selected={tab === item.key} aria-controls={`panel-${item.key}`} className={`tab${tab === item.key ? ' active' : ''}`} onClick={() => setTab(item.key)}>{item.label}</button>)}</div><div className="drawer-body" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>{tab === 'overview' ? <><div className="panel panel-body grid"><LongContent label="冻结审计范围" value={scopeLabel(run, detail.project_map)} /><LongContent label="模型与连接档案" value={run.model_profile ?? { model: run.model }} /></div><Overview detail={detail} events={events} /></> : tab === 'findings' ? <FindingsView detail={detail} snapshotId={run.snapshot_id} /> : tab === 'logs' ? <Timeline events={events} detail={detail} compact /> : <ReportView runId={runId} detail={detail} onChanged={changed} />}</div><div className="drawer-downloads"><span className="faint small">下载审计工件</span><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=markdown`)}>Markdown</a><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=json`)}>JSON</a><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=zip`)}>证据包</a></div></Overlay>}
+    {drawer && <Overlay title="审计详情" onClose={() => setDrawer(false)} drawer className="run-details"><div className="drawer-context"><strong>{run.snapshot_name}</strong><span className={`chip chip-${run.status}`}>{statusLabel}</span></div><div className="tabs" role="tablist" aria-label="审计详情视图">{([{ key: 'overview', label: '项目与任务图' }, { key: 'findings', label: '发现与验证' }, { key: 'defence', label: '防御评分' }, { key: 'report', label: '结果报告' }, { key: 'logs', label: '执行日志' }] as const).map((item) => <button key={item.key} role="tab" id={`tab-${item.key}`} aria-selected={tab === item.key} aria-controls={`panel-${item.key}`} className={`tab${tab === item.key ? ' active' : ''}`} onClick={() => setTab(item.key)}>{item.label}</button>)}</div><div className="drawer-body" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>{tab === 'overview' ? <><div className="panel panel-body grid"><LongContent label="冻结审计范围" value={scopeLabel(run, detail.project_map)} /><LongContent label="模型与连接档案" value={run.model_profile ?? { model: run.model }} /></div><Overview detail={detail} events={events} /></> : tab === 'findings' ? <FindingsView detail={detail} snapshotId={run.snapshot_id} /> : tab === 'defence' ? <DefencePanel defence={detail.defence} /> : tab === 'logs' ? <Timeline events={events} detail={detail} compact /> : <ReportView runId={runId} detail={detail} onChanged={changed} />}</div><div className="drawer-downloads"><span className="faint small">下载审计工件</span><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=markdown`)}>Markdown</a><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=json`)}>JSON</a><a className="btn" href={downloadUrl(`/runs/${runId}/report?format=zip`)}>证据包</a></div></Overlay>}
   </section>;
 }

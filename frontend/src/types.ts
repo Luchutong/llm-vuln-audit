@@ -621,6 +621,30 @@ export interface Metrics {
   evaluation: Evaluation | null;
 }
 export interface Attribution { id?: string; file_path: string; category: string; kind: string; cause: string; check_item: string; finding_id?: string; created_at?: string }
+/** One rate in the defence score, with where it was measured. */
+export interface DefenceComponent {
+  key: 'evidence' | 'poc' | 'review' | 'injection' | 'chain' | string;
+  label: string;
+  weight: number;
+  value: number | null;
+  source: 'run' | 'benchmark' | string;
+  detail: string;
+}
+
+/**
+ * How much of this run's output survived its own defences.  Three components come from the
+ * run itself, two from the latest finished prompt benchmark; missing ones are left out of
+ * the total instead of counting as zero.
+ */
+export interface DefenceScore {
+  score: number | null;
+  components: DefenceComponent[];
+  missing: string[];
+  denominator_weight: number;
+  benchmark: { experiment_id?: string | null; finished_at?: string | null; variants?: string[] };
+  note?: string;
+}
+
 export interface RunDetail {
   execution_summary?: ExecutionSummary | null;
   run: Run;
@@ -634,6 +658,8 @@ export interface RunDetail {
   verification_jobs?: VerificationJob[];
   /** Every Planner cross-check in this run, newest last. */
   verification_reviews?: VerificationReview[];
+  /** The defence score: run-level rates plus the benchmark's two defence rates. */
+  defence?: DefenceScore | null;
   planner?: PlannerState | null;
   project_map?: ProjectMap | null;
   plans?: PlanVersion[];

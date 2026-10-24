@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import CredentialVault, DEFAULT_BUDGETS, VERSION, Settings, clamp_budgets, find_env_file, load_env_file
 from .db import Store, build_verification_records, now
+from . import defence
 from .events import EventBus
 from .health import ModelHealth
 from . import lab_seed
@@ -350,6 +351,12 @@ def _verification_reviews(store, run_id: str) -> list[dict]:
     return list(reader(run_id)) if reader is not None else []
 
 
+def _benchmark_experiment(store) -> dict | None:
+    """The benchmark the injection/chain rates are read from, if one has finished."""
+    reader = getattr(store, "latest_finished_prompt_experiment", None)
+    return reader() if reader is not None else None
+
+
 def _project_projection(
     state: Services, run: dict, findings: list[dict], relations: list[dict] | None = None
 ) -> dict:
@@ -370,6 +377,12 @@ def _project_projection(
             "verification_summary": _verification_summary(findings),
             "verification_records": _verification_records(state.store, findings),
             "verification_reviews": _verification_reviews(state.store, run["id"]),
+            "defence": defence.summarise(
+                findings,
+                _verification_summary(findings),
+                _verification_reviews(state.store, run["id"]),
+                _benchmark_experiment(state.store),
+            ),
             # Narratives only exist for project-mode runs; a legacy run's report must not
             # gain a section it never produced.
             "report_narrative": {},
@@ -387,6 +400,12 @@ def _project_projection(
         "verification_summary": _verification_summary(findings),
         "verification_records": _verification_records(state.store, findings),
         "verification_reviews": _verification_reviews(state.store, run["id"]),
+        "defence": defence.summarise(
+            findings,
+            _verification_summary(findings),
+            _verification_reviews(state.store, run["id"]),
+            _benchmark_experiment(state.store),
+        ),
         "report_narrative": state.store.latest_plan_narrative(run["id"]),
     }
 

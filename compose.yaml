@@ -167,16 +167,29 @@ services:
   # nothing and stays off any host-facing network; this dumb TCP hop is the single thing
   # that touches both the internal control network and the host loopback.
   poc-runner-dev:
-    image: alpine/socat
+    build:
+      context: ./poc_runner
+      dockerfile: relay.Dockerfile
+    image: vuln-audit-poc-relay:local
+    pull_policy: build
     profiles: ["poc"]
-    command: ["tcp-listen:8080,fork,reuseaddr", "tcp-connect:poc-runner:8080"]
     networks: [poc-control, lab30-edge]
     ports:
       - "127.0.0.1:${POC_RUNNER_DEV_PORT:-18089}:8080"
     depends_on:
       - poc-runner
+    healthcheck:
+      test: ["CMD", "python", "-I", "-c", "import http.client; c = http.client.HTTPConnection('127.0.0.1', 8080, timeout=3); c.request('GET', '/healthz'); exit(0 if c.getresponse().status == 200 else 1)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
     restart: unless-stopped
+    init: true
     read_only: true
+    user: "10002:10002"
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 32
     cap_drop:
       - ALL
     security_opt:

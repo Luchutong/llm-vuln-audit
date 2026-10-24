@@ -25,12 +25,13 @@ Starts the vuln-audit backend on 127.0.0.1:8899 and the Vite frontend on
 
 --poc starts the local Lab30 target and the isolated poc-runner with
 `docker compose --profile poc`, then points the backend at the runner's
-private Compose address. The containers are left running after Ctrl+C; stop
+loopback development bridge. The containers are left running after Ctrl+C; stop
 them with `docker compose --profile poc down`.
 
 Environment:
   AUDIT_PORT  Backend port (default: 8899)
   WEB_PORT    Frontend port (default: 5173)
+  LAB30_PORT  Lab30 web port (default: 18880; Compose environment or .env)
 
 Options:
   --poc           Enable automatic POC verification against local Lab30.

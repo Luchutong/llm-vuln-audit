@@ -22,12 +22,15 @@ docker compose --profile poc up --build -d --remove-orphans
 
 - 商城：`http://127.0.0.1:18880`；端口通过 `LAB30_PORT` 设置。
 - runner 访问：`http://lab30`，只在内部网络中访问商城。
+- 宿主开发通过 `poc-runner-dev` 的 `127.0.0.1:18089` 转发访问 runner（`POC_RUNNER_DEV_PORT` 可改端口）。转发服务复用 runner 的 Python 基础镜像在本地构建，无额外软件依赖；健康检查实际穿透至 runner。runner 的令牌认证与内部网络保持不变。
 - 合作服务以 `fixtures` 为网络别名，保留原源码的本地合作内容和内部库存服务。
 - 数据库仅与商城共享内部网络；runner 不连接数据库、不挂载审计库、无模型凭据，也不发布端口。
 - `LAB30_DB_PASSWORD` 与 `LAB30_DB_ROOT_PASSWORD` 设置商城数据库凭据；原有数据卷更换密码需按数据库运维流程操作。
 - runner 的 `LAB30_USER/LAB30_PASSWORD` 默认普通会员 `alice/Alice123!`；商城原始数据还提供 bob、operator 和 admin 角色。
 
 关闭 POC 环境时清空 `COMPOSE_PROFILES`，或启动时省略 `--poc`。只有构建镜像不会创建运行服务。
+
+若启动时出现 `proxyconnect ... 127.0.0.1:7890 ... connection refused`，表示 Docker daemon 配置的代理未运行。新转发服务不再依赖 `alpine/socat`；已有 Python 基础镜像时可直接本地构建。缺失基础镜像或其它构建依赖时，仍需恢复 Docker 的镜像网络或代理。若已有另一套商城占用 18880，可用 `LAB30_PORT=18882 ./scripts/start.sh --poc` 为本项目选择其他端口。
 
 ## 识别、登录与证据
 

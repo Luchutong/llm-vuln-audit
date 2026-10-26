@@ -1,0 +1,2637 @@
+{
+  "scope": "all",
+  "class_scope": null,
+  "truths": 30,
+  "findings": 26,
+  "rating_standard": "CVSS:3.1",
+  "score_basis": "Base",
+  "TP": 26,
+  "FP": 0,
+  "FN": 4,
+  "precision": 1.0,
+  "recall": 0.8666666666666667,
+  "f1": 0.9285714285714286,
+  "severity_evaluation": {
+    "checked": true,
+    "compared": 26,
+    "correct": 16,
+    "accuracy": 0.6153846153846154
+  },
+  "cvss_evaluation": {
+    "checked": true,
+    "compared": 23,
+    "scoring_coverage": 0.8846153846153846,
+    "missing_truth": 0,
+    "missing_reported": 3,
+    "invalid_reported": 0,
+    "score_accuracy": 0.21739130434782608,
+    "score_mae": 1.2869565217391306,
+    "vector_compared": 23,
+    "vector_accuracy": 0.21739130434782608,
+    "metrics": {
+      "AV": {
+        "compared": 23,
+        "correct": 22,
+        "accuracy": 0.9565217391304348
+      },
+      "AC": {
+        "compared": 23,
+        "correct": 22,
+        "accuracy": 0.9565217391304348
+      },
+      "PR": {
+        "compared": 23,
+        "correct": 13,
+        "accuracy": 0.5652173913043478
+      },
+      "UI": {
+        "compared": 23,
+        "correct": 23,
+        "accuracy": 1.0
+      },
+      "S": {
+        "compared": 23,
+        "correct": 19,
+        "accuracy": 0.8260869565217391
+      },
+      "C": {
+        "compared": 23,
+        "correct": 18,
+        "accuracy": 0.782608695652174
+      },
+      "I": {
+        "compared": 23,
+        "correct": 18,
+        "accuracy": 0.782608695652174
+      },
+      "A": {
+        "compared": 23,
+        "correct": 20,
+        "accuracy": 0.8695652173913043
+      }
+    }
+  },
+  "matches": [
+    {
+      "truth_id": "27",
+      "truth": "27 任务导入反序列化链命令执行",
+      "finding_id": "19384565f0c042d79c32b1e866fd7d07",
+      "finding": "ops/jobs.php 反序列化触发 DispatchJob::__wakeup 的 shell_exec 命令执行",
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 1.6,
+      "cvss_score_delta": 1.6,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "A": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "15",
+      "truth": "15 会员备份不安全反序列化权益篡改",
+      "finding_id": "a72e6a8c9eca46a8b9698358a8809fb2",
+      "finding": "account/backup.php 普通用户反序列化对象注入篡改 tier/display_name",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": true,
+      "cvss_score_error": 0.0,
+      "cvss_score_delta": 0.0,
+      "cvss_vector_ok": true,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "I": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "03",
+      "truth": "03 网络诊断命令注入",
+      "finding_id": "c84a3f747a6e44e48af3183fe76de9d7",
+      "finding": "ops/ping.php 与 ops/batch-check.php 经 host_check 的 shell_exec 命令注入",
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 1.6,
+      "cvss_score_delta": 1.6,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "A": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "12",
+      "truth": "12 链接预览服务端请求伪造",
+      "finding_id": "c463ee098ac14485aa3f8c4d4c3857c0",
+      "finding": "ops/url-preview.php file_get_contents 任意 URL 读取导致 SSRF",
+      "severity_expected": "medium",
+      "severity_reported": "high",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.7,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "C",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 2.8,
+      "cvss_score_delta": 2.8,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "C",
+          "ok": false
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "13",
+      "truth": "13 合作方配置导入 XXE",
+      "finding_id": "02e339e052a84f67899ec8a8e67e852a",
+      "finding": "ops/xml-import.php LIBXML_NOENT|LIBXML_DTDLOAD 导致 XXE 文件读取",
+      "severity_expected": "medium",
+      "severity_reported": "high",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.7,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "C",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 2.8,
+      "cvss_score_delta": 2.8,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "C",
+          "ok": false
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "05",
+      "truth": "05 内容中心本地文件包含",
+      "finding_id": "1baba6cfc5e24dabb15a6502c38f3581",
+      "finding": "content/page.php 未鉴权拼接 $_GET['page'] 进 include，可本地文件包含",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 1.2,
+      "cvss_score_delta": 1.2,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "I": {
+          "expected": "N",
+          "reported": "L",
+          "ok": false
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "04",
+      "truth": "04 帮助文档路径遍历读取任意文件",
+      "finding_id": "55705e51dc474411b842e1a366a1014b",
+      "finding": "support/download.php 拼接 $_GET['file'] 到 data_dir()/docs/，可路径遍历读任意文件",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": true,
+      "cvss_score_error": 0.0,
+      "cvss_score_delta": 0.0,
+      "cvss_vector_ok": true,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "07",
+      "truth": "07 运营公式动态函数调用代码执行",
+      "finding_id": "ba86d1ff7ebc407eb07bce6b4e7920e9",
+      "finding": "ops/formula.php 将 $_GET['func'] 作可变函数调用，可调 phpinfo/system",
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 0.9,
+      "cvss_score_delta": 0.9,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "A": {
+          "expected": "H",
+          "reported": "N",
+          "ok": false
+        }
+      }
+    },
+    {
+      "truth_id": "29",
+      "truth": "29 营销排版模板表达式执行",
+      "finding_id": "713c2e284ff146ca9e14ab27d89d9bb8",
+      "finding": "ops/template-render.php 回调内 eval 模板表达式，可任意代码执行",
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 0.9,
+      "cvss_score_delta": 0.9,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "A": {
+          "expected": "H",
+          "reported": "N",
+          "ok": false
+        }
+      }
+    },
+    {
+      "truth_id": "06",
+      "truth": "06 远程模板预览远程文件包含",
+      "finding_id": "0c863125daf2459885b7ef81bcd15756",
+      "finding": "ops/template-preview.php include $_GET['template']，allow_url_include 开启时 RFI",
+      "severity_expected": "high",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 1.8,
+      "cvss_score_delta": -1.8,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "I": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "A": {
+          "expected": "H",
+          "reported": "N",
+          "ok": false
+        }
+      }
+    },
+    {
+      "truth_id": "01",
+      "truth": "01 商品搜索 SQL 注入",
+      "finding_id": "1ccb59c2e65949bc81048befe02ddba4",
+      "finding": "catalog/index.php q 参数直接拼接 LIKE 导致匿名 SQL 注入",
+      "severity_expected": "high",
+      "severity_reported": "unknown",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": null,
+      "cvss_error": null,
+      "cvss_status": "missing_reported",
+      "cvss_score_ok": null,
+      "cvss_score_error": null,
+      "cvss_score_delta": null,
+      "cvss_vector_ok": null,
+      "cvss_metrics": null
+    },
+    {
+      "truth_id": "23",
+      "truth": "23 会员查询跨文件 SQL 注入",
+      "finding_id": "8508b0546d40482195fcc156e14887a6",
+      "finding": "ops/members.php 经 member_lookup 拼接 username LIKE 导致操作员级 SQL 注入",
+      "severity_expected": "medium",
+      "severity_reported": "unknown",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": null,
+      "cvss_error": null,
+      "cvss_status": "missing_reported",
+      "cvss_score_ok": null,
+      "cvss_score_error": null,
+      "cvss_score_delta": null,
+      "cvss_vector_ok": null,
+      "cvss_metrics": null
+    },
+    {
+      "truth_id": "28",
+      "truth": "28 会员报表二次 SQL 注入",
+      "finding_id": "ef6018e683154cfab03644cf38b6eb41",
+      "finding": "ops/report.php 将数据库取出的 nickname 拼入查询导致二次 SQL 注入",
+      "severity_expected": "low",
+      "severity_reported": "unknown",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "low"
+      },
+      "cvss_reported": null,
+      "cvss_error": null,
+      "cvss_status": "missing_reported",
+      "cvss_score_ok": null,
+      "cvss_score_error": null,
+      "cvss_score_delta": null,
+      "cvss_vector_ok": null,
+      "cvss_metrics": null
+    },
+    {
+      "truth_id": "16",
+      "truth": "16 订单详情越权访问（IDOR）",
+      "finding_id": "7caa2c078d664e5db5bf114051f911b8",
+      "finding": "订单详情 IDOR：未校验归属可越权读取他人订单与私有配送备注",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": true,
+      "cvss_score_error": 0.0,
+      "cvss_score_delta": 0.0,
+      "cvss_vector_ok": true,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "17",
+      "truth": "17 人员管理信任客户端角色 Cookie 权限绕过",
+      "finding_id": "dd18b08a764f46e383bd1fcd9d0fc702",
+      "finding": "ops/users.php 以 Cookie role 决定管理员权限，可伪造 admin",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 2.2,
+      "cvss_score_delta": 2.2,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "L",
+          "reported": "H",
+          "ok": false
+        },
+        "I": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "18",
+      "truth": "18 维护接口信任请求头认证绕过",
+      "finding_id": "9b21b09b07f44efb835ad12e89678a68",
+      "finding": "maintenance.php 仅凭 X-Admin:1 请求头执行维护写操作",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 1.2,
+      "cvss_score_delta": 1.2,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "N",
+          "reported": "L",
+          "ok": false
+        },
+        "I": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "26",
+      "truth": "26 合作方结算 JWT 未校验签名身份伪造",
+      "finding_id": "a8e42e25893d4448a97a390338fb9bfc",
+      "finding": "partner/portal.php 不校验 JWT 签名，伪造 role=admin 读全量订单",
+      "severity_expected": "medium",
+      "severity_reported": "high",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 2.2,
+      "cvss_score_delta": 2.2,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "L",
+          "reported": "H",
+          "ok": false
+        },
+        "I": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "30",
+      "truth": "30 会员资料批量赋值敏感字段修改",
+      "finding_id": "ee86e7fd55eb4fa980055e0932d23480",
+      "finding": "account/update.php 批量赋值可改 role/balance/tier，自提权并篡改余额",
+      "severity_expected": "high",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 0.6,
+      "cvss_score_delta": -0.6,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "L",
+          "reported": "N",
+          "ok": false
+        },
+        "I": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "19",
+      "truth": "19 下单信任客户端单价金额篡改",
+      "finding_id": "62ae6eb6b4404ace8ec4bbb15e2c20ec",
+      "finding": "orders/create.php 信任客户端 price，可低价下单",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 2.2,
+      "cvss_score_delta": -2.2,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "I": {
+          "expected": "H",
+          "reported": "L",
+          "ok": false
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "20",
+      "truth": "20 提现竞争条件重复支付",
+      "finding_id": "1087a8f51ad940cab4795cfebc6e1d20",
+      "finding": "wallet/withdraw.php 余额检查与扣减非原子，并发可重复提现",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": true,
+      "cvss_score_error": 0.0,
+      "cvss_score_delta": 0.0,
+      "cvss_vector_ok": true,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "I": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "02",
+      "truth": "02 到店欢迎反射型 XSS",
+      "finding_id": "f1122d4284744b3a8289d8e97c5fec6c",
+      "finding": "catalog/greeting.php 反射型 XSS：name 未编码拼入 HTML",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 0.7,
+      "cvss_score_delta": -0.7,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "UI": {
+          "expected": "R",
+          "reported": "R",
+          "ok": true
+        },
+        "S": {
+          "expected": "C",
+          "reported": "U",
+          "ok": false
+        },
+        "C": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "I": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "11",
+      "truth": "11 在线留言存储型 XSS",
+      "finding_id": "a33726f27ec345e49d6602fc44eb442f",
+      "finding": "support/messages.php 存储型 XSS：message 输出未编码",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": true,
+      "cvss_score_error": 0.0,
+      "cvss_score_delta": 0.0,
+      "cvss_vector_ok": true,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "UI": {
+          "expected": "R",
+          "reported": "R",
+          "ok": true
+        },
+        "S": {
+          "expected": "C",
+          "reported": "C",
+          "ok": true
+        },
+        "C": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "I": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "25",
+      "truth": "25 个人主页 HTML 属性注入型 XSS",
+      "finding_id": "577f2d0664de4ca789ffd89218e76219",
+      "finding": "account/profile.php href 属性注入：url 未编码进入 a href",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.6,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 1.5,
+      "cvss_score_delta": -1.5,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "N",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "R",
+          "reported": "R",
+          "ok": true
+        },
+        "S": {
+          "expected": "C",
+          "reported": "U",
+          "ok": false
+        },
+        "C": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "I": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "08",
+      "truth": "08 继续访问开放重定向",
+      "finding_id": "7df62fb5a69949fc982847db6bd8e5cc",
+      "finding": "auth/continue.php 开放重定向：next 直接写入 Location",
+      "severity_expected": "none",
+      "severity_reported": "low",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 0.0,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "none"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "low"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 3.5,
+      "cvss_score_delta": 3.5,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "L",
+          "ok": true
+        },
+        "PR": {
+          "expected": "N",
+          "reported": "L",
+          "ok": false
+        },
+        "UI": {
+          "expected": "R",
+          "reported": "R",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "I": {
+          "expected": "N",
+          "reported": "L",
+          "ok": false
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "21",
+      "truth": "21 会话固定",
+      "finding_id": "19ad1e8194e6496fbdc19479de05a32b",
+      "finding": "会话固定：use_strict_mode=0 且登录未重生成 SID",
+      "severity_expected": "high",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": false,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 1.3,
+      "cvss_score_delta": -1.3,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "AC": {
+          "expected": "L",
+          "reported": "H",
+          "ok": false
+        },
+        "PR": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "UI": {
+          "expected": "R",
+          "reported": "R",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    },
+    {
+      "truth_id": "10",
+      "truth": "10 使用 MD5 存储密码",
+      "finding_id": "e2c52f4fa0aa431581fb3337be236898",
+      "finding": "口令以无盐 md5 存储（注册/登录/setup）",
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_basis": "CVSS:3.1/Base",
+      "severity_ok": true,
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:L/A:N",
+        "metrics": {
+          "AV": "L",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_ok": false,
+      "cvss_score_error": 0.6,
+      "cvss_score_delta": 0.6,
+      "cvss_vector_ok": false,
+      "cvss_metrics": {
+        "AV": {
+          "expected": "L",
+          "reported": "N",
+          "ok": false
+        },
+        "AC": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "PR": {
+          "expected": "L",
+          "reported": "N",
+          "ok": false
+        },
+        "UI": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        },
+        "S": {
+          "expected": "U",
+          "reported": "U",
+          "ok": true
+        },
+        "C": {
+          "expected": "H",
+          "reported": "H",
+          "ok": true
+        },
+        "I": {
+          "expected": "L",
+          "reported": "N",
+          "ok": false
+        },
+        "A": {
+          "expected": "N",
+          "reported": "N",
+          "ok": true
+        }
+      }
+    }
+  ],
+  "missed": [
+    "09 数据库诊断异常与堆栈信息泄露（真值位置: app/public/ops/database.php:3）",
+    "14 邮箱设置跨站请求伪造（真值位置: app/public/account/settings.php:5）",
+    "22 会员兑换码弱类型比较绕过（真值位置: app/public/account/redeem.php:5）",
+    "24 主机巡检跨文件命令注入（真值位置: app/public/ops/batch-check.php:2; app/src/host_check.php:2）"
+  ],
+  "class_coverage": {
+    "sqli": {
+      "total": 3,
+      "detected": 3,
+      "missed": 0,
+      "detected_ids": [
+        "01",
+        "23",
+        "28"
+      ],
+      "missed_ids": []
+    },
+    "xss_r": {
+      "total": 2,
+      "detected": 2,
+      "missed": 0,
+      "detected_ids": [
+        "02",
+        "25"
+      ],
+      "missed_ids": []
+    },
+    "command_injection": {
+      "total": 2,
+      "detected": 1,
+      "missed": 1,
+      "detected_ids": [
+        "03"
+      ],
+      "missed_ids": [
+        "24"
+      ]
+    },
+    "path_traversal": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "04"
+      ],
+      "missed_ids": []
+    },
+    "lfi": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "05"
+      ],
+      "missed_ids": []
+    },
+    "rfi": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "06"
+      ],
+      "missed_ids": []
+    },
+    "code_execution": {
+      "total": 2,
+      "detected": 2,
+      "missed": 0,
+      "detected_ids": [
+        "07",
+        "29"
+      ],
+      "missed_ids": []
+    },
+    "open_redirect": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "08"
+      ],
+      "missed_ids": []
+    },
+    "info_disclosure": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "09"
+      ]
+    },
+    "weak_crypto": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "10"
+      ],
+      "missed_ids": []
+    },
+    "xss_s": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "11"
+      ],
+      "missed_ids": []
+    },
+    "ssrf": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "12"
+      ],
+      "missed_ids": []
+    },
+    "xxe": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "13"
+      ],
+      "missed_ids": []
+    },
+    "csrf": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "14"
+      ]
+    },
+    "insecure_deserialization": {
+      "total": 2,
+      "detected": 2,
+      "missed": 0,
+      "detected_ids": [
+        "15",
+        "27"
+      ],
+      "missed_ids": []
+    },
+    "idor": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "16"
+      ],
+      "missed_ids": []
+    },
+    "auth_bypass": {
+      "total": 3,
+      "detected": 3,
+      "missed": 0,
+      "detected_ids": [
+        "17",
+        "18",
+        "26"
+      ],
+      "missed_ids": []
+    },
+    "price_manipulation": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "19"
+      ],
+      "missed_ids": []
+    },
+    "race_condition": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "20"
+      ],
+      "missed_ids": []
+    },
+    "session_fixation": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "21"
+      ],
+      "missed_ids": []
+    },
+    "weak_type_comparison": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "22"
+      ]
+    },
+    "mass_assignment": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "30"
+      ],
+      "missed_ids": []
+    }
+  },
+  "missed_details": [
+    {
+      "id": "09",
+      "title": "数据库诊断异常与堆栈信息泄露",
+      "location": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3
+        }
+      ],
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 2.7,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "low"
+      }
+    },
+    {
+      "id": "14",
+      "title": "邮箱设置跨站请求伪造",
+      "location": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
+      ],
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "low"
+      }
+    },
+    {
+      "id": "22",
+      "title": "会员兑换码弱类型比较绕过",
+      "location": [
+        {
+          "path": "app/public/account/redeem.php",
+          "line": 5
+        }
+      ],
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      }
+    },
+    {
+      "id": "24",
+      "title": "主机巡检跨文件命令注入",
+      "location": [
+        {
+          "path": "app/public/ops/batch-check.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
+      ],
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      }
+    }
+  ],
+  "false_positives": [],
+  "truth_file": "/home/aurora/llm-vuln-audit/datasets/lab30-shop/ground_truth.json",
+  "truth_provenance": {
+    "repository": "https://github.com/Luchutong/llm-vuln-audit",
+    "ref": "feat/lab30-shop",
+    "commit": "30364ecd8f1c7c8c10e3f2e66107dfc38ecd1434",
+    "path": "answers/answers.json",
+    "answers_sha256": "839decac147362e43166fc4da742b9af2ea4c5c9f38ca8f8f2be45c9496c20ff",
+    "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+    "specification": "https://www.first.org/cvss/v3.1/specification-document"
+  }
+}

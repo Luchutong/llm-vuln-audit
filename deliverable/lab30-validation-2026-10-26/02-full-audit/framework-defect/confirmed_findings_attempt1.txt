@@ -1,0 +1,5 @@
+- [high] ops/jobs.php 反序列化触发 DispatchJob::__wakeup 的 shell_exec 命令执行  @ lab30-shop/app/public/ops/jobs.php:2
+- [high] ops/formula.php 将 $_GET['func'] 作可变函数调用，可调 phpinfo/system  @ lab30-shop/app/public/ops/formula.php:1
+- [medium] ops/template-preview.php include $_GET['template']，allow_url_include 开启时 RFI  @ lab30-shop/app/public/ops/template-preview.php:1
+- [medium] maintenance.php 仅凭 X-Admin:1 请求头执行维护写操作  @ lab30-shop/app/public/ops/maintenance.php:1
+- [medium] orders/create.php 信任客户端 price，可低价下单  @ lab30-shop/app/public/orders/create.php:1

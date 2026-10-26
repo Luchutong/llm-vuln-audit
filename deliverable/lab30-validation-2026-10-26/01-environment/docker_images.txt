@@ -1,0 +1,16 @@
+docker.m.daocloud.io/docker/dockerfile|1|sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e|528c92d70d7e|28.8MB
+docker.m.daocloud.io/library/mariadb|<none>|sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873|823a099a93df|327MB
+docker.m.daocloud.io/library/php|<none>|sha256:e653ff90d7f6e2e6f81eddb07c864f1eae224ccbf5143f82a44f25e2f110e320|e4da5b539e5c|511MB
+docker.m.daocloud.io/library/python|3.12-slim-bookworm|sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70|3c4d812a6efe|124MB
+docker.m.daocloud.io/library/python|<none>|sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258|4f228bc1cbcf|131MB
+docker/dockerfile|1|<none>|528c92d70d7e|28.8MB
+mariadb|11.4|<none>|823a099a93df|327MB
+php|8.4-apache-bookworm|<none>|e4da5b539e5c|511MB
+python|3.12-slim-bookworm|<none>|4f228bc1cbcf|131MB
+python|3.12-slim-pinned|<none>|4f228bc1cbcf|131MB
+vuln-audit-lab30-db|1.0.0|<none>|823a099a93df|327MB
+vuln-audit-lab30-fixtures|1.0.0|<none>|2fe4e55289c5|131MB
+vuln-audit-lab30-web|1.0.0|<none>|cb59d9f3a9d9|567MB
+vuln-audit-poc-relay|local|<none>|6e7d3b0df74b|131MB
+vuln-audit-poc-runner|latest|<none>|9572820c2d86|1.23GB
+vuln-audit-poc-runner|local|<none>|24a57adbd61a|1.23GB

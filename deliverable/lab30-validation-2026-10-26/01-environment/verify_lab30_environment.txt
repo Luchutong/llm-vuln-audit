@@ -1,0 +1,18 @@
+PASS runner advertises Lab30 only
+PASS removed target is refused
+PASS verification acquires an exclusive context
+PASS member authentication succeeds
+PASS HTTP observation reuses the member session
+PASS HTTP reports the first redirect without following it
+PASS target status confirms the live member session
+PASS isolated script receives Lab30 configuration and establishes its own session
+PASS PHP jobs receive the Lab30 environment
+PASS Chromium reuses the authenticated member session
+PASS browser distinguishes ordinary reflection from actual script execution
+PASS browser execution persists screenshot evidence
+PASS guest cookie jar is independent from member
+PASS configured operator authenticates without credential guessing
+PASS another verification cannot interleave on the target
+PASS stable job id returns the original job without executing again
+PASS context closes and releases the target
+PASS 17 real Lab30 environment checks; no model or audit records

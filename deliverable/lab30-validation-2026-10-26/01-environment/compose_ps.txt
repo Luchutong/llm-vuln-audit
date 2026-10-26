@@ -1,0 +1,6 @@
+NAME                          IMAGE                             COMMAND                  SERVICE          CREATED          STATUS                    PORTS
+vuln-audit-lab30-1            vuln-audit-lab30-web:1.0.0        "shop-entrypoint apa…"   lab30            35 minutes ago   Up 33 minutes (healthy)   127.0.0.1:18880->80/tcp
+vuln-audit-lab30-db-1         vuln-audit-lab30-db:1.0.0         "docker-entrypoint.s…"   lab30-db         35 minutes ago   Up 33 minutes (healthy)   
+vuln-audit-lab30-fixtures-1   vuln-audit-lab30-fixtures:1.0.0   "python -B /srv/serv…"   lab30-fixtures   35 minutes ago   Up 33 minutes (healthy)   
+vuln-audit-poc-runner-1       vuln-audit-poc-runner             "python -I /app/runn…"   poc-runner       35 minutes ago   Up 33 minutes             
+vuln-audit-poc-runner-dev-1   vuln-audit-poc-relay:local        "python -I /app/rela…"   poc-runner-dev   35 minutes ago   Up 33 minutes (healthy)   127.0.0.1:18089->8080/tcp

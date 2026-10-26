@@ -1,0 +1,50 @@
+
+========================================================================
+run b2c46d270da6450e901354f68992f942
+========================================================================
+situation bytes before binding: 146376
+  goal                           TRIMMABLE items=   5  bytes=418
+  frontier                       TRIMMABLE items=   0  bytes=2
+  settled                        TRIMMABLE items=   5  bytes=4185
+  blockers                       TRIMMABLE items=   0  bytes=2
+  findings                       TRIMMABLE items=  26  bytes=32633
+  project                        PROTECTED items=   4  bytes=180
+  project_findings               TRIMMABLE items=  28  bytes=37751
+  verification_summary           PROTECTED items=   7  bytes=117
+  verification_records           PROTECTED items=  26  bytes=48522
+  verification_reviews_required  PROTECTED items=   5  bytes=5385
+  verification_reviews           PROTECTED items=   0  bytes=2
+  observations                   TRIMMABLE items=   8  bytes=3578
+  pinned_investigations          PROTECTED items=   4  bytes=9894
+  counts                         PROTECTED items=  12  bytes=179
+  closure_checks                 PROTECTED items=   4  bytes=101
+  closure_review                 PROTECTED items=   -  bytes=4
+  dispatch_rule                  PROTECTED items=   -  bytes=348
+  notice                         PROTECTED items=   -  bytes=2769
+protected (never trimmed) subtotal: 67501 bytes vs 16384 byte ceiling -> overflow of 51117 bytes
+REPRODUCED: ValueError: Planner situation ceiling cannot hold the required closure facts
+
+========================================================================
+run b857d53e39ac4dc28fc93ff93ec9aab5
+========================================================================
+situation bytes before binding: 89104
+  goal                           TRIMMABLE items=   5  bytes=418
+  frontier                       TRIMMABLE items=   0  bytes=2
+  settled                        TRIMMABLE items=   4  bytes=2572
+  blockers                       TRIMMABLE items=   0  bytes=2
+  findings                       TRIMMABLE items=  10  bytes=12005
+  project                        PROTECTED items=   4  bytes=180
+  project_findings               TRIMMABLE items=  28  bytes=37751
+  verification_summary           PROTECTED items=   7  bytes=117
+  verification_records           PROTECTED items=  10  bytes=14830
+  verification_reviews_required  PROTECTED items=   2  bytes=1794
+  verification_reviews           PROTECTED items=   0  bytes=2
+  observations                   TRIMMABLE items=  13  bytes=5840
+  pinned_investigations          PROTECTED items=   4  bytes=9883
+  counts                         PROTECTED items=  12  bytes=180
+  closure_checks                 PROTECTED items=   4  bytes=101
+  closure_review                 PROTECTED items=   -  bytes=4
+  dispatch_rule                  PROTECTED items=   -  bytes=348
+  notice                         PROTECTED items=   -  bytes=2769
+protected (never trimmed) subtotal: 30208 bytes vs 16384 byte ceiling -> overflow of 13824 bytes
+REPRODUCED: ValueError: Planner situation ceiling cannot hold the required closure facts

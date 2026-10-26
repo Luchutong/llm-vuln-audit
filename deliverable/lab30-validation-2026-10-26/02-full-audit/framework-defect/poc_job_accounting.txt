@@ -1,0 +1,26 @@
+
+===== attempt-1 POC job accounting (b2c46d27) =====
+total jobs: 124
+poc_attempts total: 26
+vuln findings=26  verified/confirmed=5  inconclusive/uncertain=21
+
+===== attempt-2 POC job accounting (b857d53e) =====
+total jobs: 18
+poc_attempts total: 10
+vuln findings=10  verified/confirmed=2  inconclusive/uncertain=8
+
+--- attempt-1 job kind histogram ---
+http 99
+script 24
+browser 1
+--- attempt-1 exit_code histogram ---
+exit 0 108
+exit None 15
+exit 1 1
+
+--- attempt-2 job kind histogram ---
+script 9
+http 9
+--- attempt-2 exit_code histogram ---
+exit 0 11
+exit None 7

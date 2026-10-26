@@ -1,0 +1,126 @@
+[2026-10-27 01:05:39] t+0s status=running phase=preparing trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:06:09] t+30s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:06:39] t+60s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:07:09] t+90s status=running phase=task_execute trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:07:39] t+120s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:08:09] t+150s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:08:39] t+180s status=running phase=planner_explore trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:09:09] t+210s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:09:39] t+240s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:10:10] t+270s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:10:40] t+300s status=running phase=planner_explore trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:11:10] t+330s status=running phase=task_execute trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:11:40] t+360s status=running phase=task_publish trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:12:10] t+390s status=running phase=planner_explore trials={'running': 1, 'pending': 8} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:12:40] t+420s status=running phase=planner_explore trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:13:10] t+450s status=running phase=task_publish trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:13:40] t+480s status=running phase=task_publish trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:14:10] t+510s status=running phase=task_publish trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:14:40] t+540s status=running phase=task_publish trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:15:10] t+570s status=running phase=task_publish trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:15:40] t+600s status=running phase=task_publish trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:16:10] t+630s status=running phase=task_execute trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:16:40] t+660s status=running phase=planner_explore trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:17:10] t+690s status=running phase=task_execute trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:17:40] t+720s status=running phase=task_publish trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:18:10] t+750s status=running phase=planner_explore trials={'finished': 1, 'running': 1, 'pending': 7} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:18:40] t+780s status=running phase=planner_explore trials={'finished': 2, 'running': 1, 'pending': 6} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:19:10] t+810s status=running phase=planner_decision trials={'finished': 2, 'running': 1, 'pending': 6} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:19:40] t+841s status=running phase=task_execute trials={'finished': 2, 'running': 1, 'pending': 6} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:20:11] t+871s status=running phase=task_execute trials={'finished': 2, 'running': 1, 'pending': 6} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:20:41] t+901s status=running phase=task_publish trials={'finished': 2, 'running': 1, 'pending': 6} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:21:11] t+931s status=running phase=planner_explore trials={'finished': 2, 'running': 1, 'pending': 6} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:21:41] t+961s status=running phase=task_execute trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:22:11] t+991s status=running phase=task_execute trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:22:41] t+1021s status=running phase=task_execute trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:23:11] t+1051s status=running phase=task_publish trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:23:41] t+1081s status=running phase=planner_explore trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:24:11] t+1111s status=running phase=task_publish trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:24:41] t+1141s status=running phase=task_publish trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:25:11] t+1171s status=running phase=task_publish trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:25:41] t+1201s status=running phase=task_execute trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:26:11] t+1231s status=running phase=planner_explore trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:26:41] t+1262s status=running phase=task_publish trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:27:11] t+1292s status=running phase=task_publish trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:27:42] t+1322s status=running phase=task_execute trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:28:12] t+1352s status=running phase=planner_explore trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:28:42] t+1382s status=running phase=task_execute trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:29:12] t+1412s status=running phase=task_execute trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:29:42] t+1442s status=running phase=task_publish trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:30:12] t+1472s status=running phase=planner_explore trials={'finished': 3, 'running': 1, 'pending': 5} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:30:42] t+1502s status=running phase=planner_explore trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:31:12] t+1532s status=running phase=planner_publish trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:31:42] t+1562s status=running phase=task_execute trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:32:12] t+1593s status=running phase=task_execute trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:32:42] t+1623s status=running phase=task_execute trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:33:13] t+1653s status=running phase=task_execute trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:33:43] t+1683s status=running phase=task_execute trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:34:13] t+1713s status=running phase=task_publish trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:34:43] t+1743s status=running phase=task_execute trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:35:13] t+1773s status=running phase=task_publish trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:35:43] t+1803s status=running phase=task_publish trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:36:13] t+1833s status=running phase=task_publish trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:36:43] t+1864s status=running phase=planner_explore trials={'finished': 4, 'running': 1, 'pending': 4} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:37:14] t+1894s status=running phase=planner_explore trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:37:44] t+1924s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:38:14] t+1954s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:38:44] t+1984s status=running phase=task_execute trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:39:14] t+2014s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:39:44] t+2044s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:40:14] t+2074s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:40:45] t+2105s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:41:15] t+2135s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:41:45] t+2165s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:42:15] t+2195s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:42:45] t+2225s status=running phase=task_execute trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:43:15] t+2255s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:43:45] t+2285s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:44:15] t+2316s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:44:46] t+2346s status=running phase=planner_explore trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:45:16] t+2376s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:45:46] t+2406s status=running phase=task_publish trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:46:16] t+2436s status=running phase=task_execute trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:46:46] t+2466s status=running phase=planner_explore trials={'finished': 5, 'running': 1, 'pending': 3} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:47:16] t+2496s status=running phase=planner_explore trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:47:46] t+2526s status=running phase=task_publish trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:48:16] t+2557s status=running phase=task_execute trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:48:47] t+2587s status=running phase=task_publish trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:49:17] t+2617s status=running phase=task_publish trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:49:47] t+2647s status=running phase=task_publish trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:50:17] t+2677s status=running phase=task_execute trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:50:47] t+2707s status=running phase=task_publish trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:51:17] t+2737s status=running phase=planner_explore trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:51:47] t+2767s status=running phase=task_publish trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:52:17] t+2798s status=running phase=planner_explore trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:52:48] t+2828s status=running phase=task_execute trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:53:18] t+2858s status=running phase=planner_explore trials={'finished': 6, 'running': 1, 'pending': 2} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:53:48] t+2888s status=running phase=planner_explore trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:54:18] t+2918s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:54:48] t+2948s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:55:18] t+2979s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:55:49] t+3009s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:56:19] t+3039s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:56:49] t+3069s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:57:19] t+3099s status=running phase=task_execute trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:57:49] t+3129s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:58:19] t+3159s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:58:49] t+3190s status=running phase=planner_explore trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:59:19] t+3220s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 01:59:50] t+3250s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:00:20] t+3280s status=running phase=task_publish trials={'finished': 7, 'running': 1, 'pending': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:00:50] t+3310s status=running phase=planner_explore trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:01:20] t+3340s status=running phase=task_execute trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:01:50] t+3370s status=running phase=task_publish trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:02:20] t+3401s status=running phase=task_execute trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:02:51] t+3431s status=running phase=task_execute trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:03:21] t+3461s status=running phase=task_publish trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:03:51] t+3491s status=running phase=planner_explore trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:04:21] t+3522s status=running phase=task_publish trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:04:52] t+3552s status=running phase=task_publish trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:05:22] t+3582s status=running phase=task_execute trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:05:52] t+3612s status=running phase=task_execute trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:06:22] t+3642s status=running phase=task_execute trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:06:52] t+3672s status=running phase=planner_explore trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:07:22] t+3703s status=running phase=task_execute trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:07:53] t+3733s status=running phase=planner_explore trials={'finished': 8, 'running': 1} batch=a0846a8f29bc4bc0 preliminary=
+[2026-10-27 02:08:23] t+3763s status=completed phase=ended trials={'finished': 9} batch=None preliminary=

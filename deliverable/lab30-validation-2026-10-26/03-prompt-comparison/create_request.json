@@ -1,0 +1,9 @@
+{
+  "protocol": "lab30-full-v2",
+  "prompt_ids": [
+    "worker-w0-v1",
+    "worker-w1-v1",
+    "worker-w2-v1"
+  ],
+  "baseline_prompt_id": "worker-w0-v1"
+}

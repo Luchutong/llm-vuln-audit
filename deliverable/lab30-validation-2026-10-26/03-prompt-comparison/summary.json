@@ -1,0 +1,5209 @@
+{
+  "protocol": "lab30-v2",
+  "baseline_prompt_id": "worker-w0-v1",
+  "repeats": 3,
+  "complete_rounds": [
+    1,
+    2,
+    3
+  ],
+  "complete_round_count": 3,
+  "preliminary": false,
+  "variants": [
+    {
+      "id": "worker-w0-v1",
+      "label": "W0：基础审计",
+      "text": "识别当前任务中由源码支持的可操作漏洞，说明影响，并准确指出根因或危险操作的位置。",
+      "reason": "建立基础审计能力",
+      "parent_id": null,
+      "kind": "worker_strategy",
+      "contract_version": "worker-strategy-v1",
+      "text_sha256": "363cbe851df13b22b03351e2a0405bf997083b5a6921ae14426c00de1e9ca9a7",
+      "sha256": "363cbe851df13b22b03351e2a0405bf997083b5a6921ae14426c00de1e9ca9a7",
+      "metrics": {
+        "TP": {
+          "mean": 25.333333333333332,
+          "sample_std": 0.5773502691896257,
+          "n": 3,
+          "values": [
+            25,
+            25,
+            26
+          ]
+        },
+        "D": {
+          "mean": 8.666666666666666,
+          "sample_std": 4.725815626252609,
+          "n": 3,
+          "values": [
+            5,
+            14,
+            7
+          ]
+        },
+        "U": {
+          "mean": 1.6666666666666667,
+          "sample_std": 0.5773502691896257,
+          "n": 3,
+          "values": [
+            1,
+            2,
+            2
+          ]
+        },
+        "FP": {
+          "mean": 10.333333333333334,
+          "sample_std": 5.131601439446884,
+          "n": 3,
+          "values": [
+            6,
+            16,
+            9
+          ]
+        },
+        "FN": {
+          "mean": 4.666666666666667,
+          "sample_std": 0.5773502691896257,
+          "n": 3,
+          "values": [
+            5,
+            5,
+            4
+          ]
+        },
+        "precision": {
+          "mean": 0.7196882844404481,
+          "sample_std": 0.10037369396006096,
+          "n": 3,
+          "values": [
+            0.8064516129032258,
+            0.6097560975609756,
+            0.7428571428571429
+          ]
+        },
+        "recall": {
+          "mean": 0.8444444444444444,
+          "sample_std": 0.01924500897298752,
+          "n": 3,
+          "values": [
+            0.8333333333333334,
+            0.8333333333333334,
+            0.8666666666666667
+          ]
+        },
+        "f1": {
+          "mean": 0.7746324944200723,
+          "sample_std": 0.06176262989779486,
+          "n": 3,
+          "values": [
+            0.819672131147541,
+            0.704225352112676,
+            0.8
+          ]
+        },
+        "requests": {
+          "mean": 90.0,
+          "sample_std": 23.065125189341593,
+          "n": 3,
+          "values": [
+            88,
+            114,
+            68
+          ]
+        },
+        "tool_calls": {
+          "mean": 190.33333333333334,
+          "sample_std": 85.73408501484887,
+          "n": 3,
+          "values": [
+            134,
+            289,
+            148
+          ]
+        },
+        "input_tokens": {
+          "mean": 1685398.3333333333,
+          "sample_std": 444319.7506687423,
+          "n": 3,
+          "values": [
+            1618624,
+            2159326,
+            1278245
+          ]
+        },
+        "output_tokens": {
+          "mean": 105003.66666666667,
+          "sample_std": 24599.770249604637,
+          "n": 3,
+          "values": [
+            88848,
+            133315,
+            92848
+          ]
+        },
+        "total_tokens": {
+          "mean": 1790402.0,
+          "sample_std": 466337.5577315213,
+          "n": 3,
+          "values": [
+            1707472,
+            2292641,
+            1371093
+          ]
+        },
+        "duration_seconds": {
+          "mean": 472.274,
+          "sample_std": 110.79492659413604,
+          "n": 3,
+          "values": [
+            401.377,
+            599.949,
+            415.496
+          ]
+        },
+        "tokens_per_tp": {
+          "mean": 70912.95538461539,
+          "sample_std": 19616.71426610879,
+          "n": 3,
+          "values": [
+            68298.88,
+            91705.64,
+            52734.346153846156
+          ]
+        },
+        "cvss_mae": {
+          "mean": 1.345,
+          "sample_std": 0.11757976016304841,
+          "n": 3,
+          "values": [
+            1.46,
+            1.35,
+            1.225
+          ]
+        },
+        "cvss_coverage": {
+          "mean": 0.7025641025641026,
+          "sample_std": 0.35629033215757433,
+          "n": 3,
+          "values": [
+            1.0,
+            0.8,
+            0.3076923076923077
+          ]
+        },
+        "cvss_score_accuracy": {
+          "mean": 0.2016666666666667,
+          "sample_std": 0.07751343969488991,
+          "n": 3,
+          "values": [
+            0.28,
+            0.2,
+            0.125
+          ]
+        },
+        "cvss_severity_agreement": {
+          "mean": 0.556923076923077,
+          "sample_std": 0.29356813267231524,
+          "n": 3,
+          "values": [
+            0.8,
+            0.64,
+            0.23076923076923078
+          ]
+        }
+      },
+      "paired_deltas": {
+        "f1": {
+          "mean": 0.0,
+          "sample_std": 0.0,
+          "n": 3,
+          "values": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "baseline_trial_id": "5aa6fcfd0ec740dd",
+              "value": 0.0,
+              "gained_truth_ids": [],
+              "lost_truth_ids": []
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "baseline_trial_id": "dad2ef8bdc104553",
+              "value": 0.0,
+              "gained_truth_ids": [],
+              "lost_truth_ids": []
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "baseline_trial_id": "1eaa9935d9e44dda",
+              "value": 0.0,
+              "gained_truth_ids": [],
+              "lost_truth_ids": []
+            }
+          ],
+          "unit": "ratio",
+          "display_unit": "percentage_points"
+        },
+        "recall": {
+          "mean": 0.0,
+          "sample_std": 0.0,
+          "n": 3,
+          "values": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "baseline_trial_id": "5aa6fcfd0ec740dd",
+              "value": 0.0,
+              "gained_truth_ids": [],
+              "lost_truth_ids": []
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "baseline_trial_id": "dad2ef8bdc104553",
+              "value": 0.0,
+              "gained_truth_ids": [],
+              "lost_truth_ids": []
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "baseline_trial_id": "1eaa9935d9e44dda",
+              "value": 0.0,
+              "gained_truth_ids": [],
+              "lost_truth_ids": []
+            }
+          ],
+          "unit": "ratio",
+          "display_unit": "percentage_points"
+        }
+      },
+      "paired_f1": {
+        "mean": 0.0,
+        "sample_std": 0.0,
+        "n": 3,
+        "values": [
+          {
+            "round_index": 1,
+            "trial_id": "5aa6fcfd0ec740dd",
+            "baseline_trial_id": "5aa6fcfd0ec740dd",
+            "value": 0.0,
+            "gained_truth_ids": [],
+            "lost_truth_ids": []
+          },
+          {
+            "round_index": 2,
+            "trial_id": "dad2ef8bdc104553",
+            "baseline_trial_id": "dad2ef8bdc104553",
+            "value": 0.0,
+            "gained_truth_ids": [],
+            "lost_truth_ids": []
+          },
+          {
+            "round_index": 3,
+            "trial_id": "1eaa9935d9e44dda",
+            "baseline_trial_id": "1eaa9935d9e44dda",
+            "value": 0.0,
+            "gained_truth_ids": [],
+            "lost_truth_ids": []
+          }
+        ],
+        "unit": "ratio",
+        "display_unit": "percentage_points"
+      },
+      "paired_recall": {
+        "mean": 0.0,
+        "sample_std": 0.0,
+        "n": 3,
+        "values": [
+          {
+            "round_index": 1,
+            "trial_id": "5aa6fcfd0ec740dd",
+            "baseline_trial_id": "5aa6fcfd0ec740dd",
+            "value": 0.0,
+            "gained_truth_ids": [],
+            "lost_truth_ids": []
+          },
+          {
+            "round_index": 2,
+            "trial_id": "dad2ef8bdc104553",
+            "baseline_trial_id": "dad2ef8bdc104553",
+            "value": 0.0,
+            "gained_truth_ids": [],
+            "lost_truth_ids": []
+          },
+          {
+            "round_index": 3,
+            "trial_id": "1eaa9935d9e44dda",
+            "baseline_trial_id": "1eaa9935d9e44dda",
+            "value": 0.0,
+            "gained_truth_ids": [],
+            "lost_truth_ids": []
+          }
+        ],
+        "unit": "ratio",
+        "display_unit": "percentage_points"
+      },
+      "trial_ids": [
+        "5aa6fcfd0ec740dd",
+        "dad2ef8bdc104553",
+        "1eaa9935d9e44dda"
+      ],
+      "valid_trials": 3
+    },
+    {
+      "id": "worker-w1-v1",
+      "label": "W1：证据与防护",
+      "text": "识别当前任务中由源码支持的可操作漏洞，说明影响，并准确指出根因或危险操作的位置。逐项核对攻击者输入来源、传播路径、关键操作及已有防护；说明防护是否覆盖当前输入路径，不能只凭函数名称判断。",
+      "reason": "核对数据流和防护，减少缺乏依据的报告",
+      "parent_id": "worker-w0-v1",
+      "kind": "worker_strategy",
+      "contract_version": "worker-strategy-v1",
+      "text_sha256": "dcbdd66836af0f4b8f1c91953f8d5ec498643f70f21c6196e826e2e6487d9fc2",
+      "sha256": "dcbdd66836af0f4b8f1c91953f8d5ec498643f70f21c6196e826e2e6487d9fc2",
+      "metrics": {
+        "TP": {
+          "mean": 24.666666666666668,
+          "sample_std": 0.5773502691896257,
+          "n": 3,
+          "values": [
+            25,
+            25,
+            24
+          ]
+        },
+        "D": {
+          "mean": 11.333333333333334,
+          "sample_std": 7.767453465154029,
+          "n": 3,
+          "values": [
+            5,
+            20,
+            9
+          ]
+        },
+        "U": {
+          "mean": 1.6666666666666667,
+          "sample_std": 1.1547005383792515,
+          "n": 3,
+          "values": [
+            1,
+            1,
+            3
+          ]
+        },
+        "FP": {
+          "mean": 13.0,
+          "sample_std": 7.54983443527075,
+          "n": 3,
+          "values": [
+            6,
+            21,
+            12
+          ]
+        },
+        "FN": {
+          "mean": 5.333333333333333,
+          "sample_std": 0.5773502691896257,
+          "n": 3,
+          "values": [
+            5,
+            5,
+            6
+          ]
+        },
+        "precision": {
+          "mean": 0.6721988468131526,
+          "sample_std": 0.13157393257341962,
+          "n": 3,
+          "values": [
+            0.8064516129032258,
+            0.5434782608695652,
+            0.6666666666666666
+          ]
+        },
+        "recall": {
+          "mean": 0.8222222222222223,
+          "sample_std": 0.01924500897298752,
+          "n": 3,
+          "values": [
+            0.8333333333333334,
+            0.8333333333333334,
+            0.8
+          ]
+        },
+        "f1": {
+          "mean": 0.7349465317541245,
+          "sample_std": 0.08116123941561107,
+          "n": 3,
+          "values": [
+            0.819672131147541,
+            0.6578947368421053,
+            0.7272727272727273
+          ]
+        },
+        "requests": {
+          "mean": 107.0,
+          "sample_std": 19.0,
+          "n": 3,
+          "values": [
+            88,
+            126,
+            107
+          ]
+        },
+        "tool_calls": {
+          "mean": 277.6666666666667,
+          "sample_std": 57.143095237599205,
+          "n": 3,
+          "values": [
+            273,
+            223,
+            337
+          ]
+        },
+        "input_tokens": {
+          "mean": 2024881.6666666667,
+          "sample_std": 244076.83960657418,
+          "n": 3,
+          "values": [
+            1743052,
+            2164205,
+            2167388
+          ]
+        },
+        "output_tokens": {
+          "mean": 93437.33333333333,
+          "sample_std": 15793.783249536298,
+          "n": 3,
+          "values": [
+            79680,
+            110684,
+            89948
+          ]
+        },
+        "total_tokens": {
+          "mean": 2118319.0,
+          "sample_std": 256136.25842312915,
+          "n": 3,
+          "values": [
+            1822732,
+            2274889,
+            2257336
+          ]
+        },
+        "duration_seconds": {
+          "mean": 459.86133333333333,
+          "sample_std": 88.43232084104396,
+          "n": 3,
+          "values": [
+            377.032,
+            552.994,
+            449.558
+          ]
+        },
+        "tokens_per_tp": {
+          "mean": 85986.83555555556,
+          "sample_std": 11428.381673899676,
+          "n": 3,
+          "values": [
+            72909.28,
+            90995.56,
+            94055.66666666667
+          ]
+        },
+        "cvss_mae": {
+          "mean": 1.2237986270022883,
+          "sample_std": 0.3130771824697251,
+          "n": 3,
+          "values": [
+            0.9421052631578947,
+            1.5608695652173912,
+            1.1684210526315788
+          ]
+        },
+        "cvss_coverage": {
+          "mean": 0.8238888888888889,
+          "sample_std": 0.08472723118162016,
+          "n": 3,
+          "values": [
+            0.76,
+            0.92,
+            0.7916666666666666
+          ]
+        },
+        "cvss_score_accuracy": {
+          "mean": 0.2860411899313501,
+          "sample_std": 0.12514882301030036,
+          "n": 3,
+          "values": [
+            0.42105263157894735,
+            0.17391304347826086,
+            0.2631578947368421
+          ]
+        },
+        "cvss_severity_agreement": {
+          "mean": 0.58,
+          "sample_std": 0.0721110255092798,
+          "n": 3,
+          "values": [
+            0.64,
+            0.6,
+            0.5
+          ]
+        }
+      },
+      "paired_deltas": {
+        "f1": {
+          "mean": -0.039685962665947816,
+          "sample_std": 0.03681613241180921,
+          "n": 3,
+          "values": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "baseline_trial_id": "5aa6fcfd0ec740dd",
+              "value": 0.0,
+              "gained_truth_ids": [
+                "01",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "07",
+                "15"
+              ]
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "baseline_trial_id": "dad2ef8bdc104553",
+              "value": -0.046330615270570696,
+              "gained_truth_ids": [
+                "09",
+                "11",
+                "15",
+                "21"
+              ],
+              "lost_truth_ids": [
+                "08",
+                "10",
+                "20",
+                "25"
+              ]
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "baseline_trial_id": "1eaa9935d9e44dda",
+              "value": -0.07272727272727275,
+              "gained_truth_ids": [
+                "22",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "01",
+                "05",
+                "06",
+                "29"
+              ]
+            }
+          ],
+          "unit": "ratio",
+          "display_unit": "percentage_points"
+        },
+        "recall": {
+          "mean": -0.022222222222222216,
+          "sample_std": 0.03849001794597504,
+          "n": 3,
+          "values": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "baseline_trial_id": "5aa6fcfd0ec740dd",
+              "value": 0.0,
+              "gained_truth_ids": [
+                "01",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "07",
+                "15"
+              ]
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "baseline_trial_id": "dad2ef8bdc104553",
+              "value": 0.0,
+              "gained_truth_ids": [
+                "09",
+                "11",
+                "15",
+                "21"
+              ],
+              "lost_truth_ids": [
+                "08",
+                "10",
+                "20",
+                "25"
+              ]
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "baseline_trial_id": "1eaa9935d9e44dda",
+              "value": -0.06666666666666665,
+              "gained_truth_ids": [
+                "22",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "01",
+                "05",
+                "06",
+                "29"
+              ]
+            }
+          ],
+          "unit": "ratio",
+          "display_unit": "percentage_points"
+        }
+      },
+      "paired_f1": {
+        "mean": -0.039685962665947816,
+        "sample_std": 0.03681613241180921,
+        "n": 3,
+        "values": [
+          {
+            "round_index": 1,
+            "trial_id": "292b4ec526dd44d4",
+            "baseline_trial_id": "5aa6fcfd0ec740dd",
+            "value": 0.0,
+            "gained_truth_ids": [
+              "01",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "07",
+              "15"
+            ]
+          },
+          {
+            "round_index": 2,
+            "trial_id": "631bf55f5c334d03",
+            "baseline_trial_id": "dad2ef8bdc104553",
+            "value": -0.046330615270570696,
+            "gained_truth_ids": [
+              "09",
+              "11",
+              "15",
+              "21"
+            ],
+            "lost_truth_ids": [
+              "08",
+              "10",
+              "20",
+              "25"
+            ]
+          },
+          {
+            "round_index": 3,
+            "trial_id": "1ecc2fa5fbdf4895",
+            "baseline_trial_id": "1eaa9935d9e44dda",
+            "value": -0.07272727272727275,
+            "gained_truth_ids": [
+              "22",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "01",
+              "05",
+              "06",
+              "29"
+            ]
+          }
+        ],
+        "unit": "ratio",
+        "display_unit": "percentage_points"
+      },
+      "paired_recall": {
+        "mean": -0.022222222222222216,
+        "sample_std": 0.03849001794597504,
+        "n": 3,
+        "values": [
+          {
+            "round_index": 1,
+            "trial_id": "292b4ec526dd44d4",
+            "baseline_trial_id": "5aa6fcfd0ec740dd",
+            "value": 0.0,
+            "gained_truth_ids": [
+              "01",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "07",
+              "15"
+            ]
+          },
+          {
+            "round_index": 2,
+            "trial_id": "631bf55f5c334d03",
+            "baseline_trial_id": "dad2ef8bdc104553",
+            "value": 0.0,
+            "gained_truth_ids": [
+              "09",
+              "11",
+              "15",
+              "21"
+            ],
+            "lost_truth_ids": [
+              "08",
+              "10",
+              "20",
+              "25"
+            ]
+          },
+          {
+            "round_index": 3,
+            "trial_id": "1ecc2fa5fbdf4895",
+            "baseline_trial_id": "1eaa9935d9e44dda",
+            "value": -0.06666666666666665,
+            "gained_truth_ids": [
+              "22",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "01",
+              "05",
+              "06",
+              "29"
+            ]
+          }
+        ],
+        "unit": "ratio",
+        "display_unit": "percentage_points"
+      },
+      "trial_ids": [
+        "292b4ec526dd44d4",
+        "631bf55f5c334d03",
+        "1ecc2fa5fbdf4895"
+      ],
+      "valid_trials": 3
+    },
+    {
+      "id": "worker-w2-v1",
+      "label": "W2：跨文件与业务前提",
+      "text": "识别当前任务中由源码支持的可操作漏洞，说明影响，并准确指出根因或危险操作的位置。逐项核对攻击者输入来源、传播路径、关键操作及已有防护；说明防护是否覆盖当前输入路径，不能只凭函数名称判断。沿调用、包含与配置关系补读相关文件，核实身份、角色、对象权限、业务状态和触发前提；缺失事实应明确记录，不可凭空补全。",
+      "reason": "补充跨文件、权限与业务前提分析",
+      "parent_id": "worker-w1-v1",
+      "kind": "worker_strategy",
+      "contract_version": "worker-strategy-v1",
+      "text_sha256": "de03c5b4f85bc64c65899d3ba39f540f52c368caf1ba5d7fba579ae6ebf981d7",
+      "sha256": "de03c5b4f85bc64c65899d3ba39f540f52c368caf1ba5d7fba579ae6ebf981d7",
+      "metrics": {
+        "TP": {
+          "mean": 19.333333333333332,
+          "sample_std": 8.962886439832502,
+          "n": 3,
+          "values": [
+            9,
+            25,
+            24
+          ]
+        },
+        "D": {
+          "mean": 5.0,
+          "sample_std": 5.5677643628300215,
+          "n": 3,
+          "values": [
+            0,
+            11,
+            4
+          ]
+        },
+        "U": {
+          "mean": 0.6666666666666666,
+          "sample_std": 1.1547005383792515,
+          "n": 3,
+          "values": [
+            0,
+            0,
+            2
+          ]
+        },
+        "FP": {
+          "mean": 5.666666666666667,
+          "sample_std": 5.507570547286102,
+          "n": 3,
+          "values": [
+            0,
+            11,
+            6
+          ]
+        },
+        "FN": {
+          "mean": 10.666666666666666,
+          "sample_std": 8.962886439832502,
+          "n": 3,
+          "values": [
+            21,
+            5,
+            6
+          ]
+        },
+        "precision": {
+          "mean": 0.8314814814814815,
+          "sample_std": 0.15519137263365415,
+          "n": 3,
+          "values": [
+            1.0,
+            0.6944444444444444,
+            0.8
+          ]
+        },
+        "recall": {
+          "mean": 0.6444444444444445,
+          "sample_std": 0.2987628813277501,
+          "n": 3,
+          "values": [
+            0.3,
+            0.8333333333333334,
+            0.8
+          ]
+        },
+        "f1": {
+          "mean": 0.6730380730380731,
+          "sample_std": 0.18438822721280954,
+          "n": 3,
+          "values": [
+            0.46153846153846156,
+            0.7575757575757576,
+            0.8
+          ]
+        },
+        "requests": {
+          "mean": 75.33333333333333,
+          "sample_std": 22.94195574342635,
+          "n": 3,
+          "values": [
+            49,
+            86,
+            91
+          ]
+        },
+        "tool_calls": {
+          "mean": 214.66666666666666,
+          "sample_std": 46.69403959107986,
+          "n": 3,
+          "values": [
+            162,
+            251,
+            231
+          ]
+        },
+        "input_tokens": {
+          "mean": 1433556.6666666667,
+          "sample_std": 350463.0846898619,
+          "n": 3,
+          "values": [
+            1033293,
+            1582054,
+            1685323
+          ]
+        },
+        "output_tokens": {
+          "mean": 65534.333333333336,
+          "sample_std": 31657.270212912124,
+          "n": 3,
+          "values": [
+            29181,
+            80393,
+            87029
+          ]
+        },
+        "total_tokens": {
+          "mean": 1499091.0,
+          "sample_std": 382093.68062426784,
+          "n": 3,
+          "values": [
+            1062474,
+            1662447,
+            1772352
+          ]
+        },
+        "duration_seconds": {
+          "mean": 316.77066666666667,
+          "sample_std": 137.53302723467309,
+          "n": 3,
+          "values": [
+            158.607,
+            383.462,
+            408.243
+          ]
+        },
+        "tokens_per_tp": {
+          "mean": 86132.8488888889,
+          "sample_std": 27886.594292392605,
+          "n": 3,
+          "values": [
+            118052.66666666667,
+            66497.88,
+            73848.0
+          ]
+        },
+        "cvss_mae": {
+          "mean": 1.102723311546841,
+          "sample_std": 0.1728916722201944,
+          "n": 3,
+          "values": [
+            0.911111111111111,
+            1.2470588235294118,
+            1.1500000000000001
+          ]
+        },
+        "cvss_coverage": {
+          "mean": 0.7544444444444445,
+          "sample_std": 0.2180808548663987,
+          "n": 3,
+          "values": [
+            1.0,
+            0.68,
+            0.5833333333333334
+          ]
+        },
+        "cvss_score_accuracy": {
+          "mean": 0.41129785247432304,
+          "sample_std": 0.23176768054439348,
+          "n": 3,
+          "values": [
+            0.6666666666666666,
+            0.35294117647058826,
+            0.21428571428571427
+          ]
+        },
+        "cvss_severity_agreement": {
+          "mean": 0.6229629629629629,
+          "sample_std": 0.23051561456801745,
+          "n": 3,
+          "values": [
+            0.8888888888888888,
+            0.48,
+            0.5
+          ]
+        }
+      },
+      "paired_deltas": {
+        "f1": {
+          "mean": -0.1015944213819993,
+          "sample_std": 0.2237651801586998,
+          "n": 3,
+          "values": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "baseline_trial_id": "5aa6fcfd0ec740dd",
+              "value": -0.35813366960907944,
+              "gained_truth_ids": [
+                "01",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "02",
+                "03",
+                "05",
+                "06",
+                "07",
+                "12",
+                "13",
+                "16",
+                "18",
+                "19",
+                "20",
+                "21",
+                "22",
+                "24",
+                "26",
+                "27",
+                "28",
+                "29"
+              ]
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "baseline_trial_id": "dad2ef8bdc104553",
+              "value": 0.05335040546308156,
+              "gained_truth_ids": [
+                "11",
+                "15",
+                "21"
+              ],
+              "lost_truth_ids": [
+                "08",
+                "10",
+                "18"
+              ]
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "baseline_trial_id": "1eaa9935d9e44dda",
+              "value": 0.0,
+              "gained_truth_ids": [
+                "22",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "06",
+                "07",
+                "15",
+                "21"
+              ]
+            }
+          ],
+          "unit": "ratio",
+          "display_unit": "percentage_points"
+        },
+        "recall": {
+          "mean": -0.20000000000000004,
+          "sample_std": 0.29059326290271165,
+          "n": 3,
+          "values": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "baseline_trial_id": "5aa6fcfd0ec740dd",
+              "value": -0.5333333333333334,
+              "gained_truth_ids": [
+                "01",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "02",
+                "03",
+                "05",
+                "06",
+                "07",
+                "12",
+                "13",
+                "16",
+                "18",
+                "19",
+                "20",
+                "21",
+                "22",
+                "24",
+                "26",
+                "27",
+                "28",
+                "29"
+              ]
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "baseline_trial_id": "dad2ef8bdc104553",
+              "value": 0.0,
+              "gained_truth_ids": [
+                "11",
+                "15",
+                "21"
+              ],
+              "lost_truth_ids": [
+                "08",
+                "10",
+                "18"
+              ]
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "baseline_trial_id": "1eaa9935d9e44dda",
+              "value": -0.06666666666666665,
+              "gained_truth_ids": [
+                "22",
+                "25"
+              ],
+              "lost_truth_ids": [
+                "06",
+                "07",
+                "15",
+                "21"
+              ]
+            }
+          ],
+          "unit": "ratio",
+          "display_unit": "percentage_points"
+        }
+      },
+      "paired_f1": {
+        "mean": -0.1015944213819993,
+        "sample_std": 0.2237651801586998,
+        "n": 3,
+        "values": [
+          {
+            "round_index": 1,
+            "trial_id": "b29e07b764d24d05",
+            "baseline_trial_id": "5aa6fcfd0ec740dd",
+            "value": -0.35813366960907944,
+            "gained_truth_ids": [
+              "01",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "02",
+              "03",
+              "05",
+              "06",
+              "07",
+              "12",
+              "13",
+              "16",
+              "18",
+              "19",
+              "20",
+              "21",
+              "22",
+              "24",
+              "26",
+              "27",
+              "28",
+              "29"
+            ]
+          },
+          {
+            "round_index": 2,
+            "trial_id": "7752a7ef45914db9",
+            "baseline_trial_id": "dad2ef8bdc104553",
+            "value": 0.05335040546308156,
+            "gained_truth_ids": [
+              "11",
+              "15",
+              "21"
+            ],
+            "lost_truth_ids": [
+              "08",
+              "10",
+              "18"
+            ]
+          },
+          {
+            "round_index": 3,
+            "trial_id": "d1227f3e504645dd",
+            "baseline_trial_id": "1eaa9935d9e44dda",
+            "value": 0.0,
+            "gained_truth_ids": [
+              "22",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "06",
+              "07",
+              "15",
+              "21"
+            ]
+          }
+        ],
+        "unit": "ratio",
+        "display_unit": "percentage_points"
+      },
+      "paired_recall": {
+        "mean": -0.20000000000000004,
+        "sample_std": 0.29059326290271165,
+        "n": 3,
+        "values": [
+          {
+            "round_index": 1,
+            "trial_id": "b29e07b764d24d05",
+            "baseline_trial_id": "5aa6fcfd0ec740dd",
+            "value": -0.5333333333333334,
+            "gained_truth_ids": [
+              "01",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "02",
+              "03",
+              "05",
+              "06",
+              "07",
+              "12",
+              "13",
+              "16",
+              "18",
+              "19",
+              "20",
+              "21",
+              "22",
+              "24",
+              "26",
+              "27",
+              "28",
+              "29"
+            ]
+          },
+          {
+            "round_index": 2,
+            "trial_id": "7752a7ef45914db9",
+            "baseline_trial_id": "dad2ef8bdc104553",
+            "value": 0.0,
+            "gained_truth_ids": [
+              "11",
+              "15",
+              "21"
+            ],
+            "lost_truth_ids": [
+              "08",
+              "10",
+              "18"
+            ]
+          },
+          {
+            "round_index": 3,
+            "trial_id": "d1227f3e504645dd",
+            "baseline_trial_id": "1eaa9935d9e44dda",
+            "value": -0.06666666666666665,
+            "gained_truth_ids": [
+              "22",
+              "25"
+            ],
+            "lost_truth_ids": [
+              "06",
+              "07",
+              "15",
+              "21"
+            ]
+          }
+        ],
+        "unit": "ratio",
+        "display_unit": "percentage_points"
+      },
+      "trial_ids": [
+        "b29e07b764d24d05",
+        "7752a7ef45914db9",
+        "d1227f3e504645dd"
+      ],
+      "valid_trials": 3
+    }
+  ],
+  "truth_matrix": [
+    {
+      "id": "01",
+      "title": "商品搜索 SQL 注入",
+      "class": "sqli",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "0feef01234274dad85af03dc881d6ca3",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/index.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "dda3dd8a54be4a7e9b973338a67e0035",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/index.php",
+                "line": 4
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "535002923dbc408dbbf8e198c39b4454",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/index.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "5cb9469191984244891bdc2f244ee899",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/index.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "342524a49ff444a7ace89f9caa0f325f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/index.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "5014668a6b3a42ccb3860097b6361946",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/index.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "22d6116973de4733ade51c2b06278769",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/index.php",
+                "line": 4
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "02",
+      "title": "到店欢迎反射型 XSS",
+      "class": "xss_r",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "e878d5ba197a452da3aefa5a51da077f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "0e92861dedd54df8a38cc2c1d513c9f2",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "0f5e031abcf7430bb868d7971f13c325",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "3d759a14aecd49dd9d5cbc9379a2ac5c",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "4cb27425743d4f8f966d6ce08dbff0cf",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "1e954d09173d4fc7b54f9d71ef26d59b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "94aa51c5588c4927a5278af9460d1094",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "d80bf6193d5045e3ada49cd1cb91f09c",
+              "primary_location": {
+                "path": "lab30-shop/app/public/catalog/greeting.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "03",
+      "title": "网络诊断命令注入",
+      "class": "command_injection",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "b819226a4eb64720aa0a3e14ea239b74",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "42852aee6ebd44619315060a4dce718f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "96856b3c227d47449e0264f3c0bce0c7",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "5c2fec6a1fd4431f9d76b10a6e48d345",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "2f312becc13645689435743df0ddaad6",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "1bb53a9e93284c508b6b78d7b655a3f3",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "91fdabb7e7ee47c9b86ee1aa87e8f6b5",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "0d8e9a74a87b4d41966719112183a8ca",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "line": 2
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "04",
+      "title": "帮助文档路径遍历读取任意文件",
+      "class": "path_traversal",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "57f9cf46aa924a8495d222321d1ee7bd",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "0ebfabe2dbb84143bd2a8f98dcb6dcee",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "edbf618b81e04222921ffcf7662ce1c4",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "aa3a4d937f254b0d98ad9cd782a4a75a",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "497f92ff536041629b3ff7b8465abb54",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "661cb201d5674c4cb9f46bc2376446de",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "65884012b27b478a9625b2c3eb113008",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "00ca13ef26b348818b06968e63463843",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "7c97bd8e98704c56876be5e7931541f7",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/download.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "05",
+      "title": "内容中心本地文件包含",
+      "class": "lfi",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "da5f5ba40d074a738994e54f98d8681a",
+              "primary_location": {
+                "path": "lab30-shop/app/public/content/page.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "26a14046b0bb485bb53fd8ad5f907168",
+              "primary_location": {
+                "path": "lab30-shop/app/public/content/page.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "73e66a5f66e54bf5b5548cc142813eaa",
+              "primary_location": {
+                "path": "lab30-shop/app/public/content/page.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "2eca2f3b4a9d400b89b24685e234345e",
+              "primary_location": {
+                "path": "lab30-shop/app/public/content/page.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "cf21d54113df4982bd65f3ce08cea86b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/content/page.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "4fb8fd6b57fc44d9aa3ba43fef05d941",
+              "primary_location": {
+                "path": "lab30-shop/app/public/content/page.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "ee49d2634ed54dbb9a84c6310111d58b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/content/page.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "06",
+      "title": "远程模板预览远程文件包含",
+      "class": "rfi",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "281032f74034489ba625f72adaa92d8a",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "faa85f22579c4862aec0f7cd63a86aca",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "ff12920369314b1b9e677da9e0b62196",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "e2e0a1f4538a4218a54dee09fba67eaa",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "479cf9a81f0f448b8d6205bf27433e96",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "b5ff528ff5a64ba0bf0beafacbb1b4a7",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "07",
+      "title": "运营公式动态函数调用代码执行",
+      "class": "code_execution",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "f1cbf423883d497399c6953e3f2a93a1",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/formula.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "8597659f49cb4305ae347d3de34585d7",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/formula.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "8f5d2833ad864f068c39de895eab59b1",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/formula.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "3117664d43fb4b6d86a30fe907dc297c",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/formula.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "2237368c017b4f4b9635bff8e6346d39",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/formula.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "83333783ca7a48799ffdff00da213909",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/formula.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "08",
+      "title": "继续访问开放重定向",
+      "class": "open_redirect",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "67129d489ade460e9ce3c063ea96ec43",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "a2c6266be22e4bff9c0f282b1a0699c6",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "b52575faf8ad4cd3a17492995063c4d1",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "b8155a2fc77b40e394ab6df870db00b4",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "6adcf57a5c5d4075ae99b7f8425ace1b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "4ee3e44e0bbc423ca636a9367298ff03",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "f69e0fe089cb46509351874fb9379c2f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "09",
+      "title": "数据库诊断异常与堆栈信息泄露",
+      "class": "info_disclosure",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "af4a7f6c95714289b524f68a9b2e12cb",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/database.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "1a3fd7be372f446abc3394d1db3d0e9a",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/database.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "a953fc722f374505891823e5a905843b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/database.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "8129bbc4dec44287a764cd8fde38592c",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/database.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "10",
+      "title": "使用 MD5 存储密码",
+      "class": "weak_crypto",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "5d5a1f6ceb384e5dbc92b4913f1a6859",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/register.php",
+                "line": 8
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 0,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 0,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "11",
+      "title": "在线留言存储型 XSS",
+      "class": "xss_s",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "152cb432a8f8460a9a2797590db46ea7",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "7eda597287604a4b9e1340b61a0df081",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "84caa3509c0e4601ac1bdb389511748d",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "b36cb2a80e8e44ab97fb54ebcbcab748",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "aaa93040128a44f78fe3cc955b64886d",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "161d9558807a4b06bad1603f462cd2cd",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "a99d32214751438294706cf741000e8c",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "1e26d66963b847ef8c14f21cb96439c2",
+              "primary_location": {
+                "path": "lab30-shop/app/public/support/messages.php",
+                "line": 5
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "12",
+      "title": "链接预览服务端请求伪造",
+      "class": "ssrf",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "874460014c5f40b58363e75e88a377db",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "88d2dd06820248f1b7eec6a91da5c76b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "1e7703b2243e432c99002ab03a12261f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "34bc5f673aba493d9f0024ca0c6a561f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "50ae0bf2856247a68624a58a740f1140",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "234ab009cc034481847716d1c66f33de",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "07280d2ba56e4725a5f8e3e83f64c93b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "262b09fe033344cfb28dc93e4b263ed8",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "13",
+      "title": "合作方配置导入 XXE",
+      "class": "xxe",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "2bb712fee21948b89b484175309823f9",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "1249d47ce2b744b5b068b196febf7007",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "097962ffe6a440fe884eb9493564f588",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "a4cc66e7bbc44a76b369a166ee0a0565",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "04edc3e012ee44159b3c4c607e9376dd",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "9dcda15f606c4b96b08ec532aee2ca88",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "945a43aadc4543b7a841d3220c104a43",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "6076f506abc44d47b978a236da3ae705",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "14",
+      "title": "邮箱设置跨站请求伪造",
+      "class": "csrf",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 0,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 0,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 0,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "15",
+      "title": "会员备份不安全反序列化权益篡改",
+      "class": "insecure_deserialization",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "879d443076f643f38184258b3a869eaa",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "8b31b1f33c014c7abeadf2ba34aeffcc",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "line": 5
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "34c6c8189a6540beaa686f6980198c63",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "d554f860e85b47118fc4fa59430b8cde",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "line": 5
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "59451b7c4f6a4658acc8743aa2662cae",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "81cc616050054a68bf6833f7376e674c",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "16",
+      "title": "订单详情越权访问（IDOR）",
+      "class": "idor",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "da9376e554154622acabbb40abed1a99",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "00ca4889b8af445d8870531f092f5ba0",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "00d01199a5bb48b399227ba19c542997",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "4f777425efcb48628d51f00ff98735cc",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "92ed96d4d92649a3bb46f05ebb87a7d4",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "4b431fbd4530437a9fb44849f52f512b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "e50d064e71db481ba710e841436aa224",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "5ca42b84324443a7865ef24d28cb6677",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "line": 2
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "17",
+      "title": "人员管理信任客户端角色 Cookie 权限绕过",
+      "class": "auth_bypass",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "e047a92de2ad42aa919c840482b11a43",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "2e1d28d17edf486b810c356936e27a38",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "c73711f72a2549928323d1f122cca8e4",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "97a248ee04244bf0957725f78639eefd",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "56fc18b449e54e74ba541bc5134b6f78",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "705487031b5945209782a8659a3a5793",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "3e1708c230034b839e32df271dfb7c12",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "7adabbead89c48c0a3f55c4564266220",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "27a61627d7a647c792dfd811bbc0fcbe",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/users.php",
+                "line": 2
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "18",
+      "title": "维护接口信任请求头认证绕过",
+      "class": "auth_bypass",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "b87fc61775634a80b0e33bb1821d74be",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "ce1e51584bc54c52a0408d49655ed383",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "7e3d681e42464cad93550e651a57d567",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "a0426e902fd5435a82009ca0f2dc87da",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "4564cff9bcde499e9eb1743b36218a71",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "42ff607207c94e22ad130d61a1a20cb9",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "8e8b807466c14eadafc577bbda7ae097",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "19",
+      "title": "下单信任客户端单价金额篡改",
+      "class": "price_manipulation",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "ad22a9f03d6d4f74bb1851f3d8a66170",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "90bf3b45aeee4fe09c4b0fe183315b85",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "97e7f25c0d9d4d6b941c79973ba03faa",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 5
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "adba0d52cf5f430e92fed29aa5b04994",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "ba14cae4fc8f4b3aa881fde9e2a49d21",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "54e0397148c8422d86db4d5278ee57c3",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 5
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "23c3aa0c6d8d443db4588e2659bddd46",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "47de12964d0d4315a063891b698db0b3",
+              "primary_location": {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "line": 5
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "20",
+      "title": "提现竞争条件重复支付",
+      "class": "race_condition",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "9ed0e13bd2b94f06bfb3e9167b912062",
+              "primary_location": {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "line": 7
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "3427658a2dd1440f8e5b96db4e8ceca9",
+              "primary_location": {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "line": 7
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "c134cb57d79c4f609bc838eb4dd7dedf",
+              "primary_location": {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "line": 7
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "cb71c464a7574f5699c9ef86a887f3f0",
+              "primary_location": {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "line": 7
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "0435e257a01f401a95f4d6ad3e310e6f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "line": 7
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "e6721ee5e80e41e49047e3c2239e33cf",
+              "primary_location": {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "line": 7
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "1941c453c7934d158f7e314e1afc0569",
+              "primary_location": {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "line": 7
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "21",
+      "title": "会话固定",
+      "class": "session_fixation",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "f364eb9ea267474b8b9488f37825469c",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/login.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "84c13bcc4da449cab7d05ac0aaf587e7",
+              "primary_location": {
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "line": 13
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "32a55ab8d5cc4ef68e74b47ba09f2565",
+              "primary_location": {
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "line": 13
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "7a3e0ba01e064d7caeba86241a396cc3",
+              "primary_location": {
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "line": 17
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "6496694a7b244594bffd3f00c0da17f9",
+              "primary_location": {
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "line": 17
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "ca71f96b2c634d89b31ff91835233de5",
+              "primary_location": {
+                "path": "lab30-shop/app/public/auth/login.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "22",
+      "title": "会员兑换码弱类型比较绕过",
+      "class": "weak_type_comparison",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "fc0b6fe44279453e9befb38c8562f1bf",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/redeem.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "4b950de81f9c4e678165c5c431137b2b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/redeem.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "ebb4f9c954a44709911fa2064324bdc9",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/redeem.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "e8d1368d3fed44b8ab7a316b720882bd",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/redeem.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "2c42db37804249e38b850c3b351669a0",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/redeem.php",
+                "line": 5
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "ec5be1aca6cf454aaebba8197814c6f2",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/redeem.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "e1f818448332434887838a11544e7cfb",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/redeem.php",
+                "line": 5
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "23",
+      "title": "会员查询跨文件 SQL 注入",
+      "class": "sqli",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "13beccd8c6224a2cb0759aa88f304b0f",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "319fe57d2ccd4ce9b784e8b553306334",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "fd1872f5c013491fb3019927b2a42f23",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "6cb19826d0e14bc38c04ef098fd985cb",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "062a3cdb5c714d30a5469dee0293379e",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "2600c0b13daf40a8ac46eb01bcf8f162",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "9f4bb528f1644e379ed3934383ce9192",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "6703a5de7fe54ef5afc22a801f4d6d12",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "5d61d341756e4f07a95a0b87913a2e9f",
+              "primary_location": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "24",
+      "title": "主机巡检跨文件命令注入",
+      "class": "command_injection",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "6e35699eb29c4203a6bf8ba4c28b354d",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "a9ce7945bca3470baf45e2556fea2e90",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "5ed4b29c06c54c1d958b8a75e6d0fd80",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "f716539b7db64d54873d8d8c1875f0be",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "44f22a8f9d5c4766be516ca2e213729c",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "6aa1d24ac2ea4bef9fde366a1ce2f778",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "7c473a363dff43ceaa335f3c8934fe28",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "6ce58174d27c4c3991c1ef3f1108ed74",
+              "primary_location": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "line": 2
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "25",
+      "title": "个人主页 HTML 属性注入型 XSS",
+      "class": "xss_r",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 1,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "3840a9fe7ba74b88b9e707b15a4d85ab",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/profile.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "cd5e19c6e1e7453bafc0a9f55ec610c4",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/profile.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "429802482e6249ec9b27ab230456a18a",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/profile.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "cdbb936fd1b54c9584c05ab76f6ae7b6",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/profile.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "41eeedcb3956456f8b4b12d82a97dbb5",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/profile.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "2988bc83ee5242a782fe774de7150e8d",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/profile.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "26",
+      "title": "合作方结算 JWT 未校验签名身份伪造",
+      "class": "auth_bypass",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "3366e631010045da9f5fd5ea2c0de136",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "96fae5f82cae468baf6b7393a2d65bb2",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "d7774e303687483591211c1d8f05ee55",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "45880eaffe11422c96229cfff4ed0cae",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 2
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "af44d2f4bd404ef785bd0e27a3619cb7",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "4117443718a2434880461495bdf144f7",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "053246aa8b854c689ab3a60d64a4ed9e",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "af7c017b1e4e4f2fb7a647bc97ac2594",
+              "primary_location": {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "line": 2
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "27",
+      "title": "任务导入反序列化链命令执行",
+      "class": "insecure_deserialization",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "9d6a04266ff742bca0aebb024666cfd5",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "38baf80f52f44ce4b7a7df0f054fd828",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "32fec918dfbe4c878a7d856196e3343d",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "e57ff76fef6e4060adcf5f381348ab94",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "3fa888b976964df9a4e1e909c7119b14",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "4db405d638404888be983bed32fbeca3",
+              "primary_location": {
+                "path": "lab30-shop/app/src/dispatch_job.php",
+                "line": 4
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "499de1e986d441cf85ddba6f4752de11",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "ed0a74e497234e01bf26ee2feca08cd9",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "28",
+      "title": "会员报表二次 SQL 注入",
+      "class": "sqli",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "a26ab76bfb2b4b56b6870f7d4c4e98b6",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "b9f31fe7cd224448bb2786cd8e3496a9",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "c82b81140d6e47d69d1a49034e803502",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "0bdd7b80b11e4ea590d2d1624df5971f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "87674776456a450584357c9cbdd745bc",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "606f525341bd4a0486ee1a1decd12eb8",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "64330a265f9545b5bafeca97e3477f22",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "c647998cc96243b8bcaa222977e75efb",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "29",
+      "title": "营销排版模板表达式执行",
+      "class": "code_execution",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "5962d528a4eb4a0dbac81cae487781a6",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-render.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "0c3ef5dd0d954cc5affed27816536842",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-render.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "73d834eee0ad43a9a33aded1c3cc83e3",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-render.php",
+                "line": 3
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "cc69a406011842afa01d883dbc481f4d",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-render.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "2f37f747ad1b45a6982d3b874969a4bb",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-render.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 2,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": false,
+              "finding_id": null,
+              "primary_location": null
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "b810cb01f0da404d9a2133c54dfc53eb",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-render.php",
+                "line": 3
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "0611ef84f7054705a1d768a3d8a15ca4",
+              "primary_location": {
+                "path": "lab30-shop/app/public/ops/template-render.php",
+                "line": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "30",
+      "title": "会员资料批量赋值敏感字段修改",
+      "class": "mass_assignment",
+      "variants": {
+        "worker-w0-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "5aa6fcfd0ec740dd",
+              "detected": true,
+              "finding_id": "507c7f974ed6474d9c293deabe329d48",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "dad2ef8bdc104553",
+              "detected": true,
+              "finding_id": "fc94a3a5b4a243f98c589016b85cb02f",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1eaa9935d9e44dda",
+              "detected": true,
+              "finding_id": "0565dde96ace466891fa1aa23897a586",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 4
+              }
+            }
+          ]
+        },
+        "worker-w1-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "292b4ec526dd44d4",
+              "detected": true,
+              "finding_id": "49e571b1001148baa5839fa82cc7a046",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 5
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "631bf55f5c334d03",
+              "detected": true,
+              "finding_id": "3ec2b01f32c14f4488751682c149a46b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "1ecc2fa5fbdf4895",
+              "detected": true,
+              "finding_id": "35b6809311434999bd674f7b0fa2567b",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 4
+              }
+            }
+          ]
+        },
+        "worker-w2-v1": {
+          "hits": 3,
+          "total": 3,
+          "rounds": [
+            {
+              "round_index": 1,
+              "trial_id": "b29e07b764d24d05",
+              "detected": true,
+              "finding_id": "c61363b42e1a49b18082fd26b326ec1d",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 2,
+              "trial_id": "7752a7ef45914db9",
+              "detected": true,
+              "finding_id": "2669bb4c42dc46c69ccd4ccfe5225722",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 4
+              }
+            },
+            {
+              "round_index": 3,
+              "trial_id": "d1227f3e504645dd",
+              "detected": true,
+              "finding_id": "063839b91b1a40149781ecafeace8e45",
+              "primary_location": {
+                "path": "lab30-shop/app/public/account/update.php",
+                "line": 4
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "class_coverage": [
+    {
+      "class": "auth_bypass",
+      "total": 3,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 9,
+          "total": 9,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 9,
+          "total": 9,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 6,
+          "total": 9,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "code_execution",
+      "total": 2,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 6,
+          "total": 6,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 4,
+          "total": 6,
+          "recall": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "detected": 3,
+          "total": 6,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "class": "command_injection",
+      "total": 2,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 6,
+          "total": 6,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 6,
+          "total": 6,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 4,
+          "total": 6,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "csrf",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 0,
+          "total": 3,
+          "recall": 0.0
+        },
+        "worker-w1-v1": {
+          "detected": 0,
+          "total": 3,
+          "recall": 0.0
+        },
+        "worker-w2-v1": {
+          "detected": 0,
+          "total": 3,
+          "recall": 0.0
+        }
+      }
+    },
+    {
+      "class": "idor",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "info_disclosure",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 1,
+          "total": 3,
+          "recall": 0.3333333333333333
+        },
+        "worker-w1-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "detected": 1,
+          "total": 3,
+          "recall": 0.3333333333333333
+        }
+      }
+    },
+    {
+      "class": "insecure_deserialization",
+      "total": 2,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 5,
+          "total": 6,
+          "recall": 0.8333333333333334
+        },
+        "worker-w1-v1": {
+          "detected": 5,
+          "total": 6,
+          "recall": 0.8333333333333334
+        },
+        "worker-w2-v1": {
+          "detected": 4,
+          "total": 6,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "lfi",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "mass_assignment",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        }
+      }
+    },
+    {
+      "class": "open_redirect",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "path_traversal",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        }
+      }
+    },
+    {
+      "class": "price_manipulation",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "race_condition",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "rfi",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "detected": 1,
+          "total": 3,
+          "recall": 0.3333333333333333
+        }
+      }
+    },
+    {
+      "class": "session_fixation",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 1,
+          "total": 3,
+          "recall": 0.3333333333333333
+        }
+      }
+    },
+    {
+      "class": "sqli",
+      "total": 3,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 8,
+          "total": 9,
+          "recall": 0.8888888888888888
+        },
+        "worker-w1-v1": {
+          "detected": 8,
+          "total": 9,
+          "recall": 0.8888888888888888
+        },
+        "worker-w2-v1": {
+          "detected": 8,
+          "total": 9,
+          "recall": 0.8888888888888888
+        }
+      }
+    },
+    {
+      "class": "ssrf",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "weak_crypto",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 1,
+          "total": 3,
+          "recall": 0.3333333333333333
+        },
+        "worker-w1-v1": {
+          "detected": 0,
+          "total": 3,
+          "recall": 0.0
+        },
+        "worker-w2-v1": {
+          "detected": 0,
+          "total": 3,
+          "recall": 0.0
+        }
+      }
+    },
+    {
+      "class": "weak_type_comparison",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "class": "xss_r",
+      "total": 2,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 4,
+          "total": 6,
+          "recall": 0.6666666666666666
+        },
+        "worker-w1-v1": {
+          "detected": 5,
+          "total": 6,
+          "recall": 0.8333333333333334
+        },
+        "worker-w2-v1": {
+          "detected": 5,
+          "total": 6,
+          "recall": 0.8333333333333334
+        }
+      }
+    },
+    {
+      "class": "xss_s",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        }
+      }
+    },
+    {
+      "class": "xxe",
+      "total": 1,
+      "variants": {
+        "worker-w0-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w1-v1": {
+          "detected": 3,
+          "total": 3,
+          "recall": 1.0
+        },
+        "worker-w2-v1": {
+          "detected": 2,
+          "total": 3,
+          "recall": 0.6666666666666666
+        }
+      }
+    }
+  ],
+  "cvss_common_rounds": [
+    {
+      "round_index": 1,
+      "truth_ids": [
+        "04",
+        "08",
+        "11",
+        "23"
+      ],
+      "total": 4,
+      "variants": {
+        "worker-w0-v1": {
+          "score_mae": 1.275,
+          "severity_accuracy": 0.75
+        },
+        "worker-w1-v1": {
+          "score_mae": 1.275,
+          "severity_accuracy": 0.75
+        },
+        "worker-w2-v1": {
+          "score_mae": 0.0,
+          "severity_accuracy": 1.0
+        }
+      }
+    },
+    {
+      "round_index": 2,
+      "truth_ids": [
+        "01",
+        "02",
+        "04",
+        "05",
+        "07",
+        "13",
+        "17",
+        "23",
+        "26",
+        "27",
+        "28",
+        "29"
+      ],
+      "total": 12,
+      "variants": {
+        "worker-w0-v1": {
+          "score_mae": 1.3499999999999999,
+          "severity_accuracy": 0.75
+        },
+        "worker-w1-v1": {
+          "score_mae": 1.6916666666666667,
+          "severity_accuracy": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "score_mae": 1.6333333333333335,
+          "severity_accuracy": 0.5833333333333334
+        }
+      }
+    },
+    {
+      "round_index": 3,
+      "truth_ids": [
+        "11",
+        "27",
+        "30"
+      ],
+      "total": 3,
+      "variants": {
+        "worker-w0-v1": {
+          "score_mae": 1.2333333333333334,
+          "severity_accuracy": 0.6666666666666666
+        },
+        "worker-w1-v1": {
+          "score_mae": 1.0,
+          "severity_accuracy": 0.6666666666666666
+        },
+        "worker-w2-v1": {
+          "score_mae": 1.1333333333333335,
+          "severity_accuracy": 1.0
+        }
+      }
+    }
+  ],
+  "actual_total_usage": {
+    "requests": {
+      "known_total": 817,
+      "known_attempts": 9,
+      "attempts": 9,
+      "total": 817
+    },
+    "tool_calls": {
+      "known_total": 2048,
+      "known_attempts": 9,
+      "attempts": 9,
+      "total": 2048
+    },
+    "input_tokens": {
+      "known_total": 15431510,
+      "known_attempts": 9,
+      "attempts": 9,
+      "total": 15431510
+    },
+    "output_tokens": {
+      "known_total": 791926,
+      "known_attempts": 9,
+      "attempts": 9,
+      "total": 791926
+    },
+    "total_tokens": {
+      "known_total": 16223436,
+      "known_attempts": 9,
+      "attempts": 9,
+      "total": 16223436
+    }
+  },
+  "interpretation": "官方清单匹配指标；U 不表示已证伪漏洞；无安全负例，不提供 Accuracy/FPR。",
+  "batch_usage": {
+    "initial": {
+      "attempts": 9,
+      "known_totals": {
+        "wall_elapsed_seconds": {
+          "known_total": 3747.293,
+          "known_attempts": 9,
+          "attempts": 9
+        },
+        "audit_elapsed_seconds": {
+          "known_total": 3733.768,
+          "known_attempts": 9,
+          "attempts": 9
+        },
+        "requests": {
+          "known_total": 817,
+          "known_attempts": 9,
+          "attempts": 9
+        },
+        "tool_calls": {
+          "known_total": 2048,
+          "known_attempts": 9,
+          "attempts": 9
+        },
+        "total_tokens": {
+          "known_total": 16223436,
+          "known_attempts": 9,
+          "attempts": 9
+        }
+      },
+      "wall_elapsed_seconds": 3747.293,
+      "audit_elapsed_seconds": 3733.768,
+      "requests": 817,
+      "tool_calls": 2048,
+      "total_tokens": 16223436,
+      "known_total_tokens": 16223436
+    },
+    "retry": {
+      "attempts": 0,
+      "known_totals": {
+        "wall_elapsed_seconds": {
+          "known_total": 0,
+          "known_attempts": 0,
+          "attempts": 0
+        },
+        "audit_elapsed_seconds": {
+          "known_total": 0,
+          "known_attempts": 0,
+          "attempts": 0
+        },
+        "requests": {
+          "known_total": 0,
+          "known_attempts": 0,
+          "attempts": 0
+        },
+        "tool_calls": {
+          "known_total": 0,
+          "known_attempts": 0,
+          "attempts": 0
+        },
+        "total_tokens": {
+          "known_total": 0,
+          "known_attempts": 0,
+          "attempts": 0
+        }
+      },
+      "wall_elapsed_seconds": 0,
+      "audit_elapsed_seconds": 0,
+      "requests": 0,
+      "tool_calls": 0,
+      "total_tokens": 0,
+      "known_total_tokens": 0
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"ok":true,"version":"3.0.0","target":"lab30","supported_targets":["lab30"],"capabilities":{"php":true,"python":true,"curl":true,"browser":true,"verification_contexts":true,"identity_preconditions":true,"idempotent_jobs":true}}

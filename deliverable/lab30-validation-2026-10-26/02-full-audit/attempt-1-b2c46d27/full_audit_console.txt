@@ -1,0 +1,194 @@
+[1/4] 上传快照: lab30-shop-1.0.0-source.zip (52 KB)
+    快照 2c4169b9 · 文件 69 个（可读 52）
+[2/4] 创建审计任务（scenario=all 全量）
+    run b2c46d27 · 模型 deepseek-chat · 预算 {'responses': 24, 'tools': 96, 'seconds': 1800}
+[3/4] 等待审计完成（最多 10800s，每 5s 刷新）
+    running    单元 0/0 · 漏洞 0 · 目标 open · 0s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 5s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 10s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 15s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 20s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 25s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 30s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 35s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 40s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 45s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 50s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 55s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 60s
+    running    单元 0/0 · 漏洞 0 · 目标 open · 65s
+    running    单元 0/0 · 漏洞 5 · 目标 open · 70s
+    running    单元 0/0 · 漏洞 10 · 目标 open · 75s
+    running    单元 0/0 · 漏洞 10 · 目标 open · 80s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 85s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 90s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 95s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 100s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 105s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 110s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 115s
+    running    单元 0/0 · 漏洞 13 · 目标 open · 120s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 125s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 130s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 135s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 140s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 145s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 150s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 155s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 160s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 165s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 170s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 175s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 180s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 185s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 190s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 195s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 200s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 205s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 210s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 215s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 220s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 225s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 230s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 235s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 240s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 245s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 250s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 255s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 260s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 265s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 270s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 275s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 280s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 285s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 290s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 295s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 300s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 305s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 311s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 316s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 321s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 326s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 331s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 336s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 341s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 346s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 351s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 356s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 361s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 366s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 371s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 376s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 381s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 386s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 391s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 396s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 401s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 406s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 411s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 416s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 421s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 426s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 431s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 436s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 441s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 446s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 451s
+    running    单元 0/0 · 漏洞 26 · 目标 open · 456s
+    failed     单元 0/0 · 漏洞 26 · 目标 inconclusive · 461s
+
+结果: failed · 目标 inconclusive · 漏洞候选 26 条
+运行错误: ValueError: Planner situation ceiling cannot hold the required closure facts
+  [high] ops/jobs.php 反序列化触发 DispatchJob::__wakeup 的 shell_exec 命令执行  lab30-shop/app/public/ops/jobs.php:2-3; lab30-shop/app/src/dispatch_job.php:2-5; lab30-shop/app/src/bootstrap.
+  [medium] account/backup.php 普通用户反序列化对象注入篡改 tier/display_name  lab30-shop/app/public/account/backup.php:2-6; lab30-shop/app/src/backup.php:2-5; lab30-shop/app/src/bootstrap.
+  [high] ops/ping.php 与 ops/batch-check.php 经 host_check 的 shell_exec  lab30-shop/app/public/ops/ping.php:2-2; lab30-shop/app/public/ops/batch-check.php:2-2; lab30-shop/app/src/host
+  [high] ops/url-preview.php file_get_contents 任意 URL 读取导致 SSRF  lab30-shop/app/public/ops/url-preview.php:2-4
+  [high] ops/xml-import.php LIBXML_NOENT|LIBXML_DTDLOAD 导致 XXE 文件读取  lab30-shop/app/public/ops/xml-import.php:2-4
+  [medium] content/page.php 未鉴权拼接 $_GET['page'] 进 include，可本地文件包含  lab30-shop/app/public/content/page.php:1-3; lab30-shop/app/src/bootstrap.php:9-9; lab30-shop/app/src/bootstrap
+  [medium] support/download.php 拼接 $_GET['file'] 到 data_dir()/docs/，可路径  lab30-shop/app/public/support/download.php:1-4; lab30-shop/app/src/bootstrap.php:9-9; lab30-shop/app/src/boots
+  [high] ops/formula.php 将 $_GET['func'] 作可变函数调用，可调 phpinfo/system  lab30-shop/app/public/ops/formula.php:1-4; lab30-shop/app/src/bootstrap.php:6-6; lab30-shop/app/src/bootstrap.
+  [high] ops/template-render.php 回调内 eval 模板表达式，可任意代码执行  lab30-shop/app/public/ops/template-render.php:1-4; lab30-shop/app/src/bootstrap.php:35-35; lab30-shop/app/src/
+  [medium] ops/template-preview.php include $_GET['template']，allow_url  lab30-shop/app/public/ops/template-preview.php:1-3; lab30-shop/app/src/bootstrap.php:35-35
+  [unknown] catalog/index.php q 参数直接拼接 LIKE 导致匿名 SQL 注入  lab30-shop/app/public/catalog/index.php:3-4; lab30-shop/app/src/bootstrap.php:6-6; lab30-shop/app/src/bootstra
+  [unknown] ops/members.php 经 member_lookup 拼接 username LIKE 导致操作员级 SQL   lab30-shop/app/src/member_lookup.php:2-3; lab30-shop/app/public/ops/members.php:2-2; lab30-shop/app/src/bootst
+  [unknown] ops/report.php 将数据库取出的 nickname 拼入查询导致二次 SQL 注入  lab30-shop/app/public/ops/report.php:2-3; lab30-shop/app/public/account/update.php:4-6; lab30-shop/app/src/boo
+  [medium] 订单详情 IDOR：未校验归属可越权读取他人订单与私有配送备注  lab30-shop/app/public/orders/detail.php:1-4; lab30-shop/app/public/orders/index.php:1-3; lab30-shop/app/src/bo
+  [medium] ops/users.php 以 Cookie role 决定管理员权限，可伪造 admin  lab30-shop/app/public/ops/users.php:1-5; lab30-shop/app/src/bootstrap.php:20-24
+  [medium] maintenance.php 仅凭 X-Admin:1 请求头执行维护写操作  lab30-shop/app/public/ops/maintenance.php:1-5
+  [high] partner/portal.php 不校验 JWT 签名，伪造 role=admin 读全量订单  lab30-shop/app/public/partner/portal.php:1-6
+  [medium] account/update.php 批量赋值可改 role/balance/tier，自提权并篡改余额  lab30-shop/app/public/account/update.php:1-8; lab30-shop/app/src/bootstrap.php:20-24
+  [medium] orders/create.php 信任客户端 price，可低价下单  lab30-shop/app/public/orders/create.php:1-7
+  [medium] wallet/withdraw.php 余额检查与扣减非原子，并发可重复提现  lab30-shop/app/public/wallet/withdraw.php:1-11; lab30-shop/app/src/bootstrap.php:11-19
+  …… 其余 6 条见 run 详情
+
+[4/4] 对数据集评分
+评分范围: all · 真值 30 项 · agent 结论 26 条
+评级口径: CVSS:3.1 / Base（只比较基础分，不使用时序分或环境分替代）
+TP=26  FP=0  FN=4
+precision=1.0000
+recall=0.8667
+F1=0.9286
+
+类别覆盖（检出/总数）:
+  sqli                       3/3
+  xss_r                      2/2
+  command_injection          1/2  漏: 24
+  path_traversal             1/1
+  lfi                        1/1
+  rfi                        1/1
+  code_execution             2/2
+  open_redirect              1/1
+  info_disclosure            0/1  漏: 09
+  weak_crypto                1/1
+  xss_s                      1/1
+  ssrf                       1/1
+  xxe                        1/1
+  csrf                       0/1  漏: 14
+  insecure_deserialization   2/2
+  idor                       1/1
+  auth_bypass                3/3
+  price_manipulation         1/1
+  race_condition             1/1
+  session_fixation           1/1
+  weak_type_comparison       0/1  漏: 22
+  mass_assignment            1/1
+
+命中明细:
+  - 27 任务导入反序列化链命令执行 · CVSS 3.1 Base 7.2 (high) [CVSS 报出 8.8, 绝对误差 1.6]
+  - 15 会员备份不安全反序列化权益篡改 · CVSS 3.1 Base 4.3 (medium) [CVSS 报出 4.3, 绝对误差 0.0]
+  - 03 网络诊断命令注入 · CVSS 3.1 Base 7.2 (high) [CVSS 报出 8.8, 绝对误差 1.6]
+  - 12 链接预览服务端请求伪造 · CVSS 3.1 Base 4.9 (medium) [severity 不符: 期望 medium, 报出 high] [CVSS 报出 7.7, 绝对误差 2.8]
+  - 13 合作方配置导入 XXE · CVSS 3.1 Base 4.9 (medium) [severity 不符: 期望 medium, 报出 high] [CVSS 报出 7.7, 绝对误差 2.8]
+  - 05 内容中心本地文件包含 · CVSS 3.1 Base 5.3 (medium) [CVSS 报出 6.5, 绝对误差 1.2]
+  - 04 帮助文档路径遍历读取任意文件 · CVSS 3.1 Base 6.5 (medium) [CVSS 报出 6.5, 绝对误差 0.0]
+  - 07 运营公式动态函数调用代码执行 · CVSS 3.1 Base 7.2 (high) [CVSS 报出 8.1, 绝对误差 0.9]
+  - 29 营销排版模板表达式执行 · CVSS 3.1 Base 7.2 (high) [CVSS 报出 8.1, 绝对误差 0.9]
+  - 06 远程模板预览远程文件包含 · CVSS 3.1 Base 7.2 (high) [severity 不符: 期望 high, 报出 medium] [CVSS 报出 5.4, 绝对误差 1.8]
+  - 01 商品搜索 SQL 注入 · CVSS 3.1 Base 7.5 (high) [severity 不符: 期望 high, 报出 unknown] [CVSS: missing_reported]
+  - 23 会员查询跨文件 SQL 注入 · CVSS 3.1 Base 4.9 (medium) [severity 不符: 期望 medium, 报出 unknown] [CVSS: missing_reported]
+  - 28 会员报表二次 SQL 注入 · CVSS 3.1 Base 3.5 (low) [severity 不符: 期望 low, 报出 unknown] [CVSS: missing_reported]
+  - 16 订单详情越权访问（IDOR） · CVSS 3.1 Base 6.5 (medium) [CVSS 报出 6.5, 绝对误差 0.0]
+  - 17 人员管理信任客户端角色 Cookie 权限绕过 · CVSS 3.1 Base 4.3 (medium) [CVSS 报出 6.5, 绝对误差 2.2]
+  - 18 维护接口信任请求头认证绕过 · CVSS 3.1 Base 5.3 (medium) [CVSS 报出 6.5, 绝对误差 1.2]
+  - 26 合作方结算 JWT 未校验签名身份伪造 · CVSS 3.1 Base 5.3 (medium) [severity 不符: 期望 medium, 报出 high] [CVSS 报出 7.5, 绝对误差 2.2]
+  - 30 会员资料批量赋值敏感字段修改 · CVSS 3.1 Base 7.1 (high) [severity 不符: 期望 high, 报出 medium] [CVSS 报出 6.5, 绝对误差 0.6]
+  - 19 下单信任客户端单价金额篡改 · CVSS 3.1 Base 6.5 (medium) [CVSS 报出 4.3, 绝对误差 2.2]
+  - 20 提现竞争条件重复支付 · CVSS 3.1 Base 5.3 (medium) [CVSS 报出 5.3, 绝对误差 0.0]
+  - 02 到店欢迎反射型 XSS · CVSS 3.1 Base 6.1 (medium) [CVSS 报出 5.4, 绝对误差 0.7]
+  - 11 在线留言存储型 XSS · CVSS 3.1 Base 5.4 (medium) [CVSS 报出 5.4, 绝对误差 0.0]
+  - 25 个人主页 HTML 属性注入型 XSS · CVSS 3.1 Base 6.1 (medium) [CVSS 报出 4.6, 绝对误差 1.5]
+  - 08 继续访问开放重定向 · CVSS 3.1 Base 0.0 (none) [severity 不符: 期望 none, 报出 low] [CVSS 报出 3.5, 绝对误差 3.5]
+  - 21 会话固定 · CVSS 3.1 Base 8.1 (high) [severity 不符: 期望 high, 报出 medium] [CVSS 报出 6.8, 绝对误差 1.3]
+  - 10 使用 MD5 存储密码 · CVSS 3.1 Base 5.3 (medium) [CVSS 报出 5.9, 绝对误差 0.6]
+
+CVSS 基础分对比: 23 条；缺失 3 条；无效 0 条
+CVSS MAE=1.2870
+
+漏报:
+  - 09 数据库诊断异常与堆栈信息泄露（真值位置: app/public/ops/database.php:3）
+  - 14 邮箱设置跨站请求伪造（真值位置: app/public/account/settings.php:5）
+  - 22 会员兑换码弱类型比较绕过（真值位置: app/public/account/redeem.php:5）
+  - 24 主机巡检跨文件命令注入（真值位置: app/public/ops/batch-check.php:2; app/src/host_check.php:2）
+
+明细已写入: deliverable/lab30-validation-2026-10-26/02-full-audit/score_all.json
+e2e exit rc=0

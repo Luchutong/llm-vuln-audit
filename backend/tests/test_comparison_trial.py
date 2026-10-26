@@ -11,6 +11,7 @@ import zipfile
 import pytest
 
 from audit.comparison_trial import _atomic_json, _infrastructure_failure, _usage, execute_trial
+from audit.comparison_results import LiveStats, _read_coverage, collect_trial, recover_trial
 from audit.config import ModelConfig
 from audit.db import Store
 from audit.execution_state import CURRENT_EXECUTION
@@ -98,7 +99,8 @@ def test_isolated_trial_uses_shared_creation_and_real_budget_context(tmp_path):
     assert outcomes[0]["run"]["id"] != outcomes[1]["run"]["id"]
     assert outcomes[0]["snapshot"]["id"] != outcomes[1]["snapshot"]["id"]
     assert sum(item["kind"] == "run_created" for item in records) == 2
-    assert all(set(item) <= {"kind", "event", "run_id", "snapshot_id", "phase", "role", "task_id"} for item in records)
+    assert all(item["kind"] in {"run_created", "audit_started", "phase", "heartbeat"} for item in records)
+    assert all(item.get("audit_started_at") for item in records if item["kind"] == "audit_started")
     assert CONFIG.api_key not in json.dumps([records, outcomes])
 
 
@@ -238,3 +240,198 @@ def test_atomic_result_write_replaces_complete_json(tmp_path):
     _atomic_json(path, {"run": {"status": "completed"}})
     assert json.loads(path.read_text()) == {"run": {"status": "completed"}}
     assert list(path.parent.glob(".trial-*")) == []
+
+
+# Real finding_created events contain an evidence list, unlike the older tool
+# result envelope. This was absent from the original fake-worker fixtures.
+def add_real_finding(worker, run):
+    from tests.test_project_findings import _finding
+    evidence = [{"path": "src/a.php", "start_line": 2, "end_line": 3}]
+    finding = {**_finding(path="src/a.php", evidence=evidence), "run_id": run["id"]}
+    worker.store.add_finding(finding)
+    worker.bus.emit(run["id"], None, "finding_created", {
+        "id": finding["id"], "title": finding["title"], "evidence": evidence,
+    })
+    CURRENT_EXECUTION.get().admit("responses")
+    worker.bus.emit(run["id"], None, "model_response", {
+        "input_tokens": 11, "output_tokens": 7, "token_usage_complete": True,
+    })
+    return finding
+
+
+@pytest.mark.parametrize("ending", ["normal", "budget", "cancel"])
+def test_genuine_finding_list_survives_all_terminal_paths_and_readonly_recovery(tmp_path, ending):
+    frozen = manifest(tmp_path)
+
+    class FindingWorker(AuditWorker):
+        async def _execute_body(self, run):
+            add_real_finding(self, run)
+            if ending == "cancel":
+                raise asyncio.CancelledError
+            self.store.terminate_execution(run["id"], "inconclusive", {
+                "code": "run_budget_exhausted" if ending == "budget" else "unresolved_blockers",
+                "dimension": "seconds" if ending == "budget" else None,
+            })
+
+    directory = tmp_path / "trial"
+    result = asyncio.run(execute_trial(frozen, frozen["variants"][0], directory, CONFIG, worker_factory=FindingWorker))
+    assert result["infra_error"] is None
+    assert len(result["findings"]) == 1
+    assert result["read_coverage"]["read_lines"] == 2
+    assert result["usage"]["total_tokens"] == 18
+    assert result["audit_started_at"]
+    assert result["audit_elapsed_seconds"] >= 0
+    if ending == "cancel":
+        assert result["cancelled"] and result["run"]["status"] == "cancelled"
+    if ending == "budget":
+        assert result["stop_reason"]["code"] == "run_budget_exhausted"
+    original = (directory / "audit.db").read_bytes()
+    # Recovery ignores any result file, including truncated JSON left by a crash.
+    (directory / "result.json").write_text('{"run":')
+    recovered = recover_trial(directory)
+    assert recovered["run"]["status"] == result["run"]["status"]
+    assert recovered["findings"] == result["findings"]
+    assert recovered["usage"] == result["usage"]
+    assert recovered["read_coverage"] == result["read_coverage"]
+    assert recovered["recovered_from_archive"] is True
+    assert (directory / "audit.db").read_bytes() == original
+
+
+def test_coverage_supports_lists_dicts_and_ignores_invalid_ranges():
+    snapshot = {"files": [{"path": "a.php", "line_count": 8, "kind": "text"}]}
+    events = [
+        {"kind": "finding_created", "payload": {"evidence": [{"path": "a.php", "start_line": 2, "end_line": 4}]}},
+        {"kind": "tool_result", "payload": {"evidence": {"reviewed_ranges": [{"path": "a.php", "start_line": 4, "end_line": 6}]}}},
+        {"payload": {"seen": [{"path": "a.php", "start_line": True, "end_line": 3},
+                               {"path": ["bad"], "start_line": 1, "end_line": 2}]}},
+        {"payload": ["legacy malformed payload"]},
+        {"payload": {"evidence": "unusable"}},
+    ]
+    assert _read_coverage(snapshot, events)["read_lines"] == 5
+
+
+def test_optional_coverage_exception_does_not_erase_durable_facts(tmp_path, monkeypatch):
+    from audit import comparison_results
+    frozen = manifest(tmp_path)
+
+    class FindingWorker(OfflineWorker):
+        async def _execute_body(self, run):
+            add_real_finding(self, run)
+            self.store.terminate_execution(run["id"], "inconclusive", {"code": "run_budget_exhausted"})
+
+    def broken(*args):
+        raise AttributeError("private source or credentials must not leak")
+
+    monkeypatch.setattr(comparison_results, "_read_coverage", broken)
+    result = asyncio.run(execute_trial(frozen, frozen["variants"][0], tmp_path / "trial", CONFIG, worker_factory=FindingWorker))
+    assert result["run"] and len(result["findings"]) == 1
+    assert result["usage"]["total_tokens"] == 18
+    assert result["read_coverage"] is None
+    assert result["infra_error"] is None
+    assert any(item["code"] == "read_coverage_unavailable" for item in result["warnings"])
+    assert "private source" not in json.dumps(result["warnings"])
+
+
+def test_missing_archive_recovery_never_creates_files(tmp_path):
+    missing = tmp_path / "missing"
+    with pytest.raises(FileNotFoundError):
+        recover_trial(missing)
+    assert not missing.exists()
+    existing = tmp_path / "empty"
+    existing.mkdir()
+    with pytest.raises(FileNotFoundError):
+        recover_trial(existing)
+    assert not list(existing.iterdir())
+
+
+def test_readonly_recovery_missing_snapshot_metadata_preserves_facts(tmp_path):
+    frozen = manifest(tmp_path)
+    directory = tmp_path / "trial"
+    original = asyncio.run(execute_trial(frozen, frozen["variants"][0], directory, CONFIG, worker_factory=OfflineWorker))
+    (directory / "snapshots" / original["snapshot"]["id"] / "index.json").unlink()
+    result = recover_trial(directory)
+    assert result["run"] == original["run"]
+    assert result["usage"] == original["usage"]
+    assert result["read_coverage"] is None
+    assert any(item["code"] == "snapshot_index_unavailable" for item in result["warnings"])
+
+
+def test_live_stats_only_consumes_new_events_and_preserves_unknown_usage():
+    stats = LiveStats({"files": [{"path": "a.php", "line_count": 5}]})
+    first = {"id": 10, "kind": "model_response", "created_at": "first", "payload": {
+        "input_tokens": 10, "output_tokens": 4, "token_usage_complete": True,
+    }}
+    stats.consume([first])
+    assert stats.usage({"usage": {"requests": 1}})["total_tokens"] == 14
+    stats.consume([first, {"id": 11, "kind": "agent_phase", "created_at": "second", "payload": {"phase": "planner"}}])
+    assert stats.usage({"usage": {"requests": 2}})["total_tokens"] is None
+    assert stats.usage({"usage": {"requests": 2}})["known_total_tokens"] == 14
+    stats.consume([{"id": 12, "kind": "model_response", "payload": {
+        "input_tokens": 8, "output_tokens": 2, "token_usage_complete": True,
+    }}])
+    assert stats.usage({"usage": {"requests": 2}})["total_tokens"] == 24
+    assert stats.last_event_id == 12 and stats.last_event_at == "second" and stats.phase == "planner"
+
+
+def test_heartbeat_continues_during_silent_worker_and_progress_failure_is_optional(tmp_path):
+    frozen = manifest(tmp_path)
+    records = []
+
+    class SilentWorker(AuditWorker):
+        async def _execute_body(self, run):
+            add_real_finding(self, run)
+            self.bus.emit(run["id"], None, "agent_phase", {"phase": "planner_waiting"})
+            await asyncio.sleep(2.1)
+            self.store.terminate_execution(run["id"], "inconclusive", {"code": "fixture"})
+
+    def callback(item):
+        records.append(item)
+        if item["kind"] == "phase":
+            raise RuntimeError("UI consumer unavailable")
+
+    result = asyncio.run(execute_trial(frozen, frozen["variants"][0], tmp_path / "trial", CONFIG, callback, SilentWorker))
+    beats = [item for item in records if item["kind"] == "heartbeat"]
+    assert len(beats) >= 2
+    assert beats[-1]["audit_elapsed_seconds"] >= 2
+    assert beats[-1]["finding_count"] == 1
+    assert beats[-1]["usage"]["total_tokens"] == 18
+    assert beats[-1]["last_event_id"] > 0 and beats[-1]["last_event_at"]
+    assert beats[-1]["heartbeat_at"]
+    assert result["run"] and len(result["findings"]) == 1 and result["infra_error"] is None
+    assert CONFIG.api_key not in json.dumps(records)
+    assert any(item["code"] == "progress_unavailable" for item in result["warnings"])
+
+
+
+def test_incorrect_complete_flag_without_token_counts_cannot_manufacture_zero_tokens():
+    value = _usage({"usage": {"requests": 1}}, [{"kind": "model_response", "payload": {"token_usage_complete": True}}])
+    assert value["total_tokens"] is None
+    assert value["token_usage_complete"] is False
+
+
+
+def test_production_budget_monitor_preserves_findings_and_fences_late_write(tmp_path):
+    from audit.runtime import StopAudit
+    frozen = manifest(tmp_path)
+    observed = []
+
+    class BudgetWorker(AuditWorker):
+        async def _execute_body(self, run):
+            finding = add_real_finding(self, run)
+            # Advance only the durable claim clock; no real 30-second wait/model.
+            self.store._active_clocks[run["id"]] -= 31
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                with pytest.raises(StopAudit):
+                    self.store.add_finding({**finding, "id": "late", "fingerprint": "late"})
+                observed.append("fenced")
+                raise
+
+    result = asyncio.run(execute_trial(frozen, frozen["variants"][0], tmp_path / "trial", CONFIG, worker_factory=BudgetWorker))
+    assert result["cancelled"] is False
+    assert result["run"]["status"] == "inconclusive"
+    assert result["stop_reason"]["code"] == "run_budget_exhausted"
+    assert result["stop_reason"]["dimension"] == "seconds"
+    assert len(result["findings"]) == 1 and result["usage"]["total_tokens"] == 18
+    assert observed == ["fenced"]

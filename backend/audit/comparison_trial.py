@@ -12,12 +12,16 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 import signal
 import tempfile
 import time
 from types import SimpleNamespace
 
 from .config import ModelConfig, PocSettings, Settings
+from .comparison_results import (LiveStats, _all_events, _usage, _read_coverage,
+                                 _infrastructure_failure, audit_elapsed_seconds, collect_trial, recover_trial)
+from .execution_state import comparison_deadline
 from .db import Store
 from .events import EventBus
 from .health import ModelHealth
@@ -49,85 +53,6 @@ class _ProgressBus(EventBus):
         return event
 
 
-def _all_events(store: Store, run_id: str) -> list[dict]:
-    events = []
-    after = 0
-    while batch := store.list_events(run_id, after=after, limit=1000):
-        events.extend(batch)
-        after = batch[-1]["id"]
-    return events
-
-
-def _usage(run: dict | None, events: list[dict]) -> dict:
-    actual = (run or {}).get("usage") or {}
-    requests = int(actual.get("requests") or 0)
-    responses = [item.get("payload") or {} for item in events if item.get("kind") == "model_response"]
-    known_input = sum(item["input_tokens"] for item in responses if type(item.get("input_tokens")) is int)
-    known_output = sum(item["output_tokens"] for item in responses if type(item.get("output_tokens")) is int)
-    complete = len(responses) == requests and all(item.get("token_usage_complete") is True for item in responses)
-    return {
-        "requests": requests, "tool_calls": int(actual.get("tool_calls") or 0),
-        "input_tokens": known_input if complete else None,
-        "output_tokens": known_output if complete else None,
-        "total_tokens": known_input + known_output if complete else None,
-        "known_input_tokens": known_input, "known_output_tokens": known_output,
-        "known_total_tokens": known_input + known_output,
-        "token_usage_complete": complete,
-    }
-
-
-def _infrastructure_failure(run: dict | None, events: list[dict]) -> dict | None:
-    """Only explicit terminal provider outages invalidate a trial, not poor output."""
-    if not run or run.get("status") not in {"failed", "inconclusive"}:
-        return None
-    reason = (run.get("execution_summary") or {}).get("stop_reason") or {}
-    if reason.get("code") == "run_budget_exhausted":
-        return None
-    terminals = [event.get("payload") or {} for event in events
-                 if event.get("kind") in {"task_agent_terminal", "planner_agent_terminal"}]
-    # Two failed Planner decisions can settle as inconclusive before the passive
-    # breaker trips.  Inspect the latest terminal, not the latest error: a later
-    # successful/rejected/budget-ended pass must not be erased by an earlier outage.
-    if not terminals or terminals[-1].get("reason") != "model_error":
-        return None
-    last = terminals[-1]
-    status = last.get("status")
-    provider_type = last.get("provider_error_type")
-    if (type(status) is int and (status in {401, 402, 403, 404, 429} or 500 <= status < 600)) or provider_type in {
-        "APIConnectionError", "ConnectError", "ConnectTimeout",
-    }:
-        return {"code": "model_unavailable", "status": status,
-                "provider_error_type": provider_type,
-                "message": str(last.get("error") or "Frozen model endpoint unavailable")[:600]}
-    return None
-
-
-def _read_coverage(snapshot: dict | None, events: list[dict]) -> dict:
-    files = {item["path"]: item["line_count"] for item in (snapshot or {}).get("files") or []
-             if item.get("kind", "text") == "text"}
-    intervals: set[tuple[str, int, int]] = set()
-    for event in events:
-        payload = event.get("payload") or {}
-        for ref in [*(payload.get("seen") or []), *((payload.get("evidence") or {}).get("reviewed_ranges") or [])]:
-            if not isinstance(ref, dict):
-                continue
-            path, start, end = ref.get("path"), ref.get("start_line"), ref.get("end_line")
-            if path in files and type(start) is int and type(end) is int and 1 <= start <= end <= files[path]:
-                intervals.add((path, start, end))
-    merged = []
-    for path, start, end in sorted(intervals):
-        if merged and merged[-1][0] == path and start <= merged[-1][2] + 1:
-            merged[-1] = (path, merged[-1][1], max(merged[-1][2], end))
-        else:
-            merged.append((path, start, end))
-    read_lines = sum(end - start + 1 for _, start, end in merged)
-    read_files = len({path for path, _, _ in merged})
-    total_lines = sum(files.values())
-    return {"read_files": read_files, "total_files": len(files), "read_lines": read_lines,
-            "total_lines": total_lines, "file_ratio": read_files / len(files) if files else None,
-            "line_ratio": read_lines / total_lines if total_lines else None}
-
-
 def _source_path(manifest: dict) -> Path:
     root = Path(manifest.get("_root") or ".").resolve()
     relative = (manifest.get("files") or {}).get("source")
@@ -146,6 +71,7 @@ async def execute_trial(
     config: ModelConfig,
     on_progress=None,
     worker_factory=AuditWorker,
+    deadline_monotonic: float | None = None,
 ) -> dict:
     """Execute one fresh trial and always return its actual durable terminal state."""
     from .app import create_audit_run
@@ -157,8 +83,41 @@ async def execute_trial(
     worker = None
     infra_error = None
     cancelled = False
-    events = []
-    findings = []
+    heartbeat_task = None
+    facts = None
+    warnings = []
+
+    def progress(payload):
+        if on_progress is None:
+            return
+        try:
+            on_progress(payload)
+        except Exception as exc:
+            warnings.append({"code": "progress_unavailable", "message": type(exc).__name__})
+
+    async def heartbeat(stats):
+        while True:
+            try:
+                current = store.get_run(run["id"])
+                stats.refresh(store, run["id"])
+                count = store._row("SELECT COUNT(*) AS n FROM findings WHERE run_id=?", (run["id"],))
+                coverage = None
+                try:
+                    coverage = stats.coverage()
+                except Exception as exc:
+                    warnings.append({"code": "read_coverage_unavailable", "message": type(exc).__name__})
+                progress({
+                    "kind": "heartbeat", "run_id": run["id"],
+                    "phase": stats.phase or ((current or {}).get("execution_summary") or {}).get("phase"),
+                    "usage": stats.usage(current), "finding_count": int(count["n"]),
+                    "read_coverage": coverage, "audit_started_at": (current or {}).get("started_at"),
+                    "audit_elapsed_seconds": audit_elapsed_seconds(current),
+                    "last_event_id": stats.last_event_id, "last_event_at": stats.last_event_at,
+                    "heartbeat_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                warnings.append({"code": "heartbeat_unavailable", "message": type(exc).__name__})
+            await asyncio.sleep(2)
     try:
         text_hash = hashlib.sha256(str(variant.get("text") or "").encode()).hexdigest()
         for key in ("sha256", "text_sha256"):
@@ -187,9 +146,10 @@ async def execute_trial(
         settings = Settings(data_dir=trial_data, model=config, poc=PocSettings(enabled=False, browser=False))
         store = Store(settings.db_path)
         repository = SourceRepository(trial_data)
-        bus = _ProgressBus(store, on_progress)
         health = ModelHealth()
         snapshot = repository.import_zip(content, str(manifest.get("source_name") or source.name))
+        stats = LiveStats(snapshot)
+        bus = _ProgressBus(store, progress)
         store.add_snapshot(snapshot)
         ensure_project(store, snapshot)
         frozen_policy = manifest.get("agent_policy")
@@ -214,13 +174,16 @@ async def execute_trial(
         if request.task.stop_on_achieved or request.task.max_workers != 1 or request.task.scenario is not None or request.task.require_poc:
             raise ValueError("Full comparison requires one worker, full scope, no early stop and no required POC")
         run = await create_audit_run(state, request, worker_strategy=strategy)
-        if on_progress is not None:
-            on_progress({"kind": "run_created", "run_id": run["id"], "snapshot_id": snapshot["id"]})
+        progress({"kind": "run_created", "run_id": run["id"], "snapshot_id": snapshot["id"]})
         claimed = store.claim_next_run()
         if claimed is None or claimed["id"] != run["id"]:
             raise RuntimeError("Isolated trial could not claim its newly created audit")
         run = claimed
-        await worker._execute(claimed)
+        progress({"kind": "audit_started", "run_id": run["id"],
+                  "audit_started_at": run["started_at"], "audit_elapsed_seconds": 0.0})
+        heartbeat_task = asyncio.create_task(heartbeat(stats))
+        with comparison_deadline(deadline_monotonic):
+            await worker._execute(claimed)
     except asyncio.CancelledError:
         cancelled = True
         if store is not None and run is not None:
@@ -235,24 +198,28 @@ async def execute_trial(
             if current and current.get("status") in {"pending", "running", "paused"}:
                 store.terminate_execution(run["id"], "failed", {"code": "worker_exit_without_terminal", "message": infra_error["message"]})
     finally:
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
         if store is not None:
             try:
                 if run is not None:
-                    run = store.get_run(run["id"]) or run
-                    findings = store.list_findings(run["id"])
-                    events = _all_events(store, run["id"])
+                    facts = collect_trial(store, run["id"], snapshot)
             finally:
                 store.close()
-    summary = (run or {}).get("execution_summary") or {}
-    stop_reason = summary.get("stop_reason") or {"code": "cancelled" if cancelled else (run or {}).get("status", "setup_failed")}
-    return {
-        "run": run, "findings": findings,
-        "snapshot": {key: snapshot.get(key) for key in ("id", "name", "archive_sha256", "content_key", "project_id")} if snapshot else None,
-        "usage": _usage(run, events), "duration_seconds": round(time.monotonic() - started, 3),
-        "read_coverage": _read_coverage(snapshot, events),
-        "stop_reason": stop_reason, "cancelled": cancelled,
-        "infra_error": infra_error or _infrastructure_failure(run, events),
+    facts = facts or {
+        "run": run, "findings": [], "snapshot": None, "usage": {}, "read_coverage": None,
+        "stop_reason": {"code": "cancelled" if cancelled else "setup_failed"},
+        "warnings": [], "audit_started_at": None, "audit_elapsed_seconds": 0.0,
     }
+    facts["warnings"].extend(warnings)
+    facts.update({"duration_seconds": round(time.monotonic() - started, 3),
+                  "cancelled": cancelled,
+                  "infra_error": infra_error or facts.get("infra_error")})
+    return facts
 
 
 def _atomic_json(path: Path, result: dict) -> None:
@@ -290,14 +257,20 @@ async def _main(args) -> int:
             result = await execute_trial(
                 manifest, variant, Path(args.data_dir), config,
                 on_progress=lambda item: print(json.dumps(item, ensure_ascii=False), flush=True),
+                deadline_monotonic=args.deadline_monotonic,
             )
         finally:
             for signum in installed:
                 loop.remove_signal_handler(signum)
     except Exception as exc:
-        result = {"run": None, "findings": [], "infra_error": {
-            "code": "trial_setup_error", "message": config.redact(f"{type(exc).__name__}: {exc}")[:800],
-        }}
+        try:
+            result = recover_trial(Path(args.data_dir))
+        except Exception:
+            result = {"run": None, "findings": [], "warnings": []}
+        result["infra_error"] = {
+            "code": "trial_setup_error" if result.get("run") is None else "trial_process_error",
+            "message": config.redact(f"{type(exc).__name__}: {exc}")[:800],
+        }
     _atomic_json(Path(args.output), result)
     return 1 if result.get("infra_error") else 0
 
@@ -308,6 +281,7 @@ def main() -> int:
     parser.add_argument("--prompt-id", required=True)
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--deadline-monotonic", type=float, default=None)
     return asyncio.run(_main(parser.parse_args()))
 
 

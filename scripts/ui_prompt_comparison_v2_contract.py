@@ -57,9 +57,9 @@ def fixture_services(directory: Path):
     for variant in variants:
         variant['sha256'] = variant['text_sha256']
     manifest = dict(protocol=PROTOCOL,scoring_protocol='lab30-v2',created_at=now(),variants=variants,
-                    baseline_prompt_id=variants[0]['id'],repeats=3,
+                    baseline_prompt_id=variants[0]['id'],repeats=3,experiment_wall_seconds=7200,
                     model=dict(model=settings.model.model,base_url=settings.model.public_base_url(),thinking=settings.model.thinking),
-                    budgets=dict(responses=24,tools=96,seconds=1800),run_limits=dict(responses=256,tools=2048,seconds=1800),
+                    budgets=dict(responses=24,tools=96,seconds=720),run_limits=dict(responses=256,tools=2048,seconds=720),
                     source_sha256=hashlib.sha256((frozen/'source.zip').read_bytes()).hexdigest(),assets=assets,
                     task_spec=dict(objective=OBJECTIVE),poc_mode='off',code=dict(commit='offline-contract-fixture',dirty=False),
                     order=[[v['id'] for v in variants[r:]+variants[:r]] for r in range(3)])
@@ -97,7 +97,8 @@ def fixture_services(directory: Path):
                         preconditions=[],missing_context=[],poc=None,remediation='fixture remediation',
                         vulnerability_type=row['class'],primary_location=dict(path=path,line=location['line']),
                         validation_state='candidate',validation_errors=[],created_at=now()))
-                store.append_event(run_id,None,'fixture_contract_event',dict(attempt=attempt_no,note='No model was called'))
+                for event_index in range(160 if (round_index,index,attempt_no)==(1,0,2) else 1):
+                    store.append_event(run_id,None,'fixture_contract_event',dict(attempt=attempt_no,index=event_index,note='No model was called'))
                 store.update_run(run_id,status='completed',finished_at=now())
                 score=evaluate_v2(truth,store.list_findings(run_id),anchors)
                 usage=dict(requests=0,tool_calls=0,input_tokens=0,output_tokens=0,total_tokens=0)
@@ -158,6 +159,9 @@ def main():
                 expect(page.locator('.exp-diff')).to_be_visible()
                 checks.passed('actual official 30-item truth matrix and frozen builtin strategy diff agree with the API')
                 first=trials[0]
+                scoped_detail=client.get(f'/api/prompt-experiments/{ident}/trials/{first["id"]}').json()
+                first_event_id=scoped_detail['events'][0]['id']
+                all_scoped_events=client.get(f'/api/prompt-experiments/{ident}/trials/{first["id"]}/events?after=0&limit=500').json()['events']
                 page.evaluate('(hash)=>location.hash=hash',f'#experiments/{ident}?tab=trials&trial={first["id"]}')
                 expect(page.get_by_role('combobox',name='查看执行版本')).to_have_value('2')
                 expect(page.get_by_role('button',name='离线契约样例 01 · 第 2 次 · sqli',exact=True)).to_be_visible()
@@ -168,6 +172,12 @@ def main():
                 response=client.get(report)
                 assert response.status_code==200 and '离线契约样例 01' in response.text,response.text[:500]
                 checks.passed('actual independent SQLite run, frozen ZIP source and scoped Markdown report are readable')
+                page.get_by_role('button',name='实际审计日志 · 100 条',exact=True).click()
+                expect(page.locator('.exp-events summary').first).to_contain_text(f'#{first_event_id}')
+                page.get_by_role('button',name='读取更早事件',exact=True).click()
+                expect(page.locator('.exp-events details')).to_have_count(len(all_scoped_events))
+                assert any(f'/events?before={first_event_id}' in path for path,_ in real_requests)
+                checks.passed('real API returns the latest hundred events and before paging retrieves earlier history')
                 page.get_by_role('combobox',name='查看执行版本').select_option('1')
                 expect(page.get_by_role('region',name='试次详情')).to_contain_text('fixture_initial_failure')
                 expect(page.get_by_role('button',name='离线契约样例 01 · 第 2 次 · sqli',exact=True)).to_have_count(0)

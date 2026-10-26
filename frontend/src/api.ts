@@ -27,21 +27,64 @@ function detailText(detail: unknown): string | null {
 export class ApiError extends Error {
   status: number;
   detail: unknown;
-  constructor(status: number, message: string, detail?: unknown) { super(message); this.name = 'ApiError'; this.status = status; this.detail = detail; }
+  constructor(status: number, message: string, detail?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
 }
 
-export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, { ...options, headers: { ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options?.headers } });
-  if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
-    let detail: unknown;
-    try { const body = await response.json(); detail = body.detail; message = detailText(detail) ?? JSON.stringify(body); } catch { /* HTML/network gateway error */ }
-    throw new ApiError(response.status, message, detail);
+export type ApiOptions = RequestInit & { timeoutMs?: number };
+
+export async function api<T>(path: string, options?: ApiOptions): Promise<T> {
+  const { timeoutMs = 0, signal: callerSignal, ...requestOptions } = options ?? {};
+  const abort = new AbortController();
+  let timedOut = false;
+  const forwardAbort = () => abort.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) forwardAbort();
+  else callerSignal?.addEventListener('abort', forwardAbort, { once: true });
+  const timeout =
+    timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          abort.abort();
+        }, timeoutMs)
+      : undefined;
+  try {
+    const response = await fetch(`/api${path}`, {
+      ...requestOptions,
+      signal: abort.signal,
+      headers: {
+        ...(requestOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        ...requestOptions.headers,
+      },
+    });
+    if (!response.ok) {
+      let message = `${response.status} ${response.statusText}`;
+      let detail: unknown;
+      try {
+        const body = await response.json();
+        detail = body.detail;
+        message = detailText(detail) ?? JSON.stringify(body);
+      } catch {
+        /* HTML/network gateway error */
+      }
+      throw new ApiError(response.status, message, detail);
+    }
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  } catch (error) {
+    if (timedOut && !callerSignal?.aborted)
+      throw new ApiError(408, `读取超时（${Math.round(timeoutMs / 1000)} 秒），已保留上次结果，将继续重试。`);
+    throw error;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    callerSignal?.removeEventListener('abort', forwardAbort);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
 }
+
 export const post = <T>(path: string, body: unknown) => api<T>(path, { method: 'POST', body: JSON.stringify(body) });
 export const remove = <T = void>(path: string) => api<T>(path, { method: 'DELETE' });
 export const downloadUrl = (path: string) => `/api${path}`;
-export const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+export const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));

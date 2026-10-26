@@ -876,6 +876,18 @@ class PromptExperimentRequest(BaseModel):
     baseline_prompt_id: str | None = None
     repeats: StrictInt = Field(default=3, ge=1, le=5)
     run_limits: RunLimits = Field(default_factory=RunLimits)
+    experiment_wall_seconds: StrictInt = Field(default=7200, ge=7200, le=7200)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _full_comparison_time_defaults(cls, value):
+        if isinstance(value, dict) and value.get("protocol") == "lab30-full-v2":
+            value = dict(value)
+            if "run_limits" not in value:
+                value["run_limits"] = {"seconds": 720}
+            elif isinstance(value["run_limits"], dict):
+                value["run_limits"] = {"seconds": 720, **value["run_limits"]}
+        return value
 
     @model_validator(mode="after")
     def _full_comparison_contract(self):
@@ -886,6 +898,11 @@ class PromptExperimentRequest(BaseModel):
                 raise ValueError("基线必须属于已选策略")
             if self.variants or self.scenario is not None or self.units_limit:
                 raise ValueError("正式实验使用完整源码，不接受旧版 variants/scenario/units_limit")
+            if self.run_limits.seconds > 720:
+                raise ValueError("正式实验每次审计最多 720 秒（12 分钟）")
+            count = len(self.prompt_ids) * self.repeats
+            if count * (self.run_limits.seconds + 60) + 180 > self.experiment_wall_seconds:
+                raise ValueError("所选版本、轮次与时长加上清理和汇总预留超过首批 7200 秒上限，请减少试次或缩短时长")
         return self
 
 

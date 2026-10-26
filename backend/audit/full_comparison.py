@@ -4,11 +4,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import csv
+import copy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -26,7 +29,13 @@ from .runtime import AgentPolicy
 PROTOCOL = "lab30-full-v2"
 ROOT = Path(__file__).resolve().parents[2]
 ACTIVE = {"preparing", "running", "cancelling"}
-OBJECTIVE = "对所选完整源码进行全量白盒漏洞审计，穷尽由实际源码支持的可操作漏洞，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件；没有证据的方向保留为排查记录。"
+TIME_POLICY = "fixed-time-v1"
+EXPERIMENT_SECONDS = 7200
+TRIAL_SECONDS = 720
+SLOT_OVERHEAD_SECONDS = 60
+SHARED_OVERHEAD_SECONDS = 180
+CLEANUP_SECONDS = 15
+OBJECTIVE = "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。"
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -48,6 +57,12 @@ def _hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _batch_kind(manifest, attempt):
+    if attempt.get("batch_kind") in {"initial", "retry"}:
+        return attempt["batch_kind"]
+    return "unknown" if manifest.get("time_policy", {}).get("version") == TIME_POLICY else "legacy"
+
+
 def classify_result(result: dict, returncode: int) -> tuple[str, str]:
     """Budget/model-output failures are observations, not conveniently discarded trials."""
     if returncode or result.get("infra_error"):
@@ -62,6 +77,8 @@ def classify_result(result: dict, returncode: int) -> tuple[str, str]:
         return "invalid", str(reason.get("code") or run.get("status"))
     # Provider failures arrive as structured infra_error from the child. Neither
     # model prose nor an ambiguous timeout proves an infrastructure outage.
+    if reason.get("code") in {"batch_deadline_exceeded", "experiment_deadline_exceeded", "trial_lifecycle_timeout"}:
+        return "invalid", reason["code"]
     if reason.get("code") == "worker_exit_without_terminal":
         return "invalid", "executor_error"
     return "valid", str(reason.get("code") or run.get("status") or "finished")
@@ -74,6 +91,50 @@ class FullComparisonRunner:
         self._process = None
         self._closed = False
         self._model = {}
+        self._clock = time.monotonic
+        self._batch_clocks = {}
+        self._archive_cache = {}
+
+    def _new_batch(self, kind, trial_ids, seconds, *, started=None, started_at=None):
+        started = self._clock() if started is None else started
+        started_at = started_at or now()
+        batch = {"id": uuid_hex(), "kind": kind, "trial_ids": trial_ids,
+            "started_at": started_at, "deadline_at": (datetime.fromisoformat(started_at) + timedelta(seconds=seconds)).isoformat(),
+            "wall_seconds": seconds, "status": "running", "finished_at": None}
+        self._batch_clocks[batch["id"]] = (started, started + seconds)
+        return batch
+
+    def _batch_remaining(self, batch):
+        if batch["id"] in self._batch_clocks:
+            return self._batch_clocks[batch["id"]][1] - self._clock()
+        return (datetime.fromisoformat(batch["deadline_at"]) - datetime.now(timezone.utc)).total_seconds()
+
+    def _timing_projection(self, progress):
+        timing = copy.deepcopy(progress.get("timing") or {})
+        for batch in timing.get("batches") or []:
+            if batch.get("finished_at"):
+                elapsed = max(0, (datetime.fromisoformat(batch["finished_at"]) - datetime.fromisoformat(batch["started_at"])).total_seconds())
+            else:
+                elapsed = max(0, batch["wall_seconds"] - self._batch_remaining(batch))
+            batch.update(elapsed_seconds=round(elapsed, 3), remaining_seconds=round(max(0, batch["wall_seconds"] - elapsed), 3))
+        initial = next((b for b in timing.get("batches", []) if b["kind"] == "initial"), None)
+        if initial:
+            timing["initial_batch"] = copy.deepcopy(initial)
+        return timing
+
+    def _progress(self, ident, **fields):
+        row = self._record(ident)
+        self.store.update_prompt_experiment(ident, progress={**row.get("progress", {}), **fields})
+
+    def _finish_batch(self, ident, batch_id, status, reason=None):
+        row = self._record(ident)
+        timing = row.get("progress", {}).get("timing") or {}
+        for batch in timing.get("batches", []):
+            if batch["id"] == batch_id and not batch.get("finished_at"):
+                elapsed = max(0, batch["wall_seconds"] - self._batch_remaining(batch))
+                batch.update(status=status, finished_at=(datetime.fromisoformat(batch["started_at"]) + timedelta(seconds=elapsed)).isoformat(), stop_reason=reason)
+        timing["active_batch_id"] = None
+        self._progress(ident, timing=timing)
 
     def _directory(self, ident: str) -> Path:
         if not re.fullmatch(r"[a-f0-9]{16}", ident):
@@ -91,9 +152,65 @@ class FullComparisonRunner:
         return row
 
     def get(self, ident: str) -> dict:
-        return _public(self._record(ident))
+        row = self._record(ident)
+        for trial in row["trials"]:
+            for attempt in trial.get("attempts") or []:
+                self._hydrate_attempt(ident, trial, attempt)
+            if trial.get("attempts"):
+                for key in ("usage", "read_coverage", "audit_elapsed_seconds", "wall_elapsed_seconds", "audit_started_at", "warnings"):
+                    if key in trial["attempts"][-1]:
+                        trial[key] = trial["attempts"][-1][key]
+            trial["can_retry"], trial["retry_reason"] = self._retry_eligibility(row, trial)
+        if row.get("manifest"):
+            row["summary"] = self._summary(row["manifest"], row["trials"], self._directory(ident))
+        row["progress"]["timing"] = self._timing_projection(row["progress"])
+        return _public(row)
+
+    def _retry_eligibility(self, row, trial):
+        if row["status"] in ACTIVE:
+            return False, "请先等待当前批次结束"
+        if row["manifest"].get("time_policy", {}).get("version") != TIME_POLICY:
+            return False, "历史预算实验只读，请创建新的限时实验"
+        if trial.get("evaluation_status") not in {"invalid", "not_started"}:
+            return False, "不能替换有效低分或其他有效成绩"
+        if int(trial.get("retry_count", 0)) >= 1 or len(trial.get("attempts", [])) >= 2:
+            return False, "每个逻辑试次只允许显式补跑一次"
+        return True, ""
+
+    def _hydrate_attempt(self, ident, trial, attempt):
+        """Project durable facts without changing historical status or result files."""
+        if not attempt.get("run_id"):
+            return
+        work = self._directory(ident) / "trials" / trial["id"] / f"attempt-{int(attempt['attempt_no'])}"
+        try:
+            signature = tuple((p.stat().st_mtime_ns, p.stat().st_size) if p.exists() else None
+                for p in (work / "audit.db", work / "audit.db-wal", work / "snapshots"))
+            key = (ident, trial["id"], attempt["attempt_no"])
+            cached = self._archive_cache.get(key)
+            if cached and cached[0] == signature:
+                recovered = cached[1]
+            else:
+                from .comparison_results import recover_trial
+                recovered = recover_trial(work, attempt["run_id"])
+                self._archive_cache[key] = (signature, recovered)
+        except (OSError, sqlite3.Error, ValueError, TypeError):
+            return
+        if (recovered.get("run") or {}).get("id") != attempt["run_id"]:
+            attempt.setdefault("warnings", []).append({"code": "run_unavailable", "message": "隔离数据库中已不存在该运行，保留已有用量"})
+            return
+        for name in ("usage", "read_coverage", "audit_elapsed_seconds", "audit_started_at", "warnings"):
+            if name in recovered:
+                attempt[name] = recovered[name]
+        if not attempt.get("stop_reason") and recovered.get("stop_reason"):
+            attempt["stop_reason"] = recovered["stop_reason"]
+        end = attempt.get("finished_at") or now()
+        if attempt.get("created_at"):
+            elapsed = max(0, (datetime.fromisoformat(end) - datetime.fromisoformat(attempt["created_at"])).total_seconds())
+            attempt["wall_elapsed_seconds"] = round(elapsed, 3)
+        attempt["recovered_from_archive"] = True
 
     def start(self, payload) -> dict:
+        batch_started, batch_started_at = self._clock(), now()
         if self._closed or self.store.running_prompt_experiment() or (self._task and not self._task.done()):
             raise ExperimentError("已有实验在执行或服务正在关闭，请等待执行结束。")
         model = self.settings.model
@@ -120,6 +237,11 @@ class FullComparisonRunner:
             raise ExperimentError("预算只接受 responses、tools、seconds。")
         if any(type(value) is not int for value in supplied.values()):
             raise ExperimentError("预算必须是整数。")
+        audit_seconds = payload.run_limits.seconds
+        if (getattr(payload, "experiment_wall_seconds", EXPERIMENT_SECONDS) != EXPERIMENT_SECONDS
+                or audit_seconds > TRIAL_SECONDS
+                or len(variants) * payload.repeats * (audit_seconds + SLOT_OVERHEAD_SECONDS) + SHARED_OVERHEAD_SECONDS > EXPERIMENT_SECONDS):
+            raise ExperimentError("首次批次最多两小时；请缩短单次时限或减少策略与轮次。")
         source = Path(os.environ.get("LAB30_SOURCE_ZIP") or SOURCE_ZIP)
         try:
             assets = validate_assets(source)
@@ -139,7 +261,8 @@ class FullComparisonRunner:
                 target.write_bytes(Path(origin).read_bytes())
             # Validate the copied bytes too, closing the source-read race before execution.
             assets = validate_assets(frozen / "source.zip", frozen / "truth.json", frozen / "anchors.json")
-            effective_budgets = clamp_budgets(supplied)
+            effective_budgets = clamp_budgets({"seconds": audit_seconds, **supplied})
+            effective_budgets["seconds"] = min(effective_budgets["seconds"], audit_seconds)
             manifest = {
                 "protocol": PROTOCOL, "scoring_protocol": "lab30-v2", "created_at": now(),
                 "variants": variants, "baseline_prompt_id": payload.baseline_prompt_id,
@@ -147,7 +270,7 @@ class FullComparisonRunner:
                     "base_url": model.public_base_url(), "thinking": model.thinking},
                 "budgets": effective_budgets, "run_limits": payload.run_limits.model_dump(),
                 "task_spec": {"objective": OBJECTIVE,
-                    "success_criteria": "穷尽所选源码的漏洞风险并记录尚未覆盖的方向，所有漏洞均须由已读源码支持；不能找到第一条就停止。",
+                    "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
                     "max_iterations": 3, "max_planner_rounds": 24, "max_total_attempts": 64,
                     "max_workers": 1, "stop_on_achieved": False, "require_poc": False},
                 "poc_mode": "off", "assets": assets, "source_sha256": _hash(frozen / "source.zip"),
@@ -161,6 +284,10 @@ class FullComparisonRunner:
                     "sampling_note": "未显式发送的采样参数采用供应商默认，不宣称确定性复现。",
                     "extra_body": model.extra_body()},
                 "code": self._code_identity(),
+                "time_policy": {"version": TIME_POLICY, "audit_seconds": audit_seconds,
+                    "trial_wall_seconds": audit_seconds + SLOT_OVERHEAD_SECONDS,
+                    "experiment_wall_seconds": EXPERIMENT_SECONDS, "shared_overhead_seconds": SHARED_OVERHEAD_SECONDS,
+                    "timing_basis": "claim_to_terminal", "retry_scope": "separate_batch"},
             }
             order = [payload.prompt_ids[r % len(variants):] + payload.prompt_ids[:r % len(variants)]
                      for r in range(payload.repeats)]
@@ -177,8 +304,11 @@ class FullComparisonRunner:
         self.store.add_full_prompt_experiment({"id": ident, "created_at": now(), "status": "running",
             "variants": payload.prompt_ids, "model": model.label, "budgets": effective_budgets,
             "manifest": manifest, "trials": trials, "summary": self._summary(manifest, trials, directory)})
+        batch = self._new_batch("initial", [t["id"] for t in trials], EXPERIMENT_SECONDS,
+                                started=batch_started, started_at=batch_started_at)
+        self._progress(ident, phase="preparing", timing={"active_batch_id": batch["id"], "batches": [batch]})
         self._model[ident] = model
-        self._task = asyncio.create_task(self._execute(ident, [t["id"] for t in trials], model))
+        self._task = asyncio.create_task(self._execute(ident, [t["id"] for t in trials], model, batch["id"]))
         return self.get(ident)
 
     @staticmethod
@@ -223,12 +353,35 @@ class FullComparisonRunner:
                            or 0 for value, a in zip(values, attempts))
             result["actual_total_usage"][key] = {"known_total": observed, "known_attempts": known,
                 "attempts": len(attempts), "total": observed if known == len(attempts) else None}
+        result["batch_usage"] = {}
+        kinds = {"initial", "retry"} if manifest.get("time_policy", {}).get("version") == TIME_POLICY else {"legacy"}
+        for kind in sorted(kinds | {_batch_kind(manifest, a) for a in attempts}):
+            selected = [a for a in attempts if _batch_kind(manifest, a) == kind]
+            batch_usage = {"attempts": len(selected), "known_totals": {}}
+            for key in ("wall_elapsed_seconds", "audit_elapsed_seconds", "requests", "tool_calls", "total_tokens"):
+                if key == "wall_elapsed_seconds":
+                    values = [a.get(key, a.get("duration_seconds")) for a in selected]
+                elif key == "audit_elapsed_seconds":
+                    values = [a.get(key) for a in selected]
+                else:
+                    values = [(a.get("usage") or {}).get(key) for a in selected]
+                known = sum(value is not None for value in values)
+                observed = round(sum(value if value is not None else
+                    ((a.get("usage") or {}).get("known_" + key) or 0)
+                    for value, a in zip(values, selected)), 3)
+                batch_usage[key] = observed if known == len(selected) else None
+                batch_usage["known_totals"][key] = {"known_total": observed,
+                    "known_attempts": known, "attempts": len(selected)}
+            batch_usage["known_total_tokens"] = batch_usage["known_totals"]["total_tokens"]["known_total"]
+            result["batch_usage"][kind] = batch_usage
         return result
 
     def _save(self, ident, trials, **fields):
         row = self._record(ident)
         if row["status"] not in ACTIVE:
             return
+        if "progress" in fields:
+            fields["progress"] = {**row.get("progress", {}), **fields["progress"]}
         self.store.update_prompt_experiment(ident, trials=trials,
             summary=self._summary(row["manifest"], trials, self._directory(ident)), **fields)
 
@@ -242,31 +395,48 @@ class FullComparisonRunner:
                     "LAB30_SEED": "0"})
         return env
 
-    async def _execute(self, ident, trial_ids, model):
+    async def _execute(self, ident, trial_ids, model, batch_id):
         row = self._record(ident)
         trials, manifest = row["trials"], row["manifest"]
         directory = self._directory(ident)
+        batch = next(b for b in row["progress"]["timing"]["batches"] if b["id"] == batch_id)
+        batch_deadline = self._batch_clocks[batch_id][1]
+        slot_seconds = manifest["time_policy"]["trial_wall_seconds"]
         try:
             for trial_id in trial_ids:
                 if self._record(ident)["status"] != "running":
+                    break
+                required_time = slot_seconds if batch["kind"] == "initial" else manifest["run_limits"]["seconds"] + CLEANUP_SECONDS
+                if self._batch_remaining(batch) < required_time:
+                    for pending_id in trial_ids[trial_ids.index(trial_id):]:
+                        pending = next(t for t in trials if t["id"] == pending_id)
+                        pending.update(status="not_started", evaluation_status="not_started", score=None,
+                            stop_reason={"code": "insufficient_batch_time", "message": "批次剩余时间不足完整等时窗口与收尾，未启动"})
+                    self._save(ident, trials)
                     break
                 trial = next(t for t in trials if t["id"] == trial_id)
                 attempt_no = len(trial["attempts"]) + 1
                 work = directory / "trials" / trial_id / f"attempt-{attempt_no}"
                 work.mkdir(parents=True)
                 attempt = {"id": uuid_hex(), "attempt_no": attempt_no, "status": "running",
-                    "evaluation_status": "pending", "created_at": now(), "usage": {}, "score": None}
+                    "evaluation_status": "pending", "created_at": now(), "usage": {}, "score": None,
+                    "batch_id": batch_id, "batch_kind": batch["kind"], "audit_limit_seconds": manifest["run_limits"]["seconds"]}
+                slot_deadline = min(self._clock() + slot_seconds, batch_deadline)
                 trial["attempts"].append(attempt)
                 trial.update(status="running", evaluation_status="pending", score=None,
                              run_id=None, snapshot_id=None, usage={}, read_coverage={},
                              duration_seconds=None, stop_reason=None, error="")
                 self._save(ident, trials, progress={"trial_id": trial_id, "round_index": trial["round_index"],
-                    "current": trial["prompt_id"], "phase": "preparing", "tail": []})
+                    "current": trial["prompt_id"], "phase": "preparing", "tail": [], "live": {}})
                 try:
                     self._check_frozen(manifest, directory)
-                    await self._attempt(ident, trial, attempt, work, model)
+                    await self._attempt(ident, trial, attempt, work, model, deadline=slot_deadline, batch_deadline=batch_deadline)
                 except asyncio.CancelledError:
-                    attempt.update(status="cancelled", evaluation_status="invalid", error="执行已取消", finished_at=now())
+                    interrupted = self._record(ident).get("progress", {}).get("interrupt_requested") is True
+                    reason = {"code": "interrupted" if interrupted else "user_cancelled",
+                              "message": "服务停止，试次已中断" if interrupted else "用户取消试次"}
+                    attempt.update(status="interrupted" if interrupted else "cancelled", evaluation_status="invalid",
+                                   score=None, stop_reason=reason, error=reason["message"], finished_at=now())
                     trial.update({k: v for k, v in attempt.items() if k not in {"id", "attempt_no", "created_at"}})
                     self._save(ident, trials)
                     raise
@@ -292,30 +462,46 @@ class FullComparisonRunner:
             self.store.update_prompt_experiment(ident, trials=trials, status="interrupted", finished_at=now(),
                 error=model.redact(f"实验调度中断：{exc}"))
         finally:
-            await self._terminate(self._process)
+            await self._terminate(self._process, timeout=max(0.05, min(CLEANUP_SECONDS, batch_deadline - self._clock())))
             self._process = None
+            current = self._record(ident)
+            batch_status = current["status"] if current["status"] != "cancelling" else (
+                "interrupted" if current["progress"].get("interrupt_requested") else "cancelled")
+            self._finish_batch(ident, batch_id, batch_status)
 
-    async def _attempt(self, ident, trial, attempt, work, model):
+    async def _attempt(self, ident, trial, attempt, work, model, *, deadline, batch_deadline):
+        started = self._clock()
+        work_deadline = min(deadline, batch_deadline) - CLEANUP_SECONDS
         args = [sys.executable, "-u", "-m", "audit.comparison_trial", "--manifest",
                 str(self._directory(ident) / "manifest.json"), "--prompt-id", trial["prompt_id"],
-                "--data-dir", str(work), "--output", str(work / "result.json")]
+                "--data-dir", str(work), "--output", str(work / "result.json"),
+                "--deadline-monotonic", str(work_deadline)]
         process = None
         spawning = asyncio.create_task(asyncio.create_subprocess_exec(*args, cwd=ROOT,
             env=self._environment(model), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT))
-        started = time.monotonic()
-        # The production executor enforces the run deadline. This outer watchdog
-        # also reaps a child that loses its event loop or terminal bookkeeping.
-        deadline = started + self._record(ident)["manifest"]["run_limits"]["seconds"] + 60
         tail = []
         try:
             try:
-                process = await asyncio.shield(spawning)
+                process = await asyncio.wait_for(asyncio.shield(spawning), max(.001, work_deadline - self._clock()))
             except asyncio.CancelledError:
-                process = await spawning
+                try:
+                    process = await asyncio.wait_for(asyncio.shield(spawning), max(.001, min(2, deadline - self._clock())))
+                except asyncio.TimeoutError:
+                    pass
                 raise
             self._process = process
             with (work / "run.log").open("w", encoding="utf-8") as log:
-                while raw := await asyncio.wait_for(process.stdout.readline(), max(0.1, deadline - time.monotonic())):
+                while True:
+                    remaining = work_deadline - self._clock()
+                    if remaining <= 0:
+                        raise TimeoutError("trial lifecycle deadline")
+                    try:
+                        raw = await asyncio.wait_for(process.stdout.readline(), min(2, remaining))
+                    except asyncio.TimeoutError:
+                        self._pulse(ident, trial, attempt, started)
+                        continue
+                    if not raw:
+                        break
                     line = model.redact(raw.decode("utf-8", "replace").rstrip())
                     log.write(line + "\n")
                     log.flush()
@@ -324,67 +510,140 @@ class FullComparisonRunner:
                         event = json.loads(line)
                     except ValueError:
                         event = {}
+                    if not isinstance(event, dict):
+                        event = {}
                     if event.get("kind") == "run_created":
                         attempt.update(run_id=event.get("run_id"), snapshot_id=event.get("snapshot_id"))
                         trial.update(run_id=attempt["run_id"], snapshot_id=attempt["snapshot_id"])
+                    if event.get("kind") in {"heartbeat", "audit_started"}:
+                        for key in ("usage", "read_coverage", "audit_started_at", "audit_elapsed_seconds", "last_event_id", "last_event_at", "heartbeat_at", "finding_count"):
+                            if key in event:
+                                attempt[key] = event[key]
                     current = self._record(ident)
                     if current["status"] in ACTIVE:
                         current_trials = current["trials"]
                         target = next(t for t in current_trials if t["id"] == trial["id"])
                         target.update(run_id=attempt.get("run_id"), snapshot_id=attempt.get("snapshot_id"))
                         target["attempts"][-1].update(attempt)
-                        self.store.update_prompt_experiment(ident, trials=current_trials, progress={
+                        previous_live = current["progress"].get("live") or {}
+                        live = {**previous_live, **{key: event[key] for key in (
+                            "run_id", "phase", "usage", "finding_count", "read_coverage", "audit_started_at", "audit_elapsed_seconds", "last_event_id", "last_event_at", "heartbeat_at") if key in event}}
+                        self.store.update_prompt_experiment(ident, trials=current_trials, progress={**current["progress"],
                             "trial_id": trial["id"], "round_index": trial["round_index"], "current": trial["prompt_id"],
-                            "phase": event.get("phase", "running"), "tail": tail})
-            code = await asyncio.wait_for(process.wait(), max(0.1, deadline - time.monotonic()))
+                            "phase": event.get("phase") or current["progress"].get("phase", "running"), "tail": tail, "live": live})
+            code = await asyncio.wait_for(process.wait(), max(.001, work_deadline - self._clock()))
             result_path = work / "result.json"
-            result = json.loads(result_path.read_text()) if result_path.is_file() else {"infra_error": "子进程没有保存运行结果"}
+            result = self._load_result(work, attempt.get("run_id"))
             validity, reason = classify_result(result, code)
             attempt.update(status="finished", evaluation_status=validity, stop_reason=result.get("stop_reason") or {"code": reason},
                 error=model.redact(str(result.get("infra_error") or (result.get("run") or {}).get("error") or "")),
-                usage=result.get("usage") or {}, duration_seconds=result.get("duration_seconds", round(time.monotonic() - started, 3)),
-                read_coverage=result.get("read_coverage") or {},
+                usage=result.get("usage") or {}, duration_seconds=round(self._clock() - started, 3),
+                wall_elapsed_seconds=round(self._clock() - started, 3),
+                read_coverage=result.get("read_coverage"), warnings=result.get("warnings") or [],
+                audit_elapsed_seconds=result.get("audit_elapsed_seconds"), audit_started_at=result.get("audit_started_at"),
                 run_id=(result.get("run") or {}).get("id", attempt.get("run_id")),
                 snapshot_id=(result.get("run") or {}).get("snapshot_id", attempt.get("snapshot_id")), finished_at=now())
             if validity == "valid":
                 base = self._directory(ident) / "frozen"
                 attempt["score"] = evaluate_v2(json.loads((base / "truth.json").read_text()),
                     result.get("findings") or [], json.loads((base / "anchors.json").read_text()))
+                if self._clock() > work_deadline:
+                    raise TimeoutError("scoring exceeded lifecycle deadline")
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            code = "experiment_deadline_exceeded" if batch_deadline <= deadline else "trial_lifecycle_timeout"
+            attempt.update(status="finished", evaluation_status="invalid", score=None,
+                stop_reason={"code": code, "message": "批次或试次生命周期到限"}, error=str(exc), finished_at=now())
         finally:
-            await self._terminate(process)
+            # A spawn cancelled at the boundary still belongs to us and must be reaped.
+            if process is None:
+                if spawning.done() and not spawning.cancelled() and spawning.exception() is None:
+                    process = spawning.result()
+                elif not spawning.done():
+                    try:
+                        process = await asyncio.wait_for(asyncio.shield(spawning), max(.001, min(2, deadline - self._clock())))
+                    except (TimeoutError, asyncio.TimeoutError):
+                        spawning.add_done_callback(self._reap_late_spawn)
+            await self._terminate(process, timeout=max(.05, min(CLEANUP_SECONDS, deadline - self._clock())))
             self._process = None
             # SIGTERM lets the child save its partial ledger and usage. Preserve
             # those costs on cancellation or pipe failure, without scoring it.
-            if attempt.get("status") != "finished":
-                attempt["duration_seconds"] = round(time.monotonic() - started, 3)
-                with contextlib.suppress(OSError, ValueError, TypeError):
-                    partial = json.loads((work / "result.json").read_text())
-                    attempt.update(usage=partial.get("usage") or {},
-                        read_coverage=partial.get("read_coverage") or {},
+            attempt["duration_seconds"] = attempt["wall_elapsed_seconds"] = round(self._clock() - started, 3)
+            if attempt.get("evaluation_status") != "valid":
+                with contextlib.suppress(OSError, sqlite3.Error, ValueError, TypeError):
+                    partial = self._load_result(work, attempt.get("run_id"))
+                    attempt.update(usage=partial.get("usage") or attempt.get("usage") or {},
+                        read_coverage=partial.get("read_coverage"), warnings=partial.get("warnings") or [],
+                        audit_started_at=partial.get("audit_started_at"), audit_elapsed_seconds=partial.get("audit_elapsed_seconds"),
                         run_id=(partial.get("run") or {}).get("id", attempt.get("run_id")),
-                        snapshot_id=(partial.get("run") or {}).get("snapshot_id", attempt.get("snapshot_id")),
-                        stop_reason=partial.get("stop_reason"))
+                        snapshot_id=(partial.get("run") or {}).get("snapshot_id", attempt.get("snapshot_id")))
+                    if not attempt.get("stop_reason"):
+                        attempt["stop_reason"] = partial.get("stop_reason")
+
+    def _pulse(self, ident, trial, attempt, started):
+        attempt["wall_elapsed_seconds"] = round(self._clock() - started, 3)
+        row = self._record(ident)
+        live = {**(row["progress"].get("live") or {}), "wall_elapsed_seconds": attempt["wall_elapsed_seconds"], "parent_updated_at": now()}
+        self._progress(ident, live=live)
 
     @staticmethod
-    async def _terminate(process):
+    def _load_result(work, run_id=None):
+        result = {}
+        try:
+            candidate = json.loads((work / "result.json").read_text())
+            if isinstance(candidate, dict):
+                result = candidate
+        except (OSError, ValueError):
+            pass
+        if (not isinstance(result.get("run"), dict) or not result["run"].get("id")
+                or (run_id is not None and result["run"]["id"] != run_id)
+                or not isinstance(result.get("usage"), dict) or not isinstance(result.get("findings"), list)):
+            from .comparison_results import recover_trial
+            try:
+                recovered = recover_trial(work, run_id)
+                # An executor exception stays invalid, even if the SQLite facts survived.
+                if result.get("infra_error"):
+                    recovered["infra_error"] = result["infra_error"]
+                return recovered
+            except (OSError, sqlite3.Error, ValueError, TypeError):
+                result.setdefault("infra_error", {"code": "result_unavailable", "message": "子进程未保存可读取的运行结果"})
+        return result
+
+    @staticmethod
+    def _reap_late_spawn(task):
+        if not task.cancelled() and task.exception() is None:
+            asyncio.create_task(FullComparisonRunner._terminate(task.result(), timeout=CLEANUP_SECONDS))
+
+    @staticmethod
+    async def _terminate(process, *, timeout=CLEANUP_SECONDS):
         if process is None:
             return
+        loop = asyncio.get_running_loop()
+        cutoff = loop.time() + max(0, timeout)
         if process.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 process.terminate()
-            try:
-                await asyncio.wait_for(process.communicate(), 10)
-            except asyncio.TimeoutError:
+            remaining = cutoff - loop.time()
+            if remaining > 0:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(process.communicate(), min(10, remaining * 2 / 3))
+            if process.returncode is None:
                 with contextlib.suppress(ProcessLookupError):
                     process.kill()
-                await process.communicate()
-        await process.wait()
+                remaining = cutoff - loop.time()
+                if remaining > 0:
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(process.communicate(), remaining)
+        remaining = cutoff - loop.time()
+        if remaining > 0:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(process.wait(), remaining)
 
     async def cancel(self, ident, *, interrupted=False):
         row = self._record(ident)
         if row["status"] not in ACTIVE:
             return self.get(ident)
-        self.store.update_prompt_experiment(ident, status="cancelling", progress={**row["progress"], "cancel_requested": True})
+        self.store.update_prompt_experiment(ident, status="cancelling", progress={**row["progress"],
+            "cancel_requested": True, "interrupt_requested": interrupted})
         if self._task and not self._task.done():
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -392,11 +651,21 @@ class FullComparisonRunner:
         row = self._record(ident)
         for trial in row["trials"]:
             if trial["status"] == "running":
-                trial.update(status="interrupted" if interrupted else "cancelled", evaluation_status="invalid")
+                reason = {"code": "interrupted" if interrupted else "user_cancelled",
+                          "message": "服务停止，试次已中断" if interrupted else "用户取消试次"}
+                trial.update(status="interrupted" if interrupted else "cancelled", evaluation_status="invalid",
+                             score=None, stop_reason=reason)
                 if trial["attempts"]:
-                    trial["attempts"][-1].update(status=trial["status"], evaluation_status="invalid")
+                    trial["attempts"][-1].update(status=trial["status"], evaluation_status="invalid",
+                                                 score=None, stop_reason=reason)
+            elif trial["status"] == "pending" and not trial.get("attempts"):
+                trial.update(status="not_started", evaluation_status="not_started", score=None,
+                    stop_reason={"code": "interrupted" if interrupted else "user_cancelled", "message": "批次停止时尚未启动"})
         self.store.update_prompt_experiment(ident, status="interrupted" if interrupted else "cancelled", finished_at=now(),
             trials=row["trials"], summary=self._summary(row["manifest"], row["trials"], self._directory(ident)))
+        batch_id = row.get("progress", {}).get("timing", {}).get("active_batch_id")
+        if batch_id:
+            self._finish_batch(ident, batch_id, "interrupted" if interrupted else "cancelled")
         return self.get(ident)
 
     async def shutdown(self):
@@ -412,15 +681,22 @@ class FullComparisonRunner:
         trial = next((t for t in row["trials"] if t["id"] == trial_id), None)
         if trial is None:
             raise LookupError(trial_id)
-        if trial.get("evaluation_status") != "invalid" or len(trial["attempts"]) >= 2:
-            raise ExperimentError("仅允许补跑一次无效试次，不能替换有效低分结果。")
+        eligible, reason = self._retry_eligibility(row, trial)
+        if not eligible:
+            raise ExperimentError(reason)
         model = self._model.get(ident, self.settings.model)
         frozen = row["manifest"]["model"]
         if not model.configured or {"model": model.model, "base_url": model.public_base_url(), "thinking": model.thinking} != frozen:
             raise ExperimentError("无法恢复原模型配置，请恢复相同模型、端点和 thinking 后补跑。")
         self._check_frozen(row["manifest"], self._directory(ident))
-        self.store.update_prompt_experiment(ident, status="running", finished_at=None)
-        self._task = asyncio.create_task(self._execute(ident, [trial_id], model))
+        trial["retry_count"] = int(trial.get("retry_count", 0)) + 1
+        batch = self._new_batch("retry", [trial_id], row["manifest"]["time_policy"]["trial_wall_seconds"])
+        timing = row.get("progress", {}).get("timing") or {"batches": []}
+        timing.setdefault("batches", []).append(batch)
+        timing["active_batch_id"] = batch["id"]
+        self.store.update_prompt_experiment(ident, status="running", finished_at=None, trials=row["trials"],
+            progress={**row.get("progress", {}), "timing": timing, "phase": "preparing", "live": {}, "cancel_requested": False})
+        self._task = asyncio.create_task(self._execute(ident, [trial_id], model, batch["id"]))
         return self.get(ident)
 
     def _trial(self, ident, trial_id, attempt_no=None):
@@ -452,14 +728,22 @@ class FullComparisonRunner:
         _, trial, attempt = self._trial(ident, trial_id, attempt_no)
         if not attempt or not attempt.get("run_id"):
             return {"trial": _public(trial), "run": None, "findings": [], "events": [],
-                    "score": None, "source_available": False, "snapshot": None}
+                    "score": None, "source_available": False, "snapshot": None, "event_cursor": 0, "has_earlier": False}
+        self._hydrate_attempt(ident, trial, attempt)
         with self.archive(ident, trial_id, attempt_no) as (store, work, _, attempt):
+            # archive() reads the unmodified record; retain the hydrated projection.
+            _, _, projected_attempt = self._trial(ident, trial_id, attempt_no)
+            self._hydrate_attempt(ident, trial, projected_attempt)
+            attempt = projected_attempt
             run = store.get_run(attempt["run_id"])
             if run is None:
                 raise FileNotFoundError("隔离运行记录已不存在")
             snapshot = store.get_snapshot(run["snapshot_id"])
+            events = store.list_events_before(run["id"], limit=100)
             return {"trial": _public(trial), "attempt": _public(attempt), "run": run,
-                "findings": store.list_findings(run["id"]), "events": store.list_events(run["id"], limit=100),
+                "findings": store.list_findings(run["id"]), "events": events,
+                "event_cursor": events[-1]["id"] if events else 0,
+                "has_earlier": bool(events and store.count_events_before(run["id"], events[0]["id"])),
                 "score": attempt.get("score"), "source_available": (work / "snapshots").is_dir(),
                 "read_coverage": attempt.get("read_coverage") or {},
                 "snapshot": {k: snapshot.get(k) for k in ("id", "name", "file_count")} if snapshot else None}
@@ -477,11 +761,19 @@ class FullComparisonRunner:
             result["line_count"] = record.get("line_count")
             return result
 
-    def events(self, ident, trial_id, after=0, limit=100, attempt_no=None):
+    def events(self, ident, trial_id, after=0, limit=100, attempt_no=None, *, before=None):
+        if before is not None and after:
+            raise ValueError("before 与 after 不能同时使用")
         with self.archive(ident, trial_id, attempt_no) as (store, _, _, attempt):
-            events = store.list_events(attempt["run_id"], after, limit)
+            if before is not None:
+                events = store.list_events_before(attempt["run_id"], before=before, limit=limit)
+                remaining = store.count_events_before(attempt["run_id"], events[0]["id"]) if events else 0
+            else:
+                events = store.list_events(attempt["run_id"], after, limit)
+                remaining = max(0, store.count_events(attempt["run_id"], after) - len(events))
             return {"events": events,
-                    "remaining": max(0, store.count_events(attempt["run_id"], after) - len(events))}
+                    "remaining": remaining, "has_earlier": bool(events and store.count_events_before(attempt["run_id"], events[0]["id"])),
+                    "event_cursor": events[-1]["id"] if events else after}
 
     def trial_report(self, ident, trial_id, format="json", attempt_no=None):
         from .app import _run_bundle
@@ -524,13 +816,13 @@ def _cell(value):
 
 def markdown_report(row):
     manifest, summary = row["manifest"], row.get("summary") or {}
-    lines = ["# Lab30 多版本 Prompt 完整审计对比", "", f"实验：{row['id']} · 状态：{row['status']}",
+    lines = ["# Lab30 多版本 Prompt 限时源码审计对比", "", f"实验：{row['id']} · 状态：{row['status']}",
         "", "本报告为官方清单匹配，不等同于漏洞已通过 POC 验证；不提供现实误报率或整体 Accuracy。",
         f"共同有效轮次：{summary.get('complete_round_count', 0)}/{manifest['repeats']}。"
         + ("有效数据不足三轮，以下为初步结果。" if summary.get("preliminary", True) else "仅描述本靶场本次实验，不宣称统计显著。"),
         "", "## 冻结条件", "", f"协议：{row['protocol']} / {manifest['scoring_protocol']}；POC：关闭。",
         f"模型：{manifest['model']['model']}；thinking：{manifest['model']['thinking']}。",
-        f"每次调用预算：{json.dumps(manifest['budgets'])}；每次运行总预算：{json.dumps(manifest['run_limits'])}。",
+        f"每次 Agent 执行预算：{json.dumps(manifest['budgets'])}；每试次共享预算：{json.dumps(manifest['run_limits'])}。",
         f"正式基线：{manifest['baseline_prompt_id']}。", "", "## 效果总览", "",
         "| 版本 | TP 均值 | D 均值 | U 均值 | FN 均值 | Precision | Recall | F1 | ΔF1（百分点） | ΔRecall（百分点） |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
@@ -552,6 +844,26 @@ def markdown_report(row):
         lines.append("| " + " | ".join([str(trial["round_index"]), trial["prompt_id"], trial["id"], trial["status"], trial["evaluation_status"],
             *[str(score.get(k, "—")) for k in ("TP", "D", "U", "FN")], _number(score.get("f1"), percent=True),
             _cell(reason.get("code", "—"))]) + " |")
+    policy = manifest.get("time_policy") or {}
+    lines += ["", "## 时间政策与批次消耗", "",
+        (f"时间政策 {policy['version']}：每试次最多 {policy['audit_seconds']} 秒审计，完整生命周期最多 {policy['trial_wall_seconds']} 秒；"
+         f"首次批次含准备和收尾最多 {policy['experiment_wall_seconds']} 秒，补跑单独计时。"
+         if policy else "历史实验保持其原始冻结预算，不按新限时政策重算。"),
+        "提前完成或先触及请求／工具上限时，以实际耗时和停止原因解释；不宣称运行满窗口。", "",
+        "| 批次 | 开始 | 截止 | 结束 | 完整耗时秒 | 状态 |", "|---|---|---|---|---:|---|"]
+    timing = row.get("progress", {}).get("timing") or {}
+    for batch in timing.get("batches", []):
+        lines.append("| " + " | ".join([batch["kind"] + " " + batch["id"], batch["started_at"], batch["deadline_at"],
+            batch.get("finished_at") or "—", _number(batch.get("elapsed_seconds")), batch["status"]]) + " |")
+    lines += ["", "| 试次 | 执行次数 | 批次 | 审计耗时秒 | 完整耗时秒 | 已知 tokens | 停止原因 |",
+        "|---|---:|---|---:|---:|---:|---|"]
+    for trial in row["trials"]:
+        for attempt in trial.get("attempts", []):
+            usage = attempt.get("usage") or {}
+            tokens = usage.get("total_tokens") if usage.get("total_tokens") is not None else usage.get("known_total_tokens")
+            lines.append("| " + " | ".join([trial["id"], str(attempt["attempt_no"]), _batch_kind(manifest, attempt),
+                _number(attempt.get("audit_elapsed_seconds")), _number(attempt.get("wall_elapsed_seconds", attempt.get("duration_seconds"))),
+                _number(tokens), _cell((attempt.get("stop_reason") or {}).get("code", "—"))]) + " |")
     lines += ["", "## 资源与 CVSS（相同共同轮次）", "",
         "| 版本 | 请求 | 工具调用 | tokens | 耗时秒 | tokens/TP | CVSS 可评分覆盖 | CVSS MAE | 等级一致率 |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
@@ -605,7 +917,7 @@ def markdown_report(row):
         lines += ["", f"### {variant['label']}", "", variant.get("reason") or "", "",
             f"正文 SHA-256：{variant['sha256']}", "", fence + "text", variant["text"], fence]
     lines += ["", "## 审计与评分摘要", "", "```json", json.dumps({"assets": manifest["assets"], "code": manifest["code"],
-        "actual_total_usage": summary.get("actual_total_usage")}, ensure_ascii=False, indent=2), "```", ""]
+        "actual_total_usage": summary.get("actual_total_usage"), "batch_usage": summary.get("batch_usage")}, ensure_ascii=False, indent=2), "```", ""]
     return "\n".join(lines)
 
 
@@ -631,21 +943,28 @@ def csv_archive(row):
               for key in ("f1", "recall") for stat in stat_names]])
     usage_names = ("requests", "tool_calls", "input_tokens", "output_tokens", "total_tokens", "known_total_tokens")
     trial_rows = []
+    batches = {batch["id"]: batch for batch in (row.get("progress", {}).get("timing") or {}).get("batches", [])}
     for trial in row["trials"]:
         attempts = trial.get("attempts") or [trial]
         for index, attempt in enumerate(attempts):
             reason = attempt.get("stop_reason") or {}
+            batch = batches.get(attempt.get("batch_id"), {})
             trial_rows.append([trial["id"], trial["round_index"], trial["prompt_id"],
                 attempt.get("attempt_no"), index == len(attempts) - 1,
                 attempt["status"], attempt["evaluation_status"], attempt.get("run_id"), attempt.get("snapshot_id"),
                 *[(attempt.get("score") or {}).get(key) for key in names],
                 *[(attempt.get("usage") or {}).get(key) for key in usage_names], attempt.get("duration_seconds"),
-                reason.get("code"), attempt.get("error")])
+                reason.get("code"), attempt.get("error"), attempt.get("batch_id"), _batch_kind(row["manifest"], attempt),
+                attempt.get("audit_started_at"), attempt.get("audit_elapsed_seconds"),
+                attempt.get("wall_elapsed_seconds", attempt.get("duration_seconds")),
+                *[batch.get(key) for key in ("started_at", "deadline_at", "finished_at", "elapsed_seconds")]])
     tables = {"summary.csv": table(["prompt_id", "cohort_n",
             *[f"{key}_{stat}" for key in metrics for stat in stat_names],
             *[f"delta_{key}_pp_{stat}" for key in ("f1", "recall") for stat in stat_names]], summary_rows),
         "trials.csv": table(["trial_id", "round", "prompt_id", "attempt_no", "effective_attempt", "status",
-            "evaluation_status", "run_id", "snapshot_id", *names, *usage_names, "duration_seconds", "stop_reason", "error"], trial_rows),
+            "evaluation_status", "run_id", "snapshot_id", *names, *usage_names, "duration_seconds", "stop_reason", "error",
+            "batch_id", "batch_kind", "audit_started_at", "audit_elapsed_seconds", "wall_elapsed_seconds",
+            "batch_started_at", "batch_deadline_at", "batch_finished_at", "batch_wall_elapsed_seconds"], trial_rows),
         "truth_matrix.csv": table(["truth_id", "title", "class", "prompt_id", "hits", "total"],
         [[t["id"], t["title"], t["class"], p, cell["hits"], cell["total"]] for t in summary.get("truth_matrix", []) for p, cell in t["variants"].items()])}
     stream = io.BytesIO()

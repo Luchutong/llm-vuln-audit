@@ -1579,9 +1579,13 @@ async def get_prompt_trial_events(
     request: Request, experiment_id: str, trial_id: str,
     after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
     attempt: int | None = Query(None, ge=1, le=2),
+    before: int | None = Query(None, ge=1),
 ) -> dict:
+    if after > 0 and before is not None:
+        raise HTTPException(status_code=400, detail="after 与 before 不能同时使用")
     try:
-        return await asyncio.to_thread(services(request).prompt_experiments.full.events, experiment_id, trial_id, after, limit, attempt)
+        kwargs = {"before": before} if before is not None else {}
+        return await asyncio.to_thread(services(request).prompt_experiments.full.events, experiment_id, trial_id, after, limit, attempt, **kwargs)
     except (LookupError, FileNotFoundError, ValueError) as exc:
         raise _trial_route_error(exc) from exc
 

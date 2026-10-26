@@ -226,6 +226,12 @@ class Execution:
         exhausted allowance stays ``budget``.  Nothing is counted unless the request is
         actually about to be sent: a request refused here must not consume a correction.
         """
+        from .execution_state import comparison_deadline_remaining
+        comparison_remaining = comparison_deadline_remaining()
+        if comparison_remaining is not None and comparison_remaining <= 0:
+            if self.run_execution is not None:
+                self.run_execution.store._reject_expired_comparison(self.run_execution.run_id, self.run_execution.epoch)
+            raise StopAudit("batch_deadline_exceeded", "Prompt 实验的墙钟截止时间已到期")
         if self.remaining(deadline) <= 0:
             raise StopAudit("timeout", "单元或当前阶段的墙钟预算已到期")
         if self.attempts >= min(limit, self.budgets["responses"]):
@@ -254,9 +260,22 @@ class Execution:
             remaining = summary.get("run_remaining") if summary else None
             if remaining is not None:
                 ceiling = min(ceiling, max(0.001, remaining["seconds"]))
+        comparison_remaining = comparison_deadline_remaining()
+        if comparison_remaining is not None:
+            if comparison_remaining <= 0:
+                if self.run_execution is not None:
+                    self.run_execution.store._reject_expired_comparison(self.run_execution.run_id, self.run_execution.epoch)
+                raise StopAudit("batch_deadline_exceeded", "Prompt 实验的墙钟截止时间已到期")
+            ceiling = min(ceiling, comparison_remaining)
         return ceiling
 
     def before_tool(self) -> None:
+        from .execution_state import comparison_deadline_remaining
+        comparison_remaining = comparison_deadline_remaining()
+        if comparison_remaining is not None and comparison_remaining <= 0:
+            if self.run_execution is not None:
+                self.run_execution.store._reject_expired_comparison(self.run_execution.run_id, self.run_execution.epoch)
+            raise StopAudit("batch_deadline_exceeded", "Prompt 实验的墙钟截止时间已到期")
         if self.remaining() <= 0:
             raise StopAudit("timeout", "单元墙钟预算已到期")
         if self.tools >= self.budgets["tools"]:

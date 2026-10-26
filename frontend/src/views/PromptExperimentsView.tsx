@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, downloadUrl, errorText } from '../api';
 import { Disclosure } from '../components/Disclosure';
 import { localDate } from '../status';
@@ -16,6 +16,8 @@ import {
   numeric,
   percent,
   points,
+  experimentBudgetCheck,
+  formatDuration,
 } from '../promptComparison';
 import type {
   ExperimentRecord,
@@ -30,9 +32,12 @@ import type {
 } from '../promptComparison';
 import '../promptComparison.css';
 
-const initialBudgets: Budget = { responses: 24, tools: 96, seconds: 1800 };
-const initialLimits: Budget = { responses: 256, tools: 2048, seconds: 1800 };
-const activeStatus = (status?: string) => status === 'running' || status === 'queued' || status === 'pending' || status === 'preparing' || status === 'cancelling';
+const readApi = <T,>(path: string, options?: RequestInit) => api<T>(path, { ...options, timeoutMs: 10000 });
+
+const initialBudgets: Budget = { responses: 24, tools: 96, seconds: 720 };
+const initialLimits: Budget = { responses: 256, tools: 2048, seconds: 720 };
+const activeStatus = (status?: string) =>
+  status === 'running' || status === 'queued' || status === 'pending' || status === 'preparing' || status === 'cancelling';
 const stateLabel = (status?: string) => (status ? (EXPERIMENT_STATUS[status] ?? status) : '—');
 const labelOf = (item: FullExperiment, id: string) => item.manifest.variants.find((variant) => variant.id === id)?.label ?? id;
 const experimentPath = (id: string) => `/prompt-experiments/${encodeURIComponent(id)}`;
@@ -81,6 +86,136 @@ function Downloads({ id, legacy = false }: { id: string; legacy?: boolean }) {
         </a>
       )}
     </div>
+  );
+}
+
+function LiveExperiment({ experiment, onOpen }: { experiment: FullExperiment; onOpen: (id: string) => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const progress = experiment.progress;
+  const live = progress?.live;
+  const trial =
+    experiment.trials.find((item) => item.id === progress?.trial_id) ??
+    experiment.trials.find((item) => item.status === 'running');
+  const timing = progress?.timing;
+  const batch =
+    timing?.batches?.find((item) => item.id === timing.active_batch_id) ?? timing?.batches?.at(-1) ?? timing?.initial_batch;
+  const legacyTiming = !timing?.initial_batch && experiment.manifest.experiment_wall_seconds !== 7200;
+  const phase = live?.phase ?? progress?.phase ?? (trial?.run_id ? 'running' : 'preparing');
+  const labels: Record<string, string> = {
+    preparing: '准备冻结源码与执行器',
+    waiting_for_model: '等待模型响应',
+    model_request: '等待模型响应',
+    model_waiting: '等待模型响应',
+    model_response: '模型已返回',
+    run_created: '审计已启动',
+  };
+  const heartbeat = live?.heartbeat_at ? Date.parse(live.heartbeat_at) : NaN;
+  const heartbeatAge = Number.isFinite(heartbeat) ? Math.max(0, (now - heartbeat) / 1000) : null;
+  const running = activeStatus(experiment.status) && Boolean(trial && activeStatus(trial.status));
+  const elapsed = !running
+    ? (trial?.audit_elapsed_seconds ?? live?.audit_elapsed_seconds)
+    : live?.audit_elapsed_seconds == null
+      ? trial?.audit_elapsed_seconds
+      : live.audit_elapsed_seconds + (running && heartbeatAge != null ? heartbeatAge : 0);
+  const auditRemaining =
+    elapsed == null ? live?.audit_remaining_seconds : Math.max(0, (experiment.manifest.run_limits?.seconds ?? 720) - elapsed);
+  const deadline = batch?.deadline_at ? Date.parse(batch.deadline_at) : NaN;
+  const batchRemaining = Number.isFinite(deadline)
+    ? Math.max(0, (deadline - (batch?.finished_at ? Date.parse(batch.finished_at) : now)) / 1000)
+    : batch?.remaining_seconds;
+  const usage = live?.usage ?? trial?.usage;
+  const finished = experiment.trials.filter((item) => !activeStatus(item.status) && item.status !== 'not_started').length;
+  return (
+    <section className="exp-live-panel" aria-label="实时审计进度">
+      <div className="exp-filter-row">
+        <h3>{running ? '当前试次正在运行' : activeStatus(experiment.status) ? '准备下一试次' : '本批执行已结束'}</h3>
+        <span className="chip">
+          已结束 {finished} / {experiment.trials.length} 个试次
+        </span>
+        {trial && (
+          <button className="btn" onClick={() => onOpen(trial.id)}>
+            查看当前试次与日志
+          </button>
+        )}
+      </div>
+      <p className="exp-live-phase">
+        <strong>
+          {progress?.current ? labelOf(experiment, progress.current) : trial ? labelOf(experiment, trial.prompt_id) : '准备实验'}
+        </strong>
+        {progress?.round_index ? ` · 第 ${progress.round_index} 轮` : trial ? ` · 第 ${trial.round_index} 轮` : ''} ·{' '}
+        {labels[phase] ?? executionPhase(phase)}
+      </p>
+      <div className="exp-live-metrics">
+        <div>
+          <span>本次审计已用 / 剩余</span>
+          <strong>
+            {formatDuration(elapsed)} / {formatDuration(auditRemaining)}
+          </strong>
+        </div>
+        <div>
+          <span>
+            {batch?.kind === 'retry'
+              ? '补跑批次剩余（单独计时）'
+              : legacyTiming
+                ? '历史批次剩余（未设置硬时限）'
+                : '初始批次剩余（最多两小时）'}
+          </span>
+          <strong>{formatDuration(batchRemaining)}</strong>
+        </div>
+        <div>
+          <span>模型请求 / 工具调用</span>
+          <strong>
+            {numeric(usage?.requests ?? usage?.responses, 0)} / {numeric(usage?.tool_calls, 0)}
+          </strong>
+        </div>
+        <div>
+          <span>已知输入 / 输出 tokens</span>
+          <strong>
+            {numeric(usage?.input_tokens, 0)} / {numeric(usage?.output_tokens, 0)}
+          </strong>
+        </div>
+        <div>
+          <span>当前发现数（待正式评分）</span>
+          <strong>{numeric(live?.finding_count, 0)}</strong>
+        </div>
+        <div>
+          <span>最近心跳 / 最近事件</span>
+          <strong>
+            {heartbeatAge == null ? '等待首次心跳' : `${Math.floor(heartbeatAge)} 秒前`} / {live?.last_event_id ?? '—'}
+          </strong>
+        </div>
+      </div>
+      <p className="small muted">
+        最近事件时间：{live?.last_event_at ? localDate(live.last_event_at) : '尚无事件'}
+        。心跳说明执行器仍有反馈，不能据此推断模型请求已经成功；未知用量显示 —。
+      </p>
+      {running && heartbeatAge != null && heartbeatAge > 30 && (
+        <p className="exp-live-stale" role="status">
+          已超过 30 秒没有新心跳，正在继续查询；保留最近已知状态，尚不能确认执行器是否停止。
+        </p>
+      )}
+      {live?.read_coverage?.total_files != null && (
+        <p className="small muted">
+          已读取 {live.read_coverage.read_files} / {live.read_coverage.total_files} 个文件，{live.read_coverage.read_lines} /{' '}
+          {live.read_coverage.total_lines} 行。范围完整不代表所有源码均已检查。
+        </p>
+      )}
+      {progress?.tail?.length ? (
+        <Disclosure title="执行器最近反馈">
+          <pre className="tl-detail exp-live-tail">{progress.tail.join('\n')}</pre>
+        </Disclosure>
+      ) : null}
+      <p className="small muted">
+        {legacyTiming
+          ? '本历史记录没有冻结统一批次期限；两小时上限仅适用于新建限时实验。'
+          : '初始批次包含原定试次，最多 120 分钟；显式补跑是新的独立批次，不延长或覆盖初始批次。'}
+        倒计时按最近服务器时间估算，终态以执行器记录为准。
+      </p>
+    </section>
   );
 }
 
@@ -778,7 +913,7 @@ function ScopedSource({
       end_line: String(evidence.end_line + 5),
     });
     if (attempt) params.set('attempt', attempt);
-    api<ExperimentSource>(`${trialPath(experimentId, trialId)}/source?${params}`, { signal: abort.signal })
+    readApi<ExperimentSource>(`${trialPath(experimentId, trialId)}/source?${params}`, { signal: abort.signal })
       .then((value) => {
         if (!abort.signal.aborted) setSource(value);
       })
@@ -844,7 +979,18 @@ function TrialInspector({
   const [refresh, setRefresh] = useState(0);
   const detailRequest = useRef<AbortController | null>(null);
   const eventRequest = useRef<AbortController | null>(null);
-  const eventCursor = useRef(0);
+  const earlierRequest = useRef<AbortController | null>(null);
+  const eventCursor = useRef(0),
+    earliestCursor = useRef(0),
+    cursorReady = useRef(false);
+  const eventBox = useRef<HTMLDivElement>(null);
+  const scrollAnchor = useRef<{ top: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    if (scrollAnchor.current && eventBox.current) {
+      eventBox.current.scrollTop = scrollAnchor.current.top + eventBox.current.scrollHeight - scrollAnchor.current.height;
+      scrollAnchor.current = null;
+    }
+  }, [events]);
   const mergeEvents = (incoming: AuditEvent[]) =>
     setEvents((current) => {
       const merged = new Map(current.map((event) => [event.id, event]));
@@ -858,12 +1004,20 @@ function TrialInspector({
       const abort = new AbortController();
       detailRequest.current = abort;
       try {
-        const value = await api<TrialDetail>(`${trialPath(experiment.id, trial.id)}${attemptSuffix}`, { signal: abort.signal });
+        const value = await readApi<TrialDetail>(`${trialPath(experiment.id, trial.id)}${attemptSuffix}`, {
+          signal: abort.signal,
+        });
         if (abort.signal.aborted) return;
         setDetail(value);
         setError(null);
-        mergeEvents(value.events ?? []);
-        if (!eventCursor.current) setRemaining((value.events?.length ?? 0) >= 100);
+        if (!cursorReady.current && value.run?.id) {
+          const initialEvents = value.events ?? [];
+          mergeEvents(initialEvents);
+          eventCursor.current = value.event_cursor ?? initialEvents.reduce((max, event) => Math.max(max, event.id), 0);
+          earliestCursor.current = initialEvents.reduce((min, event) => Math.min(min, event.id), Infinity);
+          cursorReady.current = true;
+          setRemaining(value.has_earlier ?? initialEvents.length >= 100);
+        }
       } catch (exc) {
         if (!abort.signal.aborted) setError(errorText(exc));
       } finally {
@@ -879,38 +1033,77 @@ function TrialInspector({
     setEvents([]);
     setRemaining(false);
     eventCursor.current = 0;
+    earliestCursor.current = 0;
+    cursorReady.current = false;
+    scrollAnchor.current = null;
     return () => {
       detailRequest.current?.abort();
       eventRequest.current?.abort();
+      earlierRequest.current?.abort();
     };
   }, [experiment.id, trial.id, attemptNumber]);
   useEffect(() => {
     void loadDetail();
   }, [loadDetail, refresh]);
-  useEffect(() => {
-    if (!activeStatus(selectedSaved?.status ?? trial.status)) return;
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void loadDetail(true);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [selectedSaved?.status, trial.status, loadDetail]);
-  const loadEvents = async () => {
-    eventRequest.current?.abort();
+  const loadNewEvents = useCallback(async () => {
+    if (!cursorReady.current || eventRequest.current || !(trial.run_id || detail?.run?.id)) return;
     const abort = new AbortController();
     eventRequest.current = abort;
-    setLoadingEvents(true);
     try {
-      const value = await api<{ events: AuditEvent[]; remaining: boolean | number }>(
-        `${trialPath(experiment.id, trial.id)}/events?after=${eventCursor.current}&limit=100${attemptNumber ? `&attempt=${attemptNumber}` : ''}`,
-        { signal: abort.signal },
-      );
-      if (abort.signal.aborted) return;
-      mergeEvents(value.events);
-      eventCursor.current = value.events.reduce((max, event) => Math.max(max, event.id), eventCursor.current);
-      setRemaining(Boolean(value.remaining));
+      // Drain bounded pages in order; never advance this cursor from a later snapshot.
+      for (let page = 0; page < 4; page++) {
+        const value = await readApi<{ events: AuditEvent[]; remaining: boolean | number }>(
+          `${trialPath(experiment.id, trial.id)}/events?after=${eventCursor.current}&limit=200${attemptNumber ? `&attempt=${attemptNumber}` : ''}`,
+          { signal: abort.signal },
+        );
+        if (abort.signal.aborted) return;
+        mergeEvents(value.events);
+        eventCursor.current = value.events.reduce((max, event) => Math.max(max, event.id), eventCursor.current);
+        if (!value.remaining || !value.events.length) break;
+      }
     } catch (exc) {
       if (!abort.signal.aborted) setError(errorText(exc));
     } finally {
+      if (eventRequest.current === abort) eventRequest.current = null;
+    }
+  }, [experiment.id, trial.id, trial.run_id, detail?.run?.id, attemptNumber]);
+  useEffect(() => {
+    const poll = () => {
+      if (!document.hidden) {
+        void loadDetail(true);
+        void loadNewEvents();
+      }
+    };
+    const running = activeStatus(selectedSaved?.status ?? trial.status);
+    const timer = running ? window.setInterval(poll, 3000) : undefined;
+    const visible = () => {
+      if (!document.hidden) poll();
+    };
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [selectedSaved?.status, trial.status, loadDetail, loadNewEvents]);
+  const loadEarlier = async () => {
+    if (earlierRequest.current || !earliestCursor.current || !Number.isFinite(earliestCursor.current)) return;
+    const abort = new AbortController();
+    earlierRequest.current = abort;
+    setLoadingEvents(true);
+    try {
+      const value = await readApi<{ events: AuditEvent[]; remaining: boolean | number; has_earlier?: boolean }>(
+        `${trialPath(experiment.id, trial.id)}/events?before=${earliestCursor.current}&limit=100${attemptNumber ? `&attempt=${attemptNumber}` : ''}`,
+        { signal: abort.signal },
+      );
+      if (abort.signal.aborted) return;
+      if (eventBox.current) scrollAnchor.current = { top: eventBox.current.scrollTop, height: eventBox.current.scrollHeight };
+      mergeEvents(value.events);
+      earliestCursor.current = value.events.reduce((min, event) => Math.min(min, event.id), earliestCursor.current);
+      setRemaining(value.has_earlier ?? Boolean(value.remaining));
+    } catch (exc) {
+      if (!abort.signal.aborted) setError(errorText(exc));
+    } finally {
+      if (earlierRequest.current === abort) earlierRequest.current = null;
       if (!abort.signal.aborted) setLoadingEvents(false);
     }
   };
@@ -918,12 +1111,18 @@ function TrialInspector({
   const isCurrentAttempt = !attemptNumber || Number(attemptNumber) === trial.attempts?.at(-1)?.attempt_no;
   const score = detail ? detail.score : isCurrentAttempt ? trial.score : null;
   const usage = selectedAttempt?.usage ?? (isCurrentAttempt ? trial.usage : undefined);
-  const duration = selectedAttempt?.duration_seconds ?? (isCurrentAttempt ? trial.duration_seconds : undefined);
+  const duration =
+    selectedAttempt?.audit_elapsed_seconds ??
+    selectedAttempt?.duration_seconds ??
+    (isCurrentAttempt ? (trial.audit_elapsed_seconds ?? trial.duration_seconds) : undefined);
+  const wallDuration = selectedAttempt?.wall_elapsed_seconds ?? (isCurrentAttempt ? trial.wall_elapsed_seconds : undefined);
   const coverage = detail?.read_coverage ?? detail?.trial?.read_coverage ?? trial.read_coverage;
   const phase = detail?.run?.execution_summary?.phase;
   const canRetry =
     trial.can_retry ??
-    (trial.evaluation_status === 'invalid' && (trial.attempts?.length ?? 1) < 2 && !activeStatus(experiment.status));
+    ((trial.evaluation_status === 'invalid' || trial.status === 'not_started') &&
+      (trial.attempts?.length ?? 0) < 2 &&
+      !activeStatus(experiment.status));
   return (
     <section className="exp-trial-detail" aria-label="试次详情">
       <div className="exp-filter-row">
@@ -970,6 +1169,7 @@ function TrialInspector({
         {reasonText(selectedAttempt?.stop_reason || selectedAttempt?.error) || trialReason(trial) || '尚未记录终止原因'}
         。预算耗尽仍属有效成绩；无效试次保留历史和消耗。
       </p>
+      {trial.retry_reason && !canRetry && <p className="small muted">补跑限制：{trial.retry_reason}</p>}
       {error && (
         <div className="error-box" role="alert">
           试次读取失败：{error}
@@ -978,7 +1178,8 @@ function TrialInspector({
       {!detail && !error && <div className="empty">读取试次记录…</div>}
       <p className="small muted">
         实际消耗：模型请求 {numeric(usage?.requests)} · 工具 {numeric(usage?.tool_calls)} · tokens{' '}
-        {numeric(usage?.total_tokens ?? usage?.tokens)} · {numeric(duration)} 秒
+        {numeric(usage?.total_tokens ?? usage?.tokens)}。审计计时 {formatDuration(duration)}；试次总墙钟{' '}
+        {formatDuration(wallDuration)}（含准备与收尾）
       </p>
       {phase && (
         <p className="small muted">
@@ -1052,7 +1253,7 @@ function TrialInspector({
             </pre>
           </Disclosure>
           <Disclosure title={`实际审计日志 · ${events.length} 条`}>
-            <div className="exp-events">
+            <div className="exp-events" ref={eventBox} tabIndex={0} aria-label="试次审计事件">
               {events.map((event) => (
                 <details key={event.id}>
                   <summary>
@@ -1064,8 +1265,8 @@ function TrialInspector({
               ))}
             </div>
             {remaining && (
-              <button className="btn" disabled={loadingEvents} onClick={() => void loadEvents()}>
-                {loadingEvents ? '读取中…' : '读取后续事件'}
+              <button className="btn" disabled={loadingEvents} onClick={() => void loadEarlier()}>
+                {loadingEvents ? '读取中…' : '读取更早事件'}
               </button>
             )}
           </Disclosure>
@@ -1169,7 +1370,7 @@ function LegacyResults({ record }: { record: ExperimentRecord }) {
     <div className="exp-content grid">
       <div className="exp-notice exp-notice-warn">
         <strong>旧版单元协议 · 只读</strong>
-        <p>此记录使用预选文件及单次单元实验，不能与完整审计协议混排。历史结果不重算。</p>
+        <p>此记录使用预选文件及单次单元实验，不能与全源码限时审计协议混排。历史结果不重算。</p>
       </div>
       <p className="small">
         {record.variants?.join(' / ')} · {record.units_limit ? `前 ${record.units_limit} 个单元` : '全部单元'} ·{' '}
@@ -1226,64 +1427,126 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
     [refresh, setRefresh] = useState(0);
-  const request = useRef<AbortController | null>(null),
-    mutationRequest = useRef<AbortController | null>(null),
-    alive = useRef(true),
-    initialized = useRef(false),
-    { query, change } = useQuery();
-  const strategies = useMemo(() => compatibleStrategies(prompts), [prompts]),
-    active = history.find((item) => activeStatus(item.status)),
-    running = Boolean(active || (current && activeStatus(current.status)));
-  const load = useCallback(
+  const catalogRequest = useRef<AbortController | null>(null);
+  const historyRequest = useRef<AbortController | null>(null);
+  const detailRequest = useRef<AbortController | null>(null);
+  const mutationRequest = useRef<AbortController | null>(null);
+  const alive = useRef(true),
+    initialized = useRef(false);
+  const [readErrors, setReadErrors] = useState<Record<string, string>>({});
+  const { query, change } = useQuery();
+  const strategies = useMemo(() => compatibleStrategies(prompts), [prompts]);
+  const active = history.find((item) => activeStatus(item.status));
+  const running = Boolean(active || (current && activeStatus(current.status)));
+  const updateReadError = (channel: string, message?: string) =>
+    setReadErrors((previous) => {
+      const next = { ...previous };
+      if (message) next[channel] = message;
+      else delete next[channel];
+      return next;
+    });
+  const loadCatalog = useCallback(async () => {
+    catalogRequest.current?.abort();
+    const abort = new AbortController();
+    catalogRequest.current = abort;
+    try {
+      const catalog = await readApi<Prompt[]>('/prompts?kind=worker_strategy', { signal: abort.signal });
+      if (!alive.current || abort.signal.aborted) return;
+      setPrompts(catalog);
+      updateReadError('catalog');
+      if (!initialized.current && catalog.length) {
+        const defaults = defaultStrategies(catalog);
+        setSelected(defaults);
+        setBaseline(defaults[0] ?? '');
+        initialized.current = true;
+      }
+    } catch (exc) {
+      if (alive.current && !abort.signal.aborted) updateReadError('catalog', `策略库：${errorText(exc)}`);
+    } finally {
+      if (catalogRequest.current === abort) catalogRequest.current = null;
+    }
+  }, []);
+  const loadHistory = useCallback(async (poll = false) => {
+    if (poll && historyRequest.current) return;
+    historyRequest.current?.abort();
+    const abort = new AbortController();
+    historyRequest.current = abort;
+    try {
+      const records = await readApi<ExperimentRecord[]>('/prompt-experiments', { signal: abort.signal });
+      if (!alive.current || abort.signal.aborted) return;
+      setHistory(records);
+      updateReadError('history');
+    } catch (exc) {
+      if (alive.current && !abort.signal.aborted) updateReadError('history', `实验历史：${errorText(exc)}`);
+    } finally {
+      if (historyRequest.current === abort) historyRequest.current = null;
+      if (!abort.signal.aborted) setLoading(false);
+    }
+  }, []);
+  const loadDetail = useCallback(
     async (poll = false) => {
-      if (poll && request.current) return;
-      request.current?.abort();
+      if (!experimentId || (poll && detailRequest.current)) return;
+      detailRequest.current?.abort();
       const abort = new AbortController();
-      request.current = abort;
-      if (!poll) setLoading(true);
+      detailRequest.current = abort;
       try {
-        const [catalog, records, detail] = await Promise.all([
-          api<Prompt[]>('/prompts?kind=worker_strategy', { signal: abort.signal }),
-          api<ExperimentRecord[]>('/prompt-experiments', { signal: abort.signal }),
-          experimentId ? api<ExperimentRecord>(experimentPath(experimentId), { signal: abort.signal }) : Promise.resolve(null),
-        ]);
+        const detail = await readApi<ExperimentRecord>(experimentPath(experimentId), { signal: abort.signal });
         if (!alive.current || abort.signal.aborted) return;
-        setPrompts(catalog);
-        setHistory(records);
         setCurrent(detail);
-        setError(null);
-        if (!initialized.current && catalog.length) {
-          const defaults = defaultStrategies(catalog);
-          setSelected(defaults);
-          setBaseline(defaults[0] ?? '');
-          initialized.current = true;
-        }
+        updateReadError('detail');
       } catch (exc) {
-        if (alive.current && !abort.signal.aborted) setError(errorText(exc));
+        if (alive.current && !abort.signal.aborted) updateReadError('detail', `实验详情：${errorText(exc)}`);
       } finally {
-        if (request.current === abort) request.current = null;
-        if (!abort.signal.aborted) setLoading(false);
+        if (detailRequest.current === abort) detailRequest.current = null;
       }
     },
     [experimentId],
   );
   useEffect(() => {
     alive.current = true;
-    setCurrent(null);
-    void load();
     return () => {
       alive.current = false;
-      request.current?.abort();
+      catalogRequest.current?.abort();
+      historyRequest.current?.abort();
+      detailRequest.current?.abort();
       mutationRequest.current?.abort();
     };
-  }, [load, refresh]);
+  }, []);
   useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void load(true);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [running, load]);
+    setCurrent(null);
+    setReadErrors({});
+    setError(null);
+    mutationRequest.current?.abort();
+    return () => detailRequest.current?.abort();
+  }, [experimentId]);
+  useEffect(() => {
+    setLoading(true);
+    void loadCatalog();
+    void loadHistory();
+    void loadDetail();
+  }, [loadCatalog, loadHistory, loadDetail, refresh]);
+  useEffect(() => {
+    const poll = () => {
+      if (!document.hidden) {
+        void loadHistory(true);
+        void loadDetail(true);
+      }
+    };
+    const shouldPoll = running || Boolean(experimentId && !current) || (!initialized.current && history.length === 0);
+    const timer = shouldPoll ? window.setInterval(poll, 3000) : undefined;
+    const visible = () => {
+      if (!document.hidden) {
+        poll();
+        if (!prompts.length) void loadCatalog();
+      }
+    };
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [running, experimentId, Boolean(current), history.length, prompts.length, loadHistory, loadDetail, loadCatalog]);
+  const failure = error || Object.values(readErrors).filter(Boolean).join('；');
   const mutate = async (path: string, body: unknown) => {
     if (busy) return;
     const abort = new AbortController();
@@ -1303,6 +1566,7 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
     }
   };
   const start = () =>
+    validBudgets &&
     void mutate('/prompt-experiments', {
       protocol: PROMPT_PROTOCOL,
       prompt_ids: selected,
@@ -1310,6 +1574,7 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
       repeats,
       budgets,
       run_limits: limits,
+      experiment_wall_seconds: 7200,
     });
   const toggle = (id: string) => {
     const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
@@ -1320,12 +1585,14 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
     tab = ['overview', 'findings', 'prompts', 'trials'].includes(query.get('tab') ?? '') ? query.get('tab')! : 'overview',
     selectedTrial = full?.trials?.find((item) => item.id === query.get('trial')),
     maxCalls = selected.length * repeats * limits.responses,
-    maxTools = selected.length * repeats * limits.tools;
+    maxTools = selected.length * repeats * limits.tools,
+    budgetCheck = experimentBudgetCheck(selected.length, repeats, limits.seconds),
+    validBudgets = budgetCheck.valid && budgets.seconds <= 720 && budgets.seconds <= limits.seconds;
   return (
     <div className="exp-page grid">
-      {error && (
+      {failure && (
         <div className="error-box" role="alert">
-          {error}{' '}
+          {failure}{' '}
           <button className="text-button" onClick={() => setRefresh((value) => value + 1)}>
             重试读取
           </button>
@@ -1339,13 +1606,13 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
       {!experimentId ? (
         <section className="panel">
           <div className="panel-head">
-            <h2 className="panel-title">完整审计对比设置</h2>
+            <h2 className="panel-title">限时审计对比设置</h2>
             <span className="chip">lab30-full-v2</span>
           </div>
           <div className="exp-content grid">
             <p className="muted small">
               固定原始 Lab30 ZIP、模型、Planner 与证据门禁，只改变 Worker
-              策略。各版本独立完整审计，真值仅用于审计结束后评分。主实验关闭 POC。
+              策略。各版本独立执行全源码范围的限时审计，真值仅用于审计结束后评分。主实验关闭 POC。
             </p>
             <fieldset className="exp-variants">
               <legend>选择 2–5 个兼容策略版本</legend>
@@ -1406,31 +1673,39 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
             </div>
             <Disclosure title="统一预算设置">
               <BudgetFields title="单次调用预算" value={budgets} onChange={setBudgets} disabled={running || busy} />
-              <BudgetFields title="每次完整审计总预算" value={limits} onChange={setLimits} disabled={running || busy} />
+              <BudgetFields title="每次限时审计总预算" value={limits} onChange={setLimits} disabled={running || busy} />
             </Disclosure>
             <div className="exp-notice">
               <strong>
-                {selected.length} 个版本 × {repeats} 轮 = {selected.length * repeats} 次完整审计
+                {selected.length} 个版本 × {repeats} 轮 = {selected.length * repeats} 次限时审计
               </strong>
               <p>
-                累计上限 {maxCalls.toLocaleString()} 次模型请求、{maxTools.toLocaleString()} 次工具调用；每次最多 {limits.seconds}{' '}
+                初始批次硬上限 7200 秒；计划占用 {budgetCheck.requiredSeconds} 秒（含每试次 60 秒收尾与批次 180 秒预留）。累计上限{' '}
+                {maxCalls.toLocaleString()} 次模型请求、{maxTools.toLocaleString()} 次工具调用；每次最多 {limits.seconds}{' '}
                 秒。执行会真实消耗模型额度，失败及取消也可能产生消耗。
               </p>
             </div>
+            {!validBudgets && (
+              <div className="error-box" role="alert">
+                时间预算不符合两小时上限：每次审计和单次执行均不得超过 720 秒，单次执行不得超过整次审计；{budgetCheck.trials} ×（
+                {limits.seconds} + 60）+ 180 = {budgetCheck.requiredSeconds} 秒，必须不超过 7200
+                秒。减少重复次数或每次审计秒数后再创建。
+              </div>
+            )}
             <div className="row exp-downloads">
               <button
                 className="btn btn-primary"
-                disabled={busy || running || selected.length < 2 || selected.length > 5 || !baseline}
+                disabled={busy || running || selected.length < 2 || selected.length > 5 || !baseline || !validBudgets}
                 onClick={start}
               >
                 {busy ? '正在创建…' : running ? '已有实验运行中' : '冻结配置并开始对比'}
               </button>
-              <span className="small muted">各轮循环移位、串行执行，默认三版三轮。</span>
+              <span className="small muted">各轮循环移位、串行执行，默认三版三轮；初始批次最多两小时。</span>
             </div>
           </div>
         </section>
       ) : null}
-      {experimentId && !current && !error && (
+      {experimentId && !current && !failure && (
         <div className="empty" role="status">
           读取冻结实验及成绩…
         </div>
@@ -1439,7 +1714,7 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
         <section className="panel exp-results">
           <div className="panel-head exp-result-head">
             <div>
-              <span className="eyebrow">{full ? 'FULL SOURCE AUDIT' : 'LEGACY UNIT EXPERIMENT'}</span>
+              <span className="eyebrow">{full ? 'TIMED SOURCE AUDIT' : 'LEGACY UNIT EXPERIMENT'}</span>
               <h2 className="panel-title">{recordModel(current)}</h2>
               <p className="small muted">
                 {localDate(current.created_at)} · <span className="mono">{current.id}</span>
@@ -1486,11 +1761,8 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
                   </button>
                 ))}
               </div>
-              {activeStatus(full.status) && (
-                <div className="exp-live-progress" role="status">
-                  完整审计执行中 · 已结束 {full.trials?.filter((item) => !activeStatus(item.status)).length ?? 0} /{' '}
-                  {full.trials?.length ?? selected.length * repeats} 个试次。暂定结果随各轮完成更新。
-                </div>
+              {(activeStatus(full.status) || Boolean(full.progress?.timing?.batches?.length)) && (
+                <LiveExperiment experiment={full} onOpen={(id) => change({ tab: 'trials', trial: id, attempt: null })} />
               )}
               {tab === 'overview' && <SummaryPanel experiment={full} />}{' '}
               {tab === 'findings' && <TruthMatrix experiment={full} query={query} change={change} />}{' '}
@@ -1538,12 +1810,12 @@ export function PromptExperimentsView({ experimentId }: { experimentId?: string 
           <span className="small muted">{history.length} 条 · 新旧协议分别展示</span>
         </div>
         <div className="exp-content grid">
-          {!history.length && !loading && <p className="empty">尚无实验。选择策略与基线后开始完整审计对比。</p>}
+          {!history.length && !loading && <p className="empty">尚无实验。选择策略与基线后开始限时审计对比。</p>}
           {[true, false].map((newProtocol) => {
             const items = history.filter((item) => isFullExperiment(item) === newProtocol);
             return items.length ? (
               <div key={String(newProtocol)}>
-                <h3>{newProtocol ? '完整审计实验' : '旧版单元实验（只读）'}</h3>
+                <h3>{newProtocol ? '全源码范围的限时审计' : '旧版单元实验（只读）'}</h3>
                 <div className="grid">
                   {items.map((item) => (
                     <a

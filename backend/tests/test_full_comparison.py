@@ -444,3 +444,55 @@ def test_report_uses_percentage_points_for_both_delta_mean_and_sd(runner, monkey
     assert float(selected["delta_f1_pp_sample_std"]) == 10
     assert selected["delta_f1_pp_n"] == "3"
     assert float(selected["delta_recall_pp_mean"]) == -10
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_batch_exports_preserve_unknown_costs_and_legacy_batch_scope(runner, monkeypatch, legacy):
+    fake_children(monkeypatch)
+
+    async def scenario():
+        created = runner.start(request())
+        await runner._task
+        return runner.get(created["id"])
+
+    row = asyncio.run(scenario())
+    if legacy:
+        row["manifest"].pop("time_policy")
+        row["progress"] = {}
+    for index, trial in enumerate(row["trials"]):
+        attempt = trial["attempts"][0]
+        if legacy:
+            attempt.pop("batch_kind")
+            attempt.pop("batch_id")
+        attempt.update(usage={"requests": 3, "tool_calls": 0, "known_total_tokens": 7} if index == 0 else {},
+                       wall_elapsed_seconds=2 if index == 0 else None,
+                       audit_elapsed_seconds=1 if index == 0 else None,
+                       duration_seconds=None)
+    row["summary"] = runner._summary(row["manifest"], row["trials"], runner._directory(row["id"]))
+    kind = "legacy" if legacy else "initial"
+    batch = row["summary"]["batch_usage"][kind]
+    assert batch["attempts"] == 2
+    assert all(batch[key] is None for key in ("requests", "tool_calls", "wall_elapsed_seconds", "audit_elapsed_seconds", "total_tokens"))
+    assert batch["known_totals"]["requests"] == {"known_total": 3, "known_attempts": 1, "attempts": 2}
+    assert batch["known_totals"]["tool_calls"]["known_total"] == 0
+    assert batch["known_totals"]["tool_calls"]["known_attempts"] == 1
+    assert batch["known_total_tokens"] == 7
+    if legacy:
+        assert set(row["summary"]["batch_usage"]) == {"legacy"}
+    markdown = comparison.markdown_report(row)
+    assert all(f"| {trial['id']} | 1 | {kind} |" in markdown for trial in row["trials"])
+    if legacy:
+        assert "历史实验保持其原始冻结预算" in markdown
+        assert "每试次最多 720 秒" not in markdown
+    with zipfile.ZipFile(io.BytesIO(comparison.csv_archive(row))) as archive:
+        exported = list(csv.DictReader(io.StringIO(archive.read("trials.csv").decode("utf-8-sig"))))
+    assert {attempt["batch_kind"] for attempt in exported} == {kind}
+    assert exported[1]["wall_elapsed_seconds"] == exported[1]["audit_elapsed_seconds"] == ""
+    assert exported[1]["requests"] == exported[1]["tool_calls"] == ""
+    if legacy:
+        assert all(item["batch_started_at"] == item["batch_deadline_at"] == "" for item in exported)
+    else:
+        batch = row["progress"]["timing"]["initial_batch"]
+        assert all(item["batch_started_at"] == batch["started_at"] for item in exported)
+        assert all(item["batch_deadline_at"] == batch["deadline_at"] for item in exported)
+        assert all(float(item["batch_wall_elapsed_seconds"]) == batch["elapsed_seconds"] for item in exported)

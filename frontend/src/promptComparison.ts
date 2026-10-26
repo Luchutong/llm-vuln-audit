@@ -39,6 +39,8 @@ export const EXPERIMENT_STATUS: Record<string, string> = {
   valid: '有效成绩',
   invalid: '无效试次',
   budget_exhausted: '预算耗尽',
+  partial: '部分完成',
+  not_started: '未开始',
 };
 export interface PairedValue {
   round_index: number;
@@ -68,6 +70,7 @@ export interface ExperimentManifest {
   baseline_prompt_id: string;
   repeats: number;
   model?: string | { model?: string; base_url?: string; thinking?: string; [key: string]: unknown };
+  experiment_wall_seconds?: number;
   budgets?: Budget;
   run_limits?: Budget;
   hashes?: Record<string, string>;
@@ -98,6 +101,7 @@ export interface FindingMatch {
 }
 export interface TrialUsage {
   requests?: number | null;
+  responses?: number | null;
   tool_calls?: number | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
@@ -130,6 +134,8 @@ export interface TrialAttempt {
   usage?: TrialUsage;
   created_at?: string;
   duration_seconds?: number | null;
+  audit_elapsed_seconds?: number | null;
+  wall_elapsed_seconds?: number | null;
 }
 export interface Trial {
   id: string;
@@ -143,8 +149,11 @@ export interface Trial {
   score?: TrialScore | null;
   usage?: TrialUsage;
   duration_seconds?: number | null;
+  audit_elapsed_seconds?: number | null;
+  wall_elapsed_seconds?: number | null;
   attempts?: TrialAttempt[];
   read_coverage?: ReadCoverage;
+  retry_reason?: string | null;
   can_retry?: boolean;
   run_id?: string;
 }
@@ -193,6 +202,36 @@ export interface ExperimentSummary {
   >;
   [key: string]: unknown;
 }
+export interface ExperimentBatch {
+  id: string;
+  kind?: string;
+  started_at?: string | null;
+  deadline_at?: string | null;
+  finished_at?: string | null;
+  remaining_seconds?: number | null;
+}
+export interface ExperimentLive {
+  run_id?: string | null;
+  phase?: string;
+  usage?: TrialUsage;
+  finding_count?: number;
+  read_coverage?: ReadCoverage;
+  audit_started_at?: string | null;
+  audit_elapsed_seconds?: number;
+  audit_remaining_seconds?: number | null;
+  last_event_id?: number;
+  last_event_at?: string | null;
+  heartbeat_at?: string | null;
+}
+export interface ExperimentProgress {
+  tail?: string[];
+  current?: string | null;
+  phase?: string;
+  trial_id?: string;
+  round_index?: number;
+  timing?: { initial_batch?: ExperimentBatch; active_batch_id?: string; batches?: ExperimentBatch[] };
+  live?: ExperimentLive;
+}
 export interface FullExperiment {
   id: string;
   protocol: string;
@@ -203,7 +242,7 @@ export interface FullExperiment {
   trials: Trial[];
   summary?: ExperimentSummary | null;
   error?: string | null;
-  progress?: { tail?: string[]; current?: string | null };
+  progress?: ExperimentProgress;
   [key: string]: unknown;
 }
 export type ExperimentRecord = FullExperiment | (PromptExperiment & { protocol?: string });
@@ -213,6 +252,8 @@ export interface TrialDetail {
   run?: Run | null;
   findings?: Finding[];
   events?: AuditEvent[];
+  event_cursor?: number;
+  has_earlier?: boolean;
   attempts?: TrialAttempt[];
   score?: TrialScore | null;
   report?: string;
@@ -272,4 +313,19 @@ export function lineDiff(before: string, after: string): { kind: 'same' | 'remov
     else rows.push({ kind: 'removed', text: left[i++] });
   }
   return rows;
+}
+
+export function experimentBudgetCheck(variants: number, repeats: number, seconds: number) {
+  const trials = variants * repeats;
+  const requiredSeconds = trials * (seconds + 60) + 180;
+  return {
+    trials,
+    requiredSeconds,
+    valid: Number.isInteger(seconds) && seconds >= 1 && seconds <= 720 && requiredSeconds <= 7200,
+  };
+}
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  const rounded = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(rounded / 60)}分${String(rounded % 60).padStart(2, '0')}秒`;
 }

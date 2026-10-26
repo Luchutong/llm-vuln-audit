@@ -955,7 +955,13 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         value = cls.__new__(cls)
         value.path = str(path)
         value._lock = threading.RLock()
-        value._db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True,
+        wal = path.with_name(path.name + "-wal")
+        # A closed archive needs no SQLite coordination files. An active WAL must
+        # still be read normally so live trial commits remain visible.
+        uri = path.as_uri() + "?mode=ro"
+        if not wal.exists() or wal.stat().st_size == 0:
+            uri += "&immutable=1"
+        value._db = sqlite3.connect(uri, uri=True,
                                     check_same_thread=False, isolation_level=None)
         value._db.row_factory = sqlite3.Row
         value._db.execute("PRAGMA query_only=ON")
@@ -4403,6 +4409,22 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     def count_events(self, run_id: str, after: int = 0) -> int:
         row = self._row("SELECT COUNT(*) AS total FROM events WHERE run_id = ? AND id > ?", (run_id, after))
+        return int(row["total"] or 0) if row else 0
+
+    def list_events_before(self, run_id: str, before: int | None = None, limit: int = 100) -> list[dict]:
+        """Latest window or an older page, always returned in chronological order."""
+        clause = " AND id < ?" if before is not None else ""
+        params = (run_id, before, limit) if before is not None else (run_id, limit)
+        rows = self._rows("SELECT * FROM events WHERE run_id=?" + clause + " ORDER BY id DESC LIMIT ?", params)
+        events = []
+        for row in reversed(rows):
+            event = dict(row)
+            event["payload"] = _loads(event.get("payload"), {})
+            events.append(event)
+        return events
+
+    def count_events_before(self, run_id: str, before: int) -> int:
+        row = self._row("SELECT COUNT(*) AS total FROM events WHERE run_id=? AND id<?", (run_id, before))
         return int(row["total"] or 0) if row else 0
 
     def has_event(self, run_id: str, kind: str) -> bool:

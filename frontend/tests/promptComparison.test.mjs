@@ -50,3 +50,37 @@ test('experiment references protect a strategy even when isolated runs are absen
   assert.match(promptDeletionBlock({ id: 'used', used_by_experiments: 2 }, []), /2 次实验/);
   assert.match(promptDeletionBlock({ id: 'used', used_by_runs: 1 }, []), /1 次审计/);
 });
+
+test('the initial timed batch fits exactly two hours and rejects larger schedules', async () => {
+  const { experimentBudgetCheck, formatDuration } = await import('../src/promptComparison.ts');
+  assert.deepEqual(experimentBudgetCheck(3, 3, 720), { trials: 9, requiredSeconds: 7200, valid: true });
+  assert.equal(experimentBudgetCheck(3, 3, 721).valid, false);
+  assert.equal(experimentBudgetCheck(3, 4, 720).valid, false);
+  assert.equal(experimentBudgetCheck(3, 4, 525).valid, true);
+  assert.equal(formatDuration(0), '0分00秒');
+  assert.equal(formatDuration(7200), '120分00秒');
+  assert.equal(formatDuration(null), '—');
+});
+
+test('an experiment read timeout is distinct from navigation cancellation and never poisons a later request', async () => {
+  const { api, ApiError } = await import('../src/api.ts');
+  const previous = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_url, options) =>
+      new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+    await assert.rejects(
+      api('/prompt-experiments/slow', { timeoutMs: 10 }),
+      (error) => error instanceof ApiError && error.status === 408 && /保留/.test(error.message),
+    );
+    const abort = new AbortController();
+    const pending = api('/prompt-experiments/old', { timeoutMs: 1000, signal: abort.signal });
+    abort.abort();
+    await assert.rejects(pending, (error) => error.name === 'AbortError');
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: 'running' }));
+    assert.deepEqual(await api('/prompt-experiments/current', { timeoutMs: 10 }), { status: 'running' });
+  } finally {
+    globalThis.fetch = previous;
+  }
+});

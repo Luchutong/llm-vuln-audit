@@ -9,7 +9,7 @@ MUTATIONS = {
     "link_finding_project", "set_finding_verification_state", "set_project_finding_verification",
     "mark_unit_running", "checkpoint_unit", "finish_unit", "claim_next_task_work", "resolve_task_work",
     "settle_task_goal_if_idle", "record_investigation", "set_investigation_status", "begin_planner_round",
-    "finish_planner_round", "apply_plan", "claim_ready_task", "resolve_task_attempt", "add_finding",
+    "finish_planner_round", "apply_plan", "claim_ready_task", "resolve_task_attempt", "finalize_goal", "add_finding",
     "set_finding_disposition", "set_finding_verdict", "record_automatic_verification", "add_verification",
     "add_poc_verification_job", "add_attribution",
 }

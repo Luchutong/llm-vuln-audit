@@ -15,6 +15,26 @@ MAX_RUN_LIMITS = {"responses": 4096, "tools": 32768, "seconds": 14400}
 TERMINAL = frozenset({"completed", "inconclusive", "failed", "cancelled", "interrupted", "unreachable"})
 CURRENT_EXECUTION = contextvars.ContextVar("audit_run_execution", default=None)
 CURRENT_ROLE = contextvars.ContextVar("audit_execution_role", default={})
+CURRENT_COMPARISON_DEADLINE = contextvars.ContextVar("audit_comparison_deadline", default=None)
+
+
+@contextmanager
+def comparison_deadline(deadline_monotonic: float | None):
+    """Bound one comparison lifecycle without changing ordinary audit defaults.
+
+    The deadline uses this process's monotonic clock. ContextVar scope propagates
+    to the trial's async tasks and is restored when the trial exits.
+    """
+    token = CURRENT_COMPARISON_DEADLINE.set(deadline_monotonic)
+    try:
+        yield
+    finally:
+        CURRENT_COMPARISON_DEADLINE.reset(token)
+
+
+def comparison_deadline_remaining() -> float | None:
+    deadline = CURRENT_COMPARISON_DEADLINE.get()
+    return None if deadline is None else deadline - time.monotonic()
 
 EXECUTION_SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_execution_state (
@@ -110,14 +130,37 @@ class ExecutionStoreMixin:
     def assert_execution_write(self, run_id):
         from .runtime import StopAudit
         current = CURRENT_EXECUTION.get()
+        if current is not None and run_id != current.run_id:
+            raise StopAudit("interrupted", "旧执行代次或已结束运行拒绝迟到业务写入")
+        if current is not None:
+            self._reject_expired_comparison(run_id, current.epoch)
         if current is not None and (run_id != current.run_id or not self.execution_write_allowed(run_id, current.epoch)):
             raise StopAudit("interrupted", "旧执行代次或已结束运行拒绝迟到业务写入")
+
+    def _reject_expired_comparison(self, run_id, epoch):
+        """Fence an expired trial before admission or business transaction entry.
+
+        Epoch checks prevent a late owner from stopping a newer claim. Most write
+        guards enter here before BEGIN. If an inner assertion is reached after
+        BEGIN, reject the write and let its owner roll back; never commit another
+        transaction's provisional business facts to save a terminal checkpoint.
+        """
+        from .runtime import StopAudit
+        remaining = comparison_deadline_remaining()
+        if remaining is None or remaining > 0:
+            return
+        reason = {"code": "batch_deadline_exceeded", "message": "Prompt 实验的墙钟截止时间已到期"}
+        with self._lock:
+            if not self._db.in_transaction:
+                self.terminate_execution(run_id, "interrupted", reason, epoch=epoch)
+        raise StopAudit(reason["code"], reason["message"])
 
     def admit_execution(self, run_id, epoch, dimension):
         from .runtime import StopAudit
         if dimension not in (None, "responses", "tools", "work"):
             raise ValueError("unknown budget dimension")
         with self._lock:
+            self._reject_expired_comparison(run_id, epoch)
             self._db.execute("BEGIN IMMEDIATE")
             try:
                 if not self.execution_write_allowed(run_id, epoch):

@@ -5,6 +5,7 @@ export type WorkspaceRoute = {
   snapshotId?: string;
   runId?: string;
   findingId?: string;
+  experimentId?: string;
   tab?: SourceTab;
 };
 
@@ -17,7 +18,7 @@ export function parseRoute(hash: string): WorkspaceRoute {
   if (!parts.length || (parts[0] === 'sources' && parts.length === 1)) return { page: 'sources' };
   if (parts[0] === 'settings' && parts.length === 1) return { page: 'settings' };
   if (parts[0] === 'prompts' && parts.length === 1) return { page: 'prompts' };
-  if (parts[0] === 'experiments' && parts.length === 1) return { page: 'experiments' };
+  if (parts[0] === 'experiments' && parts.length <= 2) return parts[1] ? { page: 'experiments', experimentId: parts[1] } : { page: 'experiments' };
   if (parts[0] === 'run' && parts.length === 2) return { page: 'run', runId: parts[1] };
   if (parts[0] === 'findings' && parts.length <= 2) return parts[1] ? { page: 'finding', findingId: parts[1] } : { page: 'findings' };
   if (parts[0] === 'sources' && parts[1]) {

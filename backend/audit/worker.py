@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import uuid
 from collections.abc import Callable
 from dataclasses import replace
@@ -31,6 +32,7 @@ from .runtime import AgentPolicy, StopAudit, allowed_paths_for_run, policy_from_
 from .execution_state import CURRENT_EXECUTION, execution_context, execution_role
 from .poc_readiness import normalize_poc_mode
 from .schemas import Check
+from .worker_strategies import canonical_vulnerability_type, validate_primary_location
 
 # Two model-level failures in a row mean the endpoint itself is down; grinding
 # through the rest of the queue would only burn budget.
@@ -189,6 +191,7 @@ class AuditWorker:
                     self.settings.model,
                     model=model or self.settings.model.model,
                     base_url=base_url or self.settings.model.base_url,
+                    thinking=str(snapshot.get("thinking") or self.settings.model.thinking),
                 )
 
         name = str(run.get("model") or "").strip()
@@ -1000,6 +1003,7 @@ class AuditWorker:
                             run_task=task_spec,
                             attempt=attempt,
                             agent_invocation_id=invocation_id,
+                            worker_strategy=run.get("worker_strategy") or None,
                             allowed_paths=allowed_paths_for_run(run),
                             dependency_handoffs=dependency_handoffs,
                             known_findings=list((run.get("project_baseline") or [])[:8]),
@@ -1411,7 +1415,8 @@ class AuditWorker:
         entry["file_path"] = str(anchor.get("file_path") or entry["file_path"])
         entry["symbol"] = str(anchor.get("symbol") or entry["symbol"])
         entry["fingerprint"] = canonical_fingerprint(
-            entry["file_path"], entry["symbol"], entry["dangerous_operation"]
+            entry["file_path"], entry["symbol"], entry["dangerous_operation"],
+            vulnerability_type=entry.get("vulnerability_type"),
         )
         try:
             merged = self.store.merge_project_finding(project_id, run_id, entry)
@@ -1673,6 +1678,7 @@ class AuditWorker:
                         task=task,
                         attempt=int(work["attempt"]) + 1,
                         agent_invocation_id=invocation_id,
+                        worker_strategy=run.get("worker_strategy") or None,
                         focus=work.get("focus") or "",
                         allowed_paths=allowed_paths_for_run(run),
                         config=model_config,
@@ -1866,6 +1872,7 @@ class AuditWorker:
         file_lines = {item["path"]: item["line_count"] for item in snapshot["files"]}
         ranges = seen_ranges(unit, outcome.get("seen") or [], exact=outcome.get("seen_exact", False))
         prepared: list[dict] = []
+        strategy_slots: dict[str, int] = {}
         for index, payload in enumerate(payloads, 1):
             cited = _parse_evidence(
                 str(payload.get("evidence") or ""),
@@ -1876,6 +1883,17 @@ class AuditWorker:
             candidate = bool(evidence) and vulnerability
             if not vulnerability:
                 problems.append("An explicit vulnerability kind is required")
+            vulnerability_type = canonical_vulnerability_type(payload.get("vulnerability_type")) or None
+            primary_location, location_errors = validate_primary_location(
+                payload, file_lines, ranges, evidence,
+                required=bool(run.get("worker_strategy")),
+            )
+            if run.get("worker_strategy") and (
+                not isinstance(payload.get("vulnerability_type"), str) or not vulnerability_type
+            ):
+                location_errors.append("vulnerability_type must be an explicit root-cause string in worker-strategy-v1")
+            problems.extend(location_errors)
+            candidate = candidate and not location_errors
             finding_id = uuid.uuid4().hex
             raw_preconditions = str(payload.get("preconditions") or "").strip()
             kind = str(payload.get("kind") or "source_observation").strip() or "source_observation"
@@ -1884,7 +1902,18 @@ class AuditWorker:
             # single task result retains ``task_goal``; additional results get stable
             # per-item category slots while their user-facing type lives in finding_kind.
             category = "task_goal" if len(payloads) == 1 else f"task_goal:{index}"
+            if run.get("worker_strategy"):
+                coordinate = primary_location or {}
+                slot = hashlib.sha256(
+                    f"{vulnerability_type or 'unknown'}|{coordinate.get('path', '')}|{coordinate.get('line', '')}".encode()
+                ).hexdigest()[:20]
+                strategy_slots[slot] = strategy_slots.get(slot, 0) + 1
+                category = f"task_goal:v2:{slot}:{strategy_slots[slot]}"
             anchor_path, anchor_symbol = self._finding_anchor(run, unit, evidence)
+            if primary_location:
+                anchor_path = primary_location["path"]
+                if unit.get("virtual") or anchor_path != unit.get("file_path"):
+                    anchor_symbol = self._symbol_at(run["id"], anchor_path, primary_location["line"]) or "<project>"
             dangerous_operation = str(payload.get("dangerous_operation") or "")
             finding = {
                 "id": finding_id,
@@ -1894,7 +1923,8 @@ class AuditWorker:
                 # a second run -- or the same direction worded differently -- lands on
                 # the same project row instead of a new vulnerability.
                 "fingerprint": (
-                    canonical_fingerprint(anchor_path, anchor_symbol, dangerous_operation)
+                    canonical_fingerprint(anchor_path, anchor_symbol, dangerous_operation,
+                                          vulnerability_type=vulnerability_type)
                     if vulnerability
                     else fingerprint(
                         "task_goal", unit["file_path"], unit["symbol"],
@@ -1903,6 +1933,8 @@ class AuditWorker:
                 ),
                 "category": category,
                 "finding_kind": kind,
+                "vulnerability_type": vulnerability_type,
+                "primary_location": primary_location,
                 "title": title,
                 "severity": str(payload.get("severity") or "unknown"),
                 "summary": str(payload.get("summary") or ""),
@@ -1915,7 +1947,7 @@ class AuditWorker:
                 "missing_context": list(result.get("missing_context") or []),
                 "poc": payload.get("poc"),
                 "remediation": str(payload.get("remediation") or ""),
-                "validation_state": "candidate" if candidate else ("invalid_evidence" if not evidence else "invalid_finding"),
+                "validation_state": "candidate" if candidate else ("invalid_evidence" if not evidence or location_errors else "invalid_finding"),
                 "validation_errors": problems,
                 "verdict": None,
                 "created_at": _now(),
@@ -1932,6 +1964,8 @@ class AuditWorker:
                     "finding_id": finding_id,
                     "category": category,
                     "finding_kind": kind,
+                    "vulnerability_type": vulnerability_type,
+                    "primary_location": primary_location,
                     "title": title,
                     "severity": finding["severity"],
                     "validation_errors": problems,

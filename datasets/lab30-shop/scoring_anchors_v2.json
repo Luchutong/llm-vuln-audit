@@ -1,0 +1,454 @@
+{
+  "protocol": "lab30-v2",
+  "schema_version": "2.0",
+  "archive_root": "lab30-shop",
+  "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "truth_file_sha256": "6c215b702fa962082e21a60bf8237692da7e47cb6ef97889d212616fa708faaa",
+  "truth_canonical_sha256": "8858d44304a77faadf204ac8e2c7f6b3f629bcd6434bdfcc6c5c37ddd9a75703",
+  "review": {
+    "method": "static_source_review",
+    "date": "2026-10-25",
+    "scope": "30 official vulnerabilities / 22 root cause types",
+    "note": "独立评分映射，未修改原真值；执行前冻结，不根据模型输出调整。"
+  },
+  "vulnerabilities": [
+    {
+      "id": "01",
+      "class": "sqli",
+      "scoring_locations": [
+        {
+          "path": "app/public/catalog/index.php",
+          "line": 4,
+          "line_sha256": "beffe7da46f3d071e3c354cab2096d3e67bf0c616e80ca230525ad7f5907b675",
+          "rationale": "用户检索词直接拼接 SQL 并执行 query。"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "class": "xss_r",
+      "scoring_locations": [
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3,
+          "line_sha256": "bde78a4a7c32af2ebe76205dc9e9b804f18f85e1100ac40e0a15a5b79ab06b0b",
+          "rationale": "未编码的用户名称进入 HTML 文本输出。"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "class": "command_injection",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/ping.php",
+          "line": 2,
+          "line_sha256": "9420da9ae249eb8fa54bba5abc2a363e03aed97d7a78ad9bcf3c9ac120bb7cae",
+          "rationale": "用户 host 拼接 shell_exec 参数，无 shell 参数转义。"
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "class": "path_traversal",
+      "scoring_locations": [
+        {
+          "path": "app/public/support/download.php",
+          "line": 3,
+          "line_sha256": "18400287d034179782608795cb1c445824259d3fad802d9b70a3901ccb828386",
+          "rationale": "用户文件名拼接数据目录后直接读取，无规范化边界校验。"
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "class": "lfi",
+      "scoring_locations": [
+        {
+          "path": "app/public/content/page.php",
+          "line": 3,
+          "line_sha256": "01ecb58858c8af3162d88b2c183e42d4dc4146a98e34000a42f3223376e85583",
+          "rationale": "用户 page 拼接模板路径后 include，无路径约束。"
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "class": "rfi",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3,
+          "line_sha256": "9bd126053a56cceb5676fb20fed2c1aa9b0890297dbd456684a0f6cac0e44698",
+          "rationale": "用户提供的远程模板地址直接 include。"
+        }
+      ]
+    },
+    {
+      "id": "07",
+      "class": "code_execution",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3,
+          "line_sha256": "b19cc75cb9b92d69d482f8fe626389c836cb73d63bc563cdcb374148ac192812",
+          "rationale": "用户选择函数名并控制调用参数，缺少允许函数清单。"
+        }
+      ]
+    },
+    {
+      "id": "08",
+      "class": "open_redirect",
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3,
+          "line_sha256": "1f0b75a5fd28bf348d7394d0ddc7dc2fe0df29d01ba17ada286ab9304404afbf",
+          "rationale": "未校验目的域名的 next 直接进入 Location 响应头。"
+        }
+      ]
+    },
+    {
+      "id": "09",
+      "class": "info_disclosure",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3,
+          "line_sha256": "e78884061f4c4b81c82941cb05fa6ad4522f0f1565fdec2bdffeae193a6e0fce",
+          "rationale": "异常类型、消息和完整堆栈直接拼入页面输出。"
+        },
+        {
+          "path": "app/public/ops/database.php",
+          "line": 4,
+          "line_sha256": "0a928e56e8e51b9557dc4c79294611f7c293246f1d7a42b73e79a56fc1617cc6",
+          "rationale": "页面输出未经隐藏处理的诊断异常消息和堆栈；HTML 转义不消除信息泄露。"
+        }
+      ]
+    },
+    {
+      "id": "10",
+      "class": "weak_crypto",
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8,
+          "line_sha256": "a231629824f2b856423cfaf35a47e1af2b791b88241ac2d32ea979a3a4099923",
+          "rationale": "注册密码以无盐快速 MD5 形式写入 password_md5。"
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17,
+          "line_sha256": "e23345e7042ee9c9cee6290475dcebee0cac02f9d3a2852c2cd5ae8390045b8a",
+          "rationale": "初始化用户密码以无盐 MD5 形式写入用户表。"
+        }
+      ]
+    },
+    {
+      "id": "11",
+      "class": "xss_s",
+      "scoring_locations": [
+        {
+          "path": "app/public/support/messages.php",
+          "line": 5,
+          "line_sha256": "e1df15bc3431b02f261af85b540e7427cfae28b52053db5de25a7df0373a2378",
+          "rationale": "持久化用户留言直接进入 HTML，不执行输出编码。"
+        }
+      ]
+    },
+    {
+      "id": "12",
+      "class": "ssrf",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3,
+          "line_sha256": "7c71772702bac10d8d234b0d0a8dfc408153bc059dcef867254ba35f29cda6a9",
+          "rationale": "任意用户 URL 传入服务器 file_get_contents，无目标允许清单。"
+        }
+      ]
+    },
+    {
+      "id": "13",
+      "class": "xxe",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/xml-import.php",
+          "line": 3,
+          "line_sha256": "e463934898ab6cb2064502fc48cb73574f6b237924606e707d33c482dd7f3f06",
+          "rationale": "不可信 XML 使用 LIBXML_NOENT 和 LIBXML_DTDLOAD 展开外部实体。"
+        }
+      ]
+    },
+    {
+      "id": "14",
+      "class": "csrf",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5,
+          "line_sha256": "53f409fd8b888dc72278f1bb483f4bb3a0097af02379243396b9bc2092248f29",
+          "rationale": "已认证用户邮箱更新操作缺失 CSRF 令牌检查。"
+        }
+      ]
+    },
+    {
+      "id": "15",
+      "class": "insecure_deserialization",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/backup.php",
+          "line": 5,
+          "line_sha256": "bb6cd41856580981d3f89d24aa955bb9e1074d1b03212c8f13245a346d8e9bc1",
+          "rationale": "未设置 allowed_classes 的不可信反序列化，之后的类型判断发生过晚。"
+        }
+      ]
+    },
+    {
+      "id": "16",
+      "class": "idor",
+      "scoring_locations": [
+        {
+          "path": "app/public/orders/detail.php",
+          "line": 2,
+          "line_sha256": "0b45c2674e8bb6ef3d17c37a2bdc9c42e02c5f6bf60881f99fce938599078930",
+          "rationale": "按用户控制订单 ID 查询，无订单 user_id 归属限制。"
+        }
+      ]
+    },
+    {
+      "id": "17",
+      "class": "auth_bypass",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2,
+          "line_sha256": "2c144459341e60bd6a9a03ae60ef87881d140dd3d089e584f9fcf546229f4e36",
+          "rationale": "客户端 role Cookie 覆盖真实用户角色并决定管理员授权。"
+        }
+      ]
+    },
+    {
+      "id": "18",
+      "class": "auth_bypass",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3,
+          "line_sha256": "3df8df57413258463abaea08fa6fcce33fe128751d9848cf7962a2cc0a8f18d3",
+          "rationale": "仅依赖客户端 X-Admin 请求头决定维护服务授权。"
+        }
+      ]
+    },
+    {
+      "id": "19",
+      "class": "price_manipulation",
+      "scoring_locations": [
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3,
+          "line_sha256": "f8bca8b689b32a51ea0fa3eb226047c9a64c8eb9c8085b8211c31db263d9ebfd",
+          "rationale": "订单单价取自客户端 POST price 而非已读取的服务端商品记录。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5,
+          "line_sha256": "7b36f5f1102b5b2e73b185de7df3ea0bccf240d9ba391f88365b67cd0991f325",
+          "rationale": "直接以客户端单价计算订单总价。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 7,
+          "line_sha256": "2a1a65f646c4e6f459858146edc063f2d7e9a96a1127b71e98b2a27d6c23643a",
+          "rationale": "将客户端单价和据此计算的总价持久化为订单价格。"
+        }
+      ]
+    },
+    {
+      "id": "20",
+      "class": "race_condition",
+      "scoring_locations": [
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 4,
+          "line_sha256": "cbe6f3296cf5b7d32dfdcdb71ece7e5f4a0fd1a9a489bad868b51ac928848aec",
+          "rationale": "余额读取不加锁，与后续写入及提现记录缺少原子事务。"
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 7,
+          "line_sha256": "a776c4ce70272bf6ce67b9bd10738dab70c6a0039a6d2790f7bae7f36099a70b",
+          "rationale": "以过时余额计算并覆盖更新，缺少余额条件的原子扣款。"
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 8,
+          "line_sha256": "a414d1c3d23923668f66b17a88d491d780ae62c4c7695dcac2e7c8d063a094f0",
+          "rationale": "提现记录与余额检查及扣款缺少同一受锁事务。"
+        }
+      ]
+    },
+    {
+      "id": "21",
+      "class": "session_fixation",
+      "scoring_locations": [
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 13,
+          "line_sha256": "51ba4456e570a6e82e11c7e63c95004fe219b2474f825e6f03a4b7478acd86e1",
+          "rationale": "关闭会话严格模式，允许接受未初始化的外部会话 ID。"
+        },
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 17,
+          "line_sha256": "6b0b26071dd19abb23b0a3ce89387c7f527c3cd0dac38d62c6265f0dada38bf7",
+          "rationale": "显式将外部提供 ID 设置为会话 ID。"
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 3,
+          "line_sha256": "4512a29dd995273eb616faa731118a9663017d83d2899fdb315a719a56a283e2",
+          "rationale": "登录入口接受 sid 并传入会话启动逻辑。"
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 8,
+          "line_sha256": "a273818ddbe6b1ba72e6e4449153382e8ae3ed865e0e88311325b708183fb23f",
+          "rationale": "认证成功仅设置 user_id，未重新生成会话 ID。"
+        }
+      ]
+    },
+    {
+      "id": "22",
+      "class": "weak_type_comparison",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/redeem.php",
+          "line": 5,
+          "line_sha256": "660f9f18c8c95ea97a893d82b67cd5a2839f4b5720bee01cdf36503fa9a1048e",
+          "rationale": "MD5 摘要采用 == 弱比较，数字形式摘要触发类型转换。"
+        }
+      ]
+    },
+    {
+      "id": "23",
+      "class": "sqli",
+      "scoring_locations": [
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3,
+          "line_sha256": "a7d93b540dbfb5dc4ad5ae70d79c16c1cf24201f488f728a5b9481a365451c1b",
+          "rationale": "跨文件传入的检索词在公共函数中拼接 SQL 并 query。"
+        }
+      ]
+    },
+    {
+      "id": "24",
+      "class": "command_injection",
+      "scoring_locations": [
+        {
+          "path": "app/src/host_check.php",
+          "line": 2,
+          "line_sha256": "fa0699fdd4a540a46ac8bd99e7eea2771d121362ac5dfc6b561d4625372954fa",
+          "rationale": "公共巡检函数将调用方 host 直接拼入 shell_exec。"
+        }
+      ]
+    },
+    {
+      "id": "25",
+      "class": "xss_r",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/profile.php",
+          "line": 3,
+          "line_sha256": "1ae1b7787fc2d28cd30e6f9b1089657e3fa3d486ce673efc0899d8c3fc6b7b88",
+          "rationale": "用户 URL 未经属性编码或协议校验直接进入 href 属性。"
+        }
+      ]
+    },
+    {
+      "id": "26",
+      "class": "auth_bypass",
+      "scoring_locations": [
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 2,
+          "line_sha256": "b9e89e5ab7438cdd6c57b4695e78e0c27c084b2b9e014863735300b25ef4dc77",
+          "rationale": "仅 Base64 解码 JWT 负载，未核验签名。"
+        },
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 3,
+          "line_sha256": "f3b86cdd20addf7e6c3445c9dd4b44360c28f32138a8e697a7a6a864d2616ea2",
+          "rationale": "对未验签负载中的 role 直接进行管理员授权。"
+        }
+      ]
+    },
+    {
+      "id": "27",
+      "class": "insecure_deserialization",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/jobs.php",
+          "line": 3,
+          "line_sha256": "779c09d981ca0cb034e29b4414e7765c323dbc4d54ec268aa3a0991978e4ad27",
+          "rationale": "用户任务在实例检查前执行不受限 unserialize，触发生命周期方法。"
+        },
+        {
+          "path": "app/src/dispatch_job.php",
+          "line": 4,
+          "line_sha256": "8257b36671b583b23b53f8a98081627109cb9e6ec6f44eb4a661e97ef128f868",
+          "rationale": "反序列化触发 __wakeup 并对对象控制的 command 执行 shell_exec。"
+        }
+      ]
+    },
+    {
+      "id": "28",
+      "class": "sqli",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/report.php",
+          "line": 3,
+          "line_sha256": "c828247b5cfc2b4b842f36335ad318dd7aa58e039a0406db76f8fd74c6ad721d",
+          "rationale": "从数据库读出的可控昵称再次拼接 SQL，属于二次 SQL 注入实际执行点。"
+        }
+      ]
+    },
+    {
+      "id": "29",
+      "class": "code_execution",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/template-render.php",
+          "line": 3,
+          "line_sha256": "dce9c9b6051abbea490f77e5af24055a7311da63daa6862bc540fee1f649b0b9",
+          "rationale": "用户模板表达式直接进入 eval 动态执行。"
+        }
+      ]
+    },
+    {
+      "id": "30",
+      "class": "mass_assignment",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/update.php",
+          "line": 4,
+          "line_sha256": "52d8c65d3ed7239c41a68274ea9cb6d3ab0bf41ea8945e006464c7b8f762bcee",
+          "rationale": "普通会员可编辑字段清单错误包含 role、balance、tier 敏感属性。"
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 5,
+          "line_sha256": "a96d906676e0d81d568b03b0235a3fdb05d7d1c1d5d0a37eddfed7d440b8d1a2",
+          "rationale": "根据过宽字段清单接受客户端敏感属性。"
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 6,
+          "line_sha256": "3b4287334996f92bbb92739759cd27a4b85216d00e46f82fc385085fbffa097f",
+          "rationale": "预处理仅保护值语法，仍把无权修改的敏感字段持久化。"
+        }
+      ]
+    }
+  ]
+}

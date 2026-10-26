@@ -386,6 +386,12 @@ CREATE TABLE IF NOT EXISTS prompts (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS prompt_experiment_prompts (
+    experiment_id TEXT NOT NULL,
+    prompt_id TEXT NOT NULL,
+    PRIMARY KEY (experiment_id, prompt_id)
+);
+
 CREATE TABLE IF NOT EXISTS truths (
     id TEXT PRIMARY KEY,
     snapshot_id TEXT NOT NULL,
@@ -741,6 +747,7 @@ def _model_profile_snapshot(value: object) -> dict:
         "profile_id": profile_id,
         "model": model,
         "base_url": base_url,
+        **({"thinking": str(value["thinking"])} if "thinking" in value else {}),
     }
 
 
@@ -830,6 +837,13 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     # Additive migrations so a database written by an earlier build keeps working.
     _ADDED_COLUMNS = {
+        "prompts": {"kind": "TEXT NOT NULL DEFAULT 'legacy'", "contract_version": "TEXT NOT NULL DEFAULT ''"},
+        "prompt_experiments": {
+            "protocol": "TEXT NOT NULL DEFAULT 'legacy_unit_v1'",
+            "manifest": "TEXT NOT NULL DEFAULT '{}'",
+            "trials": "TEXT NOT NULL DEFAULT '[]'",
+            "summary": "TEXT NOT NULL DEFAULT '{}'",
+        },
         "verification_reviews": {"verification_id": "TEXT NOT NULL DEFAULT ''"},
         "run_units": {"unit_json": "TEXT NOT NULL DEFAULT '{}'"},
         "snapshots": {
@@ -840,6 +854,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             "target_profile": "TEXT NOT NULL DEFAULT 'unknown'",
         },
         "runs": {
+            "worker_strategy": "TEXT NOT NULL DEFAULT '{}'",
             "agent_policy": "TEXT",
             "task_spec": "TEXT",
             # A run created before projects existed keeps ``legacy`` so its report and
@@ -858,6 +873,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             "max_total_attempts": f"INTEGER NOT NULL DEFAULT {DEFAULT_TASK_MAX_TOTAL_ATTEMPTS}"
         },
         "findings": {
+            "vulnerability_type": "TEXT NOT NULL DEFAULT ''",
+            "primary_location": "TEXT NOT NULL DEFAULT '{}'",
             "finding_kind": "TEXT NOT NULL DEFAULT ''",
             # A finding occupies one slot per (run, unit, category), and a re-run of that
             # slot keeps the row: ``revision`` counts how many conclusions that slot has
@@ -884,6 +901,10 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         "planner_plans": {
             # The final report narrative the Planner wrote on its closure review.
             "narrative": "TEXT NOT NULL DEFAULT '{}'",
+        },
+        "project_findings": {
+            "vulnerability_type": "TEXT NOT NULL DEFAULT ''",
+            "primary_location": "TEXT NOT NULL DEFAULT '{}'",
         },
         "verifications": {
             "source": "TEXT NOT NULL DEFAULT 'legacy_human'",
@@ -926,6 +947,21 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+    @classmethod
+    def open_readonly(cls, path: Path | str) -> "Store":
+        """Read an existing trial without schema changes or accidentally creating it."""
+        path = Path(path).resolve(strict=True)
+        value = cls.__new__(cls)
+        value.path = str(path)
+        value._lock = threading.RLock()
+        value._db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True,
+                                    check_same_thread=False, isolation_level=None)
+        value._db.row_factory = sqlite3.Row
+        value._db.execute("PRAGMA query_only=ON")
+        value._active_clocks = {}
+        value._active_agents = {}
+        return value
 
     def _rows(self, sql: str, params: Iterable = ()) -> list[sqlite3.Row]:
         with self._lock:
@@ -1231,6 +1267,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             ("superseded_summary", []),
         ):
             item[key] = _loads(item.get(key), fallback)
+        item["primary_location"] = _loads(item.get("primary_location"), {})
         item["poc"] = _loads(item.get("poc"), None)
         item["already_known"] = True
         item["paths"] = sorted({
@@ -1256,6 +1293,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             if isinstance(ref, dict)
         ))
         return (
+            str(item.get("vulnerability_type") or ""),
+            _dumps(item.get("primary_location") or {}),
             str(item.get("protection") or ""),
             tuple(item.get("preconditions") or []),
             str(item.get("dangerous_operation") or ""),
@@ -1281,6 +1320,18 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                     "SELECT * FROM project_findings WHERE project_id = ? AND fingerprint = ?",
                     (project_id, finding["fingerprint"]),
                 ).fetchone()
+                if row is not None:
+                    from .worker_strategies import canonical_vulnerability_type, root_causes_compatible
+                    if not root_causes_compatible(finding.get("vulnerability_type"), row["vulnerability_type"]):
+                        # Old embedded clients may still supply an untyped digest.
+                        # Keep known different causes apart without colliding with
+                        # UNIQUE(project_id, fingerprint), including on rediscovery.
+                        finding["fingerprint"] = hashlib.sha256((finding["fingerprint"] + "|root_cause:"
+                            + canonical_vulnerability_type(finding.get("vulnerability_type"))).encode()).hexdigest()[:32]
+                        row = self._db.execute(
+                            "SELECT * FROM project_findings WHERE project_id=? AND fingerprint=?",
+                            (project_id, finding["fingerprint"]),
+                        ).fetchone()
                 if row is None:
                     candidates = self._db.execute(
                         "SELECT * FROM project_findings WHERE project_id = ? AND file_path = ? AND symbol = ?",
@@ -1331,6 +1382,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                             "severity": previous["severity"],
                             "cvss": previous.get("cvss"), "cvss_assessment": previous.get("cvss_assessment"),
                             "legacy_severity": previous.get("legacy_severity"),
+                            "vulnerability_type": previous.get("vulnerability_type"),
+                            "primary_location": previous.get("primary_location"),
                             "summary": previous["summary"],
                             "dangerous_operation": previous["dangerous_operation"],
                             "evidence": previous["evidence"],
@@ -1367,6 +1420,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                     " run_finding_id, relation, revision, created_at) VALUES (?,?,?,?,?,?,?)",
                     (project_id, project_finding_id, run_id, finding["id"], relation, revision, stamp),
                 )
+                self._db.execute("UPDATE project_findings SET vulnerability_type=?, primary_location=? WHERE id=?",
+                                 (finding.get("vulnerability_type") or "", _dumps(finding.get("primary_location") or {}), project_finding_id))
                 self._merge_cvss(project_finding_id, finding, revision, previous, run_id)
                 self._db.execute("COMMIT")
             except Exception:
@@ -1569,6 +1624,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                         _dumps(run.get("poc_policy") or {}),
                     ),
                 )
+                self._db.execute("UPDATE runs SET worker_strategy=? WHERE id=?",
+                                 (_dumps(run.get("worker_strategy") or {}), run["id"]))
                 if units:
                     self._db.executemany(
                         "INSERT INTO run_units (run_id, unit_id, ordinal, file_path, symbol, start_line,"
@@ -1617,6 +1674,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     def _run_dict(self, row: sqlite3.Row) -> dict:
         run = dict(row)
+        run["worker_strategy"] = _loads(run.get("worker_strategy"), {})
         run["scope"] = _loads(run.get("scope"), [])
         run["scope_mode"] = str(run.get("scope_mode") or "explicit")
         run["budgets"] = _loads(run.get("budgets"), {})
@@ -4016,6 +4074,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                     finding.get("derived_from_finding_id"),
                 ),
             )
+            self._db.execute("UPDATE findings SET vulnerability_type=?, primary_location=? WHERE id=?",
+                             (finding.get("vulnerability_type") or "", _dumps(finding.get("primary_location") or {}), finding["id"]))
             self._write_cvss("findings", finding["id"], finding, 1)
             return {"action": "created", "finding_id": str(finding["id"]), "revision": 1}
         previous = _loads(existing["superseded_summary"], [])
@@ -4030,6 +4090,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             "revision": int(existing["revision"] or 1),
             "title": existing["title"],
             "severity": existing["severity"],
+            "vulnerability_type": existing["vulnerability_type"],
+            "primary_location": _loads(existing["primary_location"], {}),
             **{key: decode_rating(dict(existing)).get(key) for key in ("cvss", "cvss_assessment", "legacy_severity")},
             "summary": existing["summary"],
             "evidence": _loads(existing["evidence"], []),
@@ -4069,6 +4131,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 existing["id"],
             ),
         )
+        self._db.execute("UPDATE findings SET vulnerability_type=?, primary_location=? WHERE id=?",
+                         (finding.get("vulnerability_type") or "", _dumps(finding.get("primary_location") or {}), existing["id"]))
         self._write_cvss("findings", existing["id"], finding, int(existing["revision"] or 1) + 1)
         return {
             "action": "superseded",
@@ -4157,6 +4221,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         finding = decode_rating(dict(row))
         for name in ("evidence", "preconditions", "missing_context", "validation_errors", "superseded_summary"):
             finding[name] = _loads(finding.get(name), [])
+        finding["primary_location"] = _loads(finding.get("primary_location"), {})
         finding["poc"] = _loads(finding.get("poc"), None)
         finding["verifications"] = self.list_verifications(finding["id"])
         # The Planner's cross-check of those verifications, so the UI can show that the
@@ -4354,8 +4419,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     def upsert_builtin_prompt(self, prompt: dict) -> None:
         self._write(
-            "INSERT INTO prompts (id, label, phase, text, reason, issues, parent_id, builtin, created_at)"
-            " VALUES (?,?,?,?,?,?,?,1,?) ON CONFLICT(id) DO NOTHING",
+            "INSERT INTO prompts (id, label, phase, text, reason, issues, parent_id, builtin, created_at, kind, contract_version)"
+            " VALUES (?,?,?,?,?,?,?,1,?,?,?) ON CONFLICT(id) DO NOTHING",
             (
                 prompt["id"],
                 prompt["label"],
@@ -4365,13 +4430,15 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 _dumps(prompt.get("issues", [])),
                 prompt.get("parent_id"),
                 prompt["created_at"],
+                prompt.get("kind", "legacy"),
+                prompt.get("contract_version", ""),
             ),
         )
 
     def add_prompt(self, prompt: dict) -> None:
         self._write(
-            "INSERT INTO prompts (id, label, phase, text, reason, issues, parent_id, builtin, created_at)"
-            " VALUES (?,?,?,?,?,?,?,0,?)",
+            "INSERT INTO prompts (id, label, phase, text, reason, issues, parent_id, builtin, created_at, kind, contract_version)"
+            " VALUES (?,?,?,?,?,?,?,0,?,?,?)",
             (
                 prompt["id"],
                 prompt["label"],
@@ -4381,6 +4448,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 _dumps(prompt.get("issues", [])),
                 prompt.get("parent_id"),
                 prompt["created_at"],
+                prompt.get("kind", "legacy"),
+                prompt.get("contract_version", ""),
             ),
         )
 
@@ -4393,6 +4462,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             prompt["issues"] = _loads(prompt.get("issues"), [])
             prompt["builtin"] = bool(prompt["builtin"])
             prompt["used_by_runs"] = usage.get(prompt["id"], 0)
+            prompt["used_by_experiments"] = self.prompt_experiment_usage(prompt["id"])
             prompts.append(prompt)
         return prompts
 
@@ -4404,6 +4474,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         prompt["issues"] = _loads(prompt.get("issues"), [])
         prompt["builtin"] = bool(prompt["builtin"])
         prompt["used_by_runs"] = self.prompt_usage(prompt_id)
+        prompt["used_by_experiments"] = self.prompt_experiment_usage(prompt_id)
         return prompt
 
     def _prompt_usage_map(self) -> dict[str, int]:
@@ -4415,6 +4486,10 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def prompt_usage(self, prompt_id: str) -> int:
         row = self._row("SELECT COUNT(*) AS n FROM runs WHERE prompt_id = ?", (prompt_id,))
         return int(row["n"]) if row is not None else 0
+
+    def prompt_experiment_usage(self, prompt_id: str) -> int:
+        row = self._row("SELECT COUNT(*) AS n FROM prompt_experiment_prompts WHERE prompt_id=?", (prompt_id,))
+        return int(row["n"]) if row else 0
 
     def update_prompt(self, prompt_id: str, fields: dict) -> dict:
         """Edit a draft in place, and only a draft.
@@ -4429,7 +4504,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             raise KeyError(prompt_id)
         if prompt.get("builtin"):
             raise ValueError("内置提示词不能就地修改；请基于它另存为新版本。")
-        used = prompt["used_by_runs"]
+        used = prompt["used_by_runs"] + prompt.get("used_by_experiments", 0)
         if used:
             raise ValueError(
                 f"这份提示词已被 {used} 次审计引用；请另存为新版本，让历史报告仍对应它当时使用的文本。"
@@ -4448,12 +4523,12 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     # --- prompt experiments ------------------------------------------------
 
-    _EXPERIMENT_JSON = ("variants", "budgets", "rows", "progress")
+    _EXPERIMENT_JSON = ("variants", "budgets", "rows", "progress", "manifest", "trials", "summary")
 
     def _experiment_dict(self, row) -> dict:
         item = dict(row)
         for name in self._EXPERIMENT_JSON:
-            item[name] = _loads(item.get(name), [] if name in ("variants", "rows") else {})
+            item[name] = _loads(item.get(name), [] if name in ("variants", "rows", "trials") else {})
         return item
 
     def add_prompt_experiment(self, experiment: dict) -> None:
@@ -4474,13 +4549,27 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             ),
         )
 
+    def add_full_prompt_experiment(self, experiment: dict) -> None:
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                self.add_prompt_experiment(experiment)
+                self.update_prompt_experiment(experiment["id"], protocol="lab30-full-v2",
+                    manifest=experiment["manifest"], trials=experiment["trials"], summary=experiment.get("summary", {}))
+                self._db.executemany("INSERT INTO prompt_experiment_prompts (experiment_id,prompt_id) VALUES (?,?)",
+                    [(experiment["id"], item["id"]) for item in experiment["manifest"]["variants"]])
+                self._db.execute("COMMIT")
+            except BaseException:
+                self._db.execute("ROLLBACK")
+                raise
+
     def update_prompt_experiment(self, experiment_id: str, **fields) -> None:
-        allowed = {"status", "finished_at", "rows", "progress", "error"}
+        allowed = {"status", "finished_at", "rows", "progress", "error", "protocol", "manifest", "trials", "summary"}
         updates = {name: value for name, value in fields.items() if name in allowed}
         if not updates:
             return
         encoded = {
-            name: _dumps(value) if name in ("rows", "progress") and not isinstance(value, str) else value
+            name: _dumps(value) if name in self._EXPERIMENT_JSON and not isinstance(value, str) else value
             for name, value in updates.items()
         }
         assignments = ", ".join(f"{name} = ?" for name in encoded)
@@ -4501,6 +4590,15 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     def fail_interrupted_prompt_experiments(self) -> int:
         with self._lock:
+            full = self._rows("SELECT * FROM prompt_experiments WHERE protocol='lab30-full-v2' AND status IN ('preparing','running','cancelling')")
+            for row in full:
+                item = self._experiment_dict(row)
+                for trial in item["trials"]:
+                    if trial.get("status") == "running":
+                        trial.update(status="interrupted", evaluation_status="invalid", error="服务重启时试次中断")
+                        if trial.get("attempts"):
+                            trial["attempts"][-1].update(status="interrupted", evaluation_status="invalid", error="服务重启时试次中断")
+                self.update_prompt_experiment(item["id"], status="interrupted", finished_at=now(), trials=item["trials"], error="服务重启时实验中断；不会自动调用模型")
             return self._db.execute(
                 "UPDATE prompt_experiments SET status='failed',finished_at=?,error=? WHERE status='running'",
                 (now(), "服务重启时实验中断，请重新创建实验"),
@@ -4508,7 +4606,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     def running_prompt_experiment(self) -> dict | None:
         row = self._row(
-            "SELECT * FROM prompt_experiments WHERE status = 'running'"
+            "SELECT * FROM prompt_experiments WHERE status IN ('preparing','running','cancelling')"
             " ORDER BY created_at DESC LIMIT 1"
         )
         return None if row is None else self._experiment_dict(row)
@@ -4516,7 +4614,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def latest_finished_prompt_experiment(self) -> dict | None:
         """The most recent experiment that produced numbers, for benchmark-side metrics."""
         row = self._row(
-            "SELECT * FROM prompt_experiments WHERE status = 'completed' AND rows <> '[]'"
+            "SELECT * FROM prompt_experiments WHERE status = 'completed' AND rows <> '[]' AND protocol = 'legacy_unit_v1'"
             " ORDER BY COALESCE(finished_at, created_at) DESC LIMIT 1"
         )
         return None if row is None else self._experiment_dict(row)
@@ -4847,7 +4945,9 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         )
         count = int(used["n"]) if used is not None else 0
         if count:
-            raise ValueError(f"Prompt is referenced by {count} run(s); archive those runs first")
+            raise ValueError(f"Prompt is referenced by {count} run(s); derive a new version instead")
+        if prompt.get("used_by_experiments"):
+            raise ValueError("Prompt is referenced by experiments; derive a new version instead")
         with self._lock:
             cursor = self._db.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
         return bool(cursor.rowcount)

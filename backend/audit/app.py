@@ -54,6 +54,7 @@ from .poc_readiness import PocReadinessService
 from .poc_store import poc_target_key
 
 from . import prompt_experiments
+from .worker_strategies import WORKER_STRATEGY_CONTRACT, builtin_worker_strategies, freeze_worker_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ class Services:
             health=self.health,
             resolve_model_profile=self.model_config_for_run_profile,
         )
-        for prompt in builtin_prompt_records():
+        for prompt in [*builtin_prompt_records(), *builtin_worker_strategies()]:
             self.store.upsert_builtin_prompt(prompt)
         self.prompt_experiments = prompt_experiments.ExperimentRunner(self.store, self.settings)
 
@@ -981,8 +982,7 @@ def _resolve_run_scope(state: Services, payload: CreateRunRequest) -> tuple[dict
     return snapshot, project
 
 
-@app.post("/api/runs")
-async def create_run(request: Request, payload: CreateRunRequest) -> dict:
+async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy: dict | None = None) -> dict:
     """Create a Planner-led audit over a whole immutable project snapshot.
 
     The uploaded project *is* the scope: every readable text file is available to the
@@ -991,7 +991,9 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     is frozen instead, then the run's main Planner creates and revises cross-file worker
     tasks as evidence arrives.
     """
-    state = services(request)
+    if worker_strategy is not None:
+        from .worker_strategies import freeze_worker_strategy
+        worker_strategy = freeze_worker_strategy(worker_strategy)
     snapshot, project = _resolve_run_scope(state, payload)
 
     readiness_service = getattr(state, "poc_readiness", None)
@@ -1026,6 +1028,8 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "model": frozen_model,
         "base_url": public_base_url() if callable(public_base_url) else str(getattr(active_model, "base_url", "") or ""),
     }
+    if worker_strategy is not None:
+        model_profile["thinking"] = str(getattr(active_model, "thinking", "disabled"))
     # The ledger is frozen at run start: a sibling run that discovers something later must
     # not change what this run is trying to prove.  Withdrawn rows are excluded -- they are
     # history, not standing conclusions.
@@ -1070,6 +1074,8 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
         "task_spec": task_spec,
         "created_at": _iso(),
     }
+    if worker_strategy is not None:
+        run["worker_strategy"] = worker_strategy
     poc_policy["target_key"] = poc_target_key({**run, "target_profile": project.get("target_profile", "unknown")}, state.settings.poc, state.settings)
     run["poc_state"] = readiness or {
         "mode": "off", "available": False, "reason": "disabled",
@@ -1103,6 +1109,11 @@ async def create_run(request: Request, payload: CreateRunRequest) -> dict:
     })
     state.worker.notify()
     return persisted
+
+
+@app.post("/api/runs")
+async def create_run(request: Request, payload: CreateRunRequest) -> dict:
+    return await create_audit_run(services(request), payload)
 
 
 @app.get("/api/runs")
@@ -1372,13 +1383,33 @@ async def get_evidence(request: Request, name: str) -> FileResponse:
 
 
 @app.get("/api/prompts")
-async def list_prompts(request: Request) -> list[dict]:
-    return services(request).store.list_prompts()
+async def list_prompts(request: Request, kind: str | None = None) -> list[dict]:
+    if kind not in {None, "legacy", "worker_strategy"}:
+        raise HTTPException(status_code=400, detail="提示词用途只能是 legacy 或 worker_strategy")
+    prompts = services(request).store.list_prompts()
+    return [item for item in prompts if kind is None or item.get("kind", "legacy") == kind]
 
 
 @app.post("/api/prompts")
 async def create_prompt(request: Request, payload: PromptCreateRequest) -> dict:
     state = services(request)
+    parent = None
+    if payload.parent_id:
+        parent = state.store.get_prompt(payload.parent_id)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="派生来源提示词不存在")
+        if parent.get("kind", "legacy") != payload.kind:
+            raise HTTPException(status_code=400, detail="不能跨用途派生提示词；旧版全文协议不能作为 Worker 策略使用")
+    contract_version = payload.contract_version or (WORKER_STRATEGY_CONTRACT if payload.kind == "worker_strategy" else "")
+    if payload.kind == "worker_strategy":
+        if contract_version != WORKER_STRATEGY_CONTRACT:
+            raise HTTPException(status_code=400, detail="Worker 策略必须使用 worker-strategy-v1 契约")
+        if parent is not None and parent.get("contract_version") != contract_version:
+            raise HTTPException(status_code=400, detail="派生策略的输出契约必须与父版本一致")
+    elif contract_version:
+        raise HTTPException(status_code=400, detail="旧版提示词不接受 Worker 策略契约")
+    if not payload.label.strip() or not payload.text.strip():
+        raise HTTPException(status_code=400, detail="提示词名称和正文不能为空白")
     prompt = {
         "id": uuid.uuid4().hex,
         "label": payload.label,
@@ -1388,7 +1419,11 @@ async def create_prompt(request: Request, payload: PromptCreateRequest) -> dict:
         "issues": payload.issues,
         "parent_id": payload.parent_id,
         "created_at": _iso(),
+        "kind": payload.kind,
+        "contract_version": contract_version,
     }
+    if payload.kind == "worker_strategy":
+        freeze_worker_strategy(prompt)
     state.store.add_prompt(prompt)
     return state.store.get_prompt(prompt["id"])
 
@@ -1449,6 +1484,8 @@ async def list_prompt_experiments(request: Request, limit: int = Query(20, ge=1,
 async def start_prompt_experiment(request: Request, payload: PromptExperimentRequest) -> dict:
     state = services(request)
     try:
+        if payload.protocol == "lab30-full-v2":
+            return state.prompt_experiments.start_full(payload)
         return state.prompt_experiments.start(
             payload.variants,
             payload.units_limit,
@@ -1484,6 +1521,18 @@ async def download_prompt_experiment(request: Request, experiment_id: str, forma
         row = state.prompt_experiments.get(experiment_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Experiment does not exist") from exc
+    if format not in {"markdown", "json", "csv"}:
+        raise HTTPException(status_code=400, detail="报告格式只能是 markdown、json 或 csv")
+    if row.get("protocol") == "lab30-full-v2":
+        try:
+            content, media, filename = await asyncio.to_thread(
+                state.prompt_experiments.full.report, experiment_id, format,
+            )
+        except (LookupError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="实验记录或报告文件已不存在") from exc
+        return Response(content=content, media_type=media, headers={"Content-Disposition": f'attachment; filename="{_safe_name(filename)}"'})
+    if format == "csv":
+        raise HTTPException(status_code=400, detail="旧版单元实验仅提供 Markdown 和 JSON 报告")
     if row["status"] != "completed":
         raise HTTPException(status_code=409, detail="对比尚未完成，没有可下载的报告。")
     path = Path(row["report_path"] if format == "markdown" else row["report_path"]).with_suffix(
@@ -1493,6 +1542,70 @@ async def download_prompt_experiment(request: Request, experiment_id: str, forma
         raise HTTPException(status_code=404, detail="报告文件已不存在")
     media = "text/markdown; charset=utf-8" if format == "markdown" else "application/json"
     return Response(content=path.read_text(encoding="utf-8"), media_type=media)
+
+
+def _trial_route_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (LookupError, FileNotFoundError)):
+        return HTTPException(status_code=404, detail="试次或其隔离数据已不存在")
+    if isinstance(exc, prompt_experiments.ExperimentError):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/prompt-experiments/{experiment_id}/trials/{trial_id}")
+async def get_prompt_trial(request: Request, experiment_id: str, trial_id: str, attempt: int | None = Query(None, ge=1, le=2)) -> dict:
+    try:
+        return await asyncio.to_thread(services(request).prompt_experiments.full.trial_detail, experiment_id, trial_id, attempt)
+    except (LookupError, FileNotFoundError, ValueError) as exc:
+        raise _trial_route_error(exc) from exc
+
+
+@app.get("/api/prompt-experiments/{experiment_id}/trials/{trial_id}/source")
+async def get_prompt_trial_source(
+    request: Request, experiment_id: str, trial_id: str,
+    path: str = Query(...), start_line: int = Query(1, ge=1), end_line: int = Query(200, ge=1),
+    attempt: int | None = Query(None, ge=1, le=2),
+) -> dict:
+    if end_line < start_line:
+        raise HTTPException(status_code=400, detail="源码结束行不能早于开始行")
+    try:
+        return await asyncio.to_thread(services(request).prompt_experiments.full.source, experiment_id, trial_id, path, start_line, end_line, attempt)
+    except (LookupError, FileNotFoundError, ValueError) as exc:
+        raise _trial_route_error(exc) from exc
+
+
+@app.get("/api/prompt-experiments/{experiment_id}/trials/{trial_id}/events")
+async def get_prompt_trial_events(
+    request: Request, experiment_id: str, trial_id: str,
+    after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+    attempt: int | None = Query(None, ge=1, le=2),
+) -> dict:
+    try:
+        return await asyncio.to_thread(services(request).prompt_experiments.full.events, experiment_id, trial_id, after, limit, attempt)
+    except (LookupError, FileNotFoundError, ValueError) as exc:
+        raise _trial_route_error(exc) from exc
+
+
+@app.get("/api/prompt-experiments/{experiment_id}/trials/{trial_id}/report")
+async def download_prompt_trial_report(
+    request: Request, experiment_id: str, trial_id: str,
+    format: str = Query("json"), attempt: int | None = Query(None, ge=1, le=2),
+) -> Response:
+    if format not in {"markdown", "json"}:
+        raise HTTPException(status_code=400, detail="试次报告格式只能是 markdown 或 json")
+    try:
+        content, media, filename = await asyncio.to_thread(services(request).prompt_experiments.full.trial_report, experiment_id, trial_id, format, attempt)
+    except (LookupError, FileNotFoundError, ValueError) as exc:
+        raise _trial_route_error(exc) from exc
+    return Response(content=content, media_type=media, headers={"Content-Disposition": f'attachment; filename="{_safe_name(filename)}"'})
+
+
+@app.post("/api/prompt-experiments/{experiment_id}/trials/{trial_id}/retry")
+async def retry_prompt_trial(request: Request, experiment_id: str, trial_id: str) -> dict:
+    try:
+        return services(request).prompt_experiments.full.retry(experiment_id, trial_id)
+    except (LookupError, FileNotFoundError, ValueError, prompt_experiments.ExperimentError) as exc:
+        raise _trial_route_error(exc) from exc
 
 
 # --- truths and attributions ------------------------------------------------

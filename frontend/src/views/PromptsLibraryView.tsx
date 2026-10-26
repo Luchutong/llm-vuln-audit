@@ -20,9 +20,10 @@ type Draft = {
   reason: string;
   issues: string;
   parentId: string | null;
+  kind: 'legacy' | 'worker_strategy';
 };
 
-const EMPTY: Draft = { id: null, label: '', text: '', reason: '', issues: '', parentId: null };
+const EMPTY: Draft = { id: null, label: '', text: '', reason: '', issues: '', parentId: null, kind: 'worker_strategy' };
 
 const fromPrompt = (prompt: Prompt): Draft => ({
   id: prompt.id,
@@ -31,6 +32,7 @@ const fromPrompt = (prompt: Prompt): Draft => ({
   reason: prompt.reason ?? '',
   issues: (prompt.issues ?? []).join('\n'),
   parentId: prompt.parent_id ?? null,
+  kind: prompt.kind ?? 'legacy',
 });
 
 const issuesOf = (value: string) => value.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -38,6 +40,8 @@ const issuesOf = (value: string) => value.split('\n').map((line) => line.trim())
 export function PromptsLibraryView() {
   const { data, error, refresh, refreshing } = useLedgerResource<Prompt[]>('/prompts');
   const prompts = data ?? [];
+  const [kindFilter, setKindFilter] = useState('');
+  const shown = prompts.filter((prompt) => !kindFilter || (prompt.kind ?? 'legacy') === kindFilter);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -59,7 +63,7 @@ export function PromptsLibraryView() {
   const used = selected?.used_by_runs ?? 0;
   const readOnlyReason = !selected ? null
     : selected.builtin ? '内置提示词随版本发布刷新，不能就地修改。'
-      : used ? `这份提示词已被 ${used} 次审计引用，就地修改会让那些报告与它实际使用的文本不一致。`
+      : used || selected.used_by_experiments ? `这份提示词已被 ${used} 次审计、${selected.used_by_experiments ?? 0} 次实验引用，正文已冻结。`
         : null;
   const dirty = selected
     ? draft.label !== selected.label || draft.text !== selected.text || draft.reason !== (selected.reason ?? '')
@@ -78,7 +82,7 @@ export function PromptsLibraryView() {
         setDraft(fromPrompt(saved));
         setNotice('已保存修改。');
       } else {
-        const created = await post<Prompt>('/prompts', { ...body, parent_id: draft.parentId });
+        const created = await post<Prompt>('/prompts', { ...body, parent_id: draft.parentId, kind: draft.kind, ...(draft.kind === 'worker_strategy' ? { contract_version: 'worker-strategy-v1' } : {}) });
         setDraft(fromPrompt(created));
         setNotice(draft.parentId ? `已另存为新版本 ${created.id}。` : `已新建 ${created.id}。`);
       }
@@ -107,9 +111,10 @@ export function PromptsLibraryView() {
             <span className="panel-title">提示词库</span>
             <button className="btn" disabled={busy} onClick={() => { setDraft(EMPTY); setNotice(null); setFailure(null); }}>新建</button>
           </div>
+          <div style={{ padding: '8px 14px' }}><label className="field"><span className="field-label">提示词类型筛选</span><select aria-label="提示词类型筛选" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option value="">全部类型</option><option value="worker_strategy">Worker 审计策略</option><option value="legacy">旧版提示词</option></select></label></div>
           {!data && !error && <div className="empty">正在读取提示词…</div>}
           {data?.length === 0 && <div className="empty">还没有提示词。</div>}
-          {(data ?? []).map((prompt) => (
+          {shown.map((prompt) => (
             <button
               key={prompt.id}
               disabled={busy}
@@ -122,9 +127,10 @@ export function PromptsLibraryView() {
             >
               <div className="small" style={{ fontWeight: 500 }}>{prompt.label}</div>
               <div className="faint" style={{ fontSize: 11.5 }}>
-                {prompt.id} · {prompt.builtin ? '内置' : '草稿'}
+                {prompt.id} · {prompt.kind === 'worker_strategy' ? '审计策略' : '旧版'} · {prompt.builtin ? '内置' : '自定义'}
                 {prompt.parent_id ? ` · 基于 ${prompt.parent_id}` : ''}
                 {prompt.used_by_runs ? ` · 已用于 ${prompt.used_by_runs} 次审计` : ''}
+                {prompt.used_by_experiments ? ` · 已用于 ${prompt.used_by_experiments} 次实验` : ''}
               </div>
             </button>
           ))}
@@ -142,6 +148,8 @@ export function PromptsLibraryView() {
             {readOnlyReason && <div className="small" style={{ color: 'var(--warn)' }}>{readOnlyReason}请用下方「基于此版本另存」。</div>}
             {notice && <div className="small muted" role="status">{notice}</div>}
 
+            <label className="field"><span className="field-label">提示词用途</span><select aria-label="提示词用途" disabled={busy || Boolean(draft.id) || Boolean(draft.parentId)} value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as Draft['kind'] })}><option value="worker_strategy">Worker 审计策略 · worker-strategy-v1</option><option value="legacy">旧版提示词</option></select></label>
+            {draft.kind === 'worker_strategy' && <p className="small muted">仅编写审计策略；工具、安全约束、结构化输出和纠错由宿主统一提供。该版本可参与完整审计对比。</p>}
             <label className="field">
               <span className="field-label">标签</span>
               <input
@@ -149,7 +157,7 @@ export function PromptsLibraryView() {
                 readOnly={Boolean(readOnlyReason)}
                 disabled={busy}
                 value={draft.label}
-                placeholder="例如 P3 强制证据链 + 前置条件"
+                placeholder="例如 W3 业务权限与状态核对"
                 onChange={(event) => setDraft({ ...draft, label: event.target.value })}
               />
             </label>
@@ -166,11 +174,12 @@ export function PromptsLibraryView() {
                       ...draft,
                       parentId: event.target.value || null,
                       text: parent ? parent.text : draft.text,
+                      kind: parent?.kind ?? draft.kind,
                     });
                   }}
                 >
                   <option value="">不基于任何版本</option>
-                  {prompts.map((prompt) => <option key={prompt.id} value={prompt.id}>{prompt.id} · {prompt.label}</option>)}
+                  {prompts.filter((prompt) => (prompt.kind ?? 'legacy') === draft.kind).map((prompt) => <option key={prompt.id} value={prompt.id}>{prompt.id} · {prompt.label}</option>)}
                 </select>
               </label>
             )}

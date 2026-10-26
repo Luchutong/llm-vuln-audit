@@ -1,0 +1,440 @@
+.exp-page {
+  gap: 18px;
+  min-width: 0;
+}
+.exp-page .panel {
+  min-width: 0;
+}
+.exp-content {
+  padding: 18px 20px;
+  gap: 18px;
+  min-width: 0;
+}
+.exp-content h3,
+.exp-content h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.exp-content p {
+  margin-top: 0;
+}
+.exp-content th {
+  text-align: left;
+}
+.exp-content td,
+.exp-content th {
+  white-space: nowrap;
+}
+.exp-content caption {
+  text-align: left;
+  padding: 8px 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.exp-notice {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.exp-notice p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.exp-notice a {
+  margin-left: 8px;
+  color: var(--accent);
+}
+.exp-notice-warn {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+.exp-variants {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  padding: 12px;
+  border-radius: 10px;
+  min-width: 0;
+}
+.exp-variants legend,
+.exp-budget legend {
+  color: var(--ink-soft);
+  padding: 0 5px;
+  font-size: 12px;
+}
+.exp-variant-option {
+  display: flex;
+  align-items: flex-start;
+  padding: 10px;
+  background: var(--surface-sunken);
+  border-radius: 7px;
+  gap: 10px;
+  cursor: pointer;
+}
+.exp-variant-option input {
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+.exp-variant-option strong {
+  display: block;
+  font-size: 13px;
+}
+.exp-variant-option small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.exp-filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.exp-filter-row > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.exp-filter-row select {
+  max-width: 290px;
+}
+.exp-filter-row input {
+  width: 72px;
+}
+.exp-budget {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.exp-budget label {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exp-budget input {
+  width: 95px;
+}
+.exp-downloads {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.exp-result-head {
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.exp-result-head .eyebrow {
+  font-size: 10px;
+}
+.exp-result-head p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.exp-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  padding: 0 20px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.exp-tabs button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 13px 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  cursor: pointer;
+}
+.exp-tabs button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.exp-live-progress {
+  margin: 14px 20px 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+.exp-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+  gap: 24px;
+  align-items: center;
+}
+.exp-chart {
+  margin: 0;
+  min-width: 0;
+}
+.exp-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.exp-chart figcaption {
+  margin-top: 7px;
+}
+.exp-gridline {
+  stroke: var(--line);
+}
+.exp-axis {
+  fill: var(--ink-soft);
+  font-size: 10px;
+}
+.exp-series-0 rect {
+  fill: var(--accent);
+}
+.exp-series-1 rect {
+  fill: var(--warn);
+}
+.exp-series-2 rect {
+  fill: var(--info, #81b6e4);
+}
+.exp-errorbar {
+  stroke: var(--ink);
+  stroke-width: 1.3;
+}
+.exp-delta-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) 1.4fr minmax(100px, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  margin: 18px 0;
+}
+.exp-delta-row > span {
+  overflow-wrap: anywhere;
+}
+.exp-delta-row strong {
+  font-weight: 500;
+  text-align: right;
+}
+.exp-delta-track {
+  height: 24px;
+  position: relative;
+  background: var(--surface-sunken);
+  border-radius: 3px;
+}
+.exp-delta-zero {
+  position: absolute;
+  left: 50%;
+  height: 100%;
+  border-left: 1px solid var(--ink-faint);
+}
+.exp-delta-bar {
+  height: 14px;
+  top: 5px;
+  position: absolute;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.exp-delta-bar.negative {
+  background: var(--danger);
+}
+.exp-metric-table .chip {
+  margin-left: 6px;
+}
+.exp-facts {
+  border-left: 3px solid var(--accent);
+  padding: 10px 16px;
+  background: var(--surface-sunken);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.exp-facts p:last-child {
+  margin-bottom: 0;
+}
+.exp-truth-table {
+  min-width: 730px;
+}
+.exp-truth-table th:first-child {
+  max-width: 330px;
+  white-space: normal;
+}
+.exp-truth-table th:first-child button {
+  text-align: left;
+  line-height: 1.6;
+}
+.exp-hit {
+  display: inline-block;
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.exp-hit.detected {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.exp-hit.missed {
+  color: var(--ink-faint);
+}
+.exp-page tr.selected {
+  background: var(--accent-soft);
+}
+.exp-class-rate {
+  min-width: 125px;
+  position: relative;
+  padding: 5px 6px;
+  background: var(--surface-sunken);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.exp-class-rate span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent-soft);
+  border-left: 2px solid var(--accent);
+}
+.exp-class-rate b {
+  position: relative;
+  font-weight: 400;
+}
+.exp-truth-detail,
+.exp-trial-detail {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.exp-trial-detail {
+  display: grid;
+  gap: 13px;
+}
+.exp-trial-numbers {
+  flex-wrap: wrap;
+  gap: 16px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.exp-reason {
+  max-width: 240px;
+  white-space: normal !important;
+}
+.exp-events details {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+  font-size: 12px;
+}
+.exp-events summary {
+  cursor: pointer;
+}
+.exp-events pre {
+  max-height: 280px;
+}
+.exp-diff {
+  padding: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  max-height: 400px;
+  overflow: auto;
+  font-size: 12px;
+}
+.exp-diff > div {
+  padding: 1px 12px;
+  min-width: fit-content;
+}
+.exp-diff-added {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.exp-diff-removed {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.exp-prompt-text {
+  white-space: pre-wrap;
+  max-height: 360px;
+  overflow-wrap: anywhere;
+}
+.exp-history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--ink);
+  padding: 12px;
+}
+.exp-history-row.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.exp-history-row strong {
+  font-size: 12px;
+}
+.exp-history-row span:last-child {
+  overflow-wrap: anywhere;
+}
+.exp-export {
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 1100px) {
+  .exp-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .exp-content {
+    padding: 14px 12px;
+  }
+  .exp-tabs {
+    gap: 14px;
+    padding: 0 12px;
+  }
+  .exp-tabs button {
+    font-size: 11px;
+    padding: 10px 0;
+  }
+  .exp-result-head {
+    align-items: flex-start;
+  }
+  .exp-filter-row {
+    gap: 10px;
+  }
+  .exp-filter-row > label {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .exp-filter-row select {
+    max-width: 220px;
+  }
+  .exp-delta-row {
+    grid-template-columns: 80px 1fr 100px;
+    font-size: 10px;
+  }
+  .exp-trial-detail,
+  .exp-truth-detail {
+    padding: 11px;
+  }
+  .exp-budget {
+    gap: 9px;
+  }
+  .exp-budget label {
+    justify-content: space-between;
+    width: 100%;
+  }
+}

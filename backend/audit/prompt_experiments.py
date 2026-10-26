@@ -132,19 +132,29 @@ class ExperimentRunner:
         # An interrupted comparison must not restart a paid model call implicitly, nor
         # permanently occupy the single experiment slot after the app restarts.
         self.store.fail_interrupted_prompt_experiments()
+        # Import lazily: the full runner shares ExperimentError and asset paths.
+        from .full_comparison import FullComparisonRunner
+        self.full = FullComparisonRunner(store, settings)
 
     # -- queries ---------------------------------------------------------------
     def running(self) -> dict | None:
         return self.store.running_prompt_experiment()
 
     def list(self, limit: int = 20) -> list[dict]:
-        return self.store.list_prompt_experiments(limit=limit)
+        return [self.get(row["id"]) for row in self.store.list_prompt_experiments(limit=limit)]
 
     def get(self, experiment_id: str) -> dict:
         row = self.store.get_prompt_experiment(experiment_id)
         if row is None:
             raise LookupError(experiment_id)
+        if row.get("protocol") == "lab30-full-v2":
+            return self.full.get(experiment_id)
         return row
+
+    def start_full(self, payload) -> dict:
+        if self._closed:
+            raise ExperimentError("服务正在关闭，不能启动对比实验。")
+        return self.full.start(payload)
 
     # -- lifecycle -------------------------------------------------------------
     def start(
@@ -218,6 +228,8 @@ class ExperimentRunner:
 
     async def cancel(self, experiment_id: str) -> dict:
         row = self.get(experiment_id)
+        if row.get("protocol") == "lab30-full-v2":
+            return await self.full.cancel(experiment_id)
         if row["status"] != "running":
             return row
         task = self._task if self._active_id == experiment_id else None
@@ -232,6 +244,7 @@ class ExperimentRunner:
 
     async def shutdown(self) -> None:
         self._closed = True
+        await self.full.shutdown()
         task = self._task
         if task is not None and not task.done():
             task.cancel()

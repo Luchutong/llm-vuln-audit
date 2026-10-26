@@ -15,8 +15,9 @@ export function snapshotDeletionBlock(snapshot: Pick<SnapshotSummary, 'id'>, run
   const count = runs.filter((run) => run.snapshot_id === snapshot.id).length;
   return count ? `此 ZIP 被 ${count} 次审计引用，请先删除相关审计记录。` : null;
 }
-export function promptDeletionBlock(prompt: Pick<Prompt, 'id' | 'builtin'>, runs: Run[]): string | null {
+export function promptDeletionBlock(prompt: Pick<Prompt, 'id' | 'builtin' | 'used_by_runs' | 'used_by_experiments'>, runs: Run[]): string | null {
   if (prompt.builtin) return '内置提示词不能删除。';
-  const count = runs.filter((run) => run.prompt_id === prompt.id).length;
+  if (prompt.used_by_experiments) return `此提示词被 ${prompt.used_by_experiments} 次实验引用，需保留冻结版本。`;
+  const count = Math.max(prompt.used_by_runs ?? 0, runs.filter((run) => run.prompt_id === prompt.id).length);
   return count ? `此提示词被 ${count} 次审计引用，请先删除相关审计记录。` : null;
 }

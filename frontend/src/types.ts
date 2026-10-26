@@ -460,7 +460,7 @@ export interface Snapshot {
   /** True when this source tree already had a project; the upload joined it. */
   project_reused?: boolean;
 }
-export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean; used_by_runs?: number }
+export interface Prompt { id: string; label: string; phase: string; text: string; reason: string; issues: string[]; parent_id?: string | null; created_at: string; builtin?: boolean; used_by_runs?: number; used_by_experiments?: number; kind?: 'legacy' | 'worker_strategy'; contract_version?: string }
 
 /** One worker-instruction variant in the Lab30 comparison, with the text it sends. */
 export interface PromptVariant { id: string; label: string; phase: string; focus: string; prompt: string }
@@ -547,6 +547,8 @@ export interface VerificationAgent {
 }
 export interface Verification { id?: string; created_at?: string; source?: VerificationSource; status?: VerificationStatus; execution_status?: ExecutionStatus; verdict?: Verdict; original_script?: string; modified_script: string; modification_notes: string; target_version: string; command: string; expected_result: string; normal_observation: string; attack_observation: string; browser_execution: boolean; notes: string; files?: (string | {name?: string; filename?: string; path?: string; url?: string; stored?: string})[]; target?: VerificationTarget; agent?: VerificationAgent; artifacts?: VerificationArtifact[]; context_id?: string; preconditions?: Record<string, unknown> | unknown[]; state_changes?: Record<string, unknown> | unknown[]; normal_evidence?: VerificationEvidenceReference[]; attack_evidence?: VerificationEvidenceReference[] }
 export interface Finding extends CvssFields {
+  vulnerability_type?: string;
+  primary_location?: { path: string; line: number } | null;
   file_path: string;
   symbol: string;
   line: number;

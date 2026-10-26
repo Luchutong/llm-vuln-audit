@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationInfo, field_validator, model_validator
 
+from .worker_strategies import canonical_vulnerability_type
+
 CATEGORIES = ("sqli", "xss_r", "command_injection")
 CATEGORY_LABELS = {
     "sqli": "SQL 注入",
@@ -257,6 +259,20 @@ class TaskSpec(BaseModel):
         return _meaningful_text(value, info.field_name)
 
 
+class PrimaryLocation(BaseModel):
+    """The exact root-cause coordinate, independently validated against source reads."""
+
+    path: str = Field(strict=True, min_length=1, description="Exact snapshot-relative source path")
+    line: StrictInt = Field(ge=1, description="Original one-based root-cause or dangerous-operation line")
+
+    @field_validator("path")
+    @classmethod
+    def _relative_source_path(cls, value: str) -> str:
+        if value.startswith("/") or "\\" in value or any(part in {"", ".", ".."} for part in value.split("/")):
+            raise ValueError("primary_location.path must be an exact snapshot-relative path")
+        return value
+
+
 class TaskFinding(CvssCompatibleModel):
     """An actionable, source-backed vulnerability, separate from audit observations."""
 
@@ -264,6 +280,8 @@ class TaskFinding(CvssCompatibleModel):
     kind: Literal["vulnerability"] = Field(
         description="Must explicitly identify an actionable vulnerability; neutral or safe facts belong in observations",
     )
+    vulnerability_type: str | None = Field(default=None, description="Root-cause class; required for worker-strategy-v1, unknown when uncertain")
+    primary_location: PrimaryLocation | None = Field(default=None, description="Exact root-cause coordinate; required for worker-strategy-v1")
     cvss_input: dict[str, object] | None = Field(default=None, description="CVSS 3.1: AV/AC/PR/UI/S/C/I/A -> {value, rationale, evidence}; unknown values=null")
     severity: Severity | None = Field(default=None, description="Legacy label; host scoring is authoritative")
     summary: str = Field(
@@ -283,6 +301,11 @@ class TaskFinding(CvssCompatibleModel):
     preconditions: str = Field(default="", max_length=1600, description="Optional runtime assumptions or entry conditions")
     poc: PocSpec | None = Field(default=None, description="Optional manually reviewable POC for a vulnerability result")
     remediation: str = Field(default="", max_length=2400, description="Optional remediation when an actionable issue exists")
+
+    @field_validator("vulnerability_type")
+    @classmethod
+    def _canonical_root_cause(cls, value: str | None) -> str | None:
+        return canonical_vulnerability_type(value) or None
 
     @field_validator("title", "kind", "summary", "evidence")
     @classmethod
@@ -826,6 +849,8 @@ class PromptCreateRequest(BaseModel):
     reason: str = ""
     issues: list[str] = Field(default_factory=list)
     parent_id: str | None = None
+    kind: Literal["legacy", "worker_strategy"] = "legacy"
+    contract_version: str | None = Field(default=None, max_length=80)
 
 
 class PromptUpdateRequest(BaseModel):
@@ -846,6 +871,22 @@ class PromptExperimentRequest(BaseModel):
     units_limit: int = Field(default=0, ge=0, le=200)
     scenario: Literal["sqli", "xss_r", "command_injection"] | None = None
     budgets: dict[str, StrictInt] | None = None
+    protocol: Literal["legacy_unit_v1", "lab30-full-v2"] = "legacy_unit_v1"
+    prompt_ids: list[str] = Field(default_factory=list, max_length=5)
+    baseline_prompt_id: str | None = None
+    repeats: StrictInt = Field(default=3, ge=1, le=5)
+    run_limits: RunLimits = Field(default_factory=RunLimits)
+
+    @model_validator(mode="after")
+    def _full_comparison_contract(self):
+        if self.protocol == "lab30-full-v2":
+            if not 2 <= len(self.prompt_ids) <= 5 or len(set(self.prompt_ids)) != len(self.prompt_ids):
+                raise ValueError("正式实验需要 2–5 个不同的 Worker 策略版本")
+            if self.baseline_prompt_id not in self.prompt_ids:
+                raise ValueError("基线必须属于已选策略")
+            if self.variants or self.scenario is not None or self.units_limit:
+                raise ValueError("正式实验使用完整源码，不接受旧版 variants/scenario/units_limit")
+        return self
 
 
 class TruthSample(BaseModel):

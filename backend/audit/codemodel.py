@@ -502,6 +502,10 @@ class PhaseGate:
             "output_chars": len(content),
             "output_bytes": len(content.encode("utf-8")),
             "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "token_usage_complete": (usage is not None
+                                     and getattr(usage, "input_tokens", None) is not None
+                                     and getattr(usage, "output_tokens", None) is not None),
             "usage": self.execution.snapshot(),
         }
         if max_output_tokens:

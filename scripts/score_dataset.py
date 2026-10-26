@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import urllib.request
 from pathlib import Path, PurePosixPath
 
@@ -268,6 +269,8 @@ def print_report(report: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--truth", help="ground_truth.json 或新版 answers.json（默认随仓库定位）")
+    parser.add_argument("--protocol", choices=("legacy_unit_v1", "lab30-v2"), default="legacy_unit_v1", help="默认保留旧版证据范围评分；正式实验显式选择 lab30-v2")
+    parser.add_argument("--anchors", help="lab30-v2 冻结评分锚点 JSON（默认随仓库定位）")
     parser.add_argument("--api", help="审计实例基址，如 http://127.0.0.1:8899")
     parser.add_argument("--run", help="run id（与 --api 搭配）")
     parser.add_argument("--findings", help="导出的 run bundle / findings JSON 文件")
@@ -280,9 +283,17 @@ def main(argv: list[str] | None = None) -> int:
     truth_path = Path(args.truth) if args.truth else Path(__file__).resolve().parents[1] / "datasets/lab30-shop/ground_truth.json"
     try:
         truth = json.loads(truth_path.read_text(encoding="utf-8"))
-        report = evaluate(truth, load_findings(args), scenario=args.scenario,
-                          klass=args.klass,
-                          check_severity=args.check_severity, check_cvss=args.check_cvss)
+        if args.protocol == "lab30-v2":
+            if args.scenario or args.klass:
+                raise ValueError("lab30-v2 正式评分必须使用完整真值，类别筛选仅用于结果展示")
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+            from audit.prompt_evaluation import DEFAULT_ANCHORS_PATH, evaluate_v2
+            anchors = json.loads(Path(args.anchors or DEFAULT_ANCHORS_PATH).read_text(encoding="utf-8"))
+            report = evaluate_v2(truth, load_findings(args), anchors)
+        else:
+            report = evaluate(truth, load_findings(args), scenario=args.scenario,
+                              klass=args.klass,
+                              check_severity=args.check_severity, check_cvss=args.check_cvss)
         report["truth_file"] = str(truth_path)
         if isinstance(truth, dict):
             report["truth_provenance"] = truth.get("provenance")

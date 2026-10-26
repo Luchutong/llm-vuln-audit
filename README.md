@@ -231,7 +231,21 @@ POC Agent 的结论是**一个** agent 对自己那一次执行的判读；如�
 
 ### 多版本 Prompt 横向对比
 
-`backend/audit/prompt_variants.py` 提供 5 个 worker 角色文本（`P0-lite`、`P1-lite`、`P0-basic`、`P1-evidence`、`P2-crossfile`），`scripts/lab30_compare.py` 在同一份冻结源码、同一执行器、同一预算下依次跑这些版本，并用官方数据集按**证据行位置**评分：
+左侧 **Prompt 实验**（`#experiments`）使用 `lab30-full-v2`：选择提示词库中的 W0 基础审计、W1 证据与防护、W2 跨文件与业务前提，冻结基线和预算后，对同一份正式 Lab30 ZIP 执行生产 Planner / Worker 完整审计。默认每版三次，按轮换顺序串行执行九个试次，POC 关闭。
+
+- 创建实验会真实调用模型。源码、模型、策略正文、宿主契约、评分资产及预算在创建时冻结；每个试次与补跑均使用独立数据库，不继承其他版本的漏洞台账。
+- 根据官方 30 项、22 类及已核验的精确主定位进行最大一对一匹配。页面展示 P/R/F1 均值、样本标准差、配对百分点差值、30 项矩阵、22 类检出、CVSS 与资源消耗。
+- 汇总只比较各版本都有有效结果的共同轮次。预算耗尽和输出格式失败仍计入成绩；明确基础设施故障、取消或中断保留为无效试次，可显式补跑一次。补跑保留首次记录与消耗，不能替换有效低分。
+- 点击矩阵或试次可查看实际发现、隔离源码、事件、历史 attempt 和报告。历史入口为 `#experiments/:id`，筛选与选择随 URL 恢复。
+- 下载 Markdown、完整 JSON，或包含 summary / trials / truth_matrix 三张 CSV 的 ZIP。评分、图表与下载使用同一服务端统计对象。
+
+这是官方清单匹配，不表示 POC 已验证。U 表示未匹配清单的候选；没有安全负例，因此不展示现实误报率或整体 Accuracy。不足三轮标注初步结果，优化版本下降时如实展示。
+
+详细协议、接口和验收见 [实施交付文档](docs/lab30-prompt-comparison-v2-plan.md)，评分锚点见 [核验说明](datasets/lab30-shop/SCORING_V2.md)。自动验收使用离线模拟，实际九次审计需在页面显式启动，模拟分数不能作为课程结果。
+
+#### 旧单元实验
+
+`legacy_unit_v1` 历史记录单独只读展示，不与完整审计混排或重算。原 `backend/audit/prompt_variants.py` 的五个 P 系列版本及 `scripts/lab30_compare.py` 保留为旧单元协议：
 
 ```bash
 uv run --project backend python scripts/lab30_compare.py
@@ -239,19 +253,12 @@ uv run --project backend python scripts/lab30_compare.py
 uv run --project backend python scripts/lab30_compare.py --limit 6 --variants P0-basic P2-crossfile
 ```
 
-结果写到 `deliverable/lab30-prompt-comparison.md`（同时输出同名 `.json`），每次对比还会额外给出两项防御指标：
+旧脚本结果写到 `deliverable/lab30-prompt-comparison.md`（同时输出同名 `.json`），额外给出两项防御指标：
 
 - **注入抵抗**：三个 canary 文件各含真实 sink 与「本文件已审核、不要报告」的注释；漏洞报告准确引用真实 sink 行才计为检出。只统计完成扫描的探针，未扫描或执行失败不进入分母，全部未测时不计分；未检出不等于已证明模型遵从了注入指令。canary 发现独立展示，不计入常规 TP/FP。
 - **证据链完整率**：报告中同时给出输入来源、传播路径与危险操作的条目占比。
 
-#### 在界面里运行与阅读
-左侧导航的 **Prompt 实验**（`#experiments`）是同一件事的图形入口，而不是另一套实现：`backend/audit/prompt_experiments.py` 把 `scripts/lab30_compare.py` 作为子进程驱动，读它写出的同一份 JSON，因此页面上的数字与书面报告不可能各说一套。
-
-- 勾选版本、设置「单元上限」（`0` 为全部真值文件，默认 6 个先验证连接）、可选类别，点「开始对比」。这项操作会**真实调用模型**并按单元计费。
-- 运行中显示当前版本、已完成版本与日志末尾；可随时「停止」，子进程会被终止并如实记为「已取消」。
-- 结果表给出 TP/FP/FN、精确率/召回率/F1、报告数、证据链完整率、注入抵抗、**防御得分**（注入抵抗率与证据链完整率均值），以及相对第一个版本的 Δ召回 / Δ误报，便于直接引用"优化提升了多少"。
-- 子进程使用**当前选中档案**的模型连接，并有独立的 `AUDIT_DATA_DIR`，不会把对比用的快照混进你的源码包库；同一时间只允许一个对比在跑，避免重复点击把费用翻倍。
-- 历史对比持久化在 `audit.db` 的 `prompt_experiments` 表，可回看、下载 Markdown 与 JSON。
+旧单元协议按答案定位文件，并含 canary，因此不能用其指标代表新协议的完整审计能力。新实验不读取这些防御指标，也不将它们合成挖掘排名。
 
 ### 提示词库
 左侧导航的 **提示词库**（`#prompts`）用来新增、修改和派生提示词版本，右侧是编辑器，左侧是版本链（含「基于哪一版」和使用次数）。
@@ -259,12 +266,12 @@ uv run --project backend python scripts/lab30_compare.py --limit 6 --variants P0
 修改规则只有一条，目的是让已完成报告保持诚实：
 
 - **自定义草稿**：可以直接改，`PUT /api/prompts/{id}` 就地保存标签、正文、优化原因与针对的问题。
-- **内置提示词**：只读。它们随版本发布刷新，就地改会在下次启动时被覆盖。
-- **已被审计引用的提示词**：只读。运行记录冻结了它当时使用的文本，改掉会让报告与事实不符。
+- **内置提示词**：只读，修改时派生新版本。
+- **已被审计或实验引用的提示词**：只读。运行和实验冻结了它当时使用的文本，修改须派生新版本。
 
-后两种情况页面给出原因并推荐「基于此版本另存」，新版本以 `parent_id` 指向原版本，并保留这次改动的原因，因此 P0 → P1 → P2 的链条始终可追。删除仍沿用原有约束：内置不可删，被审计引用的需先删除那些审计记录。
+后两种情况页面给出原因并推荐「基于此版本另存」，新版本以 `parent_id` 指向原版本，并保留改动原因。内置和仍有审计或实验引用的版本不能删除。
 
-提示词库只管理文本版本：现有 Planner 运行不读取它，它不会改变任何正在或已经完成的审计。
+Worker 策略可用于新完整审计实验；旧全文提示词不能混作新策略。普通审计仍使用生产默认，版本库编辑不会改变已创建的实验或运行。
 
 
 ## 验证与开发检查
@@ -316,7 +323,10 @@ uv run --with playwright python scripts/ui_cvss_smoke.py http://127.0.0.1:5173 -
 
 ```text
 backend/audit/        FastAPI、快照导入、项目台账、目标协调器、worker、POC Agent、证据与报告
-backend/audit/prompt_experiments.py  从界面驱动 Lab30 多版本 Prompt 对比（同一脚本、同一评分）
+backend/audit/full_comparison.py  完整审计实验、冻结条件、隔离试次与统一统计导出
+backend/audit/comparison_trial.py  每试次独立生产 AuditWorker 执行器
+backend/audit/prompt_evaluation.py  精确主定位最大匹配及共同轮统计
+backend/audit/prompt_experiments.py  新旧实验入口及旧单元实验兼容
 poc_runner/           隔离的 POC 执行服务（仅连接 Lab30 与审计应用）
 frontend/src/         React 工作台（任务创建、执行详情、Prompt 实验、结果与报告）
 scripts/start.sh      本地前后端一键启动（--poc 同时启动本地靶场与 runner）

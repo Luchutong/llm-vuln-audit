@@ -29,6 +29,8 @@ import json
 import re
 import unicodedata
 
+from .worker_strategies import canonical_vulnerability_type, root_causes_compatible
+
 FINDING_FINGERPRINT_SCHEMA = 1
 MERGE_THRESHOLD = 0.6
 ANCHOR_THRESHOLD = 0.5
@@ -64,11 +66,15 @@ def canonical_fingerprint(
     dangerous_operation: str,
     *,
     category: str = "vulnerability",
+    vulnerability_type: str | None = None,
 ) -> str:
     """The ledger identity of one vulnerability, independent of how it was worded."""
     path = unicodedata.normalize("NFC", str(file_path or ""))
     sink = normalise_sink(dangerous_operation)
     body = f"v{FINDING_FINGERPRINT_SCHEMA}|{category}|{path}|{str(symbol or '')}|{sink}"
+    cause = canonical_vulnerability_type(vulnerability_type)
+    if cause:
+        body += f"|root_cause:{cause}"
     return hashlib.sha256(body.encode("utf-8")).hexdigest()[:32]
 
 
@@ -83,6 +89,9 @@ def pick_merge_candidate(finding: dict, candidates: list[dict]) -> dict | None:
     wording is model prose and may be rephrased, or even translated, between runs; the
     line ranges point at a source that the project's content key has frozen.
     """
+    candidates = [item for item in candidates if root_causes_compatible(
+        finding.get("vulnerability_type"), item.get("vulnerability_type"),
+    )]
     if str(finding.get("symbol") or "") == PROJECT_SYMBOL:
         anchored = [
             item for item in candidates
@@ -153,11 +162,14 @@ def ledger_record(finding: dict) -> dict:
         "fingerprint": finding.get("fingerprint") or canonical_fingerprint(
             finding.get("file_path", ""), finding.get("symbol", ""),
             finding.get("dangerous_operation", ""),
+            vulnerability_type=finding.get("vulnerability_type"),
         ),
         "file_path": str(finding.get("file_path") or ""),
         "symbol": str(finding.get("symbol") or ""),
         "category": finding.get("category") or "task_goal",
         "finding_kind": finding.get("finding_kind", ""),
+        "vulnerability_type": canonical_vulnerability_type(finding.get("vulnerability_type")) or None,
+        "primary_location": finding.get("primary_location"),
         "title": finding.get("title") or "",
         "severity": finding.get("severity") or "unknown",
         **{key: finding.get(key) for key in ("cvss", "cvss_assessment", "legacy_severity")},
@@ -201,7 +213,8 @@ def backfill_project_ledger(store) -> int:
             if not record["file_path"]:
                 continue
             record["fingerprint"] = canonical_fingerprint(
-                record["file_path"], record["symbol"], record["dangerous_operation"]
+                record["file_path"], record["symbol"], record["dangerous_operation"],
+                vulnerability_type=record.get("vulnerability_type"),
             )
             merged = store.merge_project_finding(project_id, run["id"], record)
             store.link_finding_project(

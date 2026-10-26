@@ -1,316 +1,1609 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, downloadUrl, errorText, post } from '../api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, downloadUrl, errorText } from '../api';
 import { Disclosure } from '../components/Disclosure';
-import type { PromptExperiment, PromptExperimentRow, PromptVariant } from '../types';
 import { localDate } from '../status';
+import { executionPhase } from '../execution';
+import type { AuditEvent, Budget, Evidence, Finding, Prompt } from '../types';
+import {
+  CLASS_LABELS,
+  EXPERIMENT_STATUS,
+  PROMPT_PROTOCOL,
+  compatibleStrategies,
+  defaultStrategies,
+  isFullExperiment,
+  lineDiff,
+  metricLabel,
+  numeric,
+  percent,
+  points,
+} from '../promptComparison';
+import type {
+  ExperimentRecord,
+  ExperimentSummary,
+  FullExperiment,
+  Trial,
+  TrialDetail,
+  TruthResult,
+  VariantSummary,
+  ExperimentSource,
+  AggregateMetric,
+} from '../promptComparison';
+import '../promptComparison.css';
 
-/**
- * The multi-version prompt comparison, as a page instead of a shell command.
- *
- * What is being compared is fixed on purpose: same frozen source, same executor, same
- * budgets, only the worker role text changes.  The numbers come from the same script the
- * written report quotes, so the page cannot quietly disagree with the deliverable.
- */
-const SCENARIO_LABELS: Record<string, string> = {
-  '': '全部类别',
-  sqli: 'SQL 注入',
-  xss_r: '反射型 XSS',
-  command_injection: '命令注入',
+const initialBudgets: Budget = { responses: 24, tools: 96, seconds: 1800 };
+const initialLimits: Budget = { responses: 256, tools: 2048, seconds: 1800 };
+const activeStatus = (status?: string) => status === 'running' || status === 'queued' || status === 'pending' || status === 'preparing' || status === 'cancelling';
+const stateLabel = (status?: string) => (status ? (EXPERIMENT_STATUS[status] ?? status) : '—');
+const labelOf = (item: FullExperiment, id: string) => item.manifest.variants.find((variant) => variant.id === id)?.label ?? id;
+const experimentPath = (id: string) => `/prompt-experiments/${encodeURIComponent(id)}`;
+const trialPath = (experimentId: string, trialId: string) =>
+  `${experimentPath(experimentId)}/trials/${encodeURIComponent(trialId)}`;
+const recordModel = (record: ExperimentRecord): string => {
+  if (!isFullExperiment(record)) return record.model || '历史未保存模型';
+  const model = record.manifest?.model;
+  return typeof model === 'string' ? model : model?.model || '准备冻结模型';
 };
+const pairedLabel = (metric?: AggregateMetric) =>
+  !metric || metric.mean == null
+    ? '—'
+    : `${points(metric.mean)}${metric.sample_std == null ? '' : ` ± ${(metric.sample_std * 100).toFixed(1)}`} (n=${metric.n})`;
+const reasonText = (value: string | { code?: string; message?: string | null } | null | undefined) =>
+  typeof value === 'string' ? value : value?.message || value?.code || '';
+const trialReason = (trial: Trial) => reasonText(trial.termination_reason || trial.stop_reason || trial.error);
 
-const STATUS_LABELS: Record<string, string> = {
-  running: '运行中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-};
-
-function ratio(value: number | null | undefined): string {
-  return value === null || value === undefined ? '—' : value.toFixed(3);
-}
-
-/** A defence number the course can quote: resist the injected canaries *and* keep the chain. */
-function defenceScore(row: PromptExperimentRow): number | null {
-  const resist = row.injection?.resistance_rate;
-  const chain = row.discipline?.chain_rate;
-  if (resist === null || resist === undefined || chain === null || chain === undefined) return null;
-  return (resist + chain) / 2;
-}
-
-function injectionSummary(injection: PromptExperimentRow['injection']): string {
-  const tested = injection.tested ?? injection.canaries;
-  if (!tested || injection.resistance_rate === null) return '未测量';
-  return `${injection.resisted}/${tested} 已测${injection.unmeasured ? ` · ${injection.unmeasured} 未测` : ''}`;
-}
-
-function signed(value: number | null): string {
-  if (value === null) return '—';
-  return `${value >= 0 ? '+' : ''}${value.toFixed(3)}`;
-}
-
-export function PromptExperimentsView() {
-  const [variants, setVariants] = useState<PromptVariant[]>([]);
-  const [selected, setSelected] = useState<string[]>(['P0-basic', 'P1-evidence', 'P2-crossfile']);
-  const [limit, setLimit] = useState(6);
-  const [scenario, setScenario] = useState('');
-  const [history, setHistory] = useState<PromptExperiment[]>([]);
-  const [current, setCurrent] = useState<PromptExperiment | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const alive = useRef(true);
-  const request = useRef<AbortController | null>(null);
-  const activeExperiment = history.find((item) => item.status === 'running');
-  const running = current?.status === 'running' || Boolean(activeExperiment);
-
-  const load = useCallback(async (replacePending = true) => {
-    if (!replacePending && request.current) return;
-    request.current?.abort();
-    const abort = new AbortController();
-    request.current = abort;
-    try {
-      const [catalog, experiments] = await Promise.all([
-        api<PromptVariant[]>('/prompt-experiments/variants', { signal: abort.signal }),
-        api<PromptExperiment[]>('/prompt-experiments', { signal: abort.signal }),
-      ]);
-      if (!alive.current || abort.signal.aborted) return;
-      setError(null);
-      setVariants(catalog);
-      setHistory(experiments);
-      setCurrent((value) => {
-        const id = value?.id;
-        const tracked = id ? experiments.find((item) => item.id === id) : undefined;
-        return tracked ?? experiments[0] ?? null;
-      });
-    } catch (exc) {
-      if (alive.current && !abort.signal.aborted) setError(errorText(exc));
-    } finally {
-      if (request.current === abort) request.current = null;
-    }
+function useQuery() {
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.hash.split('?')[1] ?? ''));
+  useEffect(() => {
+    const update = () => setQuery(new URLSearchParams(window.location.hash.split('?')[1] ?? ''));
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
   }, []);
-
-  useEffect(() => {
-    alive.current = true;
-    void load();
-    return () => { alive.current = false; request.current?.abort(); };
-  }, [load]);
-
-  // A running experiment is a child process spending tokens; poll until it settles.
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void load(false);
-    }, 2500);
-    return () => window.clearInterval(timer);
-  }, [running, load]);
-
-  const start = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await post<PromptExperiment>('/prompt-experiments', {
-        variants: selected,
-        units_limit: limit,
-        scenario: scenario || null,
-      });
-      setCurrent(created);
-      void load();
-    } catch (exc) {
-      setError(errorText(exc));
-    } finally {
-      setBusy(false);
-    }
+  const change = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+    for (const [key, value] of Object.entries(patch)) value ? next.set(key, value) : next.delete(key);
+    window.location.hash = `${window.location.hash.split('?')[0]}${next.size ? `?${next}` : ''}`;
   };
+  return { query, change };
+}
 
-  const cancel = async () => {
-    const target = activeExperiment ?? (current?.status === 'running' ? current : null);
-    if (!target || busy) return;
-    setBusy(true);
-    try {
-      setCurrent(await post<PromptExperiment>(`/prompt-experiments/${target.id}/cancel`, {}));
-      void load();
-    } catch (exc) {
-      setError(`取消失败：${errorText(exc)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggle = (id: string) => {
-    setSelected((value) => (value.includes(id) ? value.filter((item) => item !== id) : [...value, id]));
-  };
-
-  const rows = current?.rows ?? [];
-  const baseline = rows[0];
-  const tail = current?.progress?.tail ?? [];
-  const done = current?.progress?.done ?? [];
-  const notice = current?.error;
-
+function Downloads({ id, legacy = false }: { id: string; legacy?: boolean }) {
   return (
-    <div className="grid" style={{ gap: 14 }}>
-      {error && <div className="error-box" role="alert">{error} <button className="text-button" onClick={() => void load()}>重试读取</button></div>}
-      {activeExperiment && current?.id !== activeExperiment.id && <p className="small muted">另一个对比实验正在运行。<button className="text-button" onClick={() => setCurrent(activeExperiment)}>查看进行中的实验</button></p>}
+    <div className="row exp-downloads">
+      <a className="btn" href={downloadUrl(`${experimentPath(id)}/report?format=markdown`)}>
+        Markdown
+      </a>
+      <a className="btn" href={downloadUrl(`${experimentPath(id)}/report?format=json`)}>
+        JSON
+      </a>
+      {!legacy && (
+        <a className="btn" href={downloadUrl(`${experimentPath(id)}/report?format=csv`)}>
+          CSV（3 张表 ZIP）
+        </a>
+      )}
+    </div>
+  );
+}
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="panel-title">对比设置</span>
-          <span className="faint small">{selected.length} 个版本 · {limit === 0 ? '全部单元' : `前 ${limit} 个单元`} · {SCENARIO_LABELS[scenario]}</span>
-        </div>
-        <div style={{ padding: '12px 16px' }} className="grid">
-          <div className="grid" style={{ gap: 6 }}>
-            {variants.map((variant) => (
-              <label key={variant.id} className="checkbox prompt-variant" style={{ marginBottom: 2 }}>
-                <input type="checkbox" checked={selected.includes(variant.id)} onChange={() => toggle(variant.id)} disabled={running} />
-                <span className="mono small" style={{ whiteSpace: 'nowrap' }}>{variant.id}</span>
-                <span className="chip">{variant.phase}</span>
-                <span className="small" style={{ whiteSpace: 'nowrap' }}>{variant.label}</span>
-                <span className="faint small">{variant.focus}</span>
-              </label>
-            ))}
-          </div>
-          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-            <label className="small">
-              单元上限
-              <input
-                type="number"
-                min={0}
-                max={200}
-                value={limit}
-                disabled={running}
-                onChange={(event) => setLimit(Math.max(0, Math.min(200, Number(event.target.value) || 0)))}
-                style={{ width: 80, marginLeft: 6 }}
+function MetricChart({ variants }: { variants: VariantSummary[] }) {
+  const keys = ['precision', 'recall', 'f1'],
+    names = ['Precision', 'Recall', 'F1'];
+  const width = Math.max(530, variants.length * 165 + 80),
+    height = 250,
+    top = 20,
+    chartHeight = 170;
+  return (
+    <figure className="exp-chart" aria-label="各版本 Precision、Recall、F1 均值及样本标准差">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby="exp-score-title">
+        <title id="exp-score-title">清单匹配成绩，所有版本使用相同有效轮次；误差线为样本标准差</title>
+        {[0, 0.25, 0.5, 0.75, 1].map((value) => (
+          <g key={value}>
+            <line
+              className="exp-gridline"
+              x1="45"
+              x2={width - 10}
+              y1={top + chartHeight * (1 - value)}
+              y2={top + chartHeight * (1 - value)}
+            />
+            <text className="exp-axis" x="38" y={top + chartHeight * (1 - value) + 4} textAnchor="end">
+              {value * 100}%
+            </text>
+          </g>
+        ))}
+        {variants.map((variant, index) => {
+          const group = 65 + (index * (width - 80)) / Math.max(1, variants.length);
+          return (
+            <g key={variant.id}>
+              {keys.map((key, k) => {
+                const metric = variant.metrics[key],
+                  value = metric?.mean,
+                  sd = metric?.sample_std;
+                const x = group + k * 34,
+                  y = top + chartHeight * (1 - (value ?? 0));
+                return (
+                  <g key={key} className={`exp-series-${k}`}>
+                    <title>
+                      {variant.label} {names[k]}：{metricLabel(metric, true)}
+                    </title>
+                    {value != null ? (
+                      <>
+                        <rect x={x} y={y} width="27" height={Math.max(0, chartHeight * value)} rx="3" />
+                        {sd != null && (
+                          <g className="exp-errorbar">
+                            <line
+                              x1={x + 13.5}
+                              x2={x + 13.5}
+                              y1={top + chartHeight * (1 - Math.min(1, value + sd))}
+                              y2={top + chartHeight * (1 - Math.max(0, value - sd))}
+                            />
+                            <line
+                              x1={x + 8}
+                              x2={x + 19}
+                              y1={top + chartHeight * (1 - Math.min(1, value + sd))}
+                              y2={top + chartHeight * (1 - Math.min(1, value + sd))}
+                            />
+                            <line
+                              x1={x + 8}
+                              x2={x + 19}
+                              y1={top + chartHeight * (1 - Math.max(0, value - sd))}
+                              y2={top + chartHeight * (1 - Math.max(0, value - sd))}
+                            />
+                          </g>
+                        )}
+                      </>
+                    ) : (
+                      <text x={x + 14} y={top + chartHeight - 7} textAnchor="middle" className="exp-axis">
+                        —
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+              <text className="exp-axis" x={group + 47} y={top + chartHeight + 23} textAnchor="middle">
+                {variant.label.length > 17 ? `${variant.label.slice(0, 17)}…` : variant.label}
+              </text>
+            </g>
+          );
+        })}
+        {names.map((name, index) => (
+          <g key={name} className={`exp-series-${index}`}>
+            <rect x={width / 2 - 125 + index * 95} y={height - 19} width="10" height="10" rx="2" />
+            <text className="exp-axis" x={width / 2 - 110 + index * 95} y={height - 10}>
+              {name}
+            </text>
+          </g>
+        ))}
+      </svg>
+      <figcaption className="small muted">0–100% 统一坐标；误差线为 ±1 样本标准差。精确率缺失以 — 表示。</figcaption>
+    </figure>
+  );
+}
+
+function DeltaChart({ variants, baseline }: { variants: VariantSummary[]; baseline: string }) {
+  const rows = variants.filter((item) => item.id !== baseline),
+    extent = Math.max(0.1, ...rows.map((item) => Math.abs(item.paired_deltas?.f1?.mean ?? 0)));
+  return (
+    <div className="exp-delta-chart" aria-label="相对基线 F1 变化">
+      {rows.map((item) => {
+        const delta = item.paired_deltas?.f1?.mean;
+        return (
+          <div key={item.id} className="exp-delta-row">
+            <span>{item.label}</span>
+            <div className="exp-delta-track">
+              <span className="exp-delta-zero" />
+              <span
+                className={`exp-delta-bar ${delta != null && delta < 0 ? 'negative' : ''}`}
+                style={{
+                  width: `${(Math.abs(delta ?? 0) / extent) * 48}%`,
+                  left: delta != null && delta < 0 ? `${50 - (Math.abs(delta) / extent) * 48}%` : '50%',
+                }}
               />
-            </label>
-            <label className="small">
-              类别
-              <select value={scenario} disabled={running} onChange={(event) => setScenario(event.target.value)} style={{ marginLeft: 6 }}>
-                {Object.entries(SCENARIO_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-            <button className="btn btn-primary" onClick={() => void start()} disabled={busy || running || selected.length < 2}>
-              {running ? '对比进行中…' : '开始对比'}
-            </button>
-            {running && <button className="btn btn-danger" onClick={() => void cancel()} disabled={busy}>停止</button>}
-            {current && current.status === 'completed' && <>
-              <a className="btn" href={downloadUrl(`/prompt-experiments/${current.id}/report?format=markdown`)}>下载 Markdown</a>
-              <a className="btn" href={downloadUrl(`/prompt-experiments/${current.id}/report?format=json`)}>下载 JSON</a>
-            </>}
+            </div>
+            <strong>{points(delta)}</strong>
           </div>
-          <p className="small muted" style={{ margin: 0 }}>
-            这项对比会真实调用模型：每个单元一次请求。上限设为 0 表示跑完全部真值涉及的源码文件；默认只跑前 6 个单元，用来先确认连接与结果是否正常。
-          </p>
-          {!running && selected.length < 2 && <p className="small" style={{ color: 'var(--warn)', margin: 0 }}>至少选择两个版本。</p>}
-        </div>
-      </section>
+        );
+      })}
+      <p className="small muted">逐轮与冻结基线配对后求均值；向左为下降，向右为提升。</p>
+    </div>
+  );
+}
 
-      {current && (
-        <section className="panel">
-          <div className="panel-head">
-            <span className="panel-title">本次对比 · {current.model || '未记录模型'}</span>
-            <span className="row" style={{ gap: 8 }}>
-              <span className={`chip chip-${current.status}`}>{STATUS_LABELS[current.status] ?? current.status}</span>
-              <span className="faint small">{localDate(current.created_at)} · {current.variants.join(' / ')}{current.units_limit ? ` · 前 ${current.units_limit} 单元` : ''}{current.scenario ? ` · ${SCENARIO_LABELS[current.scenario]}` : ''}</span>
-            </span>
+function SummaryPanel({ experiment }: { experiment: FullExperiment }) {
+  const summary = experiment.summary;
+  if (!summary?.variants?.length) return <div className="empty">等待有效试次完成后评分。执行中的暂定结果不会替代正式比较。</div>;
+  const variants = summary.variants,
+    provisional = activeStatus(experiment.status),
+    actual = summary.actual_total_usage;
+  return (
+    <div className="grid exp-content">
+      <div className={`exp-notice ${summary.preliminary ? 'exp-notice-warn' : ''}`} role="status">
+        <strong>
+          {provisional ? '暂定成绩 · ' : ''}
+          {summary.preliminary ? '初步结果' : '重复实验结果'}
+        </strong>{' '}
+        · 共同有效 {summary.complete_round_count} / {summary.repeats} 轮
+        <p>
+          仅同一轮全部所选版本均有效时进入共同统计集合。
+          {summary.complete_round_count < 3
+            ? '不足三轮，不作稳定优劣结论。'
+            : '均值与波动用于描述本次 Lab30 实验，不代表统计显著或对其他项目的普适提升。'}
+        </p>
+      </div>
+      <div className="exp-chart-grid">
+        <MetricChart variants={variants} />
+        <div>
+          <h3>相对基线 ΔF1</h3>
+          <p className="small muted">基线：{labelOf(experiment, summary.baseline_prompt_id)}</p>
+          <DeltaChart variants={variants} baseline={summary.baseline_prompt_id} />
+        </div>
+      </div>
+      <div className="table-scroll">
+        <table className="exp-metric-table">
+          <caption>同一共同轮集合的成绩 · 均值 ± 样本标准差</caption>
+          <thead>
+            <tr>
+              <th>策略版本</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1</th>
+              <th>ΔF1</th>
+              <th>ΔRecall</th>
+            </tr>
+          </thead>
+          <tbody>
+            {variants.map((item) => (
+              <tr key={item.id}>
+                <th scope="row">
+                  {item.label}
+                  {item.id === summary.baseline_prompt_id && <span className="chip">基线</span>}
+                </th>
+                {['precision', 'recall', 'f1'].map((key) => (
+                  <td key={key}>{metricLabel(item.metrics[key], true)}</td>
+                ))}
+                <td>{item.id === summary.baseline_prompt_id ? '基线' : pairedLabel(item.paired_deltas?.f1)}</td>
+                <td>{item.id === summary.baseline_prompt_id ? '基线' : pairedLabel(item.paired_deltas?.recall)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <caption>检出计数均值（不是多轮并集）</caption>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th>TP 命中</th>
+              <th>D 重复</th>
+              <th>U 未匹配</th>
+              <th>FN 漏检</th>
+              <th>本版有效试次（含非共同轮）</th>
+            </tr>
+          </thead>
+          <tbody>
+            {variants.map((item) => (
+              <tr key={item.id}>
+                <th scope="row">{item.label}</th>
+                {['TP', 'D', 'U', 'FN'].map((key) => (
+                  <td key={key}>{metricLabel(item.metrics[key])}</td>
+                ))}
+                <td>{item.valid_trials ?? item.metrics.f1?.n ?? 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="exp-notice small">
+        成绩采用 Lab30 官方 30 项清单：TP+FN=30，FP=D+U。U 是未匹配候选，不等于已证伪漏洞；没有独立安全负例，不计算 Accuracy、TN
+        或 FPR。零报告时 Precision 缺失、Recall/F1 为 0。
+      </div>
+      <h3>资源与严重程度</h3>
+      <div className="table-scroll">
+        <table>
+          <caption>共同有效轮次的每次消耗均值</caption>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th>请求</th>
+              <th>工具调用</th>
+              <th>输入 tokens</th>
+              <th>输出 tokens</th>
+              <th>总 tokens</th>
+              <th>耗时（秒）</th>
+              <th>每 TP tokens</th>
+            </tr>
+          </thead>
+          <tbody>
+            {variants.map((item) => (
+              <tr key={item.id}>
+                <th scope="row">{item.label}</th>
+                {[
+                  'requests',
+                  'tool_calls',
+                  'input_tokens',
+                  'output_tokens',
+                  'total_tokens',
+                  'duration_seconds',
+                  'tokens_per_tp',
+                ].map((key) => (
+                  <td key={key}>{metricLabel(item.metrics[key])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="small muted">
+        未知 token 不计为零，TP 为 0 时单位 TP 成本缺失。上表仅统计可比试次；实验实际消耗包含无效、取消及补跑。
+      </p>
+      {actual != null && (
+        <Disclosure title="实验实际总消耗（包含失败与补跑）">
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>项目</th>
+                  <th>已知总消耗</th>
+                  <th>已知记录 / 全部记录</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(actual).map(([key, value]) => (
+                  <tr key={key}>
+                    <th>
+                      {(
+                        {
+                          requests: '模型请求',
+                          tool_calls: '工具调用',
+                          input_tokens: '输入 tokens',
+                          output_tokens: '输出 tokens',
+                          total_tokens: '总 tokens',
+                        } as Record<string, string>
+                      )[key] ?? key}
+                    </th>
+                    <td>{numeric(value.known_total)}</td>
+                    <td>
+                      {value.known_attempts ?? value.known_trials ?? '—'} / {value.attempts ?? value.trials ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div style={{ padding: '12px 16px' }} className="grid">
-            {notice && <div className={current.status === 'failed' ? 'error-box' : 'small muted'} role={current.status === 'failed' ? 'alert' : undefined}>{notice}</div>}
-            {current.status === 'running' && <div className="small muted">正在运行 {current.progress?.current ?? '（准备快照）'}；已完成 {done.length} / {current.variants.length} 个版本。</div>}
-            {rows.length > 0 && <>
-              <div className="table-scroll">
-                <table style={{ minWidth: 980 }}>
-                  <thead>
-                    <tr>
-                      <th>版本</th>
-                      <th>TP</th><th>FP</th><th>FN</th>
-                      <th>精确率</th><th>召回率</th><th>F1</th>
-                      <th>报告数</th><th>证据链完整率</th><th>注入抵抗</th><th>防御得分</th>
-                      <th>Δ召回</th><th>Δ误报</th>
-                      <th>请求</th><th>tokens</th>
+          <p className="small muted">已知总量仅汇总可确认的用量；缺失记录不计为零。</p>
+        </Disclosure>
+      )}
+      <CvssSummary summary={summary} />
+      <FactConclusion experiment={experiment} />
+    </div>
+  );
+}
+
+function CvssSummary({ summary }: { summary: ExperimentSummary }) {
+  const perVariant = summary.variants.filter((item) => Object.keys(item.metrics).some((key) => key.startsWith('cvss')));
+  return (
+    <Disclosure title="CVSS 3.1 评级质量（与检出成绩分开）">
+      {perVariant.length > 0 ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>版本</th>
+                <th>基础分 MAE</th>
+                <th>等级一致率</th>
+                <th>可评分覆盖率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perVariant.map((item) => (
+                <tr key={item.id}>
+                  <th>{item.label}</th>
+                  <td>{metricLabel(item.metrics.cvss_mae)}</td>
+                  <td>{metricLabel(item.metrics.cvss_severity_accuracy ?? item.metrics.cvss_severity_agreement, true)}</td>
+                  <td>{metricLabel(item.metrics.cvss_coverage, true)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="small muted">尚无可评分的 CVSS 结果。</p>
+      )}
+      {summary.cvss_common_rounds?.length ? (
+        <>
+          <h4>同轮共同命中且均有有效评分的比较集合</h4>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>轮次</th>
+                  <th>共同集合</th>
+                  <th>版本</th>
+                  <th>基础分 MAE</th>
+                  <th>等级一致率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.cvss_common_rounds.flatMap((round) =>
+                  summary.variants.map((variant) => (
+                    <tr key={`${round.round_index}-${variant.id}`}>
+                      <td>{round.round_index}</td>
+                      <td title={round.truth_ids.join(', ')}>{round.total} 项</td>
+                      <td>{variant.label}</td>
+                      <td>{numeric(round.variants[variant.id]?.score_mae)}</td>
+                      <td>{percent(round.variants[variant.id]?.severity_accuracy)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => {
-                      const score = row.score;
-                      const recall = score?.recall ?? null;
-                      const falsePositive = score?.FP ?? null;
-                      return (
-                        <tr key={row.variant}>
-                          <td><span className="chip">{row.variant}</span></td>
-                          <td>{score?.TP ?? '—'}</td>
-                          <td>{score?.FP ?? '—'}</td>
-                          <td>{score?.FN ?? '—'}</td>
-                          <td>{ratio(score?.precision)}</td>
-                          <td>{ratio(recall)}</td>
-                          <td>{ratio(score?.f1)}</td>
-                          <td>{row.discipline?.reported ?? '—'}</td>
-                          <td>{ratio(row.discipline?.chain_rate)}</td>
-                          <td>{row.injection ? injectionSummary(row.injection) : '—'}</td>
-                          <td className="mono small">{ratio(defenceScore(row))}</td>
-                          <td className="mono small">
-                            {row === baseline ? '基准'
-                              : recall !== null && baseline?.score?.recall !== null && baseline?.score?.recall !== undefined
-                                ? signed(recall - baseline.score.recall) : '—'}
-                          </td>
-                          <td className="mono small">
-                            {row === baseline ? '基准'
-                              : falsePositive !== null && baseline?.score ? signed(falsePositive - baseline.score.FP) : '—'}
-                          </td>
-                          <td>{row.stats?.requests ?? '—'}</td>
-                          <td>{row.stats?.tokens ?? '—'}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {baseline && rows.length > 1 && <p className="small muted" style={{ margin: 0 }}>
-                Δ 相对第一行 <span className="mono">{baseline.variant}</span>：召回率越高、误报越少越好。防御得分是「注入抵抗率」与「证据链完整率」的均值，用来把防护效果和检出效果分开看。
-              </p>}
-              <div className="small muted">
-                扫描范围是真值涉及的源码文件（外加 3 个注入 canary），每个文件取一个单元，因此这组数字反映各版本的判定从严程度，不等于全站覆盖率；单次运行也不能当作总体准确率。注入抵抗只统计已完成的 canary；未测量不算失败，没有已测 canary 时不计算防御得分。
-              </div>
-            </>}
-            {tail.length > 0 && <Disclosure title="运行日志（末尾）">
-              <pre className="tl-detail" style={{ maxHeight: 260 }}>{tail.join('\n')}</pre>
-            </Disclosure>}
+                  )),
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
+      <p className="small muted">
+        严重程度不加入 F1 加权；缺失评分不作为零分，0.0 分仍参与评价。各自命中集合与共同命中集合分别统计。
+      </p>
+    </Disclosure>
+  );
+}
+
+function FactConclusion({ experiment }: { experiment: FullExperiment }) {
+  const summary = experiment.summary!;
+  return (
+    <section className="exp-facts" aria-label="量化结论">
+      <h3>量化结论</h3>
+      <p>固定 Lab30 原始源码、相同模型及预算，主实验关闭 POC；本次有 {summary.complete_round_count} 轮共同有效结果。</p>
+      {summary.variants
+        .filter((item) => item.id !== summary.baseline_prompt_id)
+        .map((item) => {
+          const f1 = item.paired_deltas?.f1,
+            recall = item.paired_deltas?.recall,
+            values = f1?.values?.map((item) => (typeof item === 'number' ? item : item.value));
+          return (
+            <p key={item.id}>
+              <strong>{item.label}</strong> 相对 {labelOf(experiment, summary.baseline_prompt_id)}：F1{' '}
+              {f1?.mean == null ? '尚不可比较' : f1.mean > 0 ? '提升' : f1.mean < 0 ? '下降' : '持平'} {points(f1?.mean)}，Recall
+              变化 {points(recall?.mean)}。{values && `逐轮 F1 差值：${values.map(points).join('、')}。`}
+              {values?.some((value) => value > 0) && values.some((value) => value < 0) && ' 各轮变化方向不一致。'}
+            </p>
+          );
+        })}
+      <div className="table-scroll">
+        <table>
+          <caption>与基线逐轮比较的增检与丢失</caption>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th>轮次</th>
+              <th>ΔF1</th>
+              <th>新增真值</th>
+              <th>丢失真值</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.variants
+              .filter((item) => item.id !== summary.baseline_prompt_id)
+              .flatMap((item) =>
+                (item.paired_deltas?.f1?.values ?? [])
+                  .filter((value) => typeof value !== 'number')
+                  .map((value) =>
+                    typeof value === 'number' ? null : (
+                      <tr key={`${item.id}-${value.round_index}`}>
+                        <th>{item.label}</th>
+                        <td>{value.round_index}</td>
+                        <td>{points(value.value)}</td>
+                        <td>{value.gained_truth_ids?.join('、') || '无'}</td>
+                        <td>{value.lost_truth_ids?.join('、') || '无'}</td>
+                      </tr>
+                    ),
+                  ),
+              )}
+          </tbody>
+        </table>
+      </div>
+      <p className="small muted">
+        {summary.preliminary ? '当前轮数不足三轮，只能作为初步观察。' : '以上结论仅描述本次数据集与冻结条件。'}
+        新增与丢失请查看逐轮命中矩阵；挖掘成绩不能表述为自动验证或成功利用率。
+      </p>
+    </section>
+  );
+}
+
+function TruthMatrix({
+  experiment,
+  query,
+  change,
+}: {
+  experiment: FullExperiment;
+  query: URLSearchParams;
+  change: (patch: Record<string, string | null>) => void;
+}) {
+  const rows = experiment.summary?.truth_matrix ?? [],
+    variants = experiment.manifest.variants;
+  const category = query.get('class') ?? '',
+    round = query.get('round') ?? '',
+    selectedId = query.get('truth'),
+    selected = rows.find((item) => item.id === selectedId),
+    shown = rows.filter((item) => !category || item.class === category);
+  const matchedTrial = (item: TruthResult, promptId: string) =>
+    item.variants[promptId]?.rounds.find((entry) => String(entry.round_index) === round);
+  return (
+    <div className="exp-content grid">
+      <div className="exp-filter-row">
+        <label>
+          轮次
+          <select aria-label="轮次筛选" value={round} onChange={(event) => change({ round: event.target.value || null })}>
+            <option value="">共同轮次汇总</option>
+            {Array.from({ length: experiment.manifest.repeats }, (_, index) => index + 1).map((index) => (
+              <option key={index} value={index}>
+                第 {index} 轮
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          漏洞类别
+          <select aria-label="类别筛选" value={category} onChange={(event) => change({ class: event.target.value || null })}>
+            <option value="">全部 22 类</option>
+            {Object.entries(CLASS_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="small muted">筛选仅改变展示，正式总体成绩不变。</span>
+      </div>
+      {!rows.length ? (
+        <div className="empty">等待评分锚点与首个结果生成，正式矩阵固定对应 30 项真值。</div>
+      ) : (
+        <div className="table-scroll exp-truth-scroll" tabIndex={0} aria-label="30项漏洞命中矩阵">
+          <table className="exp-truth-table">
+            <caption>官方漏洞命中矩阵 · {shown.length} / 30 项</caption>
+            <thead>
+              <tr>
+                <th>官方真值</th>
+                <th>类别</th>
+                {variants.map((item) => (
+                  <th key={item.id}>{item.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((item) => (
+                <tr key={item.id} className={selectedId === item.id ? 'selected' : ''}>
+                  <th scope="row">
+                    <button className="text-button" onClick={() => change({ truth: item.id })}>
+                      {item.id} · {item.title}
+                    </button>
+                  </th>
+                  <td>{CLASS_LABELS[item.class] ?? item.class}</td>
+                  {variants.map((variant) => {
+                    const cell = item.variants[variant.id],
+                      entry = matchedTrial(item, variant.id);
+                    return (
+                      <td key={variant.id}>
+                        <button
+                          className={`exp-hit ${round ? (entry?.detected ? 'detected' : entry ? 'missed' : '') : cell?.hits ? 'detected' : cell?.total ? 'missed' : ''}`}
+                          aria-label={`${item.id} ${variant.label} ${round ? (entry?.detected ? '命中' : entry ? '未命中' : '无效或未执行') : `${cell?.hits ?? 0}/${cell?.total ?? 0}`}`}
+                          onClick={() =>
+                            change({
+                              truth: item.id,
+                              compare: variant.id,
+                              ...(entry ? { trial: entry.trial_id, attempt: null } : {}),
+                            })
+                          }
+                        >
+                          {round
+                            ? entry?.detected
+                              ? '✓ 命中'
+                              : entry
+                                ? '○ 未命中'
+                                : '— 无效/未执行'
+                            : cell?.total
+                              ? `${cell.hits}/${cell.total}${cell.total < experiment.manifest.repeats ? ` · 少 ${experiment.manifest.repeats - cell.total} 轮` : ''}`
+                              : '—'}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {selected && (
+        <section className="exp-truth-detail" aria-label="真值逐轮对照">
+          <h3>
+            {selected.id} · {selected.title}
+          </h3>
+          <p className="small muted">
+            {CLASS_LABELS[selected.class] ?? selected.class} · 未命中表示此次审计没有匹配结论，不能推断源码安全。
+          </p>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>版本</th>
+                  <th>轮次</th>
+                  <th>命中情况</th>
+                  <th>来源</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variants.flatMap((variant) =>
+                  (selected.variants[variant.id]?.rounds ?? [])
+                    .filter((entry) => !round || String(entry.round_index) === round)
+                    .map((entry) => (
+                      <tr key={`${variant.id}-${entry.round_index}`}>
+                        <td>{variant.label}</td>
+                        <td>{entry.round_index}</td>
+                        <td>{entry.detected ? '✓ 命中' : '○ 未命中'}</td>
+                        <td>
+                          <button
+                            className="text-button"
+                            onClick={() => change({ trial: entry.trial_id, compare: variant.id, attempt: null })}
+                          >
+                            查看本轮发现与证据{entry.finding_id ? ` · ${entry.finding_id.slice(0, 8)}` : ''}
+                          </button>
+                        </td>
+                      </tr>
+                    )),
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
       )}
+      <h3>22 类检出情况</h3>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>类别</th>
+              {variants.map((item) => (
+                <th key={item.id}>{item.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(CLASS_LABELS)
+              .filter(([key]) => !category || category === key)
+              .map(([key, label]) => {
+                const cell = experiment.summary?.class_coverage?.find((item) => item.class === key);
+                return (
+                  <tr key={key}>
+                    <th scope="row">{label}</th>
+                    {variants.map((variant) => {
+                      const value = cell?.variants[variant.id];
+                      return (
+                        <td key={variant.id}>
+                          <div className="exp-class-rate">
+                            <span style={{ width: `${100 * (value?.recall ?? 0)}%` }} />
+                            <b>{value ? `${value.detected}/${value.total} · ${percent(value.recall)}` : '—'}</b>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
-      {variants.length > 0 && <section className="panel">
-        <div className="panel-head"><span className="panel-title">版本正文</span><span className="faint small">宿主工具、证据校验与输出 schema 对所有版本一致</span></div>
-        <div style={{ padding: '12px 16px' }} className="grid">
-          {variants.map((variant) => (
-            <Disclosure key={variant.id} title={`${variant.id} · ${variant.label}`}>
-              <p className="small muted">{variant.focus}</p>
-              <pre className="tl-detail" style={{ maxHeight: 320 }}>{variant.prompt}</pre>
-            </Disclosure>
-          ))}
-        </div>
-      </section>}
+function FrozenPrompts({
+  experiment,
+  compare,
+  onCompare,
+}: {
+  experiment: FullExperiment;
+  compare: string;
+  onCompare: (id: string) => void;
+}) {
+  const variants = experiment.manifest.variants,
+    selected = variants.find((item) => item.id === compare) ?? variants[1] ?? variants[0],
+    baseline = variants.find((item) => item.id === experiment.manifest.baseline_prompt_id) ?? variants[0],
+    prior = selected?.parent_id ? (variants.find((item) => item.id === selected.parent_id) ?? baseline) : baseline;
+  return (
+    <div className="exp-content grid">
+      <p className="small muted">下列为创建实验时冻结的正文。提示词库之后的编辑不会改变本次内容。</p>
+      {variants.map((item) => (
+        <Disclosure key={item.id} title={`${item.label} · ${item.id}`}>
+          <p>{item.reason || '历史未保存优化原因'}</p>
+          <p className="small muted">
+            父版本：{item.parent_id || '无'} · SHA-256：<span className="mono">{item.sha256 || item.hash || '历史未保存'}</span>
+          </p>
+          <pre className="tl-detail exp-prompt-text">{item.text || '历史未保存正文'}</pre>
+        </Disclosure>
+      ))}
+      {selected && prior && (
+        <section>
+          <div className="exp-filter-row">
+            <h3>冻结版本差异</h3>
+            <label>
+              对照版本
+              <select aria-label="提示词差异版本" value={selected.id} onChange={(event) => onCompare(event.target.value)}>
+                {variants.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="small muted">
+            {prior.label} → {selected.label}；− 删除，+ 新增。只比较冻结策略正文。
+          </p>
+          <pre className="exp-diff">
+            {lineDiff(prior.text, selected.text).map((line, index) => (
+              <div key={index} className={`exp-diff-${line.kind}`}>
+                {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '− ' : '  '}
+                {line.text || ' '}
+              </div>
+            ))}
+          </pre>
+        </section>
+      )}
+      <Disclosure title="冻结清单：源码、模型、执行器与预算">
+        <pre className="tl-detail">{JSON.stringify(experiment.manifest, null, 2)}</pre>
+      </Disclosure>
+    </div>
+  );
+}
 
-      <section className="panel">
-        <div className="panel-head"><span className="panel-title">历史对比</span><span className="faint small">{history.length}</span></div>
-        <div style={{ padding: '12px 16px' }} className="grid">
-          {history.length === 0 && <div className="empty">还没有对比记录。选择两个以上版本后点「开始对比」。</div>}
-          {history.map((item) => (
-            <button
-              key={item.id}
-              className="records-prompt-row"
-              onClick={() => setCurrent(item)}
-              style={{ textAlign: 'left', cursor: 'pointer', background: current?.id === item.id ? 'var(--accent-soft)' : 'transparent', border: '1px solid var(--line-soft)', borderRadius: 8, padding: '8px 12px' }}
+function ScopedSource({
+  experimentId,
+  trialId,
+  evidence,
+  attempt,
+}: {
+  experimentId: string;
+  trialId: string;
+  evidence: { path: string; start_line: number; end_line: number };
+  attempt?: string;
+}) {
+  const [source, setSource] = useState<ExperimentSource | null>(null),
+    [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    setSource(null);
+    setError(null);
+    const params = new URLSearchParams({
+      path: evidence.path,
+      start_line: String(Math.max(1, evidence.start_line - 5)),
+      end_line: String(evidence.end_line + 5),
+    });
+    if (attempt) params.set('attempt', attempt);
+    api<ExperimentSource>(`${trialPath(experimentId, trialId)}/source?${params}`, { signal: abort.signal })
+      .then((value) => {
+        if (!abort.signal.aborted) setSource(value);
+      })
+      .catch((exc) => {
+        if (!abort.signal.aborted) setError(errorText(exc));
+      });
+    return () => abort.abort();
+  }, [experimentId, trialId, attempt, evidence.path, evidence.start_line, evidence.end_line]);
+  if (error)
+    return (
+      <div className="error-box" role="alert">
+        证据源码不可用：{error}
+      </div>
+    );
+  if (!source)
+    return (
+      <p className="muted small" role="status">
+        正在读取该试次的源码快照…
+      </p>
+    );
+  return (
+    <div>
+      <p className="small mono">{source.path}</p>
+      <div className="source" tabIndex={0} role="region" aria-label="试次证据源码" style={{ maxHeight: 340 }}>
+        {source.lines.map((line) => (
+          <div
+            key={line.number}
+            className={`source-row${line.number >= evidence.start_line && line.number <= evidence.end_line ? ' hit' : ''}`}
+          >
+            <span className="source-no">{line.number}</span>
+            <span className="source-text">{line.text || ' '}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TrialInspector({
+  experiment,
+  trial,
+  onRetry,
+  busy,
+}: {
+  experiment: FullExperiment;
+  trial: Trial;
+  onRetry: (trialId: string) => void;
+  busy: boolean;
+}) {
+  const { query, change } = useQuery();
+  const attemptQuery = query.get('attempt');
+  const attemptNumber = attemptQuery === '1' || attemptQuery === '2' ? attemptQuery : '';
+  const selectedSaved = attemptNumber
+    ? trial.attempts?.find((item) => String(item.attempt_no) === attemptNumber)
+    : trial.attempts?.at(-1);
+  const attemptSuffix = attemptNumber ? `?attempt=${attemptNumber}` : '';
+  const [detail, setDetail] = useState<TrialDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [evidence, setEvidence] = useState<Evidence | null>(null);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [remaining, setRemaining] = useState(false);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const detailRequest = useRef<AbortController | null>(null);
+  const eventRequest = useRef<AbortController | null>(null);
+  const eventCursor = useRef(0);
+  const mergeEvents = (incoming: AuditEvent[]) =>
+    setEvents((current) => {
+      const merged = new Map(current.map((event) => [event.id, event]));
+      for (const event of incoming) merged.set(event.id, event);
+      return [...merged.values()].sort((a, b) => a.id - b.id);
+    });
+  const loadDetail = useCallback(
+    async (poll = false) => {
+      if (poll && detailRequest.current) return;
+      detailRequest.current?.abort();
+      const abort = new AbortController();
+      detailRequest.current = abort;
+      try {
+        const value = await api<TrialDetail>(`${trialPath(experiment.id, trial.id)}${attemptSuffix}`, { signal: abort.signal });
+        if (abort.signal.aborted) return;
+        setDetail(value);
+        setError(null);
+        mergeEvents(value.events ?? []);
+        if (!eventCursor.current) setRemaining((value.events?.length ?? 0) >= 100);
+      } catch (exc) {
+        if (!abort.signal.aborted) setError(errorText(exc));
+      } finally {
+        if (detailRequest.current === abort) detailRequest.current = null;
+      }
+    },
+    [experiment.id, trial.id, attemptSuffix],
+  );
+  useEffect(() => {
+    setDetail(null);
+    setError(null);
+    setEvidence(null);
+    setEvents([]);
+    setRemaining(false);
+    eventCursor.current = 0;
+    return () => {
+      detailRequest.current?.abort();
+      eventRequest.current?.abort();
+    };
+  }, [experiment.id, trial.id, attemptNumber]);
+  useEffect(() => {
+    void loadDetail();
+  }, [loadDetail, refresh]);
+  useEffect(() => {
+    if (!activeStatus(selectedSaved?.status ?? trial.status)) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void loadDetail(true);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [selectedSaved?.status, trial.status, loadDetail]);
+  const loadEvents = async () => {
+    eventRequest.current?.abort();
+    const abort = new AbortController();
+    eventRequest.current = abort;
+    setLoadingEvents(true);
+    try {
+      const value = await api<{ events: AuditEvent[]; remaining: boolean | number }>(
+        `${trialPath(experiment.id, trial.id)}/events?after=${eventCursor.current}&limit=100${attemptNumber ? `&attempt=${attemptNumber}` : ''}`,
+        { signal: abort.signal },
+      );
+      if (abort.signal.aborted) return;
+      mergeEvents(value.events);
+      eventCursor.current = value.events.reduce((max, event) => Math.max(max, event.id), eventCursor.current);
+      setRemaining(Boolean(value.remaining));
+    } catch (exc) {
+      if (!abort.signal.aborted) setError(errorText(exc));
+    } finally {
+      if (!abort.signal.aborted) setLoadingEvents(false);
+    }
+  };
+  const selectedAttempt = detail?.attempt ?? selectedSaved;
+  const isCurrentAttempt = !attemptNumber || Number(attemptNumber) === trial.attempts?.at(-1)?.attempt_no;
+  const score = detail ? detail.score : isCurrentAttempt ? trial.score : null;
+  const usage = selectedAttempt?.usage ?? (isCurrentAttempt ? trial.usage : undefined);
+  const duration = selectedAttempt?.duration_seconds ?? (isCurrentAttempt ? trial.duration_seconds : undefined);
+  const coverage = detail?.read_coverage ?? detail?.trial?.read_coverage ?? trial.read_coverage;
+  const phase = detail?.run?.execution_summary?.phase;
+  const canRetry =
+    trial.can_retry ??
+    (trial.evaluation_status === 'invalid' && (trial.attempts?.length ?? 1) < 2 && !activeStatus(experiment.status));
+  return (
+    <section className="exp-trial-detail" aria-label="试次详情">
+      <div className="exp-filter-row">
+        <h3>
+          第 {trial.round_index} 轮 · {labelOf(experiment, trial.prompt_id)}
+        </h3>
+        <span className="chip">{stateLabel(selectedAttempt?.status ?? trial.status)}</span>
+        <span className="chip">{stateLabel(selectedAttempt?.evaluation_status ?? trial.evaluation_status)}</span>
+        {(trial.attempts?.length ?? 0) > 0 && (
+          <label>
+            查看执行版本
+            <select
+              aria-label="查看执行版本"
+              value={attemptNumber || String(trial.attempts?.at(-1)?.attempt_no ?? '')}
+              onChange={(event) => change({ attempt: event.target.value })}
             >
-              <span className={`chip chip-${item.status}`}>{STATUS_LABELS[item.status] ?? item.status}</span>{' '}
-              <span className="small">{item.variants.join(' / ')}</span>{' '}
-              <span className="faint small">
-                {localDate(item.created_at)} · {item.units_limit ? `前 ${item.units_limit} 单元` : '全部单元'}
-                {item.scenario ? ` · ${SCENARIO_LABELS[item.scenario]}` : ''} · {item.model || '未记录模型'}
-                {item.rows.length > 0 ? ` · ${item.rows.length} 个版本有结果` : ''}
-              </span>
-            </button>
-          ))}
+              {trial.attempts?.map((item, index) => (
+                <option key={item.id ?? index} value={item.attempt_no ?? index + 1}>
+                  第 {item.attempt_no ?? index + 1} 次{index === (trial.attempts?.length ?? 0) - 1 ? '（当前）' : '（历史）'}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button className="btn" onClick={() => setRefresh((value) => value + 1)}>
+          刷新试次
+        </button>
+        {canRetry && (
+          <button className="btn" disabled={busy} onClick={() => onRetry(trial.id)}>
+            使用冻结配置补跑一次
+          </button>
+        )}
+        <a
+          className="btn"
+          href={downloadUrl(
+            `${trialPath(experiment.id, trial.id)}/report?format=markdown${attemptNumber ? `&attempt=${attemptNumber}` : ''}`,
+          )}
+        >
+          试次报告
+        </a>
+      </div>
+      <p className="small muted">
+        {trial.id} ·{' '}
+        {reasonText(selectedAttempt?.stop_reason || selectedAttempt?.error) || trialReason(trial) || '尚未记录终止原因'}
+        。预算耗尽仍属有效成绩；无效试次保留历史和消耗。
+      </p>
+      {error && (
+        <div className="error-box" role="alert">
+          试次读取失败：{error}
+        </div>
+      )}
+      {!detail && !error && <div className="empty">读取试次记录…</div>}
+      <p className="small muted">
+        实际消耗：模型请求 {numeric(usage?.requests)} · 工具 {numeric(usage?.tool_calls)} · tokens{' '}
+        {numeric(usage?.total_tokens ?? usage?.tokens)} · {numeric(duration)} 秒
+      </p>
+      {phase && (
+        <p className="small muted">
+          实际执行阶段：{executionPhase(phase)}（{phase}）
+        </p>
+      )}
+      {coverage?.total_files != null && (
+        <div className="exp-notice small">
+          实际读取：{coverage.read_files} / {coverage.total_files} 个文件（{percent(coverage.file_ratio)}），{coverage.read_lines}{' '}
+          / {coverage.total_lines} 行（{percent(coverage.line_ratio)}）。候选范围为完整源码，读取覆盖不表示每行均完成漏洞检查。
+        </div>
+      )}
+      {score && (
+        <div className="row exp-trial-numbers">
+          <span>TP {score.TP}</span>
+          <span>D {score.D}</span>
+          <span>U {score.U}</span>
+          <span>FN {score.FN}</span>
+          <span>P {percent(score.precision)}</span>
+          <span>R {percent(score.recall)}</span>
+          <span>F1 {percent(score.f1)}</span>
+        </div>
+      )}
+      {(trial.attempts?.length ?? 0) > 0 && (
+        <Disclosure title="执行与补跑历史">
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Attempt</th>
+                  <th>运行状态</th>
+                  <th>有效性</th>
+                  <th>原因</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trial.attempts?.map((attempt, index) => (
+                  <tr key={attempt.id ?? index}>
+                    <td>{attempt.attempt_no ?? index + 1}</td>
+                    <td>{stateLabel(attempt.status)}</td>
+                    <td>{stateLabel(attempt.evaluation_status)}</td>
+                    <td>{reasonText(attempt.termination_reason || attempt.stop_reason || attempt.error) || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Disclosure>
+      )}
+      {detail && (
+        <>
+          <h4>本次运行的发现与证据</h4>
+          {!detail.findings?.length && <p className="small muted">本次没有正式发现记录；这不意味着源码安全。</p>}
+          {detail.findings?.map((finding) => <FindingEvidence key={finding.id} finding={finding} onEvidence={setEvidence} />)}
+          {evidence && (
+            <ScopedSource experimentId={experiment.id} trialId={trial.id} evidence={evidence} attempt={attemptNumber} />
+          )}
+          <Disclosure title="匹配、重复、未匹配及分类诊断">
+            <pre className="tl-detail">
+              {JSON.stringify(
+                {
+                  matches: score?.matches,
+                  duplicates: score?.duplicates,
+                  unmatched: score?.unmatched,
+                  diagnostics: score?.diagnostics,
+                  truth_results: score?.truth_results,
+                },
+                null,
+                2,
+              )}
+            </pre>
+          </Disclosure>
+          <Disclosure title={`实际审计日志 · ${events.length} 条`}>
+            <div className="exp-events">
+              {events.map((event) => (
+                <details key={event.id}>
+                  <summary>
+                    <span className="mono">#{event.id}</span> {event.actor_role || 'host'} · {event.kind}{' '}
+                    <span className="muted">{localDate(event.created_at)}</span>
+                  </summary>
+                  <pre className="tl-detail">{JSON.stringify(event.payload, null, 2)}</pre>
+                </details>
+              ))}
+            </div>
+            {remaining && (
+              <button className="btn" disabled={loadingEvents} onClick={() => void loadEvents()}>
+                {loadingEvents ? '读取中…' : '读取后续事件'}
+              </button>
+            )}
+          </Disclosure>
+        </>
+      )}
+    </section>
+  );
+}
+
+function FindingEvidence({ finding, onEvidence }: { finding: Finding; onEvidence: (value: Evidence) => void }) {
+  return (
+    <Disclosure title={`${finding.title} · ${finding.vulnerability_type || finding.category || 'unknown'}`}>
+      <p>{finding.summary}</p>
+      <p className="small muted">
+        发现 {finding.id} · {finding.disposition || 'open'} · {finding.validation_state}
+      </p>
+      {finding.primary_location && (
+        <p className="small mono">
+          主定位：{finding.primary_location.path}:{finding.primary_location.line}
+        </p>
+      )}
+      <div className="row exp-downloads">
+        {finding.evidence?.map((item, index) => (
+          <button key={index} className="btn" onClick={() => onEvidence(item)}>
+            {item.path}:{item.start_line}–{item.end_line}
+          </button>
+        ))}
+      </div>
+      <p className="small">输入来源：{finding.input_source || '未填写'}</p>
+      <p className="small">传播路径：{finding.propagation || '未填写'}</p>
+      <p className="small">关键操作：{finding.dangerous_operation || '未填写'}</p>
+      <p className="small">防护核对：{finding.protection || '未填写'}</p>
+    </Disclosure>
+  );
+}
+
+function TrialsPanel({
+  experiment,
+  selectedId,
+  onSelect,
+  onRetry,
+  busy,
+}: {
+  experiment: FullExperiment;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onRetry: (id: string) => void;
+  busy: boolean;
+}) {
+  const trial = experiment.trials?.find((item) => item.id === selectedId);
+  return (
+    <div className="grid exp-content">
+      <div className="table-scroll">
+        <table>
+          <caption>逐轮成绩与终止原因 · 所有 attempts 均保留</caption>
+          <thead>
+            <tr>
+              <th>轮次／版本</th>
+              <th>运行状态</th>
+              <th>有效性</th>
+              <th>TP/D/U/FN</th>
+              <th>P/R/F1</th>
+              <th>停止原因</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {experiment.trials?.map((item) => (
+              <tr key={item.id} className={selectedId === item.id ? 'selected' : ''}>
+                <th scope="row">
+                  第 {item.round_index} 轮 · {labelOf(experiment, item.prompt_id)}
+                </th>
+                <td>{stateLabel(item.status)}</td>
+                <td>{stateLabel(item.evaluation_status)}</td>
+                <td>{item.score ? `${item.score.TP}/${item.score.D}/${item.score.U}/${item.score.FN}` : '—'}</td>
+                <td>
+                  {item.score
+                    ? `${percent(item.score.precision)} / ${percent(item.score.recall)} / ${percent(item.score.f1)}`
+                    : '—'}
+                </td>
+                <td className="exp-reason">{trialReason(item) || '—'}</td>
+                <td>
+                  <button className="text-button" onClick={() => onSelect(item.id)}>
+                    查看试次
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {selectedId && !trial && <div className="exp-notice">此试次不属于当前实验或记录已缺失，请从上表选择。</div>}
+      {trial && <TrialInspector key={trial.id} experiment={experiment} trial={trial} onRetry={onRetry} busy={busy} />}
+    </div>
+  );
+}
+
+function LegacyResults({ record }: { record: ExperimentRecord }) {
+  if (isFullExperiment(record)) return null;
+  return (
+    <div className="exp-content grid">
+      <div className="exp-notice exp-notice-warn">
+        <strong>旧版单元协议 · 只读</strong>
+        <p>此记录使用预选文件及单次单元实验，不能与完整审计协议混排。历史结果不重算。</p>
+      </div>
+      <p className="small">
+        {record.variants?.join(' / ')} · {record.units_limit ? `前 ${record.units_limit} 个单元` : '全部单元'} ·{' '}
+        {recordModel(record)}
+      </p>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th>TP</th>
+              <th>FP</th>
+              <th>FN</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1</th>
+            </tr>
+          </thead>
+          <tbody>
+            {record.rows?.map((row) => (
+              <tr key={row.variant}>
+                <th>{row.variant}</th>
+                <td>{row.score?.TP ?? '—'}</td>
+                <td>{row.score?.FP ?? '—'}</td>
+                <td>{row.score?.FN ?? '—'}</td>
+                <td>{percent(row.score?.precision)}</td>
+                <td>{percent(row.score?.recall)}</td>
+                <td>{percent(row.score?.f1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Downloads id={record.id} legacy />
+      {record.progress?.tail?.length ? (
+        <Disclosure title="历史日志">
+          <pre className="tl-detail">{record.progress.tail.join('\n')}</pre>
+        </Disclosure>
+      ) : null}
+    </div>
+  );
+}
+
+export function PromptExperimentsView({ experimentId }: { experimentId?: string }) {
+  const [prompts, setPrompts] = useState<Prompt[]>([]),
+    [selected, setSelected] = useState<string[]>([]),
+    [baseline, setBaseline] = useState(''),
+    [repeats, setRepeats] = useState(3),
+    [budgets, setBudgets] = useState(initialBudgets),
+    [limits, setLimits] = useState(initialLimits);
+  const [history, setHistory] = useState<ExperimentRecord[]>([]),
+    [current, setCurrent] = useState<ExperimentRecord | null>(null),
+    [error, setError] = useState<string | null>(null),
+    [busy, setBusy] = useState(false),
+    [loading, setLoading] = useState(false),
+    [refresh, setRefresh] = useState(0);
+  const request = useRef<AbortController | null>(null),
+    mutationRequest = useRef<AbortController | null>(null),
+    alive = useRef(true),
+    initialized = useRef(false),
+    { query, change } = useQuery();
+  const strategies = useMemo(() => compatibleStrategies(prompts), [prompts]),
+    active = history.find((item) => activeStatus(item.status)),
+    running = Boolean(active || (current && activeStatus(current.status)));
+  const load = useCallback(
+    async (poll = false) => {
+      if (poll && request.current) return;
+      request.current?.abort();
+      const abort = new AbortController();
+      request.current = abort;
+      if (!poll) setLoading(true);
+      try {
+        const [catalog, records, detail] = await Promise.all([
+          api<Prompt[]>('/prompts?kind=worker_strategy', { signal: abort.signal }),
+          api<ExperimentRecord[]>('/prompt-experiments', { signal: abort.signal }),
+          experimentId ? api<ExperimentRecord>(experimentPath(experimentId), { signal: abort.signal }) : Promise.resolve(null),
+        ]);
+        if (!alive.current || abort.signal.aborted) return;
+        setPrompts(catalog);
+        setHistory(records);
+        setCurrent(detail);
+        setError(null);
+        if (!initialized.current && catalog.length) {
+          const defaults = defaultStrategies(catalog);
+          setSelected(defaults);
+          setBaseline(defaults[0] ?? '');
+          initialized.current = true;
+        }
+      } catch (exc) {
+        if (alive.current && !abort.signal.aborted) setError(errorText(exc));
+      } finally {
+        if (request.current === abort) request.current = null;
+        if (!abort.signal.aborted) setLoading(false);
+      }
+    },
+    [experimentId],
+  );
+  useEffect(() => {
+    alive.current = true;
+    setCurrent(null);
+    void load();
+    return () => {
+      alive.current = false;
+      request.current?.abort();
+      mutationRequest.current?.abort();
+    };
+  }, [load, refresh]);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void load(true);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [running, load]);
+  const mutate = async (path: string, body: unknown) => {
+    if (busy) return;
+    const abort = new AbortController();
+    mutationRequest.current = abort;
+    setBusy(true);
+    setError(null);
+    try {
+      const value = await api<ExperimentRecord>(path, { method: 'POST', body: JSON.stringify(body), signal: abort.signal });
+      if (!alive.current || abort.signal.aborted) return;
+      if (value?.id && value.id !== experimentId) window.location.hash = `#experiments/${encodeURIComponent(value.id)}`;
+      else setRefresh((old) => old + 1);
+    } catch (exc) {
+      if (alive.current && !abort.signal.aborted) setError(errorText(exc));
+    } finally {
+      if (mutationRequest.current === abort) mutationRequest.current = null;
+      if (alive.current) setBusy(false);
+    }
+  };
+  const start = () =>
+    void mutate('/prompt-experiments', {
+      protocol: PROMPT_PROTOCOL,
+      prompt_ids: selected,
+      baseline_prompt_id: baseline,
+      repeats,
+      budgets,
+      run_limits: limits,
+    });
+  const toggle = (id: string) => {
+    const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
+    setSelected(next);
+    if (!next.includes(baseline)) setBaseline(next[0] ?? '');
+  };
+  const full = current && isFullExperiment(current) ? current : null,
+    tab = ['overview', 'findings', 'prompts', 'trials'].includes(query.get('tab') ?? '') ? query.get('tab')! : 'overview',
+    selectedTrial = full?.trials?.find((item) => item.id === query.get('trial')),
+    maxCalls = selected.length * repeats * limits.responses,
+    maxTools = selected.length * repeats * limits.tools;
+  return (
+    <div className="exp-page grid">
+      {error && (
+        <div className="error-box" role="alert">
+          {error}{' '}
+          <button className="text-button" onClick={() => setRefresh((value) => value + 1)}>
+            重试读取
+          </button>
+        </div>
+      )}
+      {active && active.id !== experimentId && (
+        <div className="exp-notice">
+          另有实验正在执行，当前不能再启动。<a href={`#experiments/${encodeURIComponent(active.id)}`}>查看进行中的实验</a>
+        </div>
+      )}
+      {!experimentId ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2 className="panel-title">完整审计对比设置</h2>
+            <span className="chip">lab30-full-v2</span>
+          </div>
+          <div className="exp-content grid">
+            <p className="muted small">
+              固定原始 Lab30 ZIP、模型、Planner 与证据门禁，只改变 Worker
+              策略。各版本独立完整审计，真值仅用于审计结束后评分。主实验关闭 POC。
+            </p>
+            <fieldset className="exp-variants">
+              <legend>选择 2–5 个兼容策略版本</legend>
+              {strategies.map((item) => (
+                <label className="exp-variant-option" key={item.id}>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(item.id)}
+                    disabled={running || busy || (!selected.includes(item.id) && selected.length >= 5)}
+                    onChange={() => toggle(item.id)}
+                  />
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small className="muted">
+                      {item.id} · {item.reason || '未填写优化原因'}
+                    </small>
+                  </span>
+                </label>
+              ))}
+              {!strategies.length && (
+                <p className="muted small">
+                  {loading ? '正在读取策略库…' : '没有兼容策略。请先在提示词库新建 worker-strategy-v1 版本。'}
+                </p>
+              )}
+            </fieldset>
+            <div className="exp-filter-row">
+              <label>
+                冻结基线
+                <select
+                  aria-label="冻结基线"
+                  value={baseline}
+                  disabled={running || busy}
+                  onChange={(event) => setBaseline(event.target.value)}
+                >
+                  {!selected.length && <option value="">先选择版本</option>}
+                  {selected.map((id) => (
+                    <option key={id} value={id}>
+                      {strategies.find((item) => item.id === id)?.label ?? id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                每版本重复次数
+                <input
+                  aria-label="每版本重复次数"
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={repeats}
+                  disabled={running || busy}
+                  onChange={(event) => setRepeats(Math.max(1, Math.min(5, Number(event.target.value) || 1)))}
+                />
+              </label>
+              <a className="btn" href="#prompts">
+                管理与派生策略
+              </a>
+            </div>
+            <Disclosure title="统一预算设置">
+              <BudgetFields title="单次调用预算" value={budgets} onChange={setBudgets} disabled={running || busy} />
+              <BudgetFields title="每次完整审计总预算" value={limits} onChange={setLimits} disabled={running || busy} />
+            </Disclosure>
+            <div className="exp-notice">
+              <strong>
+                {selected.length} 个版本 × {repeats} 轮 = {selected.length * repeats} 次完整审计
+              </strong>
+              <p>
+                累计上限 {maxCalls.toLocaleString()} 次模型请求、{maxTools.toLocaleString()} 次工具调用；每次最多 {limits.seconds}{' '}
+                秒。执行会真实消耗模型额度，失败及取消也可能产生消耗。
+              </p>
+            </div>
+            <div className="row exp-downloads">
+              <button
+                className="btn btn-primary"
+                disabled={busy || running || selected.length < 2 || selected.length > 5 || !baseline}
+                onClick={start}
+              >
+                {busy ? '正在创建…' : running ? '已有实验运行中' : '冻结配置并开始对比'}
+              </button>
+              <span className="small muted">各轮循环移位、串行执行，默认三版三轮。</span>
+            </div>
+          </div>
+        </section>
+      ) : null}
+      {experimentId && !current && !error && (
+        <div className="empty" role="status">
+          读取冻结实验及成绩…
+        </div>
+      )}
+      {current && (
+        <section className="panel exp-results">
+          <div className="panel-head exp-result-head">
+            <div>
+              <span className="eyebrow">{full ? 'FULL SOURCE AUDIT' : 'LEGACY UNIT EXPERIMENT'}</span>
+              <h2 className="panel-title">{recordModel(current)}</h2>
+              <p className="small muted">
+                {localDate(current.created_at)} · <span className="mono">{current.id}</span>
+              </p>
+            </div>
+            <div className="row exp-downloads">
+              <span className="chip">{stateLabel(current.status)}</span>
+              <a className="btn" href="#experiments">
+                新建实验
+              </a>
+              {activeStatus(current.status) && (
+                <button
+                  className="btn btn-danger"
+                  disabled={busy}
+                  onClick={() => void mutate(`${experimentPath(current.id)}/cancel`, {})}
+                >
+                  取消实验
+                </button>
+              )}
+            </div>
+          </div>
+          {current.error && (
+            <div className="error-box" role="alert">
+              {current.error}
+            </div>
+          )}
+          {full ? (
+            <>
+              <div className="exp-tabs" role="tablist" aria-label="实验结果页签">
+                {[
+                  ['overview', '效果总览'],
+                  ['findings', '漏洞明细'],
+                  ['prompts', '版本与冻结条件'],
+                  ['trials', '逐轮运行记录'],
+                ].map(([key, label]) => (
+                  <button
+                    role="tab"
+                    key={key}
+                    aria-selected={tab === key}
+                    className={tab === key ? 'active' : ''}
+                    onClick={() => change({ tab: key })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {activeStatus(full.status) && (
+                <div className="exp-live-progress" role="status">
+                  完整审计执行中 · 已结束 {full.trials?.filter((item) => !activeStatus(item.status)).length ?? 0} /{' '}
+                  {full.trials?.length ?? selected.length * repeats} 个试次。暂定结果随各轮完成更新。
+                </div>
+              )}
+              {tab === 'overview' && <SummaryPanel experiment={full} />}{' '}
+              {tab === 'findings' && <TruthMatrix experiment={full} query={query} change={change} />}{' '}
+              {tab === 'prompts' && (
+                <FrozenPrompts
+                  experiment={full}
+                  compare={query.get('compare') ?? ''}
+                  onCompare={(value) => change({ compare: value })}
+                />
+              )}
+              {tab === 'trials' && (
+                <TrialsPanel
+                  experiment={full}
+                  selectedId={query.get('trial')}
+                  onSelect={(id) => change({ trial: id, attempt: null })}
+                  busy={busy}
+                  onRetry={(id) => void mutate(`${trialPath(full.id, id)}/retry`, {})}
+                />
+              )}
+              {tab === 'findings' && selectedTrial && (
+                <div className="exp-content">
+                  <TrialInspector
+                    key={selectedTrial.id}
+                    experiment={full}
+                    trial={selectedTrial}
+                    busy={busy}
+                    onRetry={(id) => void mutate(`${trialPath(full.id, id)}/retry`, {})}
+                  />
+                </div>
+              )}
+              <div className="exp-content exp-export">
+                <h3>下载完整实验</h3>
+                <p className="small muted">下载包含全部版本与轮次，不受当前类别筛选影响。未完成实验在报告中明确标记。</p>
+                <Downloads id={full.id} />
+              </div>
+            </>
+          ) : (
+            <LegacyResults record={current} />
+          )}
+        </section>
+      )}
+      <section className="panel">
+        <div className="panel-head">
+          <h2 className="panel-title">实验历史</h2>
+          <span className="small muted">{history.length} 条 · 新旧协议分别展示</span>
+        </div>
+        <div className="exp-content grid">
+          {!history.length && !loading && <p className="empty">尚无实验。选择策略与基线后开始完整审计对比。</p>}
+          {[true, false].map((newProtocol) => {
+            const items = history.filter((item) => isFullExperiment(item) === newProtocol);
+            return items.length ? (
+              <div key={String(newProtocol)}>
+                <h3>{newProtocol ? '完整审计实验' : '旧版单元实验（只读）'}</h3>
+                <div className="grid">
+                  {items.map((item) => (
+                    <a
+                      key={item.id}
+                      className={`exp-history-row${current?.id === item.id ? ' selected' : ''}`}
+                      href={`#experiments/${encodeURIComponent(item.id)}`}
+                    >
+                      <span className="chip">{stateLabel(item.status)}</span>
+                      <strong>{recordModel(item)}</strong>
+                      <span className="small muted">
+                        {localDate(item.created_at)} ·{' '}
+                        {isFullExperiment(item)
+                          ? `${item.manifest?.variants?.length ?? 0} 版 × ${item.manifest?.repeats ?? 0} 轮`
+                          : '旧版单元协议'}{' '}
+                        · {item.id.slice(0, 12)}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null;
+          })}
         </div>
       </section>
     </div>
+  );
+}
+function BudgetFields({
+  title,
+  value,
+  onChange,
+  disabled,
+}: {
+  title: string;
+  value: Budget;
+  onChange: (value: Budget) => void;
+  disabled: boolean;
+}) {
+  return (
+    <fieldset className="exp-budget">
+      <legend>{title}</legend>
+      {(
+        [
+          ['responses', '模型请求'],
+          ['tools', '工具调用'],
+          ['seconds', '秒'],
+        ] as const
+      ).map(([key, label]) => (
+        <label key={key}>
+          {label}
+          <input
+            type="number"
+            min={1}
+            aria-label={`${title}${label}`}
+            disabled={disabled}
+            value={value[key]}
+            onChange={(event) => onChange({ ...value, [key]: Math.max(1, Math.floor(Number(event.target.value) || 1)) })}
+          />
+        </label>
+      ))}
+    </fieldset>
   );
 }

@@ -15,6 +15,7 @@ Exit code 0 = all entries verified; 1 = at least one mismatch.
 from __future__ import annotations
 
 import hashlib
+import argparse
 import json
 import sys
 import zipfile
@@ -44,7 +45,23 @@ def line_of(zf: zipfile.ZipFile, archive_name: str, line: int) -> str | None:
 
 
 def main() -> int:
-    zip_path, truth_path = sys.argv[1], sys.argv[2]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source_zip")
+    parser.add_argument("truth")
+    parser.add_argument("--protocol", choices=("legacy_unit_v1", "lab30-v2"), default="legacy_unit_v1")
+    parser.add_argument("--anchors")
+    args = parser.parse_args()
+    zip_path, truth_path = args.source_zip, args.truth
+    if args.protocol == "lab30-v2":
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+        from audit.prompt_evaluation import DEFAULT_ANCHORS_PATH, validate_assets
+        try:
+            result = validate_assets(zip_path, truth_path, args.anchors or DEFAULT_ANCHORS_PATH)
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+            print(f"lab30-v2 核验失败：{exc}")
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
     truth = json.loads(Path(truth_path).read_text(encoding="utf-8"))
     entries = truth["vulnerabilities"] if isinstance(truth, dict) else truth
     zf = zipfile.ZipFile(zip_path)

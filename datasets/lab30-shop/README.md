@@ -2,6 +2,9 @@
 
 本目录将靶场的 30 项官方答案与源码位置、入口和数据流关联，用于比较审计结果。评级采用 **CVSS v3.1 Base Score**；检出率与评级准确率分别统计。
 
+正式多版本完整审计使用 [lab30-v2 评分锚点与核验说明](SCORING_V2.md)。
+`--protocol lab30-v2` 同时核对根因和主定位，并使用稳定最大一对一匹配；默认 CLI 保留下述旧协议，不重算历史成绩。
+
 ## 数据来源与版本
 
 - `ground_truth.json` 的 `provenance` 固定上游 [feat/lab30-shop / 30364ec 的 answers.json](https://github.com/Luchutong/llm-vuln-audit/blob/30364ecd8f1c7c8c10e3f2e66107dfc38ecd1434/answers/answers.json)、答案文件 SHA-256 及源码 ZIP SHA-256。

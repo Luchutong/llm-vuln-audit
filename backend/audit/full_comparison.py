@@ -77,7 +77,7 @@ def classify_result(result: dict, returncode: int) -> tuple[str, str]:
         return "invalid", str(reason.get("code") or run.get("status"))
     # Provider failures arrive as structured infra_error from the child. Neither
     # model prose nor an ambiguous timeout proves an infrastructure outage.
-    if reason.get("code") in {"batch_deadline_exceeded", "experiment_deadline_exceeded", "trial_lifecycle_timeout"}:
+    if reason.get("code") in {"batch_deadline_exceeded", "experiment_deadline_exceeded", "trial_lifecycle_timeout", "planner_context_error"}:
         return "invalid", reason["code"]
     if reason.get("code") == "worker_exit_without_terminal":
         return "invalid", "executor_error"

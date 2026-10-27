@@ -147,6 +147,8 @@ def test_the_round_is_told_the_frontier_settled_work_findings_and_pins(monkeypat
     assert situation["counts"] == {
         "frontier": 1, "settled": 2, "findings": 1, "observations": 0, "pinned_investigations": 2,
         "project_findings": 0,
+        "verification_records": 0, "verification_reviews_required": 0, "verification_reviews": 0,
+        "duplicate_candidates": 0,
         "pending": 0, "ready": 0, "running": 1, "blocked": 0, "deferred": 0, "exhausted": 1,
     }
     assert "允许本轮派出 0 个任务" in situation["dispatch_rule"] or "0 个任务" in situation["dispatch_rule"]

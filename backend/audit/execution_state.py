@@ -223,12 +223,14 @@ class ExecutionStoreMixin:
                 elapsed += time.monotonic()-self._active_clocks[run_id]
             usage = {"responses": value["responses_used"], "tools": value["tools_used"], "seconds": round(elapsed, 3)}
             blocked = self._db.execute("SELECT id FROM planner_tasks WHERE run_id=? AND state='blocked'", (run_id,)).fetchall()
+            review = self.coverage_review(run_id) if hasattr(self, "coverage_review") else None
             return {"policy_version": POLICY_VERSION, "phase": value["phase"], "claim_epoch": value["claim_epoch"], "state_revision": value["state_revision"],
                     "run_limits": limits, "run_usage": usage, "run_remaining": {k: max(0, limits[k]-usage[k]) for k in limits} if limits else None,
                     "active_executions": list(self._active_agents.get(run_id, {}).values()),
                     "stop_reason": json.loads(value["stop_reason"]) if value["stop_reason"] else None,
                     "blocked_task_ids": [item["id"] for item in blocked], "poc": json.loads(value["poc_state"]),
-                    "final_summary_available": bool(value["final_summary"])}
+                    "final_summary_available": bool(value["final_summary"]),
+                    **({"coverage_review": review} if review is not None else {})}
 
     def get_final_summary(self, run_id):
         row = self._row("SELECT final_summary FROM run_execution_state WHERE run_id=?", (run_id,))

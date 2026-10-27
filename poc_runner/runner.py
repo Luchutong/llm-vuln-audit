@@ -36,7 +36,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 TOKEN = (os.environ.get("POC_RUNNER_TOKEN") or "").strip()
 # Lab30 shop (拾光商城): PHP/Apache + MariaDB, member accounts required.
 LAB30_URL = (os.environ.get("LAB30_URL") or "http://lab30").rstrip("/")
@@ -159,7 +159,7 @@ def _context(context_id: str, target: str, *, allow_closing: bool = False) -> di
 
 
 def _release_context(ctx: dict) -> None:
-    if ctx["active"] or ctx["state"] != "closing" or ctx.get("unresolved_jobs"):
+    if ctx["active"] or ctx.get("pending_jobs") or ctx["state"] != "closing" or ctx.get("unresolved_jobs"):
         return
     for session in ctx["sessions"].values():
         session["client"].close()
@@ -235,6 +235,7 @@ class JobRequest(BaseModel):
 
 
 class HttpRequest(BaseModel):
+    job_id: str = ""
     target: str = Field(default="lab30", max_length=32)
     method: str = Field(default="GET", max_length=8)
     path: str = Field(max_length=2048)
@@ -245,6 +246,7 @@ class HttpRequest(BaseModel):
 
 
 class BrowserRequest(BaseModel):
+    job_id: str = ""
     target: str = Field(default="lab30", max_length=32)
     path: str = Field(max_length=2048)
     script: str = Field(default="", max_length=8 * 1024)
@@ -335,6 +337,8 @@ def _job_public(job: dict) -> dict:
             "timed_out",
             "context_id", "identity", "precondition", "postcondition", "state_changes", "execution_status",
             "process_confirmed_stopped",
+            "available", "error", "reason", "title", "url", "dialogs", "console_errors",
+            "body_text", "evaluated", "body", "headers", "redirects", "http_status",
         )
         if key in job
     }
@@ -551,6 +555,8 @@ def healthz() -> dict:
             "verification_contexts": True,
             "identity_preconditions": True,
             "idempotent_jobs": True,
+            "idempotent_http_jobs": True,
+            "idempotent_browser_jobs": True,
         },
     }
 
@@ -775,6 +781,72 @@ async def target_status(target: str, context_id: str = "", identity: str = "alic
     return await asyncio.to_thread(_prepare_sync, False, context_id, identity)
 
 
+async def _registered_job(request, kind: str, action) -> dict:
+    """Bind one host id to one request before execution; a retry only reads it.
+
+    The fingerprint includes kind, context and identity, so an id cannot cross an
+    experiment or be reused through another endpoint. Shielding keeps a lost HTTP
+    response from cancelling an already accepted action.
+    """
+    job_id = request.job_id or secrets.token_hex(16)
+    if not SAFE_NAME.fullmatch(job_id):
+        raise HTTPException(status_code=400, detail="invalid job id")
+    request.job_id = job_id
+    fingerprint = hashlib.sha256(json.dumps(
+        {"kind": kind, "request": request.model_dump(mode="json")},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode()).hexdigest()
+    with _contexts_lock:
+        ctx = _context(request.context_id, request.target)
+        with _jobs_lock:
+            existing = _jobs.get(job_id)
+            if existing is not None:
+                if existing.get("fingerprint") != fingerprint:
+                    raise HTTPException(status_code=409, detail="job id already bound to a different request")
+                return dict(existing.get("response") or _job_public(existing))
+            _jobs[job_id] = {"job_id": job_id, "kind": kind, "status": "running",
+                             "context_id": request.context_id, "identity": request.identity,
+                             "fingerprint": fingerprint, "created_ts": time.time()}
+        # A queued accepted action also owns the lease until its terminal result
+        # is recorded, even before it enters _context_operation's active count.
+        ctx["pending_jobs"] = int(ctx.get("pending_jobs", 0)) + 1
+    _cleanup()
+
+    async def execute_registered():
+        started = time.monotonic()
+        try:
+            async with _semaphore:
+                result = await asyncio.to_thread(
+                    _context_operation, request.context_id, request.target,
+                    lambda ctx: _observed_action(ctx, request.identity, lambda: action(request)),
+                )
+        except Exception as exc:
+            result = {"status": "error", "execution_status": "error", "error": type(exc).__name__,
+                      "exit_code": None, "stdout": "", "stderr": type(exc).__name__, "timed_out": False}
+        result.update(job_id=job_id, context_id=request.context_id, identity=request.identity)
+        result.setdefault("duration_ms", round((time.monotonic() - started) * 1000))
+        if kind == "script":
+            job = dict(result, kind=kind)
+        else:
+            result, job = _observation_job(result, kind)
+        response = _job_public(job) if kind == "script" else result
+        job.update(fingerprint=fingerprint, created_ts=time.time(), response=dict(response))
+        with _jobs_lock:
+            _jobs[job_id] = job
+        return response
+
+    async def complete():
+        try:
+            return await execute_registered()
+        finally:
+            with _contexts_lock:
+                ctx["pending_jobs"] -= 1
+                _release_context(ctx)
+
+    task = asyncio.create_task(complete())
+    return await asyncio.shield(task)
+
+
 @app.post("/v1/jobs", dependencies=protected)
 async def create_job(request: JobRequest) -> dict:
     _check_target(request.target)
@@ -787,36 +859,7 @@ async def create_job(request: JobRequest) -> dict:
     request.artifacts = _safe_artifact_names(request.artifacts)
     _identity(request.identity)
     request.language = language
-    _context(request.context_id, request.target)
-    job_id = request.job_id or secrets.token_hex(16)
-    if not SAFE_NAME.fullmatch(job_id):
-        raise HTTPException(status_code=400, detail="invalid job id")
-    request.job_id = job_id
-    fingerprint = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
-    with _jobs_lock:
-        existing = _jobs.get(job_id)
-        if existing is not None:
-            if existing.get("fingerprint") != fingerprint:
-                raise HTTPException(status_code=409, detail="job id already bound to a different request")
-            return _job_public(existing)
-        _jobs[job_id] = {"job_id": job_id, "kind": "script", "status": "running", "context_id": request.context_id,
-                         "identity": request.identity, "fingerprint": fingerprint, "created_ts": time.time()}
-    _cleanup()
-    async def complete():
-        try:
-            async with _semaphore:
-                job = await asyncio.to_thread(_context_operation, request.context_id, request.target,
-                                             lambda ctx: _observed_action(ctx, request.identity, lambda: _execute(request)))
-        except Exception as exc:
-            job = {"job_id": job_id, "kind": "script", "status": "error", "exit_code": None,
-                   "stdout": "", "stderr": type(exc).__name__, "timed_out": False}
-        job.update(job_id=job_id, context_id=request.context_id, identity=request.identity,
-                   fingerprint=fingerprint, created_ts=time.time())
-        with _jobs_lock:
-            _jobs[job_id] = job
-        return _job_public(job)
-    task = asyncio.create_task(complete())
-    return await asyncio.shield(task)
+    return await _registered_job(request, "script", _execute)
 
 
 @app.get("/v1/jobs/{job_id}", dependencies=protected)
@@ -904,9 +947,11 @@ def _observe_sync(request: HttpRequest) -> dict:
 async def http_observe(request: HttpRequest) -> dict:
     _check_target(request.target)
     _identity(request.identity)
-    result = await asyncio.to_thread(_context_operation, request.context_id, request.target,
-                                    lambda ctx: _observed_action(ctx, request.identity, lambda: _observe_sync(request)))
-    return _register_observation(result, "http")
+    request.path = _check_path(request.path)
+    request.method = request.method.upper()
+    if request.method not in {"GET", "POST"}:
+        raise HTTPException(status_code=400, detail="method must be GET or POST")
+    return await _registered_job(request, "http", _observe_sync)
 
 
 def _prepared_cookies(context_id: str, identity: str = "alice") -> list[dict]:
@@ -945,30 +990,32 @@ def _store_browser_cookies(context_id: str, identity: str, cookies: list[dict]) 
         ))
 
 
-def _register_observation(result: dict, kind: str) -> dict:
-    ident = result.get("job_id") or secrets.token_hex(16)
-    successful = not result.get("error") and result.get("available", True)
-    execution_status = "finished" if successful else result.get("execution_status", "error")
-    if not isinstance(execution_status, str):
+def _observation_job(result: dict, kind: str) -> tuple[dict, dict]:
+    ident = result["job_id"]
+    reported_status = result.get("execution_status", result.get("status"))
+    successful = (
+        not result.get("error") and result.get("available", True) and not result.get("timed_out")
+        and (not isinstance(reported_status, str) or reported_status in {"finished", "success", "completed"})
+        and ("exit_code" not in result or result["exit_code"] == 0)
+    )
+    execution_status = "finished" if successful else reported_status
+    if not isinstance(execution_status, str) or execution_status in {"finished", "success", "completed"}:
         execution_status = "finished" if successful else "error"
-    result.update(job_id=ident, exit_code=0 if successful else None, execution_status=execution_status)
+    result.update(exit_code=0 if successful else result.get("exit_code"), execution_status=execution_status)
     stdout = str(result.get("body", "")) if kind == "http" else json.dumps(
         {key: result.get(key) for key in ("title", "url", "dialogs", "console_errors", "body_text", "evaluated")}, ensure_ascii=False)
-    job = {"job_id": ident, "kind": kind, "status": execution_status, "exit_code": result["exit_code"],
-           "stdout": stdout, "stderr": str(result.get("error", "")), "timed_out": False,
-           "created_ts": time.time(), "artifacts": result.get("artifacts", []),
-           **{key: result[key] for key in ("context_id", "identity", "precondition", "postcondition", "state_changes") if key in result}}
+    job = {**result, "job_id": ident, "kind": kind, "status": execution_status,
+           "stdout": stdout, "stderr": str(result.get("error", "")), "timed_out": bool(result.get("timed_out")),
+           "created_ts": time.time(), "artifacts": result.get("artifacts", [])}
     if kind == "http":
-        job["http_status"] = result.get("status")
-    with _jobs_lock:
-        _jobs[ident] = job
+        job["http_status"] = result.get("status") if isinstance(result.get("status"), int) else None
     result.setdefault("stdout", stdout)
-    return result
+    return result, job
 
 
 def _browser_sync(request: BrowserRequest) -> dict:
     path = _check_path(request.path)
-    job_id = secrets.token_hex(16)
+    job_id = request.job_id or secrets.token_hex(16)
     directory = _job_dir(job_id)
     directory.mkdir(parents=True, exist_ok=False)
     os.chmod(directory, 0o700)
@@ -1035,8 +1082,6 @@ def _browser_sync(request: BrowserRequest) -> dict:
         "artifacts": _collect_artifacts(directory, [screenshot] if screenshot else []),
         "created_ts": time.time(),
     }
-    with _jobs_lock:
-        _jobs[job_id] = job
     return {
         "available": True,
         "job_id": job_id,
@@ -1054,11 +1099,8 @@ def _browser_sync(request: BrowserRequest) -> dict:
 async def browser_check(request: BrowserRequest) -> dict:
     _check_target(request.target)
     _identity(request.identity)
-    _cleanup()
-    async with _semaphore:
-        result = await asyncio.to_thread(_context_operation, request.context_id, request.target,
-                                        lambda ctx: _observed_action(ctx, request.identity, lambda: _browser_sync(request)))
-    return _register_observation(result, "browser")
+    request.path = _check_path(request.path)
+    return await _registered_job(request, "browser", _browser_sync)
 
 
 if __name__ == "__main__":

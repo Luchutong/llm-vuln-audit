@@ -217,8 +217,8 @@ class PocVerifier:
                     summary["inconclusive"] += 1
                     if claim.get("runner_job_id"):
                         recoveries.append(claim)
-        # The runner has no idempotent submission protocol. A known prior job can
-        # be inspected, never resubmitted or converted into verified by inference.
+        # Interrupted verification only inspects its known original job; it never
+        # resumes execution, resubmits side effects or infers a verified verdict.
         if recoveries and self._allowed(run_id, epoch):
             recovery_client = self._make_client(policy)
             try:

@@ -169,3 +169,19 @@ def test_two_jobs_with_same_artifact_name_keep_separate_bytes():
         assert data.artifacts == {"1-out.txt": b"1 bytes", "2-out.txt": b"2 bytes"}
         assert data.jobs[0]["artifacts"][0]["name"] == "1-out.txt"
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('changes', [
+    {'exit_code': None}, {'exit_code': 1},
+    {'result': {'available': True, 'status': 'failed', 'dialogs': ['attack'], 'body_text': 'normal'}},
+    {'result': {'available': True, 'status': 'finished', 'timed_out': True, 'dialogs': ['attack'], 'body_text': 'normal'}},
+])
+def test_browser_output_never_promotes_failed_or_unknown_execution(changes):
+    browser = job(kind='browser', result={'available': True, 'status': 'finished',
+                                          'dialogs': ['attack'], 'body_text': 'normal'})
+    browser.update(changes)
+    checked = host_check(verdict(
+        normal_evidence=[{'job_id': 'good', 'channel': 'body_text', 'excerpt': 'normal'}],
+        attack_evidence=[{'job_id': 'good', 'channel': 'dialogs', 'excerpt': 'attack'}],
+    ), deps([browser]))
+    assert checked.status == 'inconclusive'

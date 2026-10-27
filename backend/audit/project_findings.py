@@ -110,6 +110,31 @@ def pick_merge_candidate(finding: dict, candidates: list[dict]) -> dict | None:
     return scored[0][1]
 
 
+def exact_run_identity(finding: dict) -> str | None:
+    """Conservative identity for duplicate claims, not a fuzzy ledger merge.
+
+    Distinct preconditions, flows, evidence or rating proposals remain separate
+    claims for the Planner to judge. Never use benchmark truth or report wording
+    to silently improve precision.
+    """
+    cause = canonical_vulnerability_type(finding.get("vulnerability_type"))
+    location = finding.get("primary_location") or {}
+    if (cause in {"", "unknown", "other"} or not isinstance(location, dict)
+            or not isinstance(location.get("path"), str) or type(location.get("line")) is not int
+            or location["line"] < 1 or not str(finding.get("dangerous_operation") or "").strip()):
+        return None
+    evidence = sorted((str(ref.get("path") or ""), ref.get("start_line"), ref.get("end_line"))
+                      for ref in _evidence(finding.get("evidence")) if isinstance(ref, dict))
+    identity = {"cause": cause, "location": location, "evidence": evidence,
+                "preconditions": finding.get("preconditions") or [], "poc": finding.get("poc"),
+                "cvss": finding.get("cvss"),
+                # Keep case, quoted whitespace and the full operation. The fuzzy
+                # ledger normalizer's 200-character cap is unsafe for exact identity.
+                **{key: str(finding.get(key) or "").strip() for key in
+                   ("dangerous_operation", "input_source", "propagation", "protection")}}
+    return hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
 def _evidence(value: object) -> list:
     """Evidence is a list in a run finding and a JSON string in a ledger row."""
     if isinstance(value, str):

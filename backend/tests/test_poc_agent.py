@@ -57,7 +57,7 @@ class FakeClient:
     async def health(self):
         if not self.health_ok:
             raise PocRunnerUnavailable("runner down")
-        return {"ok": True, "capabilities": {"php": True, "python": True, "browser": self.browser, "verification_contexts": True}}
+        return {"ok": True, "capabilities": {"php": True, "python": True, "browser": self.browser, "verification_contexts": True, "identity_preconditions": True, "idempotent_jobs": True, "idempotent_http_jobs": True, "idempotent_browser_jobs": True}}
 
     async def create_context(self, *, target="lab30", run_id, finding_id, context_id=None):
         self.context_id = context_id or "test-context"
@@ -808,3 +808,24 @@ def test_http_only_observation_cannot_support_verified(monkeypatch):
     assert "缺少成功作业支撑" in result.evidence_notes
     # The single-request observation is kept as diagnostic evidence, never as proof.
     assert deps_.observations and deps_.observations[0]["followed_redirects"] is False
+
+
+def test_outdated_runner_disables_auto_poc_without_rewriting_static_findings(tmp_path, monkeypatch):
+    class OldRunner(FakeClient):
+        async def health(self):
+            health = await super().health()
+            health['capabilities'].pop('idempotent_http_jobs')
+            return health
+
+    async def forbidden(**kwargs):
+        raise AssertionError('an outdated runner must never receive a new experiment')
+
+    monkeypatch.setattr(poc, 'run_poc_agent', forbidden)
+    store, bus = FakeStore(), FakeBus()
+    original = dict(FINDING)
+    result = asyncio.run(make_verifier(tmp_path, store, bus, OldRunner()).verify_standing(
+        'run-1', [FINDING], {}, model_config=CONFIG))
+    assert result['environment_unavailable'] == 1
+    assert store.records == [] and store.jobs == [] and FINDING == original
+    assert 'poc_verification_skipped' in bus.kinds()
+    assert any(payload.get('reason') == 'runner_upgrade_required' for _, _, payload in bus.events)

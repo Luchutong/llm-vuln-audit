@@ -151,6 +151,40 @@ test('an early POC execution stop and a failed conclusion are shown to the reade
   assert.match(text, /没有提交可校验的 final_answer/);
 });
 
+test('POC job kinds, identities and shared quotas remain distinct from execution and verification', () => {
+  const context = { role: 'poc', context_id: 'context-for-bob', identity: 'bob', jobs_used: 8, max_jobs: 8, jobs_remaining: 0 };
+  const items = messages(projectActivity([
+    event(1, 'poc_job_started', { ...context, job_kind: 'http' }),
+    event(2, 'poc_job_finished', { ...context, job_kind: 'http', http_status: 403, exit_code: 0, duration_ms: 120 }),
+    event(3, 'poc_job_started', { ...context, job_kind: 'browser' }),
+    event(4, 'poc_job_rejected', { ...context, job_kind: 'browser', reason: 'job_limit' }),
+    event(5, 'poc_job_finished', { ...context, job_kind: 'script', language: 'python', exit_code: 2 }),
+  ], detail('completed')));
+  assert.match(items[0].text, /开始执行 HTTP 请求/);
+  assert.doesNotMatch(items[0].text, /脚本/);
+  assert.match(items[0].secondary, /身份：Bob.*共享作业配额 8\/8，剩余 0.*context-for-bob/);
+  assert.match(items[1].text, /HTTP 请求执行完成.*HTTP 403.*退出码 0/);
+  assert.doesNotMatch(items[1].text, /已验证|漏洞成立/);
+  assert.match(items[2].text, /浏览器检查/);
+  assert.equal(items[3].title, 'POC 作业未提交');
+  assert.match(items[3].text, /浏览器检查未提交.*共享作业额度已用尽/);
+  assert.equal(items[3].tone, 'warning');
+  assert.match(items[4].text, /python 脚本执行失败.*退出码 2/);
+});
+
+test('unresolved job submissions retain reserved quota while legacy jobs never invent a script type or budget', () => {
+  const items = messages(projectActivity([
+    event(1, 'poc_job_finished', { role: 'poc', job_kind: 'http', status: 'unknown', reason: 'submission_unresolved', jobs_used: 1, max_jobs: 8, jobs_remaining: 7 }),
+    event(2, 'poc_job_started', { role: 'poc' }),
+    event(3, 'poc_job_started', { role: 'poc', language: 'python' }),
+  ], detail('completed')));
+  assert.match(items[0].secondary, /共享作业配额 1\/8.*保留已占额度/);
+  assert.equal(items[0].tone, 'warning');
+  assert.equal(items[1].text, '隔离 runner 开始执行 作业');
+  assert.equal(items[1].secondary, undefined);
+  assert.match(items[2].text, /python 脚本/);
+});
+
 test('pagination retains a long-running older tool alongside the latest public activity', () => {
   const events = [tool(1, 'tool_call')];
   for (let index = 2; index < 70; index++) {

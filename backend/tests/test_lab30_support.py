@@ -85,7 +85,7 @@ def test_required_run_freezes_lab30_target_without_contacting_models(state):
     ensure_project(state.store, snapshot)
     state.settings.poc = PocSettings(runner_url='http://test-runner')
     class Client:
-        async def health(self): return {'ok':True, 'supported_targets':['lab30'], 'capabilities':{'verification_contexts':True}}
+        async def health(self): return {'ok':True, 'supported_targets':['lab30'], 'capabilities':{name: True for name in ('verification_contexts', 'identity_preconditions', 'idempotent_jobs', 'idempotent_http_jobs', 'idempotent_browser_jobs')}}
         async def aclose(self): pass
     state.poc_readiness = PocReadinessService(state.settings, client_factory=Client)
     result = asyncio.run(app_module.create_run(_request(state), CreateRunRequest(

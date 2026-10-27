@@ -48,6 +48,12 @@ from .schemas import (
     UnitVerdicts,
 )
 from .source import SourceRepository
+from .verification_context import (
+    projection as verification_projection, list_page as verification_list_page,
+    read_chunk as verification_read_chunk, detail_record as verification_detail_record,
+    field_key as verification_field_key, field_text as verification_field_text,
+    read_complete as verification_read_complete,
+)
 from .worker_strategies import (
     canonical_vulnerability_type, freeze_worker_strategy, validate_primary_location,
     worker_host_contract, worker_poc_requirement,
@@ -487,6 +493,7 @@ class PlannerDeps:
     run_id: str = ""
     plan_id: str = ""
     context_reader: Callable[[], dict] | None = None
+    verification_reads: dict[tuple, list[tuple[int, int]]] = field(default_factory=dict)
 
     def _overview(self) -> dict:
         if self.planning_overview is None:
@@ -706,7 +713,7 @@ class PlannerDeps:
         status = "ok"
         failure = None
         cached = False
-        dynamic = name in {"get_task_results", "get_coverage"}
+        dynamic = name in {"get_task_results", "get_coverage", "list_verifications", "read_verification"}
         json_output = next(item for item in PLANNER_TOOLS if item.name == name).output_format == "json" if name in {item.name for item in PLANNER_TOOLS} else False
         if key in self.calls and not dynamic:
             self.repeats += 1
@@ -794,6 +801,8 @@ class PlannerDeps:
             "search_project_map": self._tool_project_search,
             "get_task_results": self._tool_task_results,
             "get_coverage": self._tool_coverage,
+            "list_verifications": self._tool_verifications,
+            "read_verification": self._tool_verification,
             "get_investigation": self._tool_investigation,
             "investigate_project": self._investigate,
             "read_source": self._read_source,
@@ -824,13 +833,57 @@ class PlannerDeps:
         return _planner_json(_planner_task_results(self.run_context), limit=12 * 1024)
 
     async def _tool_coverage(self, args: dict) -> str:
-        """The same host-computed block the prompt carries, available on demand.
+        """Return actual read coverage plus a bounded page of durable closure gaps."""
+        result = json.loads(_planner_json(_planner_coverage(self.run_context), limit=6 * 1024))
+        review = self.run_context.get("coverage_review")
+        if isinstance(review, dict):
+            cursor = int(args.get("cursor") or 0)
+            limit = min(40, int(args.get("limit") or 20))
+            paths = list(review.get("pending_paths") or [])
+            page = paths[cursor:cursor + limit]
+            result["coverage_review"] = {
+                key: review[key] for key in ("version", "total", "pending_total", "complete") if key in review
+            }
+            result["coverage_review"].update({
+                "pending_paths": page, "cursor": cursor,
+                "next_cursor": cursor + len(page) if cursor + len(page) < len(paths) else None,
+            })
+            while _situation_bytes(result) > 8 * 1024 and page:
+                page.pop()
+                result["coverage_review"]["next_cursor"] = cursor + len(page)
+            if not page and cursor < len(paths):
+                raise ValueError("单条覆盖缺口路径超过查询容量；宿主保留原路径，不能截损标识")
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
 
-        Prefetched rather than tool-fetched is the design (see ``planner_pinned_bytes``);
-        this exists so a Planner that wants the numbers again mid-round does not have to
-        reconstruct them from a summary.
-        """
-        return _planner_json(_planner_coverage(self.run_context), limit=8 * 1024)
+    async def _tool_verifications(self, args: dict) -> str:
+        value = verification_list_page(self.run_context, **args)
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    async def _tool_verification(self, args: dict) -> str:
+        value, read = verification_read_chunk(self.run_context, **args)
+        text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        if len(text.encode()) > 8 * 1024:
+            raise ValueError("验证元数据超过读取容量；宿主保留原记录，不能裁损标识")
+        if read is not None:
+            self.verification_reads.setdefault(read["key"], []).append((read["start"], read["end"]))
+        return text
+
+    def validate_verification_reads(self, reviews: list, context: dict) -> None:
+        """An observation omitted from the situation has to be explicitly retrieved."""
+        for review in reviews:
+            value = review.model_dump() if hasattr(review, "model_dump") else review
+            record = verification_detail_record(context, str(value.get("verification_id") or ""))
+            if (str(record.get("finding_id") or "") != str(value.get("finding_id") or "")
+                    or int(record.get("revision") or 1) != int(value.get("revision") or 0)):
+                raise ValueError("verification_reviews 的 finding/revision 与当前验证不符；请刷新列表并重新读取")
+            for name in ("normal_observation", "attack_observation"):
+                text, _ = verification_field_text(record, name)
+                intervals = self.verification_reads.get(verification_field_key(record, name), [])
+                if not verification_read_complete(intervals, len(text)):
+                    raise ValueError(
+                        f"verification_reviews 尚未完整读取 {value.get('verification_id')} 的 {name}；"
+                        "请用 read_verification 从 offset=0 按 next_offset 读取至 null，或保留该条未决"
+                    )
 
     async def _tool_investigation(self, args: dict) -> str:
         """Fetch one pinned investigation in full, by ``topic_key`` or by 1-based position.
@@ -1311,7 +1364,7 @@ def _planner_situation(run_context: dict) -> dict:
     # The per-finding verification detail (observations, verdict, notes) the run bundle and
     # the Planner both read.  Kept alongside the review lists below: this is the material a
     # round reads, those are the attestations it owes.
-    verification_records = run_context.get("verification_records") or []
+    verification_records = run_context.get("verification_details") or run_context.get("verification_records") or []
     pending_reviews = [
         item for item in (run_context.get("verification_reviews_required") or [])
         if isinstance(item, dict)
@@ -1328,6 +1381,10 @@ def _planner_situation(run_context: dict) -> dict:
         "observations": len(observations),
         "pinned_investigations": int(investigations.get("total") or 0),
         "project_findings": len(project_findings),
+        "verification_records": len(verification_records),
+        "verification_reviews_required": len(pending_reviews),
+        "verification_reviews": len(received_reviews),
+        "duplicate_candidates": len(run_context.get("duplicate_candidates") or []),
     }
     for state in ("pending", "ready", "running", "blocked", "deferred", "exhausted"):
         counts[state] = sum(str(item.get("state")) == state for item in tasks)
@@ -1362,7 +1419,8 @@ def _planner_situation(run_context: dict) -> dict:
     closure_review = bool(standing or standing_project) and not counts["blocked"] and all(
         str(item.get("state")) in {"pending", "ready"} for item in frontier
     )
-    if closure_review:
+    completion_policy = str(run_context.get("completion_policy") or "goal")
+    if closure_review and completion_policy == "goal":
         notice += (
             " 本轮是收束前复核：已有通过证据校验且未被撤回的结论（见 findings），前沿里没有正在执行的方向。"
             "这些结论成立就直接用 goal_state=met 收束；某一条站不住就先用 updates 的 reopen/retract/duplicate 更正它；"
@@ -1375,6 +1433,16 @@ def _planner_situation(run_context: dict) -> dict:
             "有误（应 retract/duplicate），观测正常却判定失败则说明验证不充分（标注 limitations 或 reopen 重新取证）；"
             "inconclusive / environment_unavailable 一律不得作为收束依据。"
         )
+    if completion_policy == "coverage_review":
+        notice += (
+            " 本运行采用 coverage_review：已有漏洞不代表全源码限时审计完成。"
+            "有 pending/ready/running/deferred 可执行方向时不得用 met 取消剩余工作；"
+            "前沿为空先核对 coverage_review.pending_paths。对未处理第一方模块和入口派发具体任务，"
+            "或以 coverage_review=[{path,action:'skip',reason:'具体依据'}] 明确跳过。"
+            "宿主校验路径与任务关联；静态资源不能自动代表服务端源码已审计。"
+            "确认确无可执行新方向后才可提前结束；受阻无法继续需写未覆盖方向，不能声称完整完成。"
+            "本轮没有更改不等于目标完成，仍受宿主全量待办、覆盖缺口和验证复核门禁约束。"
+        )
     if project_findings:
         notice += (
             " project_findings 是本项目跨对话的漏洞台账（已由宿主按源码锚点合并去重），"
@@ -1383,14 +1451,22 @@ def _planner_situation(run_context: dict) -> dict:
             "并写明理由；reopen 之后仍需一个任务去重新取证。verification_status 为 verified 且 disposition 为 open "
             "的条目已由 POC 验证成立，可以作为收束依据，但仍须在本轮复核里被确认。"
         )
+    if run_context.get("duplicate_candidates"):
+        notice += (
+            " duplicate_candidates 仅是待判断线索，不是自动判重结论。只有身份、根因、适用条件及危险操作"
+            "一致才用 duplicate；仅同文件或同类型不能合并，不同前提或根因需保留。"
+        )
     if pending_reviews:
         notice += (
-            f" 本轮必须比对核实 {len(pending_reviews)} 条已验证结论（见 verification_reviews_required）："
-            "逐条读宿主记录的 normal_observation 与 attack_observation，判断它们是否真的支撑该结论，"
+            f" 共有 {len(pending_reviews)} 条已验证结论待复核；本轮最多处理已显示的小批次（verification_reviews_required），"
+            "其余由后续回合处理，未展示不等于已复核。态势仅有摘要，不包含完整观测；"
+            "先用 read_verification 按 verification_id 完整读取 normal_observation 和 attack_observation，"
+            "判断它们是否真的支撑该结论，"
             "并用 verification_reviews 明确表态："
             '{"finding_id": "…", "revision": 1, "verification_id": "…", "decision": "confirmed|contested", '
             '"rationale_summary": "对观测的具体判读"}。'
-            "revision 与 verification_id 必须与态势一致；漏答这条结论时宿主不会以它收束。"
+            "revision 与 verification_id 必须与态势一致；不得声称读过未取回的观测。"
+            "本轮漏答的结论继续待复核，宿主基于完整待复核集合把关。"
             "contested 只表示你的判读不成立，要真正撤回仍须用 updates 的 retract/reopen。"
         )
     if stale:
@@ -1413,18 +1489,32 @@ def _planner_situation(run_context: dict) -> dict:
         "project": project,
         "project_findings": project_findings,
         "verification_summary": verification_summary,
+        "completion_policy": completion_policy,
+        "coverage_review": {
+            **{key: (run_context.get("coverage_review") or {}).get(key)
+               for key in ("version", "total", "pending_total", "complete")
+               if key in (run_context.get("coverage_review") or {})},
+            "pending_paths": list((run_context.get("coverage_review") or {}).get("pending_paths") or [])[:4],
+            "read_tool": "get_coverage",
+        },
         "verification_records": verification_records,
         # Two lists, deliberately separate: what the host still needs cross-checked, and
         # what earlier rounds already cross-checked.  A round that only sees the second
         # cannot tell whether its own work is done.
         "verification_reviews_required": pending_reviews,
         "verification_reviews": received_reviews,
+        "duplicate_candidates": [
+            {"finding_id": item.get("finding_id"), "candidate_ids": list(item.get("candidate_ids") or []),
+             "reason": _planner_text(item.get("reason"), 160)}
+            for item in (run_context.get("duplicate_candidates") or [])[:4] if isinstance(item, dict)
+        ],
         "observations": observations,
         "pinned_investigations": investigations,
         "counts": counts,
         "closure_checks": {
             "active_tasks": len(frontier), "blocked_tasks": counts["blocked"],
             "has_standing_findings": bool(standing or standing_project),
+            "unreviewed_verifications": len(pending_reviews),
             "all_dispatched_tasks_settled": not frontier and not counts["blocked"],
         },
         # Stated as a field as well as in the notice: the round after this one does not exist
@@ -1469,9 +1559,11 @@ def _bound_situation(situation: dict, *, limit: int = 16 * 1024) -> dict:
     raw-prefix wrapper, which would erase the difference between absent and omitted.
     """
     bounded = dict(situation)
-    names = ("settled", "findings", "observations", "project_findings")
+    bounded.update(verification_projection(situation))
+    names = ("settled", "findings", "observations", "project_findings", "verification_records",
+             "verification_reviews_required", "verification_reviews", "duplicate_candidates")
     for name in names:
-        bounded[name] = list(situation.get(name) or [])
+        bounded[name] = list(bounded.get(name) or [])
     pins = dict(situation.get("pinned_investigations") or {})
     recent = list(pins.get("recent") or [])
     pins["recent"] = [
@@ -1488,12 +1580,17 @@ def _bound_situation(situation: dict, *, limit: int = 16 * 1024) -> dict:
         {key: item.get(key) for key in ("task_key", "state", "error", "dependencies", "missing_context") if key in item}
         for item in blockers
     ]
-    totals = {name: len(bounded[name]) for name in names}
+    totals = {name: len(situation.get(name) or []) for name in names}
+    totals["duplicate_candidates"] = int((situation.get("counts") or {}).get("duplicate_candidates")
+                                         or totals["duplicate_candidates"])
+    omitted = {name: totals[name] - len(bounded[name]) for name in names
+               if totals[name] != len(bounded[name])}
+    if omitted:
+        bounded["omitted"] = dict(omitted)
     totals["pinned_investigations"] = len(pins["recent"])
     lists = {name: bounded[name] for name in names}
     lists["pinned_investigations"] = pins["recent"]
     original_notice = str(bounded.get("notice") or "")
-    omitted = {}
     while _situation_bytes(bounded) > limit and any(lists.values()):
         candidates = [name for name, values in lists.items() if values]
         name = max(candidates, key=lambda value: _situation_bytes({value: lists[value]}))
@@ -1507,7 +1604,8 @@ def _bound_situation(situation: dict, *, limit: int = 16 * 1024) -> dict:
         bounded["notice"] = (
             _planner_text(original_notice, 1000)
             + " 为控制体积省去了部分历史详情；counts 与 closure_checks 是完整事实。"
-              "阻塞方向不能视为安全；需要明细请用 get_task_results 或 get_investigation。"
+              "阻塞方向不能视为安全；任务详情用 get_task_results，调查用 get_investigation，"
+              "验证用 list_verifications/read_verification；摘要不是完整观测。"
         )
     if _situation_bytes(bounded) > limit:
         # Large live frontiers still retain every key/state before any pagination.
@@ -1587,10 +1685,11 @@ def _planner_task_results(run_context: dict, *, limit: int = 12 * 1024) -> dict:
         "tasks": tasks,
         "findings": findings,
         "observations": _planner_observations(run_context),
+        "duplicate_candidates": list(run_context.get("duplicate_candidates") or [])[:20],
         "plans": plans,
         "notice": "worker 摘要和 observations 是已持久化的排查线索，不能作为漏洞达标依据；任务自己的 finding 仍须引用 worker 已读源码。",
     }
-    omitted = _trim_lists(history, ("tasks", "findings", "observations", "plans"), limit)
+    omitted = _trim_lists(history, ("tasks", "findings", "observations", "plans", "duplicate_candidates"), limit)
     if any(omitted.values()):
         history["omitted"] = omitted
         history["notice"] += (
@@ -2923,6 +3022,10 @@ def _validate_planner_decision(
             on_sanitize(note)
 
     files, directory_files = _frozen_scope(project_map)
+    for item in getattr(decision, "coverage_review", []):
+        item.path = _frozen_path(item.path)
+        if item.path not in files:
+            raise ModelRetry(f"coverage_review 必须逐文件引用冻结项目图中的路径，不能使用目录或范围外路径：{item.path}")
     prior_by_key = {str(item.get("task_key")): item for item in prior_tasks if item.get("task_key")}
     findings_by_id = {
         str(item.get("id")): item
@@ -3092,7 +3195,8 @@ def _validate_planner_decision(
         item for item in prior_tasks
         if str(item.get("state") or "") in {"pending", "ready", "running"}
     ]
-    if decision.goal_state == "continue" and not decision.tasks and not decision.updates and not frontier_open:
+    if (decision.goal_state == "continue" and not decision.tasks and not decision.updates and not frontier_open
+            and not decision.verification_reviews and not getattr(decision, "coverage_review", [])):
         raise ModelRetry(
             "目标仍未达成而前沿为空（没有 pending/ready/running 任务），本轮必须给出至少一个新任务；"
             "若无可派方向且仍有阻塞，请用 goal_state=inconclusive；无阻塞时才可用 unreachable"
@@ -3145,52 +3249,81 @@ async def plan_audit_frontier(
     }
     execution = Execution(planner_budgets, policy, emit, agent_invocation_id=agent_invocation_id or uuid.uuid4().hex)
     emit = execution.emit
-    planning_overview = _planner_project_overview(
-        project_map,
-        objective=str(task.get("objective") or ""),
-        success_criteria=str(task.get("success_criteria") or ""),
-    )
-    # Computed once per round from the host's own records and reused for the prompt,
-    # the event and the tool that hands it back on demand.
-    coverage = _planner_coverage(run_context)
-    situation = _planner_situation(run_context)
-    # Bounded once and reused for the prompt and the event, so what a reviewer reads is
-    # byte-for-byte what the round was handed.
-    situation_block = _bound_situation(situation, limit=policy.planner_pinned_bytes)
-    deps = PlannerDeps(
-        project_map=project_map,
-        run_context=run_context,
-        execution=execution,
-        planning_overview=planning_overview,
-        repository=repository,
-        snapshot_id=snapshot_id,
-        allowed_paths=allowed_paths,
-        config=config,
-        budgets=planner_budgets,
-        policy=policy,
-        task=task,
-        round_no=round_no,
-        pins=pins,
-        run_id=run_id,
-        plan_id=plan_id,
-        context_reader=context_reader,
-    )
-    if repository is not None:
-        # The Planner reads like a worker and reports like a worker, but its ledger is its
-        # own and stays out of every finding: a window the Planner read is still only a
-        # reading instruction until a worker reads the same lines.
-        planner_ledger = SourceLedger(policy.planner_source_bytes)
-        deps.reader = AuditDeps(
+    preparation_stage = "planner_context"
+    try:
+        run_context = {**run_context, "completion_policy": str(
+            run_context.get("completion_policy") or task.get("completion_policy") or "goal"
+        )}
+        planning_overview = _planner_project_overview(
+            project_map,
+            objective=str(task.get("objective") or ""),
+            success_criteria=str(task.get("success_criteria") or ""),
+        )
+        # Computed once per round from the host's own records and reused for the prompt,
+        # the event and the tool that hands it back on demand.
+        preparation_stage = "coverage_projection"
+        coverage = _planner_coverage(run_context)
+        preparation_stage = "situation_projection"
+        situation = _planner_situation(run_context)
+        # Bounded once and reused for the prompt and the event, so what a reviewer reads is
+        # byte-for-byte what the round was handed.
+        preparation_stage = "situation_budget"
+        situation_block = _bound_situation(situation, limit=policy.planner_pinned_bytes)
+        preparation_stage = "context_serialization"
+        planning_overview_text = _planner_json(planning_overview, limit=12 * 1024)
+        coverage_text = _planner_json(coverage, limit=8 * 1024)
+        situation_text = json.dumps(situation_block, ensure_ascii=False, separators=(",", ":"))
+        preparation_stage = "tool_context"
+        deps = PlannerDeps(
+            project_map=project_map,
+            run_context=run_context,
+            execution=execution,
+            planning_overview=planning_overview,
             repository=repository,
             snapshot_id=snapshot_id,
-            unit={"file_path": ""},
-            execution=execution,
-            ledger=planner_ledger,
-            allowed_paths=frozenset(allowed_paths) if allowed_paths is not None else None,
-            call_prefix="planner-tool",
-            search_limit=policy.planner_search_limit,
+            allowed_paths=allowed_paths,
+            config=config,
+            budgets=planner_budgets,
+            policy=policy,
+            task=task,
+            round_no=round_no,
+            pins=pins,
+            run_id=run_id,
+            plan_id=plan_id,
+            context_reader=context_reader,
         )
-        deps.index = ProjectIndex.from_map(project_map, repository, snapshot_id)
+        if repository is not None:
+            # The Planner reads like a worker and reports like a worker, but its ledger is its
+            # own and stays out of every finding: a window the Planner read is still only a
+            # reading instruction until a worker reads the same lines.
+            planner_ledger = SourceLedger(policy.planner_source_bytes)
+            deps.reader = AuditDeps(
+                repository=repository,
+                snapshot_id=snapshot_id,
+                unit={"file_path": ""},
+                execution=execution,
+                ledger=planner_ledger,
+                allowed_paths=frozenset(allowed_paths) if allowed_paths is not None else None,
+                call_prefix="planner-tool",
+                search_limit=policy.planner_search_limit,
+            )
+            deps.index = ProjectIndex.from_map(project_map, repository, snapshot_id)
+    except Exception as exc:
+        byte_diagnostics = {}
+        for name, value in run_context.items():
+            try:
+                byte_diagnostics[name] = len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
+            except (TypeError, ValueError, RecursionError):
+                byte_diagnostics[name] = None
+        failure = f"{type(exc).__name__}: {config.redact(exc)[:240]}"
+        emit({"kind": "planner_context_error", "round": round_no, "stage": preparation_stage,
+              "error_type": type(exc).__name__, "error": failure,
+              "field_bytes": byte_diagnostics, "ceiling_bytes": policy.planner_pinned_bytes,
+              "usage": execution.snapshot()})
+        emit({"kind": "planner_agent_terminal", "round": round_no, "reason": "planner_context_error",
+              "error": failure, "usage": execution.snapshot()})
+        return {"decision": None, "usage": execution.snapshot(), "error": failure,
+                "status": None, "terminal_reason": "planner_context_error"}
     # One client and one agent for the whole round, both created at the first phase that
     # actually runs: a round whose exploration is skipped has nothing to build them for.
     model = None
@@ -3235,6 +3368,27 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
 
 当概览不足以判断这个项目该从哪里读起（陌生目录布局、非 PHP 技术栈、没有明显的入口候选）时，你可以调用 investigate_project 让侦察子 agent 去项目里确认。它返回的是**导航线索**：布局、入口候选、数据存储、安全边界和首批阅读目标。它不是证据——引用其中的任何路径或行号，仍必须由 worker 真正读取原始行之后才算数。二进制文件只登记、不可读取。侦察有自己的预算，会把本回合的墙钟时间用掉一部分，所以问题要具体，不要用它代替规划。每回合的**新**侦察问题有次数上限，但同一个问题不会重跑：结果一旦固定，之后每次问都直接返回那份简报，不占额度。"""
 
+    if run_context.get("completion_policy") == "coverage_review":
+        instruction = instruction.replace(
+            "已存在证据化 finding 时可建议 met，但宿主仍会校验。",
+            "已存在 finding 仍须继续未结算方向；只有完成宿主覆盖缺口复核后才可建议 met。",
+        )
+        start = instruction.index("**收束前你会被叫回来复核一次。**")
+        end = instruction.index("\n\n主机已经提供结构化项目概览", start)
+        instruction = instruction[:start] + (
+            "**本运行采用全源码范围限时覆盖复核。** 已发现漏洞不能取消 pending/ready/running/deferred 方向。"
+            "前沿为空时读取宿主 coverage_review.pending_paths（get_coverage 可翻页）；"
+            "对未处理第一方源码入口与模块派发具体任务，或通过 coverage_review 字段按 path 给出 skip 及理由。"
+            "前沿确无可执行新方向、覆盖缺口已处理且验证复核已完成后，才可提前结束。"
+            "无法解除的阻塞应列为未覆盖方向，不能声称完整完成；不发空调用耗满预算。"
+            "本轮没有更改不代表完成，所有收束由宿主核验。"
+        ) + instruction[end:]
+    instruction += (
+        "\n验证记录只预载少量摘要。list_verifications 提供当前运行的分页列表，"
+        "read_verification 先列字段，再按 next_offset 分段完整读取观测。"
+        "normal_observation 与 attack_observation 未完整读取时不能提交 verification_reviews。"
+        "只复核本轮已读取的小批次，其余保留到后续回合；摘要缺失不等于不存在。"
+    )
     instruction += _scenario_constraint(task.get("scenario"))
 
     try:
@@ -3251,6 +3405,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 """
                 pending: list[dict] = []
                 dropped_report = False
+                if value.verification_reviews:
+                    current_context = context_reader() if context_reader is not None else run_context
+                    deps.validate_verification_reads(value.verification_reviews, current_context)
                 # Only a closure review or a terminal proposal writes the report's prose.
                 # Anywhere else it is silently dropped: refusing the round over a field the
                 # host never needed would spend the run's one correction on bookkeeping.
@@ -3369,11 +3526,11 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     f"验收条件：{task.get('success_criteria', '')}\n"
                     f"当前 Planner 回合：{round_no}\n"
                     "\n# 主机生成的项目结构概览（不是源码证据）\n"
-                    + _planner_json(planning_overview, limit=12 * 1024)
+                    + planning_overview_text
                     + "\n# 本轮态势（宿主预取：前沿、已结算方向、已有结论、已固定调查；不是源码证据）\n"
-                    + _planner_json(situation_block, limit=policy.planner_pinned_bytes)
+                    + situation_text
                     + "\n# 覆盖统计（宿主计算，不是证据）\n"
-                    + _planner_json(coverage, limit=8 * 1024)
+                    + coverage_text
                 )
                 if deps.recon_briefs:
                     prompt += (
@@ -3444,7 +3601,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 "kind": "planner_overview_prepared",
                 "round": round_no,
                 "overview": planning_overview,
-                "overview_bytes": len(_planner_json(planning_overview, limit=12 * 1024).encode("utf-8")),
+                "overview_bytes": len(planning_overview_text.encode("utf-8")),
                 "usage": execution.snapshot(),
             })
             # Emitted next to the overview so a reviewer can check what the round was

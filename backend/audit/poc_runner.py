@@ -189,6 +189,14 @@ class PocRunnerClient:
             raise PocRunnerError("POC runner returned an unexpected response shape")
         return parsed
 
+    async def _job_submission(self, path: str, *, payload: dict, timeout: float) -> dict:
+        result = await self._json("POST", path, payload=payload, timeout=timeout)
+        if payload.get("job_id") and result.get("job_id") != payload["job_id"]:
+            raise PocRunnerError("POC runner did not preserve the host job id")
+        if payload.get("context_id") and result.get("context_id") != payload["context_id"]:
+            raise PocRunnerError("POC runner job belongs to another verification context")
+        return result
+
     # ---- target lifecycle -------------------------------------------------------
 
     async def health(self) -> dict:
@@ -240,8 +248,7 @@ class PocRunnerClient:
         if not isinstance(script, str) or not script.strip():
             raise PocRunnerError("empty POC script")
         seconds = max(1, min(120, int(timeout_seconds or 30)))
-        return await self._json(
-            "POST",
+        return await self._job_submission(
             "/v1/jobs",
             payload={
                 "target": name,
@@ -286,9 +293,9 @@ class PocRunnerClient:
         headers: dict[str, str] | None = None,
         context_id: str = "",
         identity: str = "alice",
+        job_id: str = "",
     ) -> dict:
-        return await self._json(
-            "POST",
+        return await self._job_submission(
             "/v1/http",
             payload={
                 "target": _target(target),
@@ -296,6 +303,7 @@ class PocRunnerClient:
                 "path": str(path or "/"),
                 "body": body or "",
                 "headers": dict(headers or {}),
+                "job_id": _segment(job_id, "job id") if job_id else "",
                 "context_id": context_id,
                 "identity": identity,
             },
@@ -311,15 +319,16 @@ class PocRunnerClient:
         wait_ms: int = 1000,
         context_id: str = "",
         identity: str = "alice",
+        job_id: str = "",
     ) -> dict:
-        return await self._json(
-            "POST",
+        return await self._job_submission(
             "/v1/browser/check",
             payload={
                 "target": _target(target),
                 "path": str(path or "/"),
                 "script": script or "",
                 "wait_ms": max(0, min(10000, int(wait_ms or 0))),
+                "job_id": _segment(job_id, "job id") if job_id else "",
                 "context_id": context_id,
                 "identity": identity,
             },

@@ -244,6 +244,9 @@ class TaskSpec(BaseModel):
     )
     max_workers: int = Field(default=2, ge=1, le=4, description="Concurrent source-analysis workers for this run")
     stop_on_achieved: bool = Field(default=True, description="Stop queued work once an evidence-backed result reaches the goal")
+    completion_policy: Literal["goal", "coverage_review"] = Field(
+        default="goal", description="Frozen closure policy; coverage_review requires settled work and an explicit review of unread source paths",
+    )
     require_poc: bool = Field(
         default=False,
         description="Require vulnerability findings to include manually reviewable POCs when enabled",
@@ -607,6 +610,15 @@ class ReportNarrative(BaseModel):
     no_evidence_task_ids: list[str] = Field(default_factory=list, description="Only completed tasks whose outcome is no_evidence, never blocked or unread paths")
 
 
+class PlannerCoverageReview(BaseModel):
+    """A deliberate, auditable exclusion of one frozen source path."""
+
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(strict=True, min_length=1, max_length=1024)
+    action: Literal["skip"] = "skip"
+    reason: str = Field(min_length=8, max_length=1200)
+
+
 class PlannerDecision(BaseModel):
     """Structured output of the sole intent-generating agent.
 
@@ -631,6 +643,7 @@ class PlannerDecision(BaseModel):
     # conclusion the host has not yet had cross-checked, because "the agent said verified"
     # and "someone else read the observations and agreed" are different levels of trust.
     verification_reviews: list[PlannerVerificationReview] = Field(default_factory=list, max_length=32)
+    coverage_review: list[PlannerCoverageReview] = Field(default_factory=list, max_length=128)
     # Accepted only on a closure review or a terminal proposal; the host discards it
     # elsewhere rather than sending the round back for a bookkeeping slip.
     report: ReportNarrative | None = None

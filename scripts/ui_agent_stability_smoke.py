@@ -40,7 +40,10 @@ def diagnostic_events():
             frame(11, "tool_result", role="poc", agent_invocation_id="poc-diagnostics", phase="poc_execute",
                   tool="run_poc", span_id="script-1", call_id="script-1", status="ok", exit_code=2, execution_status="failed", preview="script failed"),
             frame(12, "poc_job_finished", role="poc", phase="poc_execute", exit_code=2, duration_ms=24),
-            frame(13, "poc_http_observed", role="poc", phase="poc_execute", method="GET", path="/account/me.php", http_status=401)]
+            frame(13, "poc_http_observed", role="poc", phase="poc_execute", method="GET", path="/account/me.php", http_status=401),
+            frame(14, "poc_job_started", role="poc", phase="poc_execute", job_kind="http", context_id="context-bob", identity="bob", jobs_used=8, max_jobs=8, jobs_remaining=0),
+            frame(15, "poc_job_finished", role="poc", phase="poc_execute", job_kind="http", context_id="context-bob", identity="bob", jobs_used=8, max_jobs=8, jobs_remaining=0, http_status=403, exit_code=0, duration_ms=12),
+            frame(16, "poc_job_rejected", role="poc", phase="poc_execute", job_kind="browser", context_id="context-bob", identity="bob", jobs_used=8, max_jobs=8, jobs_remaining=0, reason="job_limit")]
 
 
 def run_checks(page, base, api, checks, screenshots):
@@ -67,6 +70,14 @@ def run_checks(page, base, api, checks, screenshots):
     invalid.get_by_role("tab", name="参数", exact=True).click()
     expect(invalid).to_contain_text('"start": true')
     checks.passed("call completion, failed script, HTTP status, actual arguments and correction hints remain distinct")
+    http_started = page.locator('.activity-message[data-event-kind="poc_job_started"]')
+    expect(http_started).to_contain_text("开始执行 HTTP 请求")
+    expect(http_started).to_contain_text("共享作业配额 8/8，剩余 0")
+    expect(http_started).to_contain_text("身份：Bob")
+    rejection = page.locator('.activity-message[data-event-kind="poc_job_rejected"]')
+    expect(rejection).to_contain_text("浏览器检查未提交")
+    expect(rejection).to_contain_text("共享作业额度已用尽")
+    checks.passed("HTTP and browser jobs retain type, identity and shared quota; rejected jobs remain visibly unsubmitted")
 
     dialog = open_logs(page)
     expect(dialog.locator(".agent-diagnostics")).to_contain_text("2 次异常请求 · 2 次已恢复")

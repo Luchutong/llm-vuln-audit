@@ -71,6 +71,22 @@ function text(value: unknown): string { return typeof value === 'string' ? value
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
+function pocJobName(payload: Record<string, unknown>): string {
+  const kind = text(payload.job_kind);
+  if (kind === 'http') return 'HTTP 请求';
+  if (kind === 'browser') return '浏览器检查';
+  if (kind === 'script' || text(payload.language)) return [text(payload.language), '脚本'].filter(Boolean).join(' ');
+  return '作业';
+}
+function pocJobContext(payload: Record<string, unknown>): string {
+  const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  const used = count(payload.jobs_used), max = count(payload.max_jobs), remaining = count(payload.jobs_remaining);
+  const identity = text(payload.identity);
+  const identityLabel = ({ guest: '访客', alice: 'Alice', bob: 'Bob', operator: '运营员', admin: '管理员' } as Record<string, string>)[identity] ?? identity;
+  return [identityLabel ? `身份：${identityLabel}` : '',
+    used != null && max != null ? `共享作业配额 ${used}/${max}${remaining == null ? '' : `，剩余 ${remaining}`}` : '',
+    text(payload.context_id) ? `上下文：${text(payload.context_id)}` : ''].filter(Boolean).join(' · ');
+}
 function summaryScope(entry: TraceEntry): string {
   const c = entry.context;
   return JSON.stringify([c.run, c.role === 'planner' ? 'planner' : 'task',
@@ -217,13 +233,21 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       secondary = text(payload.target) ? `目标：${text(payload.target)}` : '';
       tone = 'progress';
     } else if (kind === 'poc_job_started') {
-      message = `隔离 runner 开始执行 ${text(payload.language) || '脚本'}`; tone = 'progress';
+      message = `隔离 runner 开始执行 ${pocJobName(payload)}`; secondary = pocJobContext(payload); tone = 'progress';
     } else if (kind === 'poc_job_finished') {
       const exit = payload.exit_code;
       const seconds = Number(payload.duration_ms ?? 0) / 1000;
-      message = payload.timed_out === true ? 'runner 作业执行超时；本作业不能支撑确定性验证结论。' : typeof exit === 'number' ? `runner 作业${exit === 0 ? '执行完成' : '执行失败'} · 退出码 ${exit} · ${seconds.toFixed(1)}s`
-        : `runner 作业结束 · ${text(payload.status) || '状态未知'}`;
+      const job = pocJobName(payload);
+      const http = typeof payload.http_status === 'number' ? ` · HTTP ${payload.http_status}` : '';
+      message = payload.timed_out === true ? `runner ${job}执行超时；本作业不能支撑确定性验证结论。` : typeof exit === 'number' ? `runner ${job}${exit === 0 ? '执行完成' : '执行失败'}${http} · 退出码 ${exit} · ${seconds.toFixed(1)}s`
+        : `runner ${job}结束 · ${text(payload.status) || '状态未知'}${http}`;
+      secondary = [pocJobContext(payload), ['submission_unresolved', 'submission_cancelled'].includes(text(payload.reason))
+        ? '原作业状态未确认，保留已占额度并等待查询。' : ''].filter(Boolean).join(' · ');
       tone = exit === 0 && payload.timed_out !== true ? 'neutral' : 'warning';
+    } else if (kind === 'poc_job_rejected') {
+      title = 'POC 作业未提交';
+      message = `${pocJobName(payload)}未提交：${text(payload.reason) === 'job_limit' ? '本条发现的共享作业额度已用尽。' : text(payload.message) || text(payload.reason) || '提交被拒绝。'}`;
+      secondary = pocJobContext(payload); tone = 'warning';
     } else if (kind === 'poc_http_observed') {
       title = '靶场 HTTP 观测';
       message = `${text(payload.method) || 'GET'} ${text(payload.path) || '/'} · HTTP ${scalar(payload.http_status ?? payload.status) || '—'}`;

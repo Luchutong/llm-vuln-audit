@@ -23,7 +23,7 @@ READINESS_MESSAGES = {
     "unsupported_target": "当前自动验证环境仅支持 Lab30 商城靶场，该源码包不适用。",
     "runner_unconfigured": "尚未配置隔离 POC runner。",
     "runner_unhealthy": "隔离 POC runner 当前不可用。",
-    "runner_upgrade_required": "当前 POC runner 缺少验证会话隔离能力，请重建 poc-runner 后重试。",
+    "runner_upgrade_required": "当前 POC runner 缺少验证会话隔离或幂等作业能力，请重建 poc-runner 后重试。",
     "ready": "隔离 POC runner 已就绪。",
 }
 
@@ -66,7 +66,7 @@ class PocReadinessService:
             # Only booleans for known public capabilities cross the boundary.
             "capabilities": {"supported_targets": sorted(SUPPORTED_TARGETS), **{
                 name: bool((capabilities or {}).get(name, False)) and (name != "browser" or self.settings.poc.browser)
-                for name in ("php", "python", "browser", "verification_contexts")
+                for name in ("php", "python", "browser", "verification_contexts", "identity_preconditions", "idempotent_jobs", "idempotent_http_jobs", "idempotent_browser_jobs")
             }},
         }
 
@@ -121,7 +121,10 @@ class PocReadinessService:
             capabilities = health.get("capabilities")
             if not isinstance(capabilities, dict):
                 capabilities = {}
-            if capabilities.get("verification_contexts") is not True:
+            if any(capabilities.get(name) is not True for name in (
+                "verification_contexts", "identity_preconditions", "idempotent_jobs",
+                "idempotent_http_jobs", "idempotent_browser_jobs",
+            )):
                 return self._result("runner_upgrade_required", mode=mode, profile=profile, target=target, capabilities=capabilities)
             return self._result("ready", mode=mode, profile=profile, target=target, capabilities=capabilities)
         except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError, OSError, ValueError):

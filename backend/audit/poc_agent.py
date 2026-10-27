@@ -274,11 +274,17 @@ class PocDeps:
                     result.update(error_code=detail.get("error") or "precondition_failed",
                                   error=detail.get("message") or detail.get("precondition", {}).get("reason") or detail.get("error") or "实验前提不符",
                                   hint="核对身份和实验前提；必要时人工重置商城后重新检查。" if status == "precondition_failed" else "按工具声明修正后再调用。")
+                result.update(context_id=self.context_id, identity=args.get("identity", "alice"),
+                              jobs_used=len(self.jobs), max_jobs=self.max_jobs,
+                              jobs_remaining=max(0, self.max_jobs - len(self.jobs)))
                 if name in {"run_poc", "browser_check"} and detail.get("job_id"):
                     result.update(execution_status=("timeout" if detail.get("timed_out") else "success" if detail.get("exit_code") == 0 else "failed"),
                                   exit_code=detail.get("exit_code"), timed_out=bool(detail.get("timed_out")))
                 if name == "http_observe":
-                    result["http_status"] = detail.get("status")
+                    result["http_status"] = detail.get("status") if isinstance(detail.get("status"), int) else None
+                    if detail.get("job_id"):
+                        result.update(execution_status=detail.get("execution_status") or ("failed" if detail.get("error") else "success"),
+                                      exit_code=detail.get("exit_code"), timed_out=bool(detail.get("timed_out")))
             if error_type:
                 result["error_type"] = error_type
             result.update(failure)
@@ -327,26 +333,126 @@ class PocDeps:
             if change not in self.state_changes:
                 self.state_changes.append(change)
 
-    def _remember_failed_job(self, kind: str, result: dict, args: dict) -> None:
-        """Business refusals and failed browser jobs remain reviewable experiments."""
-        ident = str(result.get("job_id") or "")
-        if not ident or any(job.get("job_id") == ident for job in self.jobs):
-            return
+    def _job_error(self, args: dict, kind: str) -> dict | None:
+        """Reject local contract errors before reserving any remote experiment."""
+        identity = args.get("identity", "alice")
+        if not isinstance(identity, str) or identity not in {"guest", "alice", "bob", "operator", "admin"}:
+            return {"error": "invalid_identity", "message": "请选择已配置身份。"}
+        if kind in {"http", "browser"}:
+            path = args.get("path")
+            if (not isinstance(path, str) or not path.startswith("/") or path.startswith("//")
+                    or len(path) > 2048 or any(ord(char) < 32 for char in path)
+                    or any(item in path.partition("?")[0] for item in ("..", "\\", "\x00", "://"))):
+                return {"error": "invalid_path", "message": "path 必须是靶场内的绝对路径。"}
+        if kind == "http":
+            if not isinstance(args.get("method", "GET"), str) or args.get("method", "GET").upper() not in {"GET", "POST"}:
+                return {"error": "invalid_method", "message": "method 必须为 GET 或 POST。"}
+            for key in ("body", "content_type"):
+                if key in args and not isinstance(args[key], str):
+                    return {"error": "invalid_arguments", "message": f"{key} 必须为字符串。"}
+            if len(args.get("body", "")) > 256 * 1024:
+                return {"error": "body_too_large"}
+        elif kind == "browser":
+            wait = args.get("wait_ms", 1000)
+            if type(wait) is not int or not 0 <= wait <= 10000:
+                return {"error": "invalid_wait_ms"}
+            script = args.get("script", "")
+            if not isinstance(script, str) or len(script) > 8192:
+                return {"error": "invalid_script"}
+        else:
+            seconds = args.get("timeout_seconds", self.job_seconds)
+            if type(seconds) is not int or not 1 <= seconds <= 120:
+                return {"error": "invalid_timeout_seconds"}
+            artifacts = args.get("artifacts", [])
+            if (not isinstance(artifacts, list) or len(artifacts) > 8 or any(
+                not isinstance(item, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", item)
+                or item in {".", ".."} for item in artifacts)):
+                return {"error": "invalid_artifacts"}
+        return None
+
+    def _job_event(self, kind: str, record: dict, **fields) -> None:
+        if self.execution is not None:
+            self.execution.emit({
+                "kind": kind, "job_id": record["job_id"], "job_kind": record["kind"],
+                "context_id": record.get("context_id", self.context_id),
+                "identity": record.get("identity", "alice"),
+                "language": record.get("request", {}).get("language", ""),
+                "duration_ms": record.get("duration_ms", 0),
+                "timed_out": bool(record.get("result", {}).get("timed_out")),
+                "truncated": bool(record.get("result", {}).get("truncated")),
+                "jobs_used": len(self.jobs), "max_jobs": self.max_jobs,
+                "jobs_remaining": max(0, self.max_jobs - len(self.jobs)), **fields,
+            })
+
+    async def _submit_job(self, kind: str, args: dict, submit) -> tuple[dict, int]:
+        """Reserve a shared slot before I/O; accepted/failed/unknown all consume it."""
+        if self.submission_unresolved:
+            raise StopAudit("submission_unresolved", "上一作业执行状态未确认，只能查询原作业，不重复提交。")
+        if len(self.jobs) >= self.max_jobs:
+            record = {"job_id": "", "kind": kind, "context_id": self.context_id,
+                      "identity": args.get("identity", "alice")}
+            self._job_event("poc_job_rejected", record, status="rejected", reason="job_limit")
+            return {"error": "job_limit", "message": f"本 finding 最多执行 {self.max_jobs} 个作业", "jobs_used": len(self.jobs)}, -1
+        job_id = uuid.uuid4().hex
+        record = {"job_id": job_id, "kind": kind, "context_id": self.context_id,
+                  "identity": args.get("identity", "alice"), "request": dict(args),
+                  "result": {"status": "submitting"}, "exit_code": None}
+        index = len(self.jobs)
+        self.jobs.append(record)
         if self.on_job:
-            self.on_job(ident)
-        self.jobs.append({
-            "job_id": ident, "kind": kind, "context_id": result.get("context_id") or "",
-            "identity": args.get("identity", "alice"), "precondition": result.get("precondition") or {},
-            "postcondition": result.get("postcondition") or {}, "state_changes": result.get("state_changes") or [],
-            "request": dict(args), "result": dict(result), "exit_code": result.get("exit_code"),
-            "duration_ms": result.get("duration_ms", 0),
-        })
+            self.on_job(job_id)
+        self._job_event("poc_job_started", record, status="submitting")
+        try:
+            try:
+                result = await submit(job_id)
+            except (PocRunnerUnavailable, asyncio.TimeoutError):
+                # Submission may already execute. Never retry its side effects.
+                try:
+                    result = await asyncio.wait_for(self.client.get_job(job_id), timeout=5)
+                except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError):
+                    result = {"job_id": job_id, "status": "unknown", "exit_code": None}
+            if not isinstance(result, dict):
+                raise PocRunnerError("POC runner returned an unexpected job shape")
+            # The HTTP client enforces echoed ids and contexts at its protocol
+            # boundary; retain the reservation id when an injected client omits it.
+            result = {"job_id": job_id, "context_id": self.context_id, **result}
+            if result.get("context_id") != self.context_id:
+                raise PocRunnerError("POC runner job belongs to another verification context")
+            status = result.get("execution_status", result.get("status", "finished"))
+            if not isinstance(status, str):
+                status = "finished"
+            record.update(job_id=result["job_id"], host_job_id=job_id, result=dict(result),
+                          exit_code=result.get("exit_code"), duration_ms=result.get("duration_ms", 0),
+                          precondition=result.get("precondition") or {}, postcondition=result.get("postcondition") or {},
+                          state_changes=result.get("state_changes") or [])
+            self._remember_state(result)
+            if status in {"submitting", "running", "queued", "unknown", "unresolved"}:
+                self.submission_unresolved = True
+                self._job_event("poc_job_finished", record, status=status, reason="submission_unresolved")
+                raise StopAudit("submission_unresolved", "原作业执行状态未确认，保留未决结果，不重复执行。")
+            self._job_event("poc_job_finished", record, status=status, exit_code=result.get("exit_code"),
+                            reason=result.get("error") or "", http_status=result.get("http_status", result.get("status")) if kind == "http" else None)
+            return result, index
+        except asyncio.CancelledError:
+            self.submission_unresolved = True
+            record.update(result={"status": "unknown", "error": "submission_cancelled"}, exit_code=None)
+            self._job_event("poc_job_finished", record, status="unknown", reason="submission_cancelled")
+            raise
+        except PocRunnerError as exc:
+            # A malformed/oversized reply can arrive after the action executed.
+            # Only an explicit 4xx is a confirmed refusal; never retry unknown work.
+            confirmed_refusal = exc.status_code is not None and 400 <= exc.status_code < 500
+            status = "rejected" if confirmed_refusal else "unknown"
+            self.submission_unresolved = not confirmed_refusal
+            record.update(result={"status": status, "error": str(exc)[:400]}, exit_code=None)
+            self._job_event("poc_job_finished", record, status=status,
+                            reason="runner_rejected" if confirmed_refusal else "submission_unresolved")
+            raise
 
     async def _run_poc(self, args: dict) -> str:
-        if self.submission_unresolved:
-            raise StopAudit("submission_unresolved", "上一作业执行状态未确认，不重复提交脚本。")
-        if len(self.jobs) >= self.max_jobs:
-            return self._reply({"error": "job_limit", "message": f"本 finding 最多执行 {self.max_jobs} 个作业"})
+        error = self._job_error(args, "script")
+        if error:
+            return self._reply(error)
         language = str(args.get("language") or "").casefold()
         script = args.get("script")
         if not isinstance(script, str) or not script.strip():
@@ -357,33 +463,18 @@ class PocDeps:
             return self._reply({"error": "unsupported_language", "allowed": ["php", "python"]})
         requested = [str(item) for item in (args.get("artifacts") or [])][:8]
         timeout = max(1, min(120, self.job_seconds, int(args.get("timeout_seconds") or self.job_seconds)))
-        job_id = uuid.uuid4().hex
-        if self.on_job is not None and job_id:
-            self.on_job(job_id)
-        self.execution.emit({"kind": "poc_job_started", "job_id": job_id,
-                             "language": language, "script_bytes": len(script.encode("utf-8"))})
-        try:
-            job = await self.client.run_job(
-                target=self.target, language=language, script=script,
-                timeout_seconds=timeout, artifacts=requested, job_id=job_id,
-                context_id=self.context_id, identity=args.get("identity", "alice"),
-            )
-        except (PocRunnerUnavailable, asyncio.TimeoutError):
-            # Submission may already be executing. Query its stable id, never submit again.
-            try:
-                job = await asyncio.wait_for(self.client.get_job(job_id), timeout=5)
-            except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError):
-                job = {"job_id": job_id, "status": "unknown", "exit_code": None}
+        job, slot = await self._submit_job("script", args, lambda job_id: self.client.run_job(
+            target=self.target, language=language, script=script,
+            timeout_seconds=timeout, artifacts=requested, job_id=job_id,
+            context_id=self.context_id, identity=args.get("identity", "alice"),
+        ))
         if job.get("ok") is False or job.get("error"):
-            self._remember_state(job)
-            self._remember_failed_job("script", job, args)
             return self._reply(job)
-        job_id = str(job.get("job_id") or job_id)
+        job_id = str(job.get("job_id") or "")
         if self.should_stop is not None and self.should_stop():
             raise StopAudit("interrupted", "拒绝已停止 POC 的迟到作业结果")
         self.scripts.append(script)
         self.job_scripts[job_id] = script
-        self._remember_state(job)
         artifacts = []
         for item in job.get("artifacts") or []:
             name = str(item.get("name") or "")
@@ -431,19 +522,7 @@ class PocDeps:
             "duration_ms": job.get("duration_ms"),
             "artifacts": artifacts,
         }
-        self.jobs.append(record)
-        self.execution.emit({
-            "kind": "poc_job_finished",
-            "job_id": job_id,
-            "exit_code": job.get("exit_code"),
-            "status": job.get("status"),
-            "duration_ms": job.get("duration_ms"),
-            "truncated": bool(job.get("truncated")),
-            "timed_out": bool(job.get("timed_out")),
-        })
-        if job.get("status") in {"running", "queued", "unknown", "unresolved"}:
-            self.submission_unresolved = True
-            raise StopAudit("submission_unresolved", "原作业执行状态未确认，保留未决结果，不重复执行。")
+        self.jobs[slot] = record
         return self._reply(record["result"] | {
             "job_id": job_id,
             "context_id": record["context_id"],
@@ -455,20 +534,18 @@ class PocDeps:
         })
 
     async def _http_observe(self, args: dict) -> str:
-        path = str(args.get("path") or "")
-        result = await self.client.http_observe(
-            target=self.target,
-            method=str(args.get("method") or "GET"),
-            path=path,
-            body=str(args.get("body") or ""),
-            headers={"Content-Type": str(args.get("content_type") or "application/x-www-form-urlencoded")}
-            if str(args.get("body") or "")
-            else None,
-            context_id=self.context_id, identity=args.get("identity", "alice"),
-        )
-        self._remember_state(result)
+        error = self._job_error(args, "http")
+        if error:
+            return self._reply(error)
+        path = args["path"]
+        result, slot = await self._submit_job("http", args, lambda job_id: self.client.http_observe(
+            target=self.target, method=args.get("method", "GET"), path=path,
+            body=args.get("body", ""),
+            headers={"Content-Type": args.get("content_type", "application/x-www-form-urlencoded")}
+            if args.get("body", "") else None,
+            context_id=self.context_id, identity=args.get("identity", "alice"), job_id=job_id,
+        ))
         if result.get("ok") is False or result.get("error"):
-            self._remember_failed_job("http", result, args)
             return self._reply(result)
         method = str(args.get("method") or "GET").upper()
         # The runner sends exactly one request and does not follow redirects, so the
@@ -477,9 +554,12 @@ class PocDeps:
         # conclusion cite the raw Location value.
         record = {
             "kind": "http",
+            "job_id": result["job_id"],
             "method": method,
             "path": path,
-            "status": result.get("status"),
+            "status": result.get("http_status", result.get("status")),
+            "execution_status": "finished",
+            "exit_code": result.get("exit_code", 0),
             "url": str(result.get("url") or "")[:500],
             "headers": {
                 str(key): str(value)[:2048]
@@ -493,19 +573,20 @@ class PocDeps:
             "identity": args.get("identity", "alice"),
             "context_id": self.context_id,
             "precondition": result.get("precondition") or {},
+            "postcondition": result.get("postcondition") or {},
             "state_changes": result.get("state_changes") or [],
         }
         self.observations.append(record)
         if result.get("job_id"):
-            self.jobs.append({
+            self.jobs[slot] = {
                 "job_id": result["job_id"], "kind": "http", "context_id": result.get("context_id") or "",
                 "identity": args.get("identity", "alice"), "precondition": result.get("precondition") or {},
                 "request": {"method": method, "path": path}, "result": {**record, "http_status": record["status"], "status": "finished"},
                 "exit_code": result.get("exit_code", 0), "duration_ms": result.get("duration_ms", 0),
-            })
+            }
         self.execution.emit({
             "kind": "poc_http_observed", "method": method,
-            "path": path, "status": result.get("status"),
+            "path": path, "status": record["status"],
             "location": record["headers"].get("location", ""),
         })
         return self._reply(record)
@@ -516,25 +597,20 @@ class PocDeps:
                 "error": "browser_disabled",
                 "message": "该运行未启用浏览器；XSS 类结论只能记为 inconclusive。",
             })
-        if len(self.jobs) >= self.max_jobs:
-            return self._reply({"error": "job_limit", "message": f"本 finding 最多执行 {self.max_jobs} 个作业"})
-        result = await self.client.browser_check(
-            target=self.target,
-            path=str(args.get("path") or ""),
-            script=str(args.get("script") or ""),
-            wait_ms=int(args.get("wait_ms", 1000)),
-            context_id=self.context_id, identity=args.get("identity", "alice"),
-        )
-        self._remember_state(result)
+        error = self._job_error(args, "browser")
+        if error:
+            return self._reply(error)
+        result, slot = await self._submit_job("browser", args, lambda job_id: self.client.browser_check(
+            target=self.target, path=args["path"], script=args.get("script", ""),
+            wait_ms=args.get("wait_ms", 1000), context_id=self.context_id,
+            identity=args.get("identity", "alice"), job_id=job_id,
+        ))
         if result.get("ok") is False or result.get("error"):
-            self._remember_failed_job("browser", result, args)
             return self._reply(result)
         if not result.get("available", False):
             self.browser_available = False
             return self._reply({"error": "browser_unavailable", "message": "runner 未安装浏览器"})
         job_id = str(result.get("job_id") or "")
-        if self.on_job is not None and job_id:
-            self.on_job(job_id)
         if self.should_stop is not None and self.should_stop():
             raise StopAudit("interrupted", "拒绝已停止 POC 的迟到浏览器结果")
         artifacts = []
@@ -563,9 +639,10 @@ class PocDeps:
             "precondition": result.get("precondition") or {},
             "postcondition": result.get("postcondition") or {},
             "state_changes": result.get("state_changes") or [],
-            "request": {"path": str(args.get("path") or ""), "wait_ms": int(args.get("wait_ms") or 1000)},
+            "request": {"path": str(args.get("path") or ""), "wait_ms": args.get("wait_ms", 1000)},
             "result": {
-                "status": "finished" if not result.get("error") else "failed",
+                "status": result.get("execution_status") or result.get("status") or ("failed" if result.get("error") else "finished"),
+                "timed_out": bool(result.get("timed_out")),
                 "available": True,
                 "error": result.get("error") or "",
                 "title": str(result.get("title") or "")[:500],
@@ -575,18 +652,11 @@ class PocDeps:
                 "body_text": str(result.get("body_text") or "")[:4000],
                 "evaluated": str(result.get("evaluated") or "")[:2000],
             },
-            "exit_code": 0 if not result.get("error") else 1,
-            "duration_ms": 0,
+            "exit_code": result.get("exit_code", 0 if not result.get("error") else None),
+            "duration_ms": result.get("duration_ms", 0),
             "artifacts": artifacts,
         }
-        self.jobs.append(record)
-        self.execution.emit({
-            "kind": "poc_job_finished",
-            "job_id": job_id,
-            "kind_detail": "browser",
-            "dialogs": len(record["result"]["dialogs"]),
-            "status": record["result"]["status"],
-        })
+        self.jobs[slot] = record
         return self._reply(record["result"] | {"job_id": job_id, "artifacts": artifacts,
                            "exit_code": record["exit_code"], "context_id": record["context_id"],
                            "precondition": record["precondition"], "postcondition": record["postcondition"],
@@ -649,7 +719,7 @@ def _successful_script(job: dict) -> bool:
 
 
 def _successful_browser(job: dict) -> dict | None:
-    if job.get("kind") != "browser":
+    if job.get("kind") != "browser" or job.get("exit_code") != 0:
         return None
     result = job.get("result") or {}
     if not result.get("available") or result.get("error") or result.get("timed_out") or result.get("status") != "finished":
@@ -748,6 +818,8 @@ EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent，只在隔离的 Lab30 
 为一条已有原始源码证据的漏洞执行最小、可复核的正常侧与攻击侧对照。
 
 工具契约：
+- run_poc、http_observe、browser_check 共享 max_jobs 作业总额；失败或状态未确认的提交也占额。
+  请求超时由宿主查询原作业；状态未确认时停止实验，不自行重复提交相同副作用。
 - 工具是普通 Python 函数，返回 JSON 字符串；使用 json.loads(...) 再取字段。
 - 你的动作解释器只能做内存计算，不能联网、读写文件、启动进程；没有源码工具。
 - run_poc 把脚本交给隔离 runner，只有脚本内部可用 urllib/curl 访问 LAB30_URL。

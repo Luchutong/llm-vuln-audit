@@ -379,7 +379,9 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
     spec(
         "get_coverage",
         "Return the host-computed reading coverage for this round: which files workers really read, and which first-party modules nobody has read.",
-        output_fields=('files_read',),
+        output_fields=('files_read', 'coverage_review'),
+        cursor=Arg("integer", "coverage_review.pending_paths 的 0-based 起点。", 0, minimum=0),
+        limit=Arg("integer", "本页最多覆盖缺口路径数。", 20, minimum=1, maximum=40),
         output_format="json",
     ),
     spec(
@@ -433,6 +435,25 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
         output_fields=('summary', 'uncertainties'),
         question=Arg("string", "关于布局、入口点、数据存储、安全边界或阅读顺序的一个问题。"),
         revise=Arg("boolean", "只在该问题的既有简报有理由被认为是错的时设为 True：会重跑这一个问题并取代旧记录。默认 False。", False),
+        output_format="json",
+    ),
+    spec(
+        "list_verifications",
+        "List this run's verification metadata only; pending reviews must be read in full with read_verification before attestation. Counts cover every record, not just this page; stale cursors must restart.",
+        kind=Arg("string", "records（最新验证）、pending（待复核）或 reviews（历史复核）。", "pending"),
+        cursor=Arg("string", "上页的 next_cursor；首次为空。", "", max_length=100),
+        limit=Arg("integer", "本页最多摘要数。", 4, minimum=1, maximum=16),
+        output_fields=('items', 'total', 'next_cursor', 'remaining'),
+        output_format="json",
+    ),
+    spec(
+        "read_verification",
+        "Read one verification from this run without truncation: empty field lists available fields; otherwise follow next_offset until null and concatenate text. Offsets are Unicode characters. Before verification_reviews, completely read normal_observation and attack_observation for that exact revision/verification_id.",
+        verification_id=Arg("string", "当前运行列表中完整的 verification_id。", max_length=200),
+        field=Arg("string", "要读取的顶层字段；空字符串列字段及长度。", "", max_length=100),
+        offset=Arg("integer", "字段内 Unicode 字符偏移；从 0 或 next_offset 继续。", 0, minimum=0),
+        limit=Arg("integer", "最多返回的字段字符数。", 1024, minimum=1, maximum=1024),
+        output_fields=('verification_id', 'revision', 'field', 'text', 'next_offset'),
         output_format="json",
     ),
 )

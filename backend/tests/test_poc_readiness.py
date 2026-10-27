@@ -21,7 +21,7 @@ class Client:
         await asyncio.sleep(self.delay)
         if not self.healthy:
             raise PocRunnerUnavailable("private internal URL and token must not leak")
-        return {"ok": True, "capabilities": {"python": True, "browser": False, "verification_contexts": True}, "token": "private"}
+        return {"ok": True, "capabilities": {"python": True, "browser": False, "verification_contexts": True, "identity_preconditions": True, "idempotent_jobs": True, "idempotent_http_jobs": True, "idempotent_browser_jobs": True}, "token": "private"}
 
     async def aclose(self):
         self.closed += 1
@@ -104,3 +104,22 @@ def test_lab30_is_a_supported_target():
         unknown = await service.check("some-other-lab", target="lab30")
         assert unknown["reason"] == "unsupported_target"
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('missing', [
+    'verification_contexts', 'identity_preconditions', 'idempotent_jobs',
+    'idempotent_http_jobs', 'idempotent_browser_jobs',
+])
+def test_missing_required_runner_capability_requests_upgrade(missing):
+    class OldClient(Client):
+        async def health(self):
+            health = await super().health()
+            health['capabilities'].pop(missing)
+            return health
+    client = OldClient()
+    service = PocReadinessService(SimpleNamespace(poc=PocSettings(runner_url='http://runner')),
+                                  client_factory=lambda: client)
+    result = asyncio.run(service.check('lab30', mode='auto'))
+    assert not result['available'] and result['reason'] == 'runner_upgrade_required'
+    assert '重建 poc-runner' in result['message']
+    assert result['capabilities'][missing] is False

@@ -112,6 +112,7 @@ def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, obj
         "max_planner_rounds": max_rounds,
         "max_total_attempts": attempts,
         "stop_on_achieved": False,
+        "completion_policy": "coverage_review" if specific is None else "goal",
     }
     if specific:
         task["scenario"] = specific

@@ -314,3 +314,162 @@ def test_browser_cookies_round_trip_for_single_label_host_and_logout(isolated):
     runner._store_browser_cookies(ident, 'alice', [])  # a real logout deletes the cookie
     assert not runner._prepare_sync(context_id=ident, identity='alice')['ok']
     assert runner._prepare_sync(context_id=ident, identity='bob')['ok']
+
+
+@pytest.mark.parametrize('kind,endpoint', [('http', '/v1/http'), ('browser', '/v1/browser/check')])
+def test_observations_share_host_id_and_are_queryable_while_running(isolated, monkeypatch, kind, endpoint):
+    started, finish = threading.Event(), threading.Event()
+    executions = []
+
+    def execute(request):
+        executions.append(request.job_id)
+        started.set()
+        assert finish.wait(5)
+        return {'status': 302, 'body': 'observed-body', 'headers': {'location': '/account/'}} if kind == 'http' else {
+            'available': True, 'dialogs': ['observed-dialog'], 'body_text': 'observed-body', 'evaluated': 'observed-value'}
+
+    monkeypatch.setattr(runner, '_observe_sync' if kind == 'http' else '_browser_sync', execute)
+    headers = {'Authorization': 'Bearer test-token'}
+    with TestClient(runner.app) as client:
+        ident = client.post('/v1/verification-contexts', headers=headers, json={'run_id': 'r', 'finding_id': 'f'}).json()['context_id']
+        payload = {'job_id': 'stable-observation', 'context_id': ident, 'identity': 'alice', 'path': '/'}
+        replies = []
+        thread = threading.Thread(target=lambda: replies.append(client.post(endpoint, headers=headers, json=payload)))
+        thread.start()
+        assert started.wait(5)
+        active = client.get('/v1/jobs/stable-observation', headers=headers).json()
+        assert active['kind'] == kind and active['status'] == 'running'
+        assert active['context_id'] == ident and active['identity'] == 'alice'
+        replay = client.post(endpoint, headers=headers, json=payload)
+        assert replay.json()['status'] == 'running'
+        changed = client.post(endpoint, headers=headers, json={**payload, 'path': '/account/me.php'})
+        assert changed.status_code == 409
+        other_identity = client.post(endpoint, headers=headers, json={**payload, 'identity': 'bob'})
+        assert other_identity.status_code == 409
+        # Same id cannot collide across endpoints, even with the same identity.
+        collision = client.post('/v1/jobs', headers=headers, json={
+            'job_id': 'stable-observation', 'context_id': ident, 'language': 'python', 'script': 'print(1)'})
+        assert collision.status_code == 409
+        assert executions == ['stable-observation']
+        finish.set()
+        thread.join(5)
+        assert replies[0].status_code == 200
+        final = client.get('/v1/jobs/stable-observation', headers=headers).json()
+        assert final['status'] == 'finished' and final['exit_code'] == 0
+        assert final['precondition']['ok'] is True
+        if kind == 'http':
+            assert final['http_status'] == 302 and final['body'] == 'observed-body'
+            assert final['headers'] == {'location': '/account/'}
+        else:
+            assert final['dialogs'] == ['observed-dialog'] and final['evaluated'] == 'observed-value'
+        same = client.post(endpoint, headers=headers, json=payload)
+        assert same.json() == replies[0].json(), 'a completed id must return its original response'
+        assert executions == ['stable-observation']
+        client.delete('/v1/verification-contexts/' + ident, headers=headers)
+        second = client.post('/v1/verification-contexts', headers=headers, json={'run_id': 'r2', 'finding_id': 'f2'}).json()['context_id']
+        other_context = client.post(endpoint, headers=headers, json={**payload, 'context_id': second})
+        assert other_context.status_code == 409
+        assert executions == ['stable-observation']
+
+
+@pytest.mark.parametrize('kind,endpoint', [('http', '/v1/http'), ('browser', '/v1/browser/check')])
+def test_failed_observation_is_retained_and_never_reexecuted(isolated, monkeypatch, kind, endpoint):
+    executions = []
+    def failed(request):
+        executions.append(request.job_id)
+        raise ValueError('controlled-failure')
+    monkeypatch.setattr(runner, '_observe_sync' if kind == 'http' else '_browser_sync', failed)
+    headers = {'Authorization': 'Bearer test-token'}
+    with TestClient(runner.app) as client:
+        ident = client.post('/v1/verification-contexts', headers=headers, json={'run_id': 'r', 'finding_id': 'f'}).json()['context_id']
+        payload = {'job_id': 'failed-observation', 'context_id': ident, 'path': '/'}
+        first = client.post(endpoint, headers=headers, json=payload).json()
+        repeated = client.post(endpoint, headers=headers, json=payload).json()
+        assert first == repeated and first['error'] == 'ValueError'
+        job = client.get('/v1/jobs/failed-observation', headers=headers).json()
+        assert job['status'] == 'error' and job['exit_code'] is None
+        assert job['context_id'] == ident and job['precondition']['ok'] is True
+        assert executions == ['failed-observation']
+
+
+def test_health_advertises_all_idempotency_and_identity_capabilities(isolated):
+    capabilities = runner.healthz()['capabilities']
+    assert all(capabilities[name] is True for name in (
+        'verification_contexts', 'identity_preconditions', 'idempotent_jobs',
+        'idempotent_http_jobs', 'idempotent_browser_jobs'))
+
+
+def test_host_client_and_runner_use_the_same_job_identity_and_budget(isolated, monkeypatch):
+    from audit.poc_agent import PocDeps
+    from audit.poc_runner import PocRunnerClient
+    from audit.runtime import AgentPolicy, Execution
+
+    monkeypatch.setattr(runner, '_execute', lambda request: {
+        'job_id': request.job_id, 'status': 'finished', 'exit_code': 0, 'stdout': 'normal attack'})
+    monkeypatch.setattr(runner, '_browser_sync', lambda request: {
+        'available': True, 'dialogs': ['attack'], 'body_text': 'normal'})
+    async def scenario():
+        client = PocRunnerClient('http://runner', 'test-token', transport=httpx.ASGITransport(app=runner.app))
+        try:
+            created = await client.create_context(run_id='r', finding_id='f')
+            data = PocDeps(client=client, policy={}, target='lab30', finding={'id': 'f'},
+                           context_id=created['context_id'], max_jobs=3)
+            data.execution = Execution({'responses': 4, 'tools': 8, 'seconds': 30}, AgentPolicy(), lambda _: None)
+            data.execution.enter('poc_execute')
+            first = json.loads(await data.call('http_observe', {'path': '/'}))
+            second = json.loads(await data.call('browser_check', {'path': '/'}))
+            third = json.loads(await data.call('run_poc', {'language': 'python', 'script': 'print(1)'}))
+            assert first['status'] == 200 and first['execution_status'] == 'finished'
+            assert second['dialogs'] == ['attack'] and second['exit_code'] == 0
+            assert third['stdout'] == 'normal attack' and third['exit_code'] == 0
+            assert len({record['job_id'] for record in data.jobs}) == 3
+            for record in data.jobs:
+                stored = await client.get_job(record['job_id'])
+                assert stored['job_id'] == record['job_id']
+                assert stored['context_id'] == data.context_id
+                assert stored['status'] == 'finished'
+            refused = json.loads(await data.call('http_observe', {'path': '/'}))
+            assert refused['error'] == 'job_limit' and len(runner._jobs) == 3
+            await client.close_context(data.context_id)
+        finally:
+            await client.aclose()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('metadata', [
+    {'status': 'failed'}, {'exit_code': 1}, {'timed_out': True}, {'available': False},
+])
+def test_browser_registration_does_not_promote_failed_execution_to_success(isolated, metadata):
+    result, job = runner._observation_job({'job_id': 'failed', 'available': True, **metadata}, 'browser')
+    assert result['execution_status'] != 'finished'
+    assert result['exit_code'] != 0
+    assert job['status'] != 'finished'
+
+
+def test_closing_context_waits_for_accepted_job_queued_before_execution(isolated, monkeypatch):
+    async def scenario():
+        semaphore = asyncio.Semaphore(0)
+        monkeypatch.setattr(runner, '_semaphore', semaphore)
+        executed = []
+        monkeypatch.setattr(runner, '_observe_sync', lambda _: executed.append(True))
+        ident = context()
+        pending = asyncio.create_task(runner.http_observe(runner.HttpRequest(
+            context_id=ident, path='/', job_id='queued-job')))
+        for _ in range(20):
+            if 'queued-job' in runner._jobs:
+                break
+            await asyncio.sleep(0)
+        assert runner._contexts[ident]['active'] == 0
+        assert runner._contexts[ident]['pending_jobs'] == 1
+        assert runner.close_context(ident)['state'] == 'closing'
+        with pytest.raises(HTTPException):
+            context('next-finding')
+        semaphore.release()
+        result = await asyncio.wait_for(pending, 2)
+        assert result['execution_status'] == 'error'
+        assert not executed, 'closing contexts cannot execute a queued side effect'
+        assert runner._contexts[ident]['pending_jobs'] == 0
+        assert runner._contexts[ident]['state'] == 'closed'
+        assert runner._jobs['queued-job']['status'] == 'error'
+        context('next-finding')
+    asyncio.run(scenario())

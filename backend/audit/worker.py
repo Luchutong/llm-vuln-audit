@@ -496,11 +496,12 @@ class AuditWorker:
         run_id = run["id"]
         model_config = self._model_for_run(run)
         task_spec = run["task_spec"]
+        coverage_mode = task_spec.get("completion_policy", "goal") == "coverage_review"
         # A scenario run is "find every reachable instance of one class", not "find the
         # first one".  ``stop_on_achieved`` must therefore be off so a first finding does
         # not hold the remaining directions back; the host's exhaustion gate in
         # ``Store.finalize_goal`` is what closes the run once the frontier is settled.
-        if task_spec.get("scenario"):
+        if task_spec.get("scenario") or coverage_mode:
             task_spec = {**task_spec, "stop_on_achieved": False}
         if self.health.is_open():
             error = "模型熔断窗口尚未结束；未发起新的 Planner 或 worker 请求"
@@ -548,6 +549,8 @@ class AuditWorker:
         # ``continue`` covers both "I looked and the conclusion stands" and "run what is
         # still on the frontier", and only the decision itself tells the two apart.
         round_mutations = 0
+        gap_signature = None
+        gap_stalls = 0
         # ``project_finding_id`` -> revision already sent to the POC agent this process.
         # Verification happens at the closure boundary, where every standing conclusion is
         # known and the next Planner round is the closure review that should see it.
@@ -598,7 +601,7 @@ class AuditWorker:
                 },
             )
 
-        async def abort(message: str) -> None:
+        async def abort(message: str, reason_code: str = "worker_exit_without_terminal") -> None:
             nonlocal failure_message
             async with coordinator:
                 if failure_message is not None:
@@ -606,8 +609,8 @@ class AuditWorker:
                 failure_message = message
                 stop.set()
                 self.store.abandon_planner_tasks(run_id, message)
-                self.store.update_run(run_id, status="failed", finished_at=_now(), error=message)
-                self.bus.emit(run_id, None, "run_failed", {"error": message})
+                self.store.terminate_execution(run_id, "failed", {"code": reason_code, "message": message})
+                self.bus.emit(run_id, None, "run_failed", {"error": message, "reason": reason_code})
 
         async def account_model_result(outcome: dict, role: str) -> str | None:
             """Keep provider-health behaviour identical for Planner and worker calls."""
@@ -743,6 +746,12 @@ class AuditWorker:
                 agent_invocation_id=invocation_id,
                 on_event=record,
             )
+            if outcome.get("terminal_reason") == "planner_context_error":
+                message = outcome.get("error") or "Planner 上下文构造失败"
+                self.store.finish_planner_round(run_id, plan["id"], goal_state="inconclusive",
+                    basis_summary=message, usage=outcome.get("usage"), error=message)
+                await abort(message, "planner_context_error")
+                return "closed"
             failed = await account_model_result(outcome, "Planner")
             if failed:
                 self.store.finish_planner_round(
@@ -787,6 +796,7 @@ class AuditWorker:
                 # applies this to both the task's own cap and the goal-wide one.
                 reopen_attempts=int(policy.reopen_attempts),
                 narrative=narrative,
+                coverage_review=list(decision.get("coverage_review") or []),
             )
             if narrative:
                 self.bus.emit(run_id, None, "report_narrative_committed", {
@@ -849,7 +859,7 @@ class AuditWorker:
                     "contested": sum(1 for item in applied_reviews if item["decision"] == "contested"),
                     "finding_ids": [item["finding_id"] for item in applied_reviews][:32],
                 })
-            round_mutations = len(tasks) + len(updates) + applied_projects
+            round_mutations = len(tasks) + len(updates) + applied_projects + len(decision.get("coverage_review") or [])
             self.bus.emit(run_id, None, "planner_round_committed", {
                 "plan_id": plan["id"],
                 "round": plan["round_no"],
@@ -1222,6 +1232,26 @@ class AuditWorker:
             if (queue["ready"] or queue["running"]) and not closing:
                 await run_worker_wave()
                 continue
+            if coverage_mode and not queue["active"] and not queue["blocked"]:
+                gap_review = self.store.coverage_review(run_id, project_map) or {}
+                if gap_review.get("pending_total"):
+                    signature = tuple(gap_review["pending_paths"])
+                    gap_stalls = gap_stalls + 1 if signature == gap_signature else 0
+                    gap_signature = signature
+                    if (int(session_state["current_round"]) >= int(session_state["max_rounds"])
+                            or int(goal["attempts"]) >= int(goal["max_total_attempts"])
+                            or gap_stalls > int(policy.planner_decision_retries)):
+                        await finish_goal("inconclusive", "覆盖复核未完成：预算或无进展上限已到，未读源码方向仍未结算。",
+                            gap_review["pending_paths"][:8])
+                        return
+                    self.bus.emit(run_id, None, "coverage_review_requested", {
+                        "pending_total": gap_review["pending_total"], "total": gap_review["total"],
+                        "pending_paths": gap_review["pending_paths"][:40], "round": session_state["current_round"],
+                    })
+                    state = await run_planner_round()
+                    if state == "closed" or stop.is_set():
+                        return
+                    continue
             # The run is about to satisfy its own completion condition: no direction is being
             # worked on and at least one conclusion survived validation and is still standing.
             # The host's closure is unchanged -- ``finalize_goal`` still checks the same thing --
@@ -1423,6 +1453,7 @@ class AuditWorker:
             self.store.link_finding_project(
                 finding_id, merged["project_finding_id"], merged["revision"]
             )
+            self.store.classify_run_duplicate(run_id, finding_id)
         except Exception as exc:  # pragma: no cover - defensive: never lose the run finding
             self.bus.emit(run_id, None, "project_finding_merge_failed", {
                 "finding_id": finding_id,

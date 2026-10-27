@@ -2710,6 +2710,63 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             ),
         }
 
+    def coverage_review(self, run_id: str, project_map: dict | None = None) -> dict | None:
+        """Full host closure state, read-only and stable across pause/restart.
+
+        Use the raw run row: get_run() includes execution_summary(), which itself
+        exposes this state. Coverage is based on durable reads, never proposed refs.
+        """
+        row = self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,))
+        task = _loads(row["task_spec"], {}) if row else {}
+        if task.get("completion_policy", "goal") != "coverage_review":
+            return None
+        project_map = self.get_project_map(run_id) if project_map is None else project_map
+        project_map = project_map or {}
+        known = {item["path"]: item for item in project_map.get("files") or [] if isinstance(item, dict) and item.get("path")}
+        read_paths = set()
+        for attempt in self._rows("SELECT seen FROM planner_task_attempts WHERE run_id=?", (run_id,)):
+            for path, start, end in seen_ranges(_COVERAGE_UNIT, _loads(attempt["seen"], []), exact=True):
+                if path in known and 1 <= start <= end <= int(known[path].get("line_count") or 0):
+                    read_paths.add(path)
+        skips = {}
+        for event in self._rows("SELECT payload FROM events WHERE run_id=? AND kind='coverage_review_recorded' ORDER BY id", (run_id,)):
+            for item in _loads(event["payload"], {}).get("paths") or []:
+                if isinstance(item, dict) and item.get("path") in known:
+                    skips[item["path"]] = item
+        from .coverage_review import review_state
+        return review_state(project_map, read_paths, skips)
+
+    def classify_run_duplicate(self, run_id: str, finding_id: str) -> dict | None:
+        """Record exact duplicate claims without deleting their source history."""
+        from .project_findings import exact_run_identity
+        with self._lock:
+            self.assert_execution_write(run_id)
+            finding = self.get_finding(finding_id)
+            if (not finding or finding.get("run_id") != run_id or finding.get("validation_state") != "candidate"
+                    or finding.get("disposition", "open") != "open" or not finding.get("project_finding_id")):
+                return None
+            candidates = [item for item in self.list_findings(run_id)
+                if item["id"] != finding_id and item.get("validation_state") == "candidate"
+                and item.get("disposition", "open") == "open"
+                and (item.get("project_finding_id") == finding["project_finding_id"]
+                     or (item.get("primary_location") == finding.get("primary_location")
+                         and item.get("vulnerability_type") == finding.get("vulnerability_type")))]
+            identity = exact_run_identity(finding)
+            exact = [item for item in candidates if identity is not None and exact_run_identity(item) == identity]
+            if exact:
+                source = min(exact, key=lambda item: (item.get("created_at") or "", item["id"]))
+                self.set_finding_disposition(finding_id, "duplicate", "同一运行内根因、主定位、证据及适用前提均一致的重复主张。",
+                    by="host", derived_from_finding_id=source["id"])
+                payload = {"finding_id": finding_id, "related_finding_id": source["id"], "disposition": "duplicate", "by": "host"}
+                self.append_event(run_id, finding.get("unit_id"), "finding_duplicate", payload)
+                return payload
+            if candidates:
+                payload = {"finding_id": finding_id, "candidate_ids": [item["id"] for item in candidates[:20]],
+                    "reason": "仅锚点或台账相近，适用条件未证明相同；请复核后决定是否重复。"}
+                self.append_event(run_id, finding.get("unit_id"), "finding_duplicate_candidate", payload)
+                return payload
+        return None
+
     def list_planner_observations(self, run_id: str, *, limit: int = 60) -> list[dict]:
         """The Planner's host-computed per-round observations, oldest first.
 
@@ -2982,6 +3039,43 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         """
         return build_verification_records(self.list_verifications, findings)
 
+    def planner_verification_details(self, run_id: str) -> list[dict]:
+        """Current run-scoped verdicts, kept out of prefetched model context.
+
+        The list view is deliberately short; a Planner must be able to read the
+        persisted observations and evidence in full through the paged tools.
+        Resolving the actual compatible verification also preserves carried
+        verdicts without permitting arbitrary verification IDs from other runs.
+        """
+        findings = self.list_findings(run_id)
+        self._attach_verification_observations(findings)
+        details = []
+        for finding in findings:
+            ident = finding.get("verification_id")
+            if not ident:
+                continue
+            row = self._row("SELECT * FROM verifications WHERE id=?", (ident,))
+            if row is None:
+                continue
+            record = self._verification_dict(row)
+            agent = record.get("agent") or {}
+            details.append({
+                "finding_id": finding["id"], "verification_id": ident,
+                "revision": int(finding.get("revision") or 1),
+                "finding_title": finding.get("title") or "",
+                "status": finding.get("verification_status") or record.get("status"),
+                "verdict": record.get("verdict"), "execution_status": record.get("execution_status"),
+                "summary": agent.get("summary") or "",
+                "normal_observation": record.get("normal_observation") or "",
+                "attack_observation": record.get("attack_observation") or "",
+                "evidence_notes": record.get("notes") or "",
+                "normal_evidence": agent.get("normal_evidence") or [],
+                "attack_evidence": agent.get("attack_evidence") or [],
+                "jobs": agent.get("jobs") or [],
+                "browser_execution": bool(record.get("browser_execution")),
+            })
+        return details
+
     def list_verification_reviews(self, run_id: str) -> list[dict]:
         """Every Planner cross-check recorded for this run, newest last."""
         return [dict(row) for row in self._rows(
@@ -3177,6 +3271,10 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             # Kept out of ``project_map`` on purpose: this is a bounded, host-computed
             # view of what has been read, not another copy of the whole map.
             "coverage": self.planner_coverage(run_id, project_map),
+            "completion_policy": (run.get("task_spec") or {}).get("completion_policy", "goal"),
+            "coverage_review": self.coverage_review(run_id, project_map),
+            "duplicate_candidates": [_loads(row["payload"], {}) for row in reversed(self._rows(
+                "SELECT payload FROM events WHERE run_id=? AND kind='finding_duplicate_candidate' ORDER BY id DESC LIMIT 20", (run_id,)))],
             # What the round must not redo: conclusions already in the database, and
             # questions already answered (see ``planner_investigations``).
             "findings": planner_findings,
@@ -3184,6 +3282,9 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             # field and the notice that explains it; without a producer on this path the
             # Planner would receive an empty list and read it as "nothing was verified".
             "verification_records": self.verification_records(planner_findings),
+            # Tool-only material. Never serialize this full field into a prompt
+            # or event; the verification tools page over observations explicitly.
+            "verification_details": self.planner_verification_details(run_id),
             # The verified conclusions the host has not yet had cross-checked, with the
             # observations the runner actually captured.  The round must answer for each of
             # them; a run does not get to close on a verdict nobody else read.
@@ -3481,6 +3582,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         error: str | None = None,
         reopen_attempts: int = 1,
         narrative: dict | None = None,
+        coverage_review: list[dict] | None = None,
     ) -> list[dict]:
         """Commit a Planner decision and its validated frontier mutation atomically."""
         tasks = list(tasks or [])
@@ -3493,6 +3595,15 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 if plan is None or session is None or plan["status"] != "planning":
                     raise ValueError("Planner round is not an active draft")
                 stamp = now()
+                exclusions = list(coverage_review or [])
+                if exclusions:
+                    frozen_paths = {item["path"] for item in (self.get_project_map(run_id) or {}).get("files") or []}
+                    for item in exclusions:
+                        if (not isinstance(item, dict) or item.get("path") not in frozen_paths
+                                or item.get("action", "skip") != "skip" or not isinstance(item.get("reason"), str)
+                                or len(item["reason"].strip()) < 8):
+                            raise ValueError("覆盖复核必须引用冻结源码路径并给出具体跳过理由")
+                    self.append_event(run_id, None, "coverage_review_recorded", {"plan_id": plan_id, "paths": exclusions})
                 goal_id = str(session["goal_id"])
                 existing = {
                     row["task_key"]: row
@@ -3873,6 +3984,12 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                     raise ValueError("运行已经终结，拒绝覆盖")
                 queue = self.task_queue_state(run_id)
                 if state == "met":
+                    review = self.coverage_review(run_id)
+                    if review is not None:
+                        if queue["active"] or queue["blocked"]:
+                            raise ValueError("限时覆盖复核政策要求所有已派发方向结算，不能以已有发现取消剩余方向")
+                        if review["pending_total"]:
+                            raise ValueError(f"仍有 {review['pending_total']} 个第一方源码路径未读取或说明跳过理由")
                     # "Standing" means valid evidence that nobody has withdrawn and that
                     # automatic verification did not reject.  A finding the Planner
                     # retracted, replaced or marked as a duplicate is still in the

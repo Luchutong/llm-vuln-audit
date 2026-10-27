@@ -179,7 +179,9 @@ def test_context_lifecycle_and_identity_contract():
     seen = []
     def handler(request):
         seen.append((request.method, request.url.path, dict(request.url.params), json.loads(request.content) if request.content else None))
-        return httpx.Response(200, json={'ok': True, 'context_id': 'stable-context'})
+        payload = json.loads(request.content) if request.content else {}
+        return httpx.Response(200, json={'ok': True, 'context_id': 'stable-context',
+                                        'job_id': payload.get('job_id', '')})
     client = _client(handler)
     async def exercise():
         await client.create_context(run_id='r1', finding_id='f1', context_id='stable-context')
@@ -206,3 +208,18 @@ def test_busy_context_has_explicit_status_code():
     with pytest.raises(PocRunnerBusy) as error:
         _run(client, lambda: client.create_context(run_id='r', finding_id='f'))
     assert error.value.status_code == 409
+
+
+@pytest.mark.parametrize('tool', ['run_job', 'http_observe', 'browser_check'])
+def test_all_submissions_send_host_ids_and_reject_mismatched_replies(tool):
+    def handler(request):
+        payload = json.loads(request.content)
+        assert payload['job_id'] == 'host-job' and payload['context_id'] == 'host-context'
+        return httpx.Response(200, json={'job_id': 'other-job', 'context_id': 'host-context'})
+    client = _client(handler)
+    arguments = {'target': 'lab30', 'job_id': 'host-job', 'context_id': 'host-context'}
+    arguments.update({'language': 'python', 'script': 'print(1)'} if tool == 'run_job' else {'path': '/'})
+    if tool == 'http_observe':
+        arguments['method'] = 'GET'
+    with pytest.raises(PocRunnerError, match='preserve the host job id'):
+        _run(client, lambda: getattr(client, tool)(**arguments))

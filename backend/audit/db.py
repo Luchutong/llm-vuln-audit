@@ -562,7 +562,7 @@ DEFAULT_TASK_MAX_TOTAL_ATTEMPTS = 24
 # source property is absent.  Keep it as a blocked observation so the coordinator
 # reaches ``inconclusive`` rather than ``unreachable``.
 TASK_RETRY_FAILURE_REASONS = frozenset(
-    {"model_error", "request_timeout", "timeout", "budget", "invalid_output"}
+    {"model_error", "request_timeout", "timeout", "budget", "invalid_output", "context_limit"}
 )
 
 # A white-box worker may reuse another worker's *durable public trace*, but never
@@ -594,6 +594,17 @@ def _loads(value: Any, fallback: Any) -> Any:
 
 def _dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _inputs_compatible(left: dict, right: dict) -> bool:
+    """Do two claims agree on where the input enters?
+
+    Only two *different*, non-empty sources conflict.  An unstated source is missing
+    information, not proof of a separate flow, so it must not block a duplicate.
+    """
+    first = " ".join(str(left.get("input_source") or "").split()).casefold()
+    second = " ".join(str(right.get("input_source") or "").split()).casefold()
+    return not (first and second and first != second)
 
 
 # Coverage feedback is a bounded navigation aid for the Planner, not a second project
@@ -921,10 +932,20 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         # is a different counter -- it numbers plans, not corrections.
         "planner_tasks": {"revisions": "INTEGER NOT NULL DEFAULT 0"},
         "planner_sessions": {"task_reopens": "INTEGER NOT NULL DEFAULT 0"},
+        # Aggregate context-window usage, written by ``Execution.note_context``.  A
+        # separate column rather than a scan of the event log: ``execution_summary`` is
+        # read on every model request, and counting rows there would make each request
+        # cost a full scan of the run's history.
+        "run_execution_state": {"context": "TEXT NOT NULL DEFAULT '{}'"},
     }
 
     def _migrate(self) -> None:
         for table, columns in self._ADDED_COLUMNS.items():
+            # ``run_execution_state`` is created by ``_init_execution_state`` after this
+            # runs, and a fresh database gets these columns from that CREATE; only an older
+            # database, whose table already exists without them, needs the ALTER.
+            if not self._rows("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)):
+                continue
             existing = {row["name"] for row in self._rows(f"PRAGMA table_info({table})")}
             for name, declaration in columns.items():
                 if name not in existing:
@@ -1443,6 +1464,11 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def record_carried_findings(self, project_id: str, run_id: str) -> int:
         """Attach every still-standing project finding this run did not rediscover."""
         with self._lock:
+            run = self._db.execute("SELECT task_spec FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if run is not None and _loads(run["task_spec"], {}).get("baseline_policy") == "fresh":
+                # A successful independent audit must not retroactively claim unseen
+                # historical ledger entries as findings it inherited or verified.
+                return 0
             cursor = self._db.execute(
                 "INSERT OR IGNORE INTO project_finding_runs (project_id, project_finding_id, run_id,"
                 " run_finding_id, relation, revision, created_at)"
@@ -1592,7 +1618,10 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     # --- runs --------------------------------------------------------------
 
-    def create_run(self, run: dict, units: list[dict] | None = None) -> None:
+    def create_run(
+        self, run: dict, units: list[dict] | None = None, *,
+        freeze_project_baseline: bool = False,
+    ) -> None:
         """Persist a run and its durable goal.
 
         ``units`` remains optional only so an older SQLite record can still be read
@@ -1601,9 +1630,17 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         queue or an implied audit-coverage claim.
         """
         units = list(units or [])
+        run = dict(run)
         with self._lock:
-            self._db.execute("BEGIN")
+            self._db.execute("BEGIN IMMEDIATE")
             try:
+                # Freeze under the same write lock as admission: a clear request
+                # cannot finish between reading the ledger and creating this run.
+                # Embedding callers may still supply an explicitly frozen baseline.
+                if freeze_project_baseline and run.get("project_id"):
+                    run["project_baseline"] = [] if (run.get("task_spec") or {}).get("baseline_policy") == "fresh" else self.list_project_findings(
+                        run["project_id"], include_withdrawn=False,
+                    )
                 self._db.execute(
                     "INSERT INTO runs (id, snapshot_id, snapshot_name, scope, scope_mode, prompt_id, prompt_label,"
                     " prompt_text, model, model_profile, budgets, status, created_at, agent_policy, task_spec,"
@@ -2629,7 +2666,9 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         return [
             self._planner_attempt_dict(row)
             for row in self._rows(
-                "SELECT * FROM planner_task_attempts WHERE task_id = ? ORDER BY attempt, id", (task_id,)
+                # Chronological, not by attempt number: host retries occupy the negative
+                # sequence and happened between the passes they interrupted.
+                "SELECT * FROM planner_task_attempts WHERE task_id = ? ORDER BY id", (task_id,)
             )
         ]
 
@@ -2738,7 +2777,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
 
     def classify_run_duplicate(self, run_id: str, finding_id: str) -> dict | None:
         """Record exact duplicate claims without deleting their source history."""
-        from .project_findings import exact_run_identity
+        from .project_findings import exact_run_identity, run_identity_tier2
         with self._lock:
             self.assert_execution_write(run_id)
             finding = self.get_finding(finding_id)
@@ -2758,6 +2797,25 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 self.set_finding_disposition(finding_id, "duplicate", "同一运行内根因、主定位、证据及适用前提均一致的重复主张。",
                     by="host", derived_from_finding_id=source["id"])
                 payload = {"finding_id": finding_id, "related_finding_id": source["id"], "disposition": "duplicate", "by": "host"}
+                self.append_event(run_id, finding.get("unit_id"), "finding_duplicate", payload)
+                return payload
+            # Second tier: the same type at the same sink, described differently.  The
+            # exact identity above treats evidence ranges, CVSS and POC wording as
+            # identity, which let one vulnerability be reported twice whenever the
+            # model re-cited its evidence.  A different, non-empty input source still
+            # means a different claim, so that pair is never merged here.
+            tier2_identity = run_identity_tier2(finding)
+            tier2 = [
+                item for item in candidates
+                if tier2_identity is not None and run_identity_tier2(item) == tier2_identity
+                and _inputs_compatible(finding, item)
+            ]
+            if tier2:
+                source = min(tier2, key=lambda item: (item.get("created_at") or "", item["id"]))
+                self.set_finding_disposition(finding_id, "duplicate", "同一运行内漏洞类型、主定位与危险操作一致的重复表述。",
+                    by="host", derived_from_finding_id=source["id"])
+                payload = {"finding_id": finding_id, "related_finding_id": source["id"], "disposition": "duplicate",
+                           "by": "host", "identity_tier": 2}
                 self.append_event(run_id, finding.get("unit_id"), "finding_duplicate", payload)
                 return payload
             if candidates:
@@ -3218,6 +3276,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 "basis_summary": result.get("reasoning") if isinstance(result, dict) else "",
                 "observations": _compact_source_observations(result) if isinstance(result, dict) else [],
                 "missing_context": result.get("missing_context", []) if isinstance(result, dict) else [],
+                "remaining_work": result.get("remaining_work", []) if isinstance(result, dict) else [],
+                "terminal_reason": result.get("terminal_reason") if isinstance(result, dict) else None,
                 "error": task.get("error"),
             })
         run = self.get_run(run_id) or {}
@@ -3227,7 +3287,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             "verified": 0, "rejected": 0, "inconclusive": 0, "not_applicable": 0,
             "environment_unavailable": 0, "unverified": 0, "stale": 0,
         }
-        if project is not None:
+        fresh_baseline = (run.get("task_spec") or {}).get("baseline_policy") == "fresh"
+        if project is not None and not fresh_baseline:
             project_findings = self.list_project_findings(
                 project["id"], include_withdrawn=False, limit=40
             )
@@ -3272,6 +3333,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             # view of what has been read, not another copy of the whole map.
             "coverage": self.planner_coverage(run_id, project_map),
             "completion_policy": (run.get("task_spec") or {}).get("completion_policy", "goal"),
+            "baseline_policy": (run.get("task_spec") or {}).get("baseline_policy", "inherit"),
             "coverage_review": self.coverage_review(run_id, project_map),
             "duplicate_candidates": [_loads(row["payload"], {}) for row in reversed(self._rows(
                 "SELECT payload FROM events WHERE run_id=? AND kind='finding_duplicate_candidate' ORDER BY id DESC LIMIT 20", (run_id,)))],
@@ -3862,16 +3924,31 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 stored_result["outcome"] = outcome
                 stored_result["attempt"] = attempt
                 reason = terminal_reason or str(stored_result.get("terminal_reason") or "")
+                # A host/model failure produced no assessment of the previously
+                # outstanding directions. Preserve that work across retries and
+                # explicit reopens; a normally completed assessment may clear it.
+                if (reason in TASK_RETRY_FAILURE_REASONS and outcome in {"continue", "blocked"}
+                        and (error or stored_result.get("error"))
+                        and not stored_result.get("remaining_work")):
+                    previous = _loads(row["result"], {})
+                    remaining = previous.get("remaining_work") if isinstance(previous, dict) else None
+                    if isinstance(remaining, list) and remaining:
+                        stored_result["remaining_work"] = list(remaining)
                 state = "completed"
                 finished_at: str | None = now()
                 stored_error = error
-                if outcome == "continue":
+                if outcome == "continue" or (
+                    outcome in {"achieved", "no_evidence"} and stored_result.get("remaining_work")
+                ):
                     if attempt < int(row["max_attempts"]):
                         state = "ready"
                         finished_at = None
-                    elif reason in TASK_RETRY_FAILURE_REASONS:
+                    elif reason in TASK_RETRY_FAILURE_REASONS or stored_result.get("remaining_work"):
                         state = "blocked"
-                        stored_error = stored_error or "模型或执行预算耗尽，不能据此排除目标"
+                        stored_error = stored_error or (
+                            "当前结果已保存，但剩余方向未结算，需要 Planner 缩小范围或重开任务"
+                            if stored_result.get("remaining_work") else "模型或执行预算耗尽，不能据此排除目标"
+                        )
                     else:
                         state = "exhausted"
                         stored_error = stored_error or "该审计方向已达到每任务最大尝试次数"
@@ -3901,6 +3978,49 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                     ),
                 )
                 self._refresh_planner_task_states_tx(row["run_id"], row["goal_id"], stamp)
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+        return self.get_planner_task(task_id)
+
+    def requeue_task_attempt(self, task_id: str, worker_id: str, *, reason: str, error: str | None) -> dict | None:
+        """Hand a leased task back to the frontier without charging it an attempt.
+
+        A provider outage says nothing about the audit direction, so letting it consume
+        one of the task's attempts is how a single 429 used to cost a direction its last
+        chance.  The pass is still recorded durably: attempt rows for host retries use
+        the negative sequence (the UNIQUE key is ``(task_id, attempt)``, and a host retry
+        must never collide with a real attempt number).
+        """
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._db.execute("SELECT * FROM planner_tasks WHERE id = ?", (task_id,)).fetchone()
+                if row is None or row["state"] != "running" or row["claimed_by"] != worker_id:
+                    self._db.execute("COMMIT")
+                    return None
+                previous = _loads(row["result"], {})
+                result = dict(previous) if isinstance(previous, dict) else {}
+                failures = int(result.get("host_failures") or 0) + 1
+                result["host_failures"] = failures
+                result["last_host_error"] = str(error or reason)[:400]
+                result["host_retry_reason"] = reason
+                stamp = now()
+                self._db.execute(
+                    "UPDATE planner_tasks SET state = 'ready', claimed_by = NULL, claimed_at = NULL, "
+                    "result = ?, error = NULL, updated_at = ?, finished_at = NULL WHERE id = ?",
+                    (_dumps(result), stamp, task_id),
+                )
+                self._db.execute(
+                    "INSERT INTO planner_task_attempts (task_id, run_id, goal_id, plan_id, attempt, worker_id, session_id, "
+                    "outcome, state, result, usage, seen, error, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        task_id, row["run_id"], row["goal_id"], row["plan_id"], -failures, worker_id,
+                        row["session_id"], "host_retry", "ready", _dumps(result), None, "[]",
+                        str(error or reason)[:400], stamp,
+                    ),
+                )
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -4016,14 +4136,13 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                             for item in candidates
                         )
                     if not standing:
-                        run_row = self._db.execute(
-                            "SELECT project_id, project_mode FROM runs WHERE id = ?", (run_id,)
-                        ).fetchone()
+                        run_row = self.get_run(run_id)
                         # A new conversation about a project starts from what earlier ones
                         # already established.  Only *verified* ledger conclusions carry:
                         # otherwise a project with one unchecked finding would close every
                         # later run before it read anything.
-                        if run_row is not None and run_row["project_mode"] == "project" and run_row["project_id"]:
+                        if (run_row is not None and run_row["project_mode"] == "project" and run_row["project_id"]
+                                and (run_row.get("task_spec") or {}).get("baseline_policy") != "fresh"):
                             carried = self._db.execute(
                                 "SELECT * FROM project_findings WHERE project_id = ?"
                                 f" AND disposition NOT IN {_WITHDRAWN_SQL}"
@@ -4927,6 +5046,204 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     # one.  These methods delete a whole audit as one unit, refuse while the
     # worker is still writing, and return per-table row counts so the API can
     # report exactly what it removed.
+
+    def delete_project_finding(self, project_finding_id: str) -> dict:
+        """Erase a canonical finding and its run-local/verification copies.
+
+        Unlike a disposition change, this is irreversible housekeeping. All runs
+        sharing the project must be settled, including paused runs whose frozen
+        baseline could otherwise put the deleted conclusion back into circulation.
+        """
+        return self._delete_findings(project_finding_id=project_finding_id)
+
+    def delete_project_findings(self, project_id: str | None = None) -> dict:
+        """Clear a project's findings, or all findings when no project is supplied.
+
+        Source archives, audit runs and forensic events survive. Unlinked findings
+        from old runs are cleared too, so the startup ledger backfill cannot restore
+        conclusions that the user explicitly removed.
+        """
+        return self._delete_findings(project_id=project_id)
+
+    def _delete_findings(
+        self, *, project_finding_id: str | None = None, project_id: str | None = None,
+    ) -> dict:
+        bulk = project_finding_id is None
+        temp_tables = {
+            "ledger": "_finding_cleanup_ledgers",
+            "finding": "_finding_cleanup_findings",
+            "verification": "_finding_cleanup_verifications",
+            "run": "_finding_cleanup_runs",
+            "scope_run": "_finding_cleanup_scope_runs",
+        }
+        ledger_ids = f"SELECT id FROM {temp_tables['ledger']}"
+        finding_ids = f"SELECT id FROM {temp_tables['finding']}"
+        verification_ids = f"SELECT id FROM {temp_tables['verification']}"
+        run_ids = f"SELECT id FROM {temp_tables['run']}"
+        scope_run_ids = f"SELECT id FROM {temp_tables['scope_run']}"
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                if project_finding_id is not None:
+                    row = self._db.execute(
+                        "SELECT project_id FROM project_findings WHERE id=?", (project_finding_id,),
+                    ).fetchone()
+                    if row is None:
+                        raise KeyError(project_finding_id)
+                    project_id = str(row["project_id"])
+                elif project_id is not None and self._db.execute(
+                    "SELECT id FROM projects WHERE id=?", (project_id,),
+                ).fetchone() is None:
+                    raise KeyError(project_id)
+
+                # Temporary selection tables keep arbitrarily large cleanups below
+                # SQLite's bound-parameter limit and are private to this connection.
+                for table in temp_tables.values():
+                    self._db.execute(f"CREATE TEMP TABLE {table} (id TEXT PRIMARY KEY)")
+                if project_finding_id is not None:
+                    self._db.execute(
+                        f"INSERT INTO {temp_tables['ledger']} VALUES (?)", (project_finding_id,),
+                    )
+                else:
+                    clause = " WHERE project_id=?" if project_id is not None else ""
+                    self._db.execute(
+                        f"INSERT INTO {temp_tables['ledger']} SELECT id FROM project_findings" + clause,
+                        (project_id,) if project_id is not None else (),
+                    )
+                scope = " WHERE COALESCE(NULLIF(r.project_id,''),s.project_id)=?" if project_id is not None else ""
+                self._db.execute(
+                    f"INSERT INTO {temp_tables['scope_run']} SELECT r.id FROM runs r"
+                    " LEFT JOIN snapshots s ON s.id=r.snapshot_id" + scope,
+                    (project_id,) if project_id is not None else (),
+                )
+                self._db.execute(f"INSERT INTO {temp_tables['run']} {scope_run_ids}")
+                self._db.execute(
+                    f"INSERT OR IGNORE INTO {temp_tables['finding']}"
+                    f" SELECT id FROM findings WHERE project_finding_id IN ({ledger_ids})"
+                    f" UNION SELECT origin_finding_id FROM project_findings WHERE id IN ({ledger_ids})"
+                    f" UNION SELECT last_finding_id FROM project_findings WHERE id IN ({ledger_ids})"
+                    " UNION SELECT run_finding_id FROM project_finding_runs"
+                    f" WHERE project_finding_id IN ({ledger_ids}) AND run_finding_id IS NOT NULL",
+                )
+                if bulk:
+                    self._db.execute(
+                        f"INSERT OR IGNORE INTO {temp_tables['finding']} SELECT id FROM findings"
+                        + (f" WHERE run_id IN ({scope_run_ids})" if project_id is not None else ""),
+                    )
+                self._db.execute(
+                    f"INSERT OR IGNORE INTO {temp_tables['run']} SELECT run_id FROM findings WHERE id IN ({finding_ids})",
+                )
+                selected_ledger_ids = {row["id"] for row in self._db.execute(ledger_ids)}
+                selected_finding_ids = {row["id"] for row in self._db.execute(finding_ids)}
+                selected_ids = selected_ledger_ids | selected_finding_ids
+                scoped_run_ids = {row["id"] for row in self._db.execute(scope_run_ids)}
+                baseline_updates = []
+
+                def deleted_reference(item: Any) -> bool:
+                    if isinstance(item, str):
+                        return item in selected_ids
+                    if isinstance(item, dict):
+                        ident, ledger_ident = item.get("id"), item.get("project_finding_id")
+                        return (isinstance(ident, str) and ident in selected_ids) or (
+                            isinstance(ledger_ident, str) and ledger_ident in selected_ledger_ids
+                        )
+                    return False
+
+                for run in self._db.execute("SELECT id,project_baseline FROM runs"):
+                    baseline = _loads(run["project_baseline"], [])
+                    if not isinstance(baseline, list):
+                        continue
+                    if bulk and run["id"] in scoped_run_ids:
+                        remaining = []
+                    else:
+                        remaining = [item for item in baseline if not deleted_reference(item)]
+                    if remaining != baseline:
+                        baseline_updates.append((_dumps(remaining), run["id"]))
+                        self._db.execute(
+                            f"INSERT OR IGNORE INTO {temp_tables['run']} VALUES (?)", (run["id"],),
+                        )
+
+                guarded_runs = list(self._db.execute(
+                    f"SELECT id,status FROM runs WHERE id IN ({run_ids})",
+                ))
+                for run in guarded_runs:
+                    if (run["status"] not in RUN_TERMINAL or run["id"] in self._active_clocks
+                            or self._active_agents.get(run["id"])):
+                        raise ValueError(
+                            f"Run {run['id']} is {run['status']} or execution is not quiescent; "
+                            "cancel it and wait for execution to settle before deleting findings"
+                        )
+
+                affected_project_ids = {
+                    row["project_id"] for row in self._db.execute(
+                        f"SELECT DISTINCT project_id FROM project_findings WHERE id IN ({ledger_ids})"
+                        " UNION SELECT COALESCE(NULLIF(r.project_id,''),s.project_id) AS project_id FROM runs r"
+                        " LEFT JOIN snapshots s ON s.id=r.snapshot_id"
+                        f" WHERE r.id IN ({run_ids})",
+                    ) if row["project_id"]
+                }
+                if project_id is not None:
+                    affected_project_ids.add(project_id)
+                self._db.execute(
+                    f"INSERT INTO {temp_tables['verification']} SELECT id FROM verifications"
+                    + ("" if bulk and project_id is None else (
+                        f" WHERE finding_id IN ({finding_ids}) OR project_finding_id IN ({ledger_ids})"
+                        f" OR id IN (SELECT latest_verification_id FROM project_findings WHERE id IN ({ledger_ids}))"
+                    )),
+                )
+                deleted: dict[str, int] = {}
+
+                def remove_rows(table: str, predicate: str) -> None:
+                    deleted[table] = max(0, self._db.execute(
+                        f"DELETE FROM {table}" + (" WHERE " + predicate if predicate else ""),
+                    ).rowcount)
+
+                all_rows = bulk and project_id is None
+                scoped_orphans = f" OR run_id IN ({scope_run_ids})" if bulk else ""
+                remove_rows("verification_reviews", "" if all_rows else (
+                    f"finding_id IN ({finding_ids}) OR verification_id IN ({verification_ids})" + scoped_orphans
+                ))
+                remove_rows("poc_verification_jobs", "" if all_rows else (
+                    f"finding_id IN ({finding_ids}) OR project_finding_id IN ({ledger_ids})"
+                    f" OR verification_id IN ({verification_ids})" + scoped_orphans
+                ))
+                remove_rows("poc_attempts", "" if all_rows else (
+                    f"finding_id IN ({finding_ids}) OR ledger_id IN ({ledger_ids})"
+                    f" OR verification_id IN ({verification_ids})" + scoped_orphans
+                ))
+                remove_rows("attributions", f"finding_id IN ({finding_ids})")
+                remove_rows("verifications", f"id IN ({verification_ids})")
+                remove_rows("project_finding_cvss_history", "" if all_rows else f"project_finding_id IN ({ledger_ids})")
+                remove_rows("project_finding_runs", "" if all_rows else (
+                    f"project_finding_id IN ({ledger_ids}) OR run_finding_id IN ({finding_ids})" + scoped_orphans
+                ))
+                deleted["derived_references"] = max(0, self._db.execute(
+                    "UPDATE findings SET derived_from_finding_id=NULL"
+                    f" WHERE derived_from_finding_id IN ({finding_ids}) AND id NOT IN ({finding_ids})",
+                ).rowcount)
+                remove_rows("findings", f"id IN ({finding_ids})")
+                remove_rows("project_findings", f"id IN ({ledger_ids})")
+                self._db.executemany("UPDATE runs SET project_baseline=? WHERE id=?", baseline_updates)
+                deleted["project_baselines"] = len(baseline_updates)
+                for affected_project_id in affected_project_ids:
+                    self._db.execute("UPDATE projects SET updated_at=? WHERE id=?", (now(), affected_project_id))
+                self._db.execute("COMMIT")
+            except BaseException:
+                self._db.execute("ROLLBACK")
+                raise
+            finally:
+                for table in reversed(tuple(temp_tables.values())):
+                    self._db.execute(f"DROP TABLE IF EXISTS temp.{table}")
+        result = {
+            "project_id": project_id,
+            "affected_project_ids": sorted(affected_project_ids),
+            "deleted_project_findings": deleted["project_findings"],
+            "deleted_run_findings": deleted["findings"],
+            "deleted": deleted,
+        }
+        if project_finding_id is not None:
+            result["project_finding_id"] = project_finding_id
+        return result
 
     # Tables that carry a ``run_id`` column and are owned entirely by the run.
     # ``verifications`` is not in this list: it keys off ``finding_id``, which we

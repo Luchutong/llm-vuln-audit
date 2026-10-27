@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -188,9 +189,32 @@ def test_an_unexpected_unit_exception_does_not_kill_the_worker_or_next_run(tmp_p
         store.close()
 
 
-def test_request_timeouts_trip_the_model_failure_abort(tmp_path, monkeypatch):
+def test_a_single_transient_failure_does_not_end_the_run(tmp_path, monkeypatch):
+    """One exhausted 429/timeout is noise: the remaining units still get audited."""
     store = Store(tmp_path / "audit.db")
     add_run(store, "run1", count=3)
+    worker = make_worker(store)
+    calls = 0
+
+    async def flaky(**kwargs):
+        nonlocal calls
+        calls += 1
+        return request_timeout_outcome() if calls == 1 else good_outcome()
+
+    monkeypatch.setattr(worker_module, "audit_unit", flaky)
+    try:
+        asyncio.run(worker._execute(store.claim_next_run()))
+        assert store.get_run("run1")["status"] == "completed"
+        kinds = [event["kind"] for event in store.list_events("run1", limit=1000)]
+        assert "run_inconclusive" not in kinds
+        assert "run_failed" not in kinds
+    finally:
+        store.close()
+
+
+def test_request_timeouts_trip_the_model_failure_abort(tmp_path, monkeypatch):
+    store = Store(tmp_path / "audit.db")
+    add_run(store, "run1", count=4)
     worker = make_worker(store)
 
     async def timeout(**kwargs):
@@ -200,21 +224,63 @@ def test_request_timeouts_trip_the_model_failure_abort(tmp_path, monkeypatch):
 
     async def exercise():
         await worker.start()
-        for _ in range(100):
-            if store.get_run("run1")["status"] == "failed":
-                break
-            await asyncio.sleep(0.002)
-        run = store.get_run("run1")
-        assert run["status"] == "failed"
-        assert "连续失败阈值" in run["error"]
-        assert [unit["status"] for unit in store.list_run_units("run1")] == ["failed", "failed", "skipped"]
-        assert worker.health.snapshot()["fails"] == 2
-        await worker.stop()
+        try:
+            for _ in range(200):
+                if store.get_run("run1")["status"] in {"inconclusive", "failed", "completed"}:
+                    break
+                await asyncio.sleep(0.002)
+            # The endpoint never answered, so nothing was disproved: `inconclusive`.
+            assert store.get_run("run1")["status"] == "inconclusive"
+            assert [unit["status"] for unit in store.list_run_units("run1")] == [
+                "failed", "failed", "failed", "skipped",
+            ]
+            assert worker.health.snapshot()["status"] == "tripped"
+            # Two records carry this kind: the store's durable terminal event
+            # (reason = code+message) and the live announcement (reason = code).
+            stopped = [event for event in store.list_events("run1", limit=1000)
+                       if event["kind"] == "run_inconclusive" and "error" in event["payload"]]
+            assert stopped and "连续失败 3 次" in stopped[0]["payload"]["error"]
+        finally:
+            await worker.stop()
 
     try:
         asyncio.run(exercise())
     finally:
         store.close()
+
+
+def test_an_open_breaker_settles_inconclusive_instead_of_failing(tmp_path, monkeypatch):
+    """A run that never reached the provider was not audited, so it did not fail."""
+    store = Store(tmp_path / "audit.db")
+    add_run(store, "run1")
+    worker = make_worker(store)
+    worker.health.trip("credentials rejected", status=401)
+    monkeypatch.setattr(worker_module, "HEALTH_WAIT_CEILING", 0.05)
+    monkeypatch.setattr(worker_module, "HEALTH_POLL_SECONDS", 0.01)
+    try:
+        asyncio.run(worker._execute(store.claim_next_run()))
+        run = store.get_run("run1")
+        assert run["status"] == "inconclusive"
+        events = store.list_events("run1", limit=1000)
+        stopped = [event for event in events
+                   if event["kind"] == "run_inconclusive" and "error" in event["payload"]]
+        assert stopped and stopped[0]["payload"]["reason"] == "model_unavailable"
+        assert "模型熔断" in stopped[0]["payload"]["error"]
+        assert not [unit for unit in store.list_run_units("run1") if unit["status"] == "running"]
+    finally:
+        store.close()
+
+
+def test_a_short_breaker_window_is_waited_out_not_aborted(tmp_path, monkeypatch):
+    store = Store(tmp_path / "audit.db")
+    add_run(store, "run1")
+    worker = make_worker(store)
+    # A 60-second cooldown in miniature: still open now, expired before the ceiling.
+    worker.health.state.open_until = time.time() + 0.05
+    monkeypatch.setattr(worker_module, "HEALTH_POLL_SECONDS", 0.01)
+    assert asyncio.run(worker._wait_for_model()) is True
+    assert not worker.health.is_open()
+    store.close()
 
 
 def test_shutdown_keeps_named_interruption_instead_of_user_cancellation(tmp_path, monkeypatch):

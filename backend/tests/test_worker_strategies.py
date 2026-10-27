@@ -110,9 +110,14 @@ def test_strategy_rejects_unread_main_location_then_corrects(monkeypatch):
     assert any("never read" in prompt for prompt in factory.prompts[1:])
 
 
-def test_legacy_worker_does_not_require_new_finding_fields(monkeypatch):
-    outcome, events, _ = drive(monkeypatch, [final_answer(assessment(vulnerability_type=None, primary_location=None))])
+def test_normal_live_worker_also_requires_classification_and_location(monkeypatch):
+    outcome, events, factory = drive(monkeypatch, [
+        final_answer(assessment(vulnerability_type=None, primary_location=None)),
+        final_answer(assessment()),
+    ])
     assert outcome["outcome"] == "achieved", outcome
+    assert outcome["usage"]["requests"] == 2
+    assert any("必须提供 vulnerability_type" in prompt for prompt in factory.prompts[1:])
     assert not any(item["kind"] == "worker_strategy_bound" for item in events)
 
 

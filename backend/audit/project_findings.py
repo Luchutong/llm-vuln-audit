@@ -135,6 +135,29 @@ def exact_run_identity(finding: dict) -> str | None:
     return hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
+def run_identity_tier2(finding: dict) -> tuple | None:
+    """Coarser duplicate identity: one vulnerability claim, however it was worded.
+
+    ``exact_run_identity`` folds in the evidence ranges, CVSS proposal, POC and
+    preconditions, so the same sink re-reported with a slightly different evidence
+    range or rating never merged.  Those are wording, not identity: the claim is the
+    canonical type at the sink line.  Preconditions are deliberately still *not* part
+    of this key -- an unproven precondition is a separate finding on its own merits,
+    not a reason to keep two identical reports.
+
+    Returns ``None`` when the finding has no usable anchor, which keeps the previous
+    behaviour of never merging on incomplete data.
+    """
+    cause = canonical_vulnerability_type(finding.get("vulnerability_type"))
+    location = finding.get("primary_location") or {}
+    sink = normalise_sink(finding.get("dangerous_operation"))
+    if (cause in {"", "unknown", "other"} or not isinstance(location, dict)
+            or not isinstance(location.get("path"), str) or type(location.get("line")) is not int
+            or location["line"] < 1 or not sink):
+        return None
+    return (cause, str(location["path"]), int(location["line"]), sink)
+
+
 def _evidence(value: object) -> list:
     """Evidence is a list in a run finding and a JSON string in a ledger row."""
     if isinstance(value, str):

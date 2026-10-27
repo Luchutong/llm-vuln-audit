@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import uuid
 from collections.abc import Callable
 from dataclasses import replace
@@ -23,7 +24,7 @@ from .events import EventBus
 from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
 from .cvss_assessment import propose
 from .finding_policy import is_vulnerability_finding
-from .health import ModelHealth
+from .health import HARD_STATUS, ModelHealth
 from .poc import PocPolicy, PocVerifier
 from .project_findings import canonical_fingerprint, ledger_record
 from .prompts import system_prompt
@@ -32,16 +33,111 @@ from .runtime import AgentPolicy, StopAudit, allowed_paths_for_run, policy_from_
 from .execution_state import CURRENT_EXECUTION, execution_context, execution_role
 from .poc_readiness import normalize_poc_mode
 from .schemas import Check
-from .worker_strategies import canonical_vulnerability_type, validate_primary_location
+from .worker_strategies import canonical_vulnerability_type, validate_primary_location, validate_worker_classification
 
-# Two model-level failures in a row mean the endpoint itself is down; grinding
-# through the rest of the queue would only burn budget.
-MODEL_ERROR_ABORT_AFTER = 2
+# The model client retries transient provider behaviour itself (see
+# ``codemodel.AuditCodeModel.generate``).  What reaches this counter is therefore
+# "retries exhausted", and one of those is noise rather than an outage: requiring a
+# run of them keeps a single 429 from ending an audit.  Credentials and routing
+# errors do not wait for the count -- they are configuration faults.
+MODEL_ERROR_ABORT_AFTER = 3
 MODEL_FAILURE_REASONS = frozenset(("model_error", "request_timeout"))
+# The shortest breaker cooldown is 60 seconds.  Waiting one out once is cheaper than
+# discarding a run that still has work; the ceiling keeps the longest cooldown from
+# parking a worker forever.
+HEALTH_WAIT_CEILING = 65.0
+HEALTH_POLL_SECONDS = 1.0
+
+
+def _account_provider_result(
+    health: ModelHealth, outcome: dict, role: str, consecutive: int
+) -> tuple[int, str | None]:
+    """One health-accounting rule shared by every model call site.
+
+    ``consecutive`` counts runs of failures that already exhausted the client's
+    retries.  Returns ``(new_count, message)``; a message means the run must stop.
+    """
+    reason = outcome.get("terminal_reason")
+    if reason == "completed":
+        health.pass_()
+        return 0, None
+    if reason not in MODEL_FAILURE_REASONS:
+        # ``context_limit`` and ``invalid_output`` are task-shaped problems, not
+        # endpoint health: they neither trip the breaker nor reset the count.
+        return consecutive, None
+    status = outcome.get("status")
+    health.trip(outcome.get("error") or f"{role} model error", status=status)
+    consecutive += 1
+    detail = outcome.get("error") or reason
+    if status in HARD_STATUS:
+        return consecutive, f"模型认证或路由失败（{role}，HTTP {status}）：{detail}"
+    if consecutive >= MODEL_ERROR_ABORT_AFTER:
+        return consecutive, f"模型连续失败 {consecutive} 次（{role}）：{detail}"
+    return consecutive, None
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _blocker_progress_signature(tasks: list[dict], findings: list[dict], gap_state: dict | None = None) -> tuple:
+    """Durable audit progress, independent of plan/log churn.
+
+    A smaller replacement task can add evidence without mutating the old blocked
+    row. Conversely, merely publishing another plan or renaming/reprioritizing a
+    task is not recovery. Attempt IDs/timestamps and read-window fragmentation
+    are excluded so the same persisted facts have one stable signature.
+    """
+    attempts = []
+    reads: dict[str, list[tuple[int, int]]] = {}
+    repairs = []
+    for task in tasks:
+        task_id = str(task.get("id") or task.get("task_key") or "")
+        history = task.get("attempt_history") or []
+        for attempt in history:
+            attempts.append((
+                task_id, int(attempt.get("attempt") or 0),
+                str(attempt.get("state") or ""), str(attempt.get("outcome") or ""),
+            ))
+            for read in attempt.get("seen") or []:
+                if not isinstance(read, dict):
+                    continue
+                path, start, end = read.get("path"), read.get("start_line"), read.get("end_line")
+                if (isinstance(path, str) and type(start) is int and type(end) is int
+                        and 1 <= start <= end):
+                    reads.setdefault(path, []).append((start, end))
+        # Only directions which have actually run can represent a repair. New
+        # deferred placeholders or metadata-only updates cannot postpone a stall.
+        if history or int(task.get("attempts") or 0):
+            repairs.append((
+                task_id, str(task.get("state") or ""), int(task.get("revisions") or 0),
+                json.dumps(task.get("context_spec") or {}, ensure_ascii=False, sort_keys=True),
+                tuple(sorted(str(item) for item in task.get("dependencies") or [])),
+            ))
+    coverage = []
+    for path, windows in sorted(reads.items()):
+        merged: list[list[int]] = []
+        for start, end in sorted(windows):
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        coverage.append((path, tuple((start, end) for start, end in merged)))
+    candidates = tuple(sorted(
+        (str(item.get("id") or ""), int(item.get("revision") or 1),
+         str(item.get("disposition") or "open"), str(item.get("verification_status") or ""))
+        for item in findings
+        if item.get("validation_state") == "candidate" and is_vulnerability_finding(item)
+    ))
+    # A coverage review that skipped a path with a stated reason is progress the
+    # blocked frontier cannot see: without it, "Planner reviewed the gaps" looked
+    # identical to "Planner did nothing" and the stall guard closed the run.
+    gap = (
+        int(gap_state.get("total") or 0),
+        int(gap_state.get("pending_total") or 0),
+        tuple(sorted(str(path) for path in gap_state.get("reviewed_paths") or [])),
+    ) if isinstance(gap_state, dict) else ()
+    return tuple(sorted(attempts)), candidates, tuple(coverage), tuple(sorted(repairs)), gap
 
 
 def _normalise_task_findings(outcome: dict) -> dict:
@@ -295,14 +391,45 @@ class AuditWorker:
             return
         await self._execute_legacy(run)
 
+    async def _wait_for_model(self, seconds: float | None = None) -> bool:
+        """Wait out a short breaker window before refusing to start.
+
+        A 60-second cooldown used to turn an already-claimed run into an immediate
+        ``failed`` even though nothing had been disproved.  Returning ``True`` means
+        the endpoint is usable again; ``False`` means the window outlasted the wait.
+        """
+        budget = HEALTH_WAIT_CEILING if seconds is None else seconds
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, budget)
+        while self.health.is_open():
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return False
+            await asyncio.sleep(min(HEALTH_POLL_SECONDS, remaining))
+        return True
+
+    def _settle_model_unavailable(self, run: dict, kind: str) -> None:
+        """Close a run the endpoint never served as ``inconclusive``, not ``failed``.
+
+        Nothing was audited, so nothing was disproved.  ``failed`` used to claim a
+        verdict the host had not reached and hid the real cause from the report.
+        """
+        run_id = run["id"]
+        error = "模型熔断窗口尚未结束；未发起新的模型请求"
+        if kind == "planner":
+            self.store.abandon_planner_tasks(run_id, error)
+        elif kind == "work":
+            self.store.abandon_task_work(run_id, error)
+        else:
+            self.store.abandon_pending_units(run_id, error)
+        self.store.terminate_execution(run_id, "inconclusive", {"code": "model_unavailable", "message": error})
+        self.bus.emit(run_id, None, "run_inconclusive", {"reason": "model_unavailable", "error": error})
+
     async def _execute_legacy(self, run: dict) -> None:
         run_id = run["id"]
         model_config = self._model_for_run(run)
-        if self.health.is_open():
-            error = "模型熔断窗口尚未结束；未发起新的模型请求"
-            self.store.abandon_pending_units(run_id, error)
-            self.store.update_run(run_id, status="failed", finished_at=_now(), error=error)
-            self.bus.emit(run_id, None, "run_failed", {"reason": "model_unavailable", "error": error})
+        if not await self._wait_for_model():
+            self._settle_model_unavailable(run, "legacy")
             return
         # A resumed run has already announced its beginning (see the Planner path below);
         # a second `run_started` would read in the timeline as a run that began twice.
@@ -431,16 +558,22 @@ class AuditWorker:
                 # A request-level timeout means the provider did not produce an answer.
                 # It must count toward the same breaker as connection/HTTP failures;
                 # otherwise a dead endpoint makes us exhaust every queued unit.
-                if model_failure:
-                    self.health.trip(outcome["error"] or "model error", status=outcome.get("status"))
-                    consecutive_errors += 1
-                else:
-                    consecutive_errors = 0
-                if consecutive_errors >= MODEL_ERROR_ABORT_AFTER or self.health.is_open():
-                    message = f"模型熔断或连续失败阈值触发（本次 {consecutive_errors} 次），运行中止：{outcome['error']}"
-                    self.store.abandon_pending_units(run_id, message)
-                    self.store.update_run(run_id, status="failed", finished_at=_now(), error=message)
-                    self.bus.emit(run_id, None, "run_failed", {"error": message})
+                consecutive_errors, failed_message = _account_provider_result(
+                    self.health,
+                    {"terminal_reason": outcome["incomplete"], "error": outcome["error"],
+                     "status": outcome.get("status")},
+                    "worker",
+                    consecutive_errors,
+                )
+                if failed_message:
+                    # The endpoint stopped answering; no unit's absence of findings was
+                    # ever established, so the run is inconclusive, not failed.
+                    self.store.abandon_pending_units(run_id, failed_message)
+                    self.store.terminate_execution(
+                        run_id, "inconclusive", {"code": "model_unavailable", "message": failed_message}
+                    )
+                    self.bus.emit(run_id, None, "run_inconclusive",
+                                  {"reason": "model_unavailable", "error": failed_message})
                     return
                 continue
 
@@ -503,11 +636,8 @@ class AuditWorker:
         # ``Store.finalize_goal`` is what closes the run once the frontier is settled.
         if task_spec.get("scenario") or coverage_mode:
             task_spec = {**task_spec, "stop_on_achieved": False}
-        if self.health.is_open():
-            error = "模型熔断窗口尚未结束；未发起新的 Planner 或 worker 请求"
-            self.store.abandon_planner_tasks(run_id, error)
-            self.store.update_run(run_id, status="failed", finished_at=_now(), error=error)
-            self.bus.emit(run_id, None, "run_failed", {"reason": "model_unavailable", "error": error})
+        if not await self._wait_for_model():
+            self._settle_model_unavailable(run, "planner")
             return
 
         goal = self.store.get_task_goal(run_id)
@@ -538,7 +668,10 @@ class AuditWorker:
         # frontier review: one asks the Planner to read the verdicts, the other asks it to
         # confirm the frontier is finished.
         reviewed_reviews_for: tuple = ()
-        repaired_blockers: set[tuple] = set()
+        # A stalled blocker only ends the run when another repair opportunity
+        # returned the same durable evidence/frontier, not merely the same old
+        # blocked row. Replacement workers may have added useful findings meanwhile.
+        repaired_blockers: dict[tuple, tuple] = {}
         # Set when a worker produces a conclusion the host would close the run on and
         # ``stop_on_achieved`` says to stop queued work.  It withholds the directions that
         # have not started yet -- the run is about to be over, so starting them would spend
@@ -612,24 +745,33 @@ class AuditWorker:
                 self.store.terminate_execution(run_id, "failed", {"code": reason_code, "message": message})
                 self.bus.emit(run_id, None, "run_failed", {"error": message, "reason": reason_code})
 
+        async def abort_model(message: str) -> None:
+            """The provider stopped answering: close honestly as ``inconclusive``.
+
+            Nothing was audited to completion, so nothing was disproved.  ``failed``
+            used to claim a verdict the host had not reached.
+            """
+            nonlocal failure_message
+            async with coordinator:
+                if failure_message is not None:
+                    return
+                failure_message = message
+                stop.set()
+                self.store.abandon_planner_tasks(run_id, message)
+                self.store.terminate_execution(
+                    run_id, "inconclusive", {"code": "model_unavailable", "message": message}
+                )
+                self.bus.emit(run_id, None, "run_inconclusive",
+                              {"reason": "model_unavailable", "error": message})
+
         async def account_model_result(outcome: dict, role: str) -> str | None:
             """Keep provider-health behaviour identical for Planner and worker calls."""
             nonlocal consecutive_errors
-            reason = outcome.get("terminal_reason")
-            if reason in MODEL_FAILURE_REASONS:
-                async with coordinator:
-                    self.health.trip(outcome.get("error") or f"{role} model error", status=outcome.get("status"))
-                    consecutive_errors += 1
-                    if consecutive_errors >= MODEL_ERROR_ABORT_AFTER or self.health.is_open():
-                        return (
-                            f"模型熔断或连续失败阈值触发（{role}，本次 {consecutive_errors} 次）："
-                            f"{outcome.get('error') or reason}"
-                        )
-            elif reason == "completed":
-                async with coordinator:
-                    self.health.pass_()
-                    consecutive_errors = 0
-            return None
+            async with coordinator:
+                consecutive_errors, message = _account_provider_result(
+                    self.health, outcome, role, consecutive_errors
+                )
+            return message
 
         async def finish_goal(state: str, basis: str, missing: list[str] | None = None) -> bool:
             """Persist a host-verified terminal goal and its public run state."""
@@ -758,7 +900,7 @@ class AuditWorker:
                     run_id, plan["id"], goal_state="inconclusive", basis_summary=failed,
                     usage=outcome.get("usage"), error=outcome.get("error") or failed,
                 )
-                await abort(failed)
+                await abort_model(failed)
                 return "failed"
             decision = outcome.get("decision")
             if not isinstance(decision, dict):
@@ -1040,6 +1182,38 @@ class AuditWorker:
                                 },
                             }
 
+                    # A provider or host fault produced no assessment of this direction.
+                    # Settling it normally charged the attempt to the task, so one 429
+                    # could exhaust a direction that was never actually audited.  Hand
+                    # it back uncharged; only a run of ``host_retries`` faults falls
+                    # through to the ordinary settlement (and its honest blocked state).
+                    host_failures = int((planner_task.get("result") or {}).get("host_failures") or 0)
+                    if (outcome.get("terminal_reason") in MODEL_FAILURE_REASONS
+                            and outcome.get("status") not in HARD_STATUS
+                            and host_failures < policy.host_retries):
+                        requeued = self.store.requeue_task_attempt(
+                            task_id,
+                            worker_id,
+                            reason=str(outcome.get("terminal_reason") or "model_error"),
+                            error=outcome.get("error"),
+                        )
+                        if requeued is not None:
+                            self.bus.emit(run_id, task_id, "planner_task_host_retry", {
+                                "task_id": task_id,
+                                "task_key": planner_task["task_key"],
+                                "worker_id": worker_id,
+                                "attempt": requeued["attempts"],
+                                "host_failures": (requeued.get("result") or {}).get("host_failures", 0),
+                                "max_host_retries": policy.host_retries,
+                                "terminal_reason": outcome.get("terminal_reason"),
+                                "error": str(outcome.get("error") or "")[:400],
+                            })
+                            failed = await account_model_result(outcome, "worker")
+                            if failed:
+                                await abort_model(failed)
+                                return
+                            continue
+
                     resolved = self.store.resolve_task_attempt(
                         task_id,
                         worker_id,
@@ -1073,14 +1247,16 @@ class AuditWorker:
                         "attempt": resolved["attempts"],
                         "max_attempts": resolved["max_attempts"],
                         "summary": (outcome.get("result") or {}).get("summary", ""),
+                        "remaining_work": list((outcome.get("result") or {}).get("remaining_work") or []),
                         "terminal_reason": outcome.get("terminal_reason"),
                     })
                     failed = await account_model_result(outcome, "worker")
                     if failed:
-                        await abort(failed)
+                        await abort_model(failed)
                         return
                     if outcome["outcome"] == "achieved" and any(item["candidate"] for item in prepared_findings):
-                        if task_spec.get("stop_on_achieved", True):
+                        if (task_spec.get("stop_on_achieved", True)
+                                and not (outcome.get("result") or {}).get("remaining_work")):
                             # Stop queued work; do not close the run here.  A worker producing the
                             # conclusion the goal asked for used to end the run on the spot, which
                             # meant the directions dispatched alongside it were cancelled unseen
@@ -1211,17 +1387,28 @@ class AuditWorker:
                 await finish_goal(goal["status"], goal.get("terminal_reason") or "Goal already settled")
                 return
             queue = self.store.task_queue_state(run_id)
+            tasks_now = self.store.list_tasks(run_id, include_attempts=False)
             blockers = tuple(sorted({
                 (str(item.get("error") or ""), str((item.get("result") or {}).get("missing_context") or []),
                  str((item.get("context_spec") or {}).get("source_refs") or []))
-                for item in self.store.list_tasks(run_id, include_attempts=False)
+                for item in tasks_now
                 if item["state"] == "blocked"
             }))
             if blockers and not queue["ready"] and not queue["running"]:
-                if blockers in repaired_blockers:
+                progress = _blocker_progress_signature(
+                    self.store.list_tasks(run_id), self.store.list_findings(run_id),
+                    self.store.coverage_review(run_id) if coverage_mode else None,
+                )
+                if repaired_blockers.get(blockers) == progress:
                     await finish_goal("inconclusive", "一次修复规划后阻塞原因仍未改变，停止重复规划。")
                     return
-                repaired_blockers.add(blockers)
+                if blockers in repaired_blockers:
+                    self.bus.emit(run_id, None, "planner_blocker_progress", {
+                        "blocked": queue["blocked"], "settled_attempts": len(progress[0]),
+                        "validated_candidates": len(progress[1]), "files_read": len(progress[2]),
+                        "reason": "新增已结算尝试、源码证据或结论，继续复核仍未解除的受阻方向。",
+                    })
+                repaired_blockers[blockers] = progress
             # The conclusions the host would close this run on, asked once per pass: they decide
             # both whether a worker may start another direction and whether the host reviews
             # before it closes.  The hold is only meaningful while one of them exists.
@@ -1232,7 +1419,11 @@ class AuditWorker:
             if (queue["ready"] or queue["running"]) and not closing:
                 await run_worker_wave()
                 continue
-            if coverage_mode and not queue["active"] and not queue["blocked"]:
+            # Blocked directions do not make the gaps disappear.  Gating the review on
+            # an empty blocker list meant one stuck task suppressed the coverage review
+            # for the rest of the run -- the paths nobody had read were never even sent
+            # to the Planner.  The review may skip a blocked path with a stated reason.
+            if coverage_mode and not queue["active"]:
                 gap_review = self.store.coverage_review(run_id, project_map) or {}
                 if gap_review.get("pending_total"):
                     signature = tuple(gap_review["pending_paths"])
@@ -1532,11 +1723,8 @@ class AuditWorker:
         run_id = run["id"]
         model_config = self._model_for_run(run)
         task = run["task_spec"]
-        if self.health.is_open():
-            error = "模型熔断窗口尚未结束；未发起新的模型请求"
-            self.store.abandon_task_work(run_id, error)
-            self.store.update_run(run_id, status="failed", finished_at=_now(), error=error)
-            self.bus.emit(run_id, None, "run_failed", {"reason": "model_unavailable", "error": error})
+        if not await self._wait_for_model():
+            self._settle_model_unavailable(run, "work")
             return
 
         goal = self.store.get_task_goal(run_id)
@@ -1608,25 +1796,29 @@ class AuditWorker:
                 self.store.update_run(run_id, status="failed", finished_at=_now(), error=message)
                 self.bus.emit(run_id, None, "run_failed", {"error": message})
 
+        async def abort_model(message: str) -> None:
+            """The provider stopped answering; close as ``inconclusive``, not ``failed``."""
+            nonlocal failure_message
+            async with coordinator:
+                if failure_message is not None:
+                    return
+                failure_message = message
+                stop.set()
+                self.store.abandon_task_work(run_id, message)
+                self.store.terminate_execution(
+                    run_id, "inconclusive", {"code": "model_unavailable", "message": message}
+                )
+                self.bus.emit(run_id, None, "run_inconclusive",
+                              {"reason": "model_unavailable", "error": message})
+
         async def account_model_result(outcome: dict) -> str | None:
             """Maintain the same endpoint breaker semantics as the legacy loop."""
             nonlocal consecutive_errors
-            terminal_reason = outcome.get("terminal_reason")
-            if terminal_reason in MODEL_FAILURE_REASONS:
-                async with coordinator:
-                    self.health.trip(outcome.get("error") or "model error", status=outcome.get("status"))
-                    consecutive_errors += 1
-                    if consecutive_errors >= MODEL_ERROR_ABORT_AFTER or self.health.is_open():
-                        return (
-                            f"模型熔断或连续失败阈值触发（本次 {consecutive_errors} 次），运行中止："
-                            f"{outcome.get('error') or terminal_reason}"
-                        )
-                return None
-            if terminal_reason == "completed":
-                async with coordinator:
-                    self.health.pass_()
-                    consecutive_errors = 0
-            return None
+            async with coordinator:
+                consecutive_errors, message = _account_provider_result(
+                    self.health, outcome, "worker", consecutive_errors
+                )
+            return message
 
         async def execute_slot(slot: int) -> None:
             worker_id = f"{self.settings.worker}:{run_id[:8]}:{slot}"
@@ -1799,7 +1991,7 @@ class AuditWorker:
 
                     failed = await account_model_result(outcome)
                     if failed:
-                        await abort(failed)
+                        await abort_model(failed)
                         return
 
                     if outcome["outcome"] == "achieved" and prepared_findings:
@@ -1892,6 +2084,13 @@ class AuditWorker:
         case keeps the historical ``task_goal`` category for compatibility.
         """
         result = outcome.get("result") or {}
+        # Resuming an older run can execute the new live Worker without changing
+        # its frozen run policy. Its actual result marks the new publication
+        # contract, while fully historical unmarked payloads keep legacy behavior.
+        requires_finding_contract = bool(run.get("worker_strategy")) or any(
+            isinstance(policy, dict) and "worker_publication_findings" in policy
+            for policy in (run.get("agent_policy"), result.get("agent_policy"))
+        )
         payloads = result.get("findings")
         if not isinstance(payloads, list):
             legacy = result.get("finding")
@@ -1915,28 +2114,44 @@ class AuditWorker:
             if not vulnerability:
                 problems.append("An explicit vulnerability kind is required")
             vulnerability_type = canonical_vulnerability_type(payload.get("vulnerability_type")) or None
+            classification_errors = []
+            if requires_finding_contract:
+                classification, classification_errors = validate_worker_classification(payload)
+                if not classification_errors:
+                    vulnerability_type = classification
             primary_location, location_errors = validate_primary_location(
                 payload, file_lines, ranges, evidence,
-                required=bool(run.get("worker_strategy")),
+                required=requires_finding_contract,
             )
-            if run.get("worker_strategy") and (
-                not isinstance(payload.get("vulnerability_type"), str) or not vulnerability_type
-            ):
-                location_errors.append("vulnerability_type must be an explicit root-cause string in worker-strategy-v1")
+            location_errors.extend(classification_errors)
             problems.extend(location_errors)
             candidate = candidate and not location_errors
             finding_id = uuid.uuid4().hex
             raw_preconditions = str(payload.get("preconditions") or "").strip()
+            dangerous_operation = str(payload.get("dangerous_operation") or "")
             kind = str(payload.get("kind") or "source_observation").strip() or "source_observation"
             title = str(payload.get("title") or "目标相关源码发现")
             # The legacy table has a (run, unit, category) uniqueness constraint.  A
             # single task result retains ``task_goal``; additional results get stable
             # per-item category slots while their user-facing type lives in finding_kind.
             category = "task_goal" if len(payloads) == 1 else f"task_goal:{index}"
-            if run.get("worker_strategy"):
-                coordinate = primary_location or {}
+            # Structured small batches need stable slots in ordinary audits too:
+            # another batch must not overwrite another operation on the same line.
+            # Full operation/precondition text is intentional: a truncated or
+            # case-folded approximation cannot establish the same vulnerability.
+            # Legacy payloads without the new contract keep their historical slots.
+            if requires_finding_contract:
+                # The slot identifies "the same conclusion", not "an accepted one".  A
+                # publication whose citation failed validation still names the coordinate
+                # it claims; keying only on the validated location would turn the corrected
+                # republish into a second row and orphan the first row's verdicts.
+                claimed = payload.get("primary_location")
+                coordinate = primary_location or (claimed if isinstance(claimed, dict) else {})
                 slot = hashlib.sha256(
-                    f"{vulnerability_type or 'unknown'}|{coordinate.get('path', '')}|{coordinate.get('line', '')}".encode()
+                    json.dumps([
+                        vulnerability_type or "unknown", coordinate.get("path", ""), coordinate.get("line", ""),
+                        dangerous_operation.strip(), raw_preconditions,
+                    ], ensure_ascii=False, separators=(",", ":")).encode()
                 ).hexdigest()[:20]
                 strategy_slots[slot] = strategy_slots.get(slot, 0) + 1
                 category = f"task_goal:v2:{slot}:{strategy_slots[slot]}"
@@ -1945,7 +2160,6 @@ class AuditWorker:
                 anchor_path = primary_location["path"]
                 if unit.get("virtual") or anchor_path != unit.get("file_path"):
                     anchor_symbol = self._symbol_at(run["id"], anchor_path, primary_location["line"]) or "<project>"
-            dangerous_operation = str(payload.get("dangerous_operation") or "")
             finding = {
                 "id": finding_id,
                 "run_id": run["id"],

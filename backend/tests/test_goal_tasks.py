@@ -95,12 +95,16 @@ def create_planner_run(
     *,
     run_id: str = "planner-run",
     task: dict | None = None,
+    policy: AgentPolicy | None = None,
 ) -> tuple[dict, dict]:
     snapshot = import_project(repository)
     store.add_snapshot(snapshot)
     scope = ["public/index.php", "src/auth.php", "src/files.php"]
     frozen_task = task or TASK
-    store.create_run(run_payload(snapshot, run_id, scope, frozen_task))
+    payload = run_payload(snapshot, run_id, scope, frozen_task)
+    if policy is not None:
+        payload["agent_policy"] = policy.snapshot()
+    store.create_run(payload)
     project_map = repository.build_project_map(snapshot["id"], set(scope))
     store.create_planner_session(run_id, f"planner:{run_id}", frozen_task["max_planner_rounds"], project_map)
     run = store.claim_next_run()
@@ -421,6 +425,8 @@ def test_evidence_backed_worker_finding_closes_a_stop_on_achieved_run(store, rep
     finding = {
         "title": "未经规范化的文件名拼接",
         "kind": "vulnerability",
+        "vulnerability_type": "path_traversal",
+        "primary_location": {"path": "src/files.php", "line": 4},
         "severity": "high",
         "summary": "请求参数传入文件处理函数后与上传目录拼接并交给 readfile。",
         "evidence": "public/index.php:4-4; src/files.php:2-4",
@@ -551,6 +557,7 @@ def test_stop_on_achieved_false_finishes_the_current_frontier_then_marks_met(sto
     seen = [{"path": "public/index.php", "start_line": 1, "end_line": 4}]
     found = {
         "title": "未经限制的文件读取", "kind": "vulnerability", "severity": "high",
+        "vulnerability_type": "path_traversal", "primary_location": {"path": "public/index.php", "line": 4},
         "summary": "入口将未经限制的路径参数传给文件读取函数。",
         "evidence": "public/index.php:4-4",
     }
@@ -696,6 +703,7 @@ def test_mixed_worker_results_keep_only_vulnerabilities_in_findings(store, repos
     async def fake_pursue(**kwargs):
         value = worker_outcome("achieved", finding={
             "title": "未经限制的敏感文件读取", "kind": "vulnerability", "severity": "high",
+            "vulnerability_type": "path_traversal", "primary_location": {"path": "src/files.php", "line": 4},
             "summary": "处理函数将请求参数拼接至文件读取路径，缺少目录边界校验。",
             "evidence": "src/files.php:2-4",
         }, seen=[{"path": "src/files.php", "start_line": 1, "end_line": 5}])
@@ -722,6 +730,7 @@ def test_vulnerability_without_a_grade_is_retained_as_needing_cvss(store, reposi
     worker = make_worker(store, repository)
     payload = {
         "title": "待确定影响的文件读取", "kind": "vulnerability", "severity": severity,
+        "vulnerability_type": "path_traversal", "primary_location": {"path": "public/index.php", "line": 4},
         "summary": "此返回宣称存在文件读取漏洞，但没有给出有效的风险等级。",
         "evidence": "public/index.php:4-4",
     }
@@ -978,3 +987,99 @@ def test_restart_marks_an_inflight_planner_task_inconclusive(store, repository):
     assert store.get_task_goal(run["id"])["status"] == "inconclusive"
     assert store.get_planner_session(run["id"])["terminal_state"] == "inconclusive"
     assert store.get_planner_task(claimed["id"])["state"] == "blocked"
+
+
+def _frontier_decision(tasks: list[dict], goal_state: str = "continue", **extra) -> dict:
+    return {
+        "decision": {
+            "goal_state": goal_state,
+            "basis_summary": "受控测试的前沿决策。",
+            "next_action": "" if goal_state != "continue" else "派发方向。",
+            "missing_context": [],
+            "tasks": tasks,
+            "updates": [],
+        },
+        "usage": {"requests": 1, "tool_calls": 0},
+        "error": None,
+        "status": None,
+        "terminal_reason": "completed",
+        **extra,
+    }
+
+
+def _host_fault_outcome() -> dict:
+    """What a worker returns when the provider, not the code, failed."""
+    return {
+        "outcome": "blocked",
+        "result": {"outcome": "blocked", "summary": "", "terminal_reason": "model_error"},
+        "usage": {"requests": 1, "tool_calls": 0},
+        "seen": [],
+        "error": "provider returned 503 after retries",
+        "status": 503,
+        "terminal_reason": "model_error",
+    }
+
+
+def test_a_host_fault_requeues_without_charging_the_task_attempt(store, repository, monkeypatch):
+    run, _ = create_planner_run(store, repository, task={**TASK, "max_workers": 1})
+    worker = make_worker(store, repository)
+    passes: list[int] = []
+
+    async def fake_plan(**kwargs):
+        if kwargs["round_no"] > 1:
+            return _frontier_decision([], goal_state="unreachable")
+        return _frontier_decision([proposal("entry-flow")])
+
+    async def fake_pursue(**kwargs):
+        passes.append(kwargs["attempt"])
+        if len(passes) == 1:
+            return _host_fault_outcome()
+        return worker_outcome("no_evidence")
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
+    monkeypatch.setattr(worker_module, "pursue_planner_task", fake_pursue)
+    asyncio.run(worker._execute(run))
+
+    tasks = store.list_tasks(run["id"])
+    assert [task["state"] for task in tasks] == ["completed"]
+    # The outage produced one more real pass, not one fewer attempt.
+    assert passes == [1, 1]
+    assert tasks[0]["attempts"] == 1
+    history = tasks[0]["attempt_history"]
+    assert [item["outcome"] for item in history] == ["host_retry", "no_evidence"]
+    assert history[0]["attempt"] == -1 and history[0]["state"] == "ready"
+    retries = [event for event in store.list_events(run["id"], limit=1000)
+               if event["kind"] == "planner_task_host_retry"]
+    assert len(retries) == 1
+    assert retries[0]["payload"]["host_failures"] == 1
+
+
+def test_host_retries_are_bounded_before_the_task_settles_normally(store, repository, monkeypatch):
+    run, _ = create_planner_run(
+        store, repository,
+        task={**TASK, "max_workers": 1},
+        policy=AgentPolicy(host_retries=1),
+    )
+    worker = make_worker(store, repository)
+
+    async def fake_plan(**kwargs):
+        if kwargs["round_no"] > 1:
+            return _frontier_decision([], goal_state="inconclusive")
+        return _frontier_decision([proposal("entry-flow")])
+
+    async def fake_pursue(**kwargs):
+        return _host_fault_outcome()
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
+    monkeypatch.setattr(worker_module, "pursue_planner_task", fake_pursue)
+    asyncio.run(worker._execute(run))
+
+    task = store.list_tasks(run["id"])[0]
+    # One retry was available, so the first pass was handed back and the second --
+    # still the task's first attempt -- settled as blocked.
+    assert task["state"] == "blocked"
+    assert task["attempts"] == 1
+    retries = [event for event in store.list_events(run["id"], limit=1000)
+               if event["kind"] == "planner_task_host_retry"]
+    assert len(retries) == 1
+    assert retries[0]["payload"]["max_host_retries"] == 1

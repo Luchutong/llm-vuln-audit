@@ -128,6 +128,7 @@ def test_worker_continues_after_early_met_then_records_explicit_exclusions(store
         path = args["planner_task"]["context_spec"]["source_refs"][0]["path"]
         paths_run.append(path)
         finding = {"title": "文件名缺少路径边界", "kind": "vulnerability", "summary": "请求输入未经路径约束即交给文件操作。",
+            "vulnerability_type": "path_traversal", "primary_location": {"path": "public/index.php", "line": 4},
             "evidence": "public/index.php:4-4", "dangerous_operation": "readfile($path)", "preconditions": []}
         return worker_outcome("achieved" if len(paths_run) == 1 else "no_evidence",
             finding=finding if len(paths_run) == 1 else None,
@@ -194,7 +195,9 @@ def test_only_exact_same_run_claims_are_marked_duplicate(store, repository, diff
     store.link_finding_project("first", "same-ledger", 1)
     store.link_finding_project("second", "same-ledger", 1)
     result = store.classify_run_duplicate(run["id"], "second")
-    if difference is None:
+    if difference is None or difference == "preconditions":
+        # A different precondition wording is an assumption, not a second claim:
+        # the same type at the same sink is the same vulnerability.
         assert result["disposition"] == "duplicate"
         assert store.get_finding("second")["derived_from_finding_id"] == "first"
     else:
@@ -202,3 +205,93 @@ def test_only_exact_same_run_claims_are_marked_duplicate(store, repository, diff
         assert store.get_finding("second")["disposition"] == "open"
     assert len(store.list_findings(run["id"])) == 2
     assert store.get_finding("second")["evidence"] == second["evidence"]
+
+
+def test_a_blocked_direction_does_not_suppress_the_coverage_review(store, repository, monkeypatch):
+    """Unread paths stay reviewable while another direction is stuck.
+
+    Gating the gap review on an empty blocker list made one blocked task hide every
+    path nobody had read for the rest of the run: the Planner was never told the gaps
+    existed, so it could neither dispatch them nor exclude them with a reason.
+    """
+    run = run_with_policy(store, repository, max_workers=1)
+    store.add_finding(_conclusion_finding(run))
+    rounds = []
+    blocked_at_review = []
+
+    requests_seen = 0
+
+    async def plan(**args):
+        nonlocal requests_seen
+        rounds.append(args["round_no"])
+        state = store.task_queue_state(run["id"])
+        requests_now = len([event for event in store.list_events(run["id"], limit=1000)
+                            if event["kind"] == "coverage_review_requested"])
+        if not store.list_tasks(run["id"]):
+            # The first round dispatches the direction that will get stuck.  Only a
+            # later, freshly requested round can be the gap review this test is about.
+            requests_seen = requests_now
+            return decision(tasks=[proposal("entry")])
+        if requests_now <= requests_seen:
+            return decision(goal_state="continue")
+        requests_seen = requests_now
+        blocked_at_review.append((state["blocked"], dict(state["counts"])))
+        pending = args["run_context"]["coverage_review"]["pending_paths"]
+        return decision(goal_state="met", coverage_review=[
+            {"path": path, "action": "skip",
+             "reason": "该方向因缺少前提暂时受阻，列为限制，不声明已经检查。"}
+            for path in pending
+        ])
+
+    async def pursue(**args):
+        return worker_outcome("blocked")
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", plan)
+    monkeypatch.setattr(worker_module, "pursue_planner_task", pursue)
+    asyncio.run(make_worker(store, repository)._execute(run))
+
+    # Coverage was reviewed, but the stuck direction was never resolved: the run
+    # closes honestly as inconclusive rather than pretending the frontier is done.
+    assert store.get_run(run["id"])["status"] == "inconclusive"
+    assert store.execution_summary(run["id"])["stop_reason"]["code"] == "unresolved_blockers"
+    assert blocked_at_review and blocked_at_review[0][0] > 0, (blocked_at_review, rounds)
+    assert store.has_event(run["id"], "coverage_review_requested")
+    assert store.has_event(run["id"], "coverage_review_recorded")
+    assert store.coverage_review(run["id"])["pending_total"] == 0
+
+
+def test_a_rewritten_evidence_range_is_still_the_same_claim(store, repository):
+    run = run_with_policy(store, repository)
+    first = {**_conclusion_finding(run, "first"), "vulnerability_type": "path_traversal",
+             "primary_location": {"path": "public/index.php", "line": 4}}
+    second = {**copy.deepcopy(first), "id": "second", "unit_id": "unit-2",
+              "fingerprint": "second", "category": "path_traversal",
+              "title": "路径参数未受限", "evidence": [{"path": "public/index.php", "start_line": 3, "end_line": 4}],
+              "cvss": 7.5, "poc": "GET /?path=../../etc/passwd"}
+    store.add_finding(first)
+    store.add_finding(second)
+    store.link_finding_project("first", "same-ledger", 1)
+    store.link_finding_project("second", "same-ledger", 1)
+
+    result = store.classify_run_duplicate(run["id"], "second")
+
+    assert result["disposition"] == "duplicate"
+    assert result["identity_tier"] == 2
+    assert store.get_finding("first")["disposition"] == "open"
+
+
+def test_a_different_non_empty_input_source_is_not_merged(store, repository):
+    run = run_with_policy(store, repository)
+    first = {**_conclusion_finding(run, "first"), "vulnerability_type": "path_traversal",
+             "primary_location": {"path": "public/index.php", "line": 4}, "input_source": "GET path"}
+    second = {**copy.deepcopy(first), "id": "second", "unit_id": "unit-2", "fingerprint": "second",
+              "input_source": "POST avatar", "evidence": [{"path": "public/index.php", "start_line": 3, "end_line": 4}]}
+    store.add_finding(first)
+    store.add_finding(second)
+    store.link_finding_project("first", "same-ledger", 1)
+    store.link_finding_project("second", "same-ledger", 1)
+
+    result = store.classify_run_duplicate(run["id"], "second")
+
+    assert result["candidate_ids"] == ["first"]
+    assert store.get_finding("second")["disposition"] == "open"

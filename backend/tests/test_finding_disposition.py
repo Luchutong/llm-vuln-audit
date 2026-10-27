@@ -551,6 +551,10 @@ def planner_run(store, repository, monkeypatch, *, rounds):
             "severity": "high",
             "summary": f"第 {len(pursued)} 版结论：入口路径未做规范化。",
             "evidence": evidence,
+            # Same root-cause row in both passes: the slot keeps its identity and the
+            # second pass only corrects the citation (the first cites a line never read).
+            "vulnerability_type": "path_traversal",
+            "primary_location": {"path": "public/index.php", "line": 4},
             "input_source": "$_GET['path']",
             "propagation": "入口 handle 调用将 path 传入文件处理函数。",
             "dangerous_operation": "readfile('/srv/uploads/' . $path)",
@@ -691,6 +695,8 @@ def closing_run(store, repository, monkeypatch, *, rounds, task: dict | None = N
             "severity": "high",
             "summary": f"{key} 方向：入口路径未做规范化。",
             "evidence": "public/index.php:4-4",
+            "vulnerability_type": "path_traversal",
+            "primary_location": {"path": "public/index.php", "line": 4},
             "input_source": "$_GET['path']",
             "propagation": "入口 handle 调用将 path 传入文件处理函数。",
             "dangerous_operation": "readfile('/srv/uploads/' . $path)",

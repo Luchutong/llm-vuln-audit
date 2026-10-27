@@ -46,6 +46,51 @@ def canonical_vulnerability_type(value: object) -> str:
     return value if value in ROOT_CAUSE_TYPES else _ALIASES.get(value, "unknown")
 
 
+def validate_worker_classification(payload: dict) -> tuple[str | None, list[str]]:
+    """Validate newly submitted findings without guessing or changing old records.
+
+    Unlike the legacy display normalizer, this boundary must distinguish an explicit
+    uncertain classification from an unrecognized model-generated label.
+    """
+    value = payload.get("vulnerability_type")
+    if not isinstance(value, str) or not value.strip():
+        return None, ["必须提供 vulnerability_type，按根因选择受支持的类型；无法确定时显式填 unknown 并说明原因"]
+    normalized = value.strip().casefold()
+    cause = normalized if normalized in ROOT_CAUSE_TYPES else _ALIASES.get(normalized)
+    if cause is None:
+        return None, ["vulnerability_type 不在支持的根因分类中，请从以下类型选择，不会从标题或影响推断：" + ", ".join(ROOT_CAUSE_TYPES)]
+    if cause in {"unknown", "other"}:
+        reason = payload.get("classification_reason")
+        placeholders = {"unknown", "other", "uncertain", "unsure", "n/a", "none", "null", "todo", "未知", "不确定", "其他", "无法判断", "待补充", "不适用"}
+        if (not isinstance(reason, str) or len(reason.strip()) < 8
+                or not any(char.isalnum() for char in reason)
+                or reason.strip().strip("。.!").casefold() in placeholders):
+            return None, [
+                f"vulnerability_type={cause} 时必须提供具体 classification_reason（至少 8 个字符），"
+                + ("说明尚缺哪些源码或事实、为何无法确定根因" if cause == "unknown" else "说明已确认的根因及为何不属于现有分类")
+                + "；不能仅用未知、其他或占位文字",
+            ]
+    return cause, []
+
+
+def worker_classification_contract() -> str:
+    """Shared output contract for every live Worker, independent of strategy text."""
+    return (
+        "每条新 findings 都必须显式填写 vulnerability_type，按源码证明的根因选择以下分类之一："
+        + ", ".join(ROOT_CAUSE_TYPES)
+        + "。不能省略，不从标题或利用后果猜测类型。command_injection 是系统命令注入，"
+        "code_execution 是动态代码执行；文件读取路径穿越与 lfi/rfi 文件包含须按实际源码行为区分。"
+        "只有根因确实无法确定时才填 unknown，并在 classification_reason 中具体说明缺少哪些源码或事实；"
+        "已确认的根因不属于现有分类时填 other，并说明为何现有类型不适用。"
+        "unknown/other 的 classification_reason 至少 8 个字符，不接受占位文字；不能为了通过格式校验捏造类型。"
+        "每条发现同时必须提供 primary_location={path: 完整快照相对路径, line: 严格正整数}，"
+        "指向最能体现根因、缺失防护处的敏感状态变更或危险操作的原始行；"
+        "主定位必须实际读取，并包含在本条 findings.evidence 的引用范围中。"
+        "较早步骤可能被宿主替换为早期会话摘要；摘要不是源码证据，不能作为 evidence 或 primary_location 的依据，"
+        "也不能代替实际读取——需要时重新读取对应源码。"
+    )
+
+
 def root_causes_compatible(left: object, right: object) -> bool:
     """Legacy/unspecified causes retain old identity; known different causes do not."""
     first, second = canonical_vulnerability_type(left), canonical_vulnerability_type(right)
@@ -89,6 +134,10 @@ _W1_V2 = _W1 + """
 先区分根因、已有防护和利用后果，再组织结论。同一根因已经被当前台账或本轮结论覆盖时，优先补证或更正，
 不要换标题再报一次；只有危险操作、数据路径或适用前提确实不同才拆成独立发现。
 primary_location 选择最直接体现根因的原始源码行，不能只选入口、取参、鉴权调用或文件首行。
+必须落在危险操作/sink 所在行，而不是初始化、赋值或参数接收行。反例与正确锚点：
+反射型 XSS 指向 echo/print 输出未编码数据的行，不是接收 $_GET 的赋值行；
+弱类型比较指向 if ($a == $b) 或 in_array() 比较所在行，不是取值行；
+LFI/RFI 指向 include/require 拼接变量所在行，不是路由或控制器入口行。
 对缺失防护类问题，将敏感状态变更所在行作为主定位，并引用足以核对完整防护路径的上下文。
 按根因分类而非攻击结果：文件读取路径穿越、文件包含、本地/远程包含、动态代码执行与系统命令执行需分别核对。
 没有明显危险函数也须检查安全边界：敏感写操作是否约束请求方法及来源、口令存储是否使用合适的单向散列、

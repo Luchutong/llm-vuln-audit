@@ -314,6 +314,12 @@ if [[ "$POC" == true ]]; then
   # runner through its loopback-only development bridge.
   export POC_RUNNER_URL="http://$RUNNER_ADDR"
   export POC_ENABLED=1
+  # Every automatic proof starts from the seed accounts: a POC that exercises the
+  # target's mass-assignment bug must not decide the next finding's preconditions.
+  # The command stays server-side -- a run request can pin the switch but never
+  # supply the command itself.
+  export POC_RESET_BETWEEN_FINDINGS="${POC_RESET_BETWEEN_FINDINGS:-1}"
+  export POC_LAB30_RESET_COMMAND="${POC_LAB30_RESET_COMMAND:-$ROOT_DIR/scripts/reset_lab30.sh}"
 fi
 
 if [[ "$SKIP_INSTALL" == false ]]; then
@@ -360,6 +366,7 @@ printf '  后端：http://127.0.0.1:%s/api/config\n' "$AUDIT_PORT"
 printf '  日志：%s 与 %s\n' "$BACKEND_LOG" "$FRONTEND_LOG"
 if [[ "$POC" == true ]]; then
   printf '  POC：已连接 %s（Lab30 + poc-runner 保持运行）\n' "$POC_RUNNER_URL"
+  printf '       每条 finding 前复位：%s → %s\n' "$POC_RESET_BETWEEN_FINDINGS" "$POC_LAB30_RESET_COMMAND"
   printf '       停止靶场：docker compose --profile poc down\n'
 else
   printf '  POC：未启用（需要自动验证时使用 ./scripts/start.sh --poc）\n'

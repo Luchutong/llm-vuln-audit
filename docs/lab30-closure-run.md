@@ -251,3 +251,93 @@ v2 评分：TP 16、D 29、U 1、FN 14，precision 0.348、recall 0.533、F1 0.4
    管道退出码取自 `tee`，所以终止状态看起来是 0；判定以 `closure_7f00e97c.json` 的
    `failed_checks` 为准。
 
+## 闭环运行（第二轮：调度与去重修复后）
+
+本轮验证 `37dcee0` 的四处修复（先 POC 与覆盖复核、后阻塞停滞判定；原子缩小并重开
+blocked 任务；二档去重按 `sink_similarity`；POC 在统一终态入口也执行）。lab30 业务源码、
+ground truth、评分锚点、模型与预算均未改动。
+
+| 项 | 值 |
+|---|---|
+| commit | `37dcee0ec9d082f387419f5e32871ec5a3304cc6` |
+| run id | `1287aed9e8cb4ed28ed7fcc8bd8cb91b` |
+| 时间 | 2026-10-27 16:55:09Z – 18:05:01Z（脚本计量 4064.7s，上限 5400s） |
+| 状态 | `inconclusive`，stop code `unresolved_blockers`（第 7 轮修复规划失败后阻塞原因未变） |
+| 用量 | responses 531 / 1024，tools 715 / 8192 |
+| 事件 | 4835 条 |
+| 复位 | 开跑前与结束后各一次，均为 4 个账号、偏差 0；POC 每条 finding 前复位 48 次，失败 0 |
+
+产物：`datasets/lab30-shop/closure_1287aed9.json`、`score_all_v2.json`（被 `.gitignore`
+覆盖）、`report_1287aed9.md`（192,722 字节）。
+
+### 验收判据（第二轮）
+
+| 判据 | 要求 | 实际 | 结论 |
+|---|---|---|---|
+| run 状态 | 非 `failed`，`inconclusive` 须有明确 stop_reason | `inconclusive` / `unresolved_blockers` | 通过 |
+| 覆盖复核已记录 | `coverage_review_recorded` 存在 | 2 条（`assets/products.svg`、`fixtures/server.py` skip） | 通过 |
+| 覆盖收束 | `pending_total == 0` | **0**（total 61，read 60，reviewed 61） | 通过 |
+| POC 作业 | `jobs > 0` 且至少 1 条 confirmed | **220 / 21**（48 条验证记录） | 通过 |
+| POC 认证 | `authentication_failed == 0` | 0（`state_mismatch` 1，`auth_events` 0） | 通过 |
+| 复位 | `reset_between_findings`、`seed_verified` | 均为 true，`reset_failures` 0，`post_run_reset` true | 通过 |
+| 上下文 | `history_limit_hits == 0`，峰值有记录，无 `planner_context_error` | 0；峰值 144,019 / 393,216 字节（36.63%）；摘要 0 | 通过 |
+| 检出 | TP ≥ 26、F1 ≥ 0.9286、D ≤ 2 | **TP 18、F1 0.4615、D 28** | **未通过** |
+| 报告 | 非空 Markdown | 192,722 字节 | 通过 |
+
+v2 评分：TP 18、D 28、U 2、FN 12，precision 0.375、recall 0.6、F1 0.4615。本轮共创建
+52 条 finding，宿主按新二档规则标记 4 条 `duplicate`，评分器对剩余 48 条主张做
+一对一匹配。
+
+POC 明细（`poc_verification_recorded`）：confirmed 21、uncertain 25、rejected 2；
+执行状态 success 23、`other_error` 15、`not_triggered` 9、`state_mismatch` 1。
+认证失败 0，说明复位 + 身份不变量让 POC 第一次在真实闭环里跑起来，且没有回退到
+用错误身份硬试。
+
+与上一轮的对照（同一靶场、同一模型）：
+
+| 指标 | `7f00e97c` | `1287aed9` |
+|---|---:|---:|
+| 覆盖 pending | 7 | **0** |
+| POC jobs / confirmed | 0 / 0 | **220 / 21** |
+| TP | 16 | 18 |
+| D | 29 | 28 |
+| U | 1 | 2 |
+| FN | 14 | 12 |
+| F1 | 0.421 | 0.4615 |
+
+### 检出缺口
+
+流程第一次完整收束，但检出仍低于计划中的目标，原因按证据记录：
+
+1. **二档去重只合并了 4 / 28 个候选**：48 条有效主张仍对应 23 个不同的
+   `(类型, 路径, 行)`，其中 16 个分组有多条主张（共 25 条额外主张）。例如
+   `content/page.php:3` 6 条只判重 1 条、`ops/maintenance.php:3` 4 条判重 1 条、
+   `account/backup.php:5` 3 条判重 0 条、`orders/detail.php:3` 3 条判重 0 条。
+   阈值与唯一候选规则本身按预期工作（歧义时不合并），缺口在于 `sink_similarity`
+   对中文换述仍偏严：`include 动态路径` 与 `include 动态文件路径` 这类表述的
+   Jaccard 达不到 0.6。
+2. **12 条未命中真值**：02 greeting 反射 XSS、06 template-preview RFI、07 formula
+   动态调用、09 database 信息泄露、10 密码 MD5、12 url-preview SSRF、13 xml-import
+   XXE、14 settings CSRF、17 users Cookie 授权绕过、21 会话固定、28 report 二次
+   SQL 注入、29 template-render 表达式执行。
+3. **其中 7 条集中在一个 blocked 任务**：`cli-tooling-and-packaging` 第 6/6 次尝试后
+   以 blocked 结束，它的 `remaining_work` 明确列着
+   `ops/formula.php`、`ops/database.php`、`ops/url-preview.php`、`ops/xml-import.php`、
+   `ops/template-preview.php`、`ops/template-render.php`、`ops/report.php`——正好覆盖
+   06/07/09/12/13/28/29。它的多次尝试以 `budget`（单阶段响应额度）与 `no_progress`
+   停止，而全局只用了 531/1024 个响应。
+4. **另外 4 条是“读到了但没主张”**：`greeting.php`、`register.php`、`settings.php`、
+   `bootstrap.php` 分别被 56 / 123 / 170 / 527 条事件引用（覆盖与任务里反复出现），
+   但没有任何 finding 落在这些 truth 位置。这是检出/分类层的缺口，不是覆盖记账问题。
+5. **收束仍由 blocker guard 触发**：第 7 轮 `planner_round_failed`（`invalid_output`）
+   的原因是 `public-entry-input-flow` 第三次重开超过上限 2；随后 blocker guard 以
+   `unresolved_blockers` 收束。此时覆盖复核与 POC 已经完成，正是本轮修复期望的顺序。
+6. **脚本的通过口径只含流程项**：`closure_problems()` 检查 `failed`、覆盖、POC 作业、
+   认证、复位、历史超限与评分退出码，不含 TP/F1/D 阈值。因此打印
+   `闭环验收通过 · TP=18 · F1=0.4615` 只表示**流程闭环**；检出是否达标必须同时看
+   `closure_1287aed9.json` 的 `score` 字段和上表「检出」行。
+
+下一轮的杠杆按影响排序：单任务剩余方向的尝试/响应额度（第 3 条，直接覆盖 7 条
+FN）、二档去重的中文表述归一（第 1 条，直接压低 D）、以及 4 条读到未主张的分类
+复核（第 4 条）。这些都不需要改 lab30 源码、真值或评分锚点。
+

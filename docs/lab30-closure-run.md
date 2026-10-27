@@ -88,6 +88,45 @@ admin 在 13:21 兑换会员，与上表一一对应。
 修复后：每条 finding 前复位种子、身份按 alice→bob 选择、角色不符是硬门禁而字段漂移只作观测、
 `authentication_failed` 单独计数并可被闭环判据检查。
 
+### 修复前的动态复现（同一 runner 进程、同一脏现场）
+
+在重启 runner 之前，直接用 runner 的 HTTP 接口复现了两个成因（新建 context → prepare →
+关闭 context，不写业务数据）：
+
+```bash
+TOKEN=$(sed -n 's/^POC_RUNNER_TOKEN=//p' .env)
+curl -sS -X POST http://127.0.0.1:18089/v1/verification-contexts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"target":"lab30","run_id":"auth-repro","finding_id":"auth-repro"}'
+curl -sS -X POST http://127.0.0.1:18089/v1/targets/lab30/prepare \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"context_id":"<ctx>","identity":"alice"}'
+```
+
+`alice`（成因一：种子账号被 POC 改写）：
+
+```json
+{"ok":false,"identity":"alice","authenticated":false,
+ "precondition":{"ok":false,"identity":"alice","expected_role":"customer",
+  "actual":{"id":1,"username":"alice","role":"admin","balance":"999999.00","tier":"gold",
+            "nickname":"alice","homepage":"#"},
+  "reason":"identity_or_role_mismatch","expected_state":{}}}
+```
+
+`admin`（成因二：进程级基线记录了兑换前的 tier）：
+
+```json
+{"ok":false,"identity":"admin","authenticated":false,
+ "precondition":{"ok":false,"identity":"admin","expected_role":"admin",
+  "actual":{"id":4,"username":"admin","role":"admin","balance":"100.00","tier":"gold",
+            "nickname":"admin","homepage":"#"},
+  "reason":"target_state_changed_manual_reset_required","expected_state":{},
+  "state_changes":[{"field":"tier","before":"standard","after":"gold"}]}}
+```
+
+两次准备都返回 `ok=false`，说明即使身份与角色本身正确，进程级基线也会把后续每条 finding
+的准备判成失败——只复位数据库不够，必须同时改语义。
+
 ## 复位
 
 （复位在本文件「历史污染」小节写定后执行；命令与结果见下。）
@@ -96,6 +135,49 @@ admin 在 13:21 兑换会员，与上表一一对应。
 ./scripts/reset_lab30.sh
 docker compose --profile poc restart poc-runner poc-runner-dev
 ```
+
+复位已执行（种子断言通过），runner 以 3.1.1 重启。复位后在同一 live 靶场上复验了修复语义
+（新建 context → prepare → 关闭，不写业务数据）：
+
+| 检查 | 结果 |
+|---|---|
+| alice / bob / operator / admin 依次 prepare | 四个身份全部 `ok:true` |
+| 以 bob 只改 nickname，再 prepare | `ok:true` + `state_drift`（不再 `target_state_changed_manual_reset_required`） |
+| `expected_state={"balance":100}` 对实际 `"100.00"` | 通过（数值按 Decimal 比较） |
+| `GET /v1/verification-contexts/{id}` | 返回 `pending_jobs`，可用于复位前等待 context 关闭 |
+
+## 上下文压缩动态复现（128KiB，未改默认值）
+
+为了不靠「等它自然超限」来验证压缩器，用环境变量把上限定到 128KiB 跑一次小规模全量审计
+（`poc_mode=off`，responses 40、tools 160、seconds 1200）：
+
+```bash
+AUDIT_HISTORY_BYTES=131072 AUDIT_HISTORY_SUMMARY=1 ./scripts/start.sh --skip-install --poc
+python3 /tmp/mini_context_run.py   # 上传源码 zip → max_planner_rounds 6、max_total_attempts 6、coverage_review
+```
+
+run id `7e1b9899f51c4c2bbd5b22d416e990ad`，结果（只读取事件）：
+
+| 指标 | 值 |
+|---|---|
+| `context_summarized` | 2 条（`116411 → 114319`，摘要 1198 字节；`113769 → 111870`，摘要 1702 字节） |
+| `context_limit` | 0 条 |
+| `model_request` | 55 条，均带 `request_bytes / history_bytes / used_ratio / message_count` |
+| `purpose="history_summary"` 请求 | 2 条（3803、4089 字节，各 1 条消息） |
+| 带 `compact` 的 `model_request` | **0 条** |
+
+前四项符合通过标准；最后一项暴露了一个真实缺陷：**摘要请求本身占一个响应**，两次摘要都花掉了
+阶段最后一个响应，压缩后的请求没有发出去，所以「压缩生效」只体现在摘要事件里，没有一次请求
+真正带着摘要发出去。修复方式是压缩器在发起摘要前先确认「摘要 + 它要压缩的请求」都还在预算内
+（阶段与运行两级）；只剩一个响应时直接确定性裁剪，并记一条
+`context_summary_failed(reason="budget")`。离线回归见
+`backend/tests/test_context_budget.py::test_a_summary_is_never_bought_with_the_phase_last_response`
+与 `backend/tests/test_code_model.py::test_a_summary_is_never_bought_with_the_phase_last_response`
+（后者用真实闸门验证「有两个响应时摘要会被买下，压缩后的请求带 `compact` 遥测」）。
+
+另一次尝试用 64KiB（允许的最小值）时，第一个请求就是 92,775 字节——Planner 提示词本身已经超过
+上限、prefix 只有 2 条消息无可压缩，直接 `context_limit(source="history_bytes")`。这说明 64KiB
+不是「保守值」，新模型起步用 128KiB。复现完成后已把后端恢复为默认 384KiB 再跑闭环。
 
 ## 闭环运行
 

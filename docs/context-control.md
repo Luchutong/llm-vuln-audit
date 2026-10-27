@@ -55,7 +55,12 @@ provider 会先返回 `model_error`，而不是宿主 `context_limit`。此时�
 5. 摘要失败、被截断、为空、超限或预算不足时，进入确定性降级：旧 observation 与 assistant
    动作按固定字节裁剪，仍超则从最旧组开始整组替换为「已省略历史步骤 k..n」标记，
    **始终保留前缀与最近步骤**。
-6. 只有压缩后仍超过 `history_bytes` 才抛 `context_limit`，事件带 `source`、`request_bytes`、
+6. 摘要只在「买得起」时才发起：它和它要压缩的那次请求都要占一个响应。阶段（或整次运行）
+   只剩一个响应时，压缩器不发起摘要，直接确定性裁剪，并记一条
+   `context_summary_failed(reason="budget")`（每个阶段至多一条）。否则会出现「摘要用掉最后
+   一个响应、压缩后的请求根本没发出去」——128KiB 动态复现里正是这样：两条
+   `context_summarized`，却没有任何带 `compact` 的 `model_request`。
+7. 只有压缩后仍超过 `history_bytes` 才抛 `context_limit`，事件带 `source`、`request_bytes`、
    `history_bytes`、`top_messages`，可以直接判断「差一点」还是「结构性超限」。
 
 压缩只作用于「本次请求的消息副本」，不修改 smolagents 的 memory；阶段边界的 `reset=True`
@@ -99,13 +104,18 @@ provider 会先返回 `model_error`，而不是宿主 `context_limit`。此时�
   与模型窗口无关，调 `AUDIT_HISTORY_BYTES` 没有作用。
 - 小预算运行（比如 24 responses）可能被摘要请求挤占；摘要额度不足时自动降级，不会失败。
   需要完整保留探索过程时，把 `history_summary_responses`（代码内）或响应预算调大。
+- `AUDIT_HISTORY_BYTES` 有下限 64KiB，但**这个下限低于 Planner 提示词本身**：一次实测里
+  64KiB 预算下首个请求就是 92,775 字节（prefix 只有 2 条消息），压缩器无从下手，直接
+  `context_limit(source="history_bytes")`。检查新模型窗口时用 128KiB 起步，不要把 64KiB
+  当作「保守值」。
 
 ## 相关测试
 
 - `backend/tests/test_context_budget.py`：触发水位、保留窗口、缓存复用、失败降级、
-  摘要请求不递归且不夺走发布额度。
+  摘要请求不递归且不夺走发布额度、只剩一个响应时不买摘要。
 - `backend/tests/test_context_config.py`：环境变量解析、范围夹取、非法值 fail-fast。
-- `backend/tests/test_code_model.py`：`context_limit` 事件字段与摘要集成。
+- `backend/tests/test_code_model.py`：`context_limit` 事件字段、摘要集成，以及压缩后的请求
+  确实带 `compact` 遥测。
 - `backend/tests/test_report_context.py`、`backend/tests/test_execution_stability.py`：
   报告小节与跨阶段合并。
 - `frontend/tests/trace.test.mjs`、`frontend/tests/execution.test.mjs`：事件摘要与状态卡文案。

@@ -89,7 +89,7 @@ def test_strategy_enters_real_worker_without_replacing_host_contract(monkeypatch
         assert event["host_contract_sha256"] == hashlib.sha256(worker_host_contract().encode()).hexdigest()
         bound.append(event)
     assert len({item["host_contract_sha256"] for item in bound}) == 1
-    assert len({item["strategy_sha256"] for item in bound}) == 3
+    assert len({item["strategy_sha256"] for item in bound}) == 5
 
 
 def test_strategy_rejects_missing_type_then_corrects_in_same_budget(monkeypatch):

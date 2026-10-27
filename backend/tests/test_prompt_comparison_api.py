@@ -83,12 +83,12 @@ def api(tmp_path, monkeypatch):
     store.close()
 
 
-def test_startup_seeds_three_strategy_prompts_without_replacing_legacy(tmp_path):
+def test_startup_retains_three_original_strategies_and_adds_versioned_improvements(tmp_path):
     state = app_module.Services(Settings(data_dir=tmp_path, model=ModelConfig()))
     try:
         prompts = state.store.list_prompts()
         strategies = [item for item in prompts if item["kind"] == "worker_strategy"]
-        assert {item["id"] for item in strategies} == {"worker-w0-v1", "worker-w1-v1", "worker-w2-v1"}
+        assert {item["id"] for item in strategies} == {"worker-w0-v1", "worker-w1-v1", "worker-w2-v1", "worker-w1-v2", "worker-w2-v2"}
         assert all(item["contract_version"] == "worker-strategy-v1" and item["builtin"] for item in strategies)
         assert any(item["id"] == "P0" for item in prompts)
     finally:
@@ -98,7 +98,7 @@ def test_startup_seeds_three_strategy_prompts_without_replacing_legacy(tmp_path)
 def test_strategy_create_filter_and_derivation_contract(api):
     client, _ = api
     listed = client.get("/api/prompts?kind=worker_strategy")
-    assert listed.status_code == 200 and len(listed.json()) == 3
+    assert listed.status_code == 200 and len(listed.json()) == 5
     assert client.get("/api/prompts?kind=legacy").json()[0]["id"] == "legacy"
     assert client.get("/api/prompts?kind=unrecognized").status_code == 400
     created = client.post("/api/prompts", json={"label": "自定义策略", "text": "核对已有防护的适用范围。",

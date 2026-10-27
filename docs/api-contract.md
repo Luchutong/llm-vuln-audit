@@ -343,3 +343,15 @@ Config {model,base_url,configured,thinking,missing,selected_profile_id,
 只要存在 `pending`、`running` 或 `paused` 的审计，`POST /config/profiles`、`PUT /config/profiles/{profile_id}`、选择和删除操作都会返回 `409`，以阻止审计运行期间改变档案。环境变量档案的编辑或删除也会返回 `409`；删除当前选中档案同样会返回 `409`。不存在的档案返回 `404`，请求字段校验失败返回 `422`。
 
 创建审计时，`Run` 额外冻结并返回非密钥的 `model_profile`：`{profile_id,model,base_url}`。其中 `base_url` 同样是公开净化值。worker 按冻结的 `profile_id` 找回该档案的连接凭据；若历史档案已删除，运行记录仍可展示快照，但不会改用当前选中档案继续执行。
+
+
+## Lab30 实测修复的增量契约（2026-10-27）
+
+- TaskSpec新增可选 `completion_policy: goal | coverage_review`，缺省goal；新正式对比及全源码E2E使用coverage_review。
+- PlannerDecision新增 `coverage_review: [{path, action: skip, reason}]`。只有冻结文件路径及具体理由可接受，收束还受完整任务队列和待复核集合约束。
+- `run.execution_summary.coverage_review` 提供版本、完整计数、pending_paths、read_paths、skips和complete；旧运行无该字段。
+- 评分新增解释性 `missed_diagnostics` 和重复主张统计，正式TP/D/U不变；汇总新增共同CVSS配对差、独立审计/生命周期耗时及执行诊断。
+- CSV ZIP保留原3表，新增cvss_common.csv和execution_diagnostics.csv。旧字段及历史成绩保留。
+- runner HTTP/浏览器请求新增可选host job_id，共享幂等查询；健康能力新增idempotent_http_jobs/idempotent_browser_jobs，旧runner需升级，静态审计继续。
+
+详见[实测修复交付](lab30-validation-repairs.md)。

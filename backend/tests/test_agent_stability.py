@@ -164,13 +164,16 @@ def run_worker(monkeypatch, script, responses):
     return result, factory, events
 
 
-def test_worker_has_no_implicit_eight_request_cap(monkeypatch):
-    result, factory, _ = run_worker(monkeypatch, {"task_execute": [
-        *[call("find_files", pattern=f"unread-{index}") for index in range(9)],
-        final_answer({"outcome": "no_evidence", "summary": "No supported candidate.", "reasoning": "Only known source was read."}),
-    ]}, responses=16)
+def test_worker_bounds_exploration_and_publishes_from_the_same_request_budget(monkeypatch):
+    result, factory, _ = run_worker(monkeypatch, {
+        "task_execute": [call("find_files", pattern=f"unread-{index}")
+                         for index in range(AgentPolicy().worker_explore_responses)],
+        "task_publish": [final_answer({"outcome": "no_evidence", "summary": "No supported candidate.",
+                                       "reasoning": "Only known source was read."})],
+    }, responses=16)
     assert result["outcome"] == "no_evidence", result
-    assert len(factory.built().requests) == 10
+    assert factory.phases == ["task_execute"] * AgentPolicy().worker_explore_responses + ["task_publish"]
+    assert len(factory.built().requests) == AgentPolicy().worker_explore_responses + 1
 
 
 def test_worker_reserves_publication_even_when_exploration_never_finishes(monkeypatch):

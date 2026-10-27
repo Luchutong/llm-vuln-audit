@@ -76,7 +76,7 @@ def decide(script=None) -> dict:
     return {"planner_decision": script or [final_answer(empty_decision())]}
 
 
-def run_round(monkeypatch, project, script, *, run_context=None):
+def run_round(monkeypatch, project, script, *, run_context=None, policy=None):
     factory = ModelFactory(script)
     monkeypatch.setattr(agent, "build_code_model", factory)
     events: list[dict] = []
@@ -87,7 +87,7 @@ def run_round(monkeypatch, project, script, *, run_context=None):
         round_no=1,
         config=CONFIG,
         budgets={"responses": 4, "tools": 4, "seconds": 8},
-        policy=AgentPolicy(request_seconds=0.5),
+        policy=policy or AgentPolicy(request_seconds=0.5),
         repository=project.repository,
         snapshot_id=project.snapshot_id,
         allowed_paths=None,
@@ -466,3 +466,55 @@ def test_verification_records_travel_with_the_situation_and_guide_closure_review
     assert situation["closure_review"] is True
     assert "攻击侧无差异" in situation["notice"] or "verification_records" in situation["notice"]
     assert "不得作为收束依据" in situation["notice"]
+
+
+def test_an_oversized_situation_skeleton_widens_once_before_failing(monkeypatch, project):
+    """The 16KiB ceiling is a guard rail, not a cliff.
+
+    When the protected closure facts do not fit, the round is retried at the hard ceiling
+    and the widening is recorded -- the archived Lab30 failure was a run that died here
+    without ever telling anyone which fields overflowed.
+    """
+    policy = AgentPolicy(request_seconds=0.5, planner_pinned_bytes=1000,
+                         planner_pinned_hard_bytes=4096)
+    result, events, prompts = run_round(monkeypatch, project, decide(),
+                                        run_context=prior_run_context(), policy=policy)
+
+    expanded = next(event for event in events if event["kind"] == "planner_pinned_expanded")
+    assert expanded["ceiling_bytes"] == 1000
+    assert expanded["hard_bytes"] == 4096
+    assert expanded["situation_bytes"] <= 4096
+    assert expanded["field_bytes"]["closure_checks"] > 0
+    assert not any(event["kind"] == "planner_context_error" for event in events)
+    assert result["decision"] is not None and prompts
+
+
+def test_a_situation_that_fits_no_ceiling_names_the_planner_pinned_source(monkeypatch, project):
+    """Only when even the hard ceiling fails does the round report a context error."""
+    policy = AgentPolicy(request_seconds=0.5, planner_pinned_bytes=1000,
+                         planner_pinned_hard_bytes=1100)
+    factory = ModelFactory(decide())
+    monkeypatch.setattr(agent, "build_code_model", factory)
+    events: list[dict] = []
+    result = asyncio.run(agent.plan_audit_frontier(
+        project_map=project.project_map,
+        run_context=prior_run_context(),
+        task=TASK,
+        round_no=1,
+        config=CONFIG,
+        budgets={"responses": 4, "tools": 4, "seconds": 8},
+        policy=policy,
+        repository=project.repository,
+        snapshot_id=project.snapshot_id,
+        allowed_paths=None,
+        on_event=events.append,
+    ))
+
+    error = next(event for event in events if event["kind"] == "planner_context_error")
+    assert error["source"] == "planner_pinned"
+    assert error["stage"] == "situation_budget"
+    assert error["ceiling_bytes"] == 1000 and error["hard_bytes"] == 1100
+    assert error["field_bytes"] and error["error_type"] == "ValueError"
+    assert result["terminal_reason"] == "planner_context_error"
+    # The round failed while projecting the situation, before any model client existed.
+    assert factory.model is None

@@ -207,7 +207,7 @@ async def run_recon(
                 # shape rather than trusting whatever the loop came back with.
                 output_model=ReconBrief,
             )
-            model = build_code_model(config, gate=gate, max_tokens=2048)
+            model = build_code_model(config, gate=gate, max_tokens=policy.recon_max_tokens)
             value = build_agent(
                 model=model,
                 gate=gate,

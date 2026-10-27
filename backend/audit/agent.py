@@ -1,10 +1,10 @@
 """Finite white-box audit: evidence exploration, verdicts, then POCs.
 
-The model/tool loop belongs to the library: every driver here -- the Planner, the worker
-and the reconnaissance sub-agent -- runs on smolagents' code-action loop, one code block
-per step, the host's read-only tools as ordinary Python functions, and ``final_answer`` to
-hand the phase its result.  The host owns termination, phase allocation, source provenance
-and durable checkpoints.  No phase renews the unit budget.
+Exploration and reconnaissance use smolagents' code-action loop, with the host's
+read-only tools as Python functions and ``final_answer`` to hand back a typed result.
+Planner and Worker final publication use small JSON responses through the same host gates.
+The host owns termination, phase allocation, source provenance and durable checkpoints.
+No phase renews the unit budget.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from .config import ModelConfig
 from .db import WITHDRAWN_FINDING_DISPOSITIONS
 from .evidence import seen_ranges, validate_evidence, evidence_inventory
 from .executor import attach_phase, build_agent, drive_phase
+from .structured_output import drive_structured_phase
 from .finding_policy import is_vulnerability_finding
 from .navigation import ProjectIndex, clean_path
 from .tool_errors import ToolFailure, classify_failure, public_value, note_tool_result
@@ -55,8 +56,9 @@ from .verification_context import (
     read_complete as verification_read_complete,
 )
 from .worker_strategies import (
-    canonical_vulnerability_type, freeze_worker_strategy, validate_primary_location,
-    worker_host_contract, worker_poc_requirement,
+    ROOT_CAUSE_TYPES, canonical_vulnerability_type, freeze_worker_strategy, validate_primary_location,
+    worker_host_contract, worker_poc_requirement, worker_classification_contract,
+    validate_worker_classification,
 )
 from .toolkit import (
     PEER_TRACE_TOOLS,
@@ -394,6 +396,16 @@ class AuditDeps:
         if self.repeats >= execution.policy.repeated_calls or self.stagnant >= execution.policy.no_progress_calls:
             raise StopAudit("no_progress", "重复读取或连续工具调用未增加代码证据，停止探索并进入判定")
         if ledger_full or self.ledger.bytes_used >= self.ledger.max_bytes:
+            # The other source of ``context_limit``: not the model's history, but the
+            # source ledger.  They need different recovery -- this one is resolved by a
+            # narrower reading window, not by summarizing -- so the event names which.
+            execution.note_context(limit_hit=True, source="source_ledger")
+            execution.emit({
+                "kind": "context_limit", "source": "source_ledger", "phase": execution.phase,
+                "attempt": execution.attempts, "ledger_bytes": int(self.ledger.bytes_used),
+                "ledger_limit": int(self.ledger.max_bytes), "full": bool(ledger_full),
+                "usage": execution.snapshot(),
+            })
             raise StopAudit("context_limit", "已读源码达到上限，停止探索并基于现有证据作答")
         # Navigation/peer projections are JSON documents. A free-form budget suffix
         # would make json.loads fail even though the tool itself succeeded.
@@ -1338,6 +1350,8 @@ def _planner_situation(run_context: dict) -> dict:
                 for value in (result.get("missing_context") or item.get("missing_context") or [])[:2]
             ],
             "error": _planner_text(item.get("error"), 160) or None,
+            "terminal_reason": _planner_text(item.get("terminal_reason") or result.get("terminal_reason"), 60) or None,
+            "remaining_work": [_planner_text(value, 160) for value in (item.get("remaining_work") or result.get("remaining_work") or [])[:2]],
         }
         if revising and str(item.get("state")) not in open_states:
             if revising & {str(dep) for dep in (item.get("dependencies") or [])}:
@@ -1532,6 +1546,17 @@ def _planner_situation(run_context: dict) -> dict:
 
 def _situation_bytes(value: dict) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def _field_bytes(value: dict) -> dict:
+    """Per-field byte sizes, for diagnostics that must not fail on their own input."""
+    result: dict = {}
+    for name, item in (value or {}).items():
+        try:
+            result[name] = len(json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode())
+        except (TypeError, ValueError, RecursionError):
+            result[name] = None
+    return result
 
 
 def _trim_lists(block: dict, names: tuple[str, ...], limit: int) -> dict:
@@ -1907,7 +1932,7 @@ async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot
         """
         nonlocal model
         if model is None:
-            model = build_code_model(config, gate=gate, max_tokens=4096)
+            model = build_code_model(config, gate=gate, max_tokens=policy.worker_max_tokens)
         else:
             model.attach(gate)
         return build_agent(
@@ -2345,6 +2370,22 @@ def _to_check(name: str, verdict: CategoryVerdict, proof: CategoryPoc | None) ->
     return Check(**payload)
 
 
+def _worker_publication_schema(batch_limit: int) -> dict:
+    """Expose the live contract without changing historical payload parsing."""
+    schema = GoalAssessment.model_json_schema()
+    schema["properties"]["findings"]["maxItems"] = batch_limit
+    finding = schema["$defs"]["TaskFinding"]
+    finding["required"] = list(dict.fromkeys([
+        *finding.get("required", []), "vulnerability_type", "primary_location",
+    ]))
+    finding["properties"]["vulnerability_type"] = {
+        "type": "string", "enum": list(ROOT_CAUSE_TYPES),
+        "description": "Explicit supported root cause; unknown/other also requires classification_reason",
+    }
+    finding["properties"]["primary_location"] = {"$ref": "#/$defs/PrimaryLocation"}
+    return schema
+
+
 async def pursue_task_work(
     *,
     repository: SourceRepository,
@@ -2456,7 +2497,8 @@ async def pursue_task_work(
             "outcome": outcome,
             "summary": assessment.summary if assessment else "",
             "reasoning": assessment.reasoning if assessment else "",
-            "next_focus": assessment.next_focus if assessment else "",
+            "next_focus": (assessment.next_focus or "；".join(assessment.remaining_work)) if assessment else "",
+            "remaining_work": list(assessment.remaining_work) if assessment else [],
             "missing_context": missing_context,
             "finding": finding,
             "findings": findings,
@@ -2498,6 +2540,15 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
             "contract_version": strategy["contract_version"],
             "host_contract_sha256": hashlib.sha256(host_contract.encode()).hexdigest(),
         })
+    instruction += "\n" + worker_classification_contract()
+    batch_limit = max(1, int(policy.worker_publication_findings))
+    instruction += (
+        f"\n每次提交最多 {batch_limit} 条最有依据的完整 findings，先保存小批结果。"
+        "存在尚未处理的不同方向时，将具体源码路径、问题和下一步写入 remaining_work。"
+        "achieved 可以携带 remaining_work：当前候选会保存，宿主仍在同一任务的剩余尝试额度内继续。"
+        "不能为了缩短输出丢弃已发现风险；不能将尚未审查的方向写成安全或已完成。"
+        "summary、reasoning 和各字段保持简短，CVSS 每项只写必要依据，避免重复整段源码。"
+    )
     if known_findings:
         # What the project already concluded, not what this direction has read.  Saying it
         # here stops a worker from spending its budget re-proving a sink and reporting it
@@ -2531,6 +2582,11 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
         another work item on it.
         """
         paths = {path for path, _, _ in ledger.lines}
+        if len(result.findings) > batch_limit:
+            raise ValueError(
+                f"每次最多提交 {batch_limit} 条 finding；先提交最有依据的小批，"
+                "其余方向必须在 remaining_work 中列出，由后续尝试继续，不能直接丢弃。"
+            )
         if task.get("require_poc", True) and any(item.poc is None for item in result.findings):
             raise ValueError("当前任务要求每条 achieved finding 附带完整 POC")
         for label, items in (("achieved finding", result.findings), ("observation", result.observations)):
@@ -2545,13 +2601,15 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     detail = "; ".join(problems) if problems else "未解析到 path:start-end 引用"
                     raise ValueError(f"第 {index} 条 {label} 的证据必须来自已显示源码：{detail}。" + evidence_inventory(seen_ranges(unit, deps.reads, exact=True)))
                 if label == "achieved finding":
-                    if strategy is not None and not canonical_vulnerability_type(item.vulnerability_type):
-                        raise ValueError(f"第 {index} 条 finding 必须提供 vulnerability_type，无法确定时填 unknown")
+                    classification, classification_errors = validate_worker_classification(item.model_dump())
+                    if classification_errors:
+                        raise ValueError(f"第 {index} 条 finding：" + "; ".join(classification_errors))
+                    item.vulnerability_type = classification
                     _, location_errors = validate_primary_location(
                         item.model_dump(),
                         {entry["path"]: entry["line_count"] for entry in snapshot.get("files") or []},
                         seen_ranges(unit, deps.reads, exact=True), refs,
-                        required=strategy is not None,
+                        required=True,
                     )
                     if location_errors:
                         raise ValueError(f"第 {index} 条 finding：" + "; ".join(location_errors))
@@ -2577,7 +2635,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     deps.notes.append(f"准备阶段提前停止：{exc.reason}")
             response_cap = max(1, int(budgets["responses"]))
             reserve = min(response_cap, 1 + max(0, int(policy.output_corrections)))
-            explore_limit = response_cap - reserve
+            explore_limit = min(max(0, int(policy.worker_explore_responses)), response_cap - reserve)
             specs = WORKER_TOOLS + WORKER_NAVIGATION_TOOLS
             if peer_traces_enabled:
                 specs += PEER_TRACE_TOOLS
@@ -2595,7 +2653,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     final_answer=FinalAnswerTool.for_model(gate, GoalAssessment, "GoalAssessment"),
                 )
                 if model is None:
-                    model = build_code_model(config, gate=gate, max_tokens=4096)
+                    model = build_code_model(config, gate=gate, max_tokens=policy.worker_max_tokens)
                     agent = build_agent(model=model, gate=gate, tools=table,
                                         instructions=instruction + CVSS_INSTRUCTION, max_steps=response_cap + 1, name="task")
                 else:
@@ -2650,25 +2708,38 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     if provider_refused(exc):
                         raise
                     exploration_reason = model_failure_reason(exc)
-                    if exploration_reason == "invalid_output":
-                        raise
                     emit({"kind": "task_exploration_stopped", "reason": exploration_reason,
                           "error": config.redact(exc)[:400], "usage": execution.snapshot()})
                 assessment = gate.published
             if assessment is None:
                 execution.enter("task_publish", attempt=attempt, reason=exploration_reason or "direct",
                                 reserved_responses=reserve)
-                gate = task_phase(tools=False, limit=response_cap, deadline=execution.deadline)
+                gate = PhaseGate(
+                    execution=execution, loop=asyncio.get_running_loop(), dispatch=deps.call,
+                    deadline=execution.deadline, limit=min(response_cap, execution.attempts + reserve),
+                    output_model=GoalAssessment, validate=validate_goal,
+                )
+                if model is None:
+                    model = build_code_model(config, gate=gate, max_tokens=policy.worker_max_tokens)
                 publish_message = message + "\n# 探索后新增的原始源码（仅实际显示过的行）\n" + ledger.replay(exclude=prepared_keys)
                 publish_message += "\n" + evidence_inventory(seen_ranges(unit, deps.reads, exact=True))
                 publish_message += "\n# 宿主记录的上下文缺失\n" + "\n".join(deps.notes[-8:])
                 publish_message += (
                     "\n探索已经结束，源码和导航工具现已收回。只基于上面实际读过的代码，"
-                    "在一个 Python 代码块里调用 final_answer(GoalAssessment)。"
+                    "提交一个 JSON 格式的 GoalAssessment，不写 Python 或 final_answer 调用。"
+                    f"每次最多 {batch_limit} 条 findings；其余具体方向写入 remaining_work，不能静默省略。"
                     "缺失证据请写 missing_context；不得把预算停止或未知情况写成已排除漏洞。"
                 )
-                await drive_phase(agent, gate, publish_message,
-                                  max_steps=max(1, response_cap - execution.attempts) + 1, reset=True)
+                schema = _worker_publication_schema(batch_limit)
+                publish_message += "\n# 完整 JSON 字段契约\n" + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+                publish_message += (
+                    "\n只提交已确认的短字段，省略空 finding、observations、poc 等默认字段。"
+                    "findings 内必须有 vulnerability_type、primary_location 与原始 evidence。"
+                    "若没有可成立的漏洞，按真实情况使用 no_evidence/blocked/continue，不能编造结果。"
+                )
+                await drive_structured_phase(
+                    model, gate, instruction + CVSS_INSTRUCTION, publish_message, max_steps=reserve,
+                )
                 assessment = gate.published
     except asyncio.CancelledError:
         emit({"kind": "task_agent_terminal", "reason": "cancelled", "usage": execution.snapshot()})
@@ -2697,13 +2768,15 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
         # Transport, output-shape and per-pass budget failures are not missing
         # source context.  Requeue them (within the durable item's own cap) so a
         # transient provider response cannot prematurely turn the whole goal into
-        # "inconclusive".  Parse/context limits remain honest blocks because another
-        # identical pass cannot supply the absent source evidence.
-        retryable = {"model_error", "request_timeout", "timeout", "budget", "invalid_output"}
+        # "inconclusive". History capacity is a host execution limit, not evidence
+        # that the uploaded project is missing source. Retries remain task-bounded.
+        retryable = {"model_error", "request_timeout", "timeout", "budget", "invalid_output", "context_limit"}
         failure_outcome = "continue" if terminal_reason in retryable else "blocked"
         result = state(failure_outcome, error=failure)
         if failure_outcome == "continue":
             result["next_focus"] = "上一次执行未得到可用模型结论；在同一工作项上重新尝试并优先完成结构化判定。"
+            if terminal_reason == "context_limit":
+                result["next_focus"] = "上次模型历史达到容量上限，并非源码缺失；聚焦更窄的源码路径，先提交小批结论，剩余方向写 remaining_work。"
     else:
         result = state(assessment.outcome)
     outcome = result["outcome"]
@@ -2746,6 +2819,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                 "summary": assessment.summary,
                 "rationale": assessment.reasoning,
                 "next_focus": assessment.next_focus,
+                "remaining_work": list(assessment.remaining_work),
                 "missing_context": list(dict.fromkeys([*assessment.missing_context, *deps.notes])),
                 "observations": [item.model_dump() for item in assessment.observations],
                 "evidence": {
@@ -3268,7 +3342,20 @@ async def plan_audit_frontier(
         # Bounded once and reused for the prompt and the event, so what a reviewer reads is
         # byte-for-byte what the round was handed.
         preparation_stage = "situation_budget"
-        situation_block = _bound_situation(situation, limit=policy.planner_pinned_bytes)
+        try:
+            situation_block = _bound_situation(situation, limit=policy.planner_pinned_bytes)
+        except ValueError:
+            # The protected skeleton itself outgrew its ceiling.  Widen once to the hard
+            # ceiling and say so: a round handed a larger pinned block still carries complete
+            # counts and closure blockers, whereas failing the round carries nothing.
+            situation_block = _bound_situation(situation, limit=policy.planner_pinned_hard_bytes)
+            emit({"kind": "planner_pinned_expanded", "round": round_no,
+                  "source": "planner_pinned",
+                  "ceiling_bytes": policy.planner_pinned_bytes,
+                  "hard_bytes": policy.planner_pinned_hard_bytes,
+                  "situation_bytes": _situation_bytes(situation_block),
+                  "field_bytes": _field_bytes(situation),
+                  "usage": execution.snapshot()})
         preparation_stage = "context_serialization"
         planning_overview_text = _planner_json(planning_overview, limit=12 * 1024)
         coverage_text = _planner_json(coverage, limit=8 * 1024)
@@ -3309,23 +3396,23 @@ async def plan_audit_frontier(
             )
             deps.index = ProjectIndex.from_map(project_map, repository, snapshot_id)
     except Exception as exc:
-        byte_diagnostics = {}
-        for name, value in run_context.items():
-            try:
-                byte_diagnostics[name] = len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
-            except (TypeError, ValueError, RecursionError):
-                byte_diagnostics[name] = None
+        byte_diagnostics = _field_bytes(run_context)
         failure = f"{type(exc).__name__}: {config.redact(exc)[:240]}"
+        # Only the situation skeleton can still be too big here: the round was already given
+        # the wide ceiling, so name that source instead of emitting a second `context_limit`
+        # for what is a Planner projection failure, not a model-history one.
+        source = "planner_pinned" if preparation_stage == "situation_budget" else None
         emit({"kind": "planner_context_error", "round": round_no, "stage": preparation_stage,
-              "error_type": type(exc).__name__, "error": failure,
+              "error_type": type(exc).__name__, "error": failure, **({"source": source} if source else {}),
               "field_bytes": byte_diagnostics, "ceiling_bytes": policy.planner_pinned_bytes,
+              "hard_bytes": policy.planner_pinned_hard_bytes,
               "usage": execution.snapshot()})
         emit({"kind": "planner_agent_terminal", "round": round_no, "reason": "planner_context_error",
               "error": failure, "usage": execution.snapshot()})
         return {"decision": None, "usage": execution.snapshot(), "error": failure,
                 "status": None, "terminal_reason": "planner_context_error"}
-    # One client and one agent for the whole round, both created at the first phase that
-    # actually runs: a round whose exploration is skipped has nothing to build them for.
+    # Reuse one model client across phases. A CodeAgent is created only for tool phases;
+    # a round which goes straight to JSON publication needs no interpreter at all.
     model = None
     agent = None
     decision: PlannerDecision | None = None
@@ -3389,6 +3476,14 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
         "normal_observation 与 attack_observation 未完整读取时不能提交 verification_reviews。"
         "只复核本轮已读取的小批次，其余保留到后续回合；摘要缺失不等于不存在。"
     )
+    instruction += (
+        "\n受阻任务的 terminal_reason=context_limit/invalid_output 表示模型执行容量或格式失败，"
+        "不等同源码缺失。若将大任务拆为更窄的新方向，原 blocked 任务仍需要结算；"
+        "不能仅新增替代任务就假定旧任务已完成。替代任务返回后，核对原验收条件，"
+        "通过 updates.reopen 对原任务补查剩余具体问题，并说明如何缩小读取和输出范围。"
+        "有真实进展时可以继续修复；重复无变化的规划会被宿主有限停止。"
+        "worker 的 remaining_work 是尚未结算方向，即使已保存发现也不能当成全部完成。"
+    )
     instruction += _scenario_constraint(task.get("scenario"))
 
     try:
@@ -3403,6 +3498,11 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 attempt must not leave "the host clamped this" events behind for a plan that
                 never reached the frontier.
                 """
+                task_limit = max(1, min(8, int(policy.planner_publication_tasks)))
+                if len(value.tasks) > task_limit:
+                    raise ValueError(
+                        f"本回合最多提交 {task_limit} 个新任务；只保留最优先的小批方向，其他方向在 worker 返回后再规划。"
+                    )
                 pending: list[dict] = []
                 dropped_report = False
                 if value.verification_reviews:
@@ -3515,8 +3615,6 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 if isinstance(exc, ModelCallFailed) and exc.reason != "request_timeout":
                     raise exc
                 reason = model_failure_reason(exc)
-                if reason == "invalid_output":
-                    raise exc
                 return reason
 
             def planner_prompt(*, deciding: bool, tools: bool = True) -> str:
@@ -3549,15 +3647,51 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 if not tools:
                     return prompt + (
                         "\n本轮探索阶段已经结束，而且确认额度已经用完，工具已经收回：现在必须直接给出"
-                        "结构化的 PlannerDecision，不要再尝试调用任何工具（它们已经不在你的环境里）。"
+                        "一个 JSON 格式的 PlannerDecision，不要再尝试调用任何工具。"
                         "缺的信息写进 missing_context，"
                         "由 worker 去读；把一个方向写成任务，比你去读它更重要。"
-                        "在代码块里调用 final_answer(决策对象) 交回。"
+                        "不要写 Python、XML、final_answer 调用或说明文字。"
                     )
                 return prompt + (
                     f"\n本轮探索阶段已经结束，现在必须给出结构化的 PlannerDecision。工具仍然可用，"
                     f"但只用于确认：最多 {confirmations} 次请求，用完工具就会被收回，"
                     "所以不要再做整轮浏览，把行号读准之后就调用 final_answer(决策对象) 提交决策。"
+                )
+
+            def publication_prompt() -> str:
+                """A small JSON task batch, with the same complete host contract."""
+                task_limit = max(1, min(8, int(policy.planner_publication_tasks)))
+                schema = PlannerDecision.model_json_schema()
+                schema["properties"]["tasks"]["maxItems"] = task_limit
+                # An actual frozen path avoids teaching the model a fictitious evidence
+                # location. This demonstrates syntax only; the model chooses its tasks.
+                sample_file = next((row for row in project_map.get("files", [])
+                                    if isinstance(row, dict) and row.get("path") and row.get("kind") != "binary"), None)
+                sample = {
+                    "goal_state": "continue", "basis_summary": "项目图中仍有尚待核对的源码方向。",
+                    "tasks": [],
+                }
+                if sample_file:
+                    sample["tasks"] = [{
+                        "task_key": "entry-boundary", "title": "入口及相关边界检查",
+                        "objective": "沿源码入口检查可控输入、权限边界与敏感操作，确认是否存在可利用缺陷。",
+                        "acceptance_criteria": "由 worker 读取原始源码，并提交有行号依据的漏洞或排查记录。",
+                        "rationale_summary": "该源码方向尚需 worker 核对。",
+                        "source_refs": [{"path": sample_file["path"], "start_line": 1,
+                                         "end_line": min(40, max(1, int(sample_file.get("line_count") or 1)))}],
+                    }]
+                return (
+                    planner_prompt(deciding=True, tools=False)
+                    + f"\n# 小批发布约束\n本回合最多 {task_limit} 个新任务。先启动最优先的证据方向，"
+                    "后续回合依据 worker 结果继续覆盖；不要一次罗列整个项目的全部方向。"
+                    "basis_summary 简短说明依据；任务目标、验收条件和理由各用一两句话。"
+                    "每个任务通常只需 1–3 个初始源码窗口，worker 会继续补读相关文件。"
+                    "省略没有使用的默认字段、空数组和空 report，不复述历史，不复制源码。"
+                    "已有前沿时可只提交更新或小批复核；需要复核的其余记录留待后续回合。"
+                    "以下是完整字段契约，JSON 中使用 true/false/null：\n"
+                    + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+                    + "\n以下仅示例 JSON 结构；请按目标和当前态势选择实际任务，不能机械照抄：\n"
+                    + json.dumps(sample, ensure_ascii=False, separators=(",", ":"))
                 )
 
             def final_answer_tool(gate: PhaseGate) -> FinalAnswerTool:
@@ -3594,7 +3728,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
             # first duty is to produce a decision.
             confirmations = max(0, int(policy.decision_confirmations))
             reserve = 1 + max(0, int(policy.output_corrections)) + confirmations
-            explore_limit = max(0, response_cap - reserve)
+            explore_limit = min(max(0, int(policy.planner_explore_responses)), max(0, response_cap - reserve))
             exploration_reason = None
             execution.enter("planner_prepare", round=round_no, reserved_responses=reserve)
             emit({
@@ -3711,26 +3845,19 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 steps = 1 + corrections
                 stopped: BaseException | None = None
                 try:
-                    # ``reset=True``, and here it is load-bearing twice over: this phase
-                    # exists to produce the round's decision, and the correction a refused
-                    # decision is allowed is a request this phase has to be able to send.
-                    await drive_phase(
-                        planner_agent(gate=publish_gate, specs=(), max_steps=steps),
-                        publish_gate,
-                        planner_prompt(deciding=True, tools=False),
-                        max_steps=steps,
-                        reset=True,
+                    # Fresh bounded messages carry the host context, not the exploration
+                    # history. Corrections retain room for the same contract and context.
+                    if model is None:
+                        model = build_code_model(config, gate=publish_gate, max_tokens=policy.planner_max_tokens)
+                    await drive_structured_phase(
+                        model, publish_gate, instruction, publication_prompt(), max_steps=steps,
                     )
                 except (StopAudit, ModelCallFailed) as exc:
                     stopped = exc
                 decision = publish_gate.published
                 if decision is None and stopped is not None:
-                    # Nothing was handed in and the loop stopped: the round failed for the
-                    # reason the loop gave, which is how a publish phase that never answered
-                    # has always been reported.  A stop *after* an accepted answer is only
-                    # the loop's own last-chance request being refused -- that request
-                    # executes no code and can publish nothing -- so the round keeps the
-                    # decision it already has.
+                    # Publication did not produce a valid decision; keep the actual
+                    # budget, format or provider reason instead of inventing a task.
                     raise stopped
     except asyncio.CancelledError:
         emit({"kind": "planner_agent_terminal", "reason": "cancelled", "usage": execution.snapshot()})
@@ -3900,7 +4027,10 @@ async def pursue_planner_task(
         unit=virtual_unit,
         task=worker_task,
         attempt=attempt,
-        focus=str((planner_task.get("result") or {}).get("next_focus") or ""),
+        focus=(str((planner_task.get("result") or {}).get("next_focus") or "")
+               + "\n尚未结算的方向：" + "；".join((planner_task.get("result") or {}).get("remaining_work") or [])
+               + "\n本工作项上次已保存的发现（仅用于避免重复，证据仍需实际读取）："
+               + "；".join(str(item.get("title") or "") for item in (planner_task.get("result") or {}).get("findings", []) if isinstance(item, dict))),
         allowed_paths=allowed_paths,
         context_task=planner_task,
         initial_excerpts=excerpts,

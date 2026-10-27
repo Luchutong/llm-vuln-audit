@@ -27,6 +27,43 @@ HINTS = {
 }
 
 
+def _safe_syntax_reason(exc: SyntaxError) -> str:
+    """Parser messages can contain identifiers; persist only fixed descriptions."""
+    message = exc.msg
+    if message.startswith("expected an indented block"):
+        return "expected an indented block"
+    if message.startswith("unterminated triple-quoted string literal"):
+        return "unterminated triple-quoted string literal"
+    if message.startswith("unterminated string literal"):
+        return "unterminated string literal"
+    if re.fullmatch(r"['\"][(\[{]['\"] was never closed", message):
+        return "unclosed parenthesis or bracket"
+    if message.startswith("closing parenthesis") and "does not match opening parenthesis" in message:
+        return "mismatched closing parenthesis or bracket"
+    if message.startswith("f-string:"):
+        return "invalid f-string syntax"
+    fixed = {
+        "expected ':'", "expected 'except' or 'finally' block", "invalid syntax",
+        "unexpected indent", "unexpected unindent", "unexpected EOF while parsing",
+        "unexpected character after line continuation character",
+        "unindent does not match any outer indentation level", "too many levels of indentation",
+        "'return' outside function", "'break' outside loop", "'continue' not properly in loop",
+        "invalid decimal literal", "invalid hexadecimal literal", "invalid octal literal",
+        "invalid binary literal",
+    }
+    return message if message in fixed else "invalid Python syntax"
+
+
+def _record_syntax_issue(exc: SyntaxError, diagnostics: dict) -> str:
+    reason = _safe_syntax_reason(exc)
+    diagnostics.update(
+        syntax_line=exc.lineno, syntax_offset=exc.offset,
+        syntax_end_line=exc.end_lineno, syntax_end_offset=exc.end_offset,
+        syntax_error_type=type(exc).__name__, syntax_reason=reason,
+    )
+    return f"第 {exc.lineno} 行、第 {exc.offset} 列：{reason}"
+
+
 def _protected_ranges(body: str) -> list[tuple[int, int]]:
     """Locate Python strings/comments before looking for transport terminators."""
     lines = body.splitlines(keepends=True)
@@ -54,10 +91,14 @@ def extract_action(text: str, finish_reason: str | None = None,
     open_pattern = "|".join(re.escape(pair[0]) for pair in xml_pairs)
     opening = re.compile(open_pattern + r"|^```(?:python|py)?[^\S\n]*\n", re.M | re.I)
     blocks = []
-    counts = {"xml_blocks": 0, "markdown_blocks": 0, "closed_blocks": 0}
+    counts = {
+        "xml_blocks": 0, "markdown_blocks": 0, "closed_blocks": 0,
+        "output_truncated": finish_reason == "length", "output_empty": not bool(text.strip()),
+    }
     cursor = 0
     incomplete = False
     omitted = False
+    syntax_issue = None
     while match := opening.search(text, cursor):
         is_markdown = match.group().startswith("```")
         kind = "markdown_blocks" if is_markdown else "xml_blocks"
@@ -75,8 +116,9 @@ def extract_action(text: str, finish_reason: str | None = None,
             continue
         # A provider may strip the requested stop marker, but never complete Python.
         try:
-            complete = finish_reason != "length" and bool(ast.parse(body.strip()).body)
-        except SyntaxError:
+            complete = bool(ast.parse(body.strip()).body) and finish_reason != "length"
+        except SyntaxError as exc:
+            syntax_issue = _record_syntax_issue(exc, counts)
             complete = False
         if complete:
             blocks.append(body.strip())
@@ -86,9 +128,16 @@ def extract_action(text: str, finish_reason: str | None = None,
         break
     if omitted:
         counts["closing_tag_omitted"] = True
+    counts["block_transport"] = (
+        "mixed" if counts["xml_blocks"] and counts["markdown_blocks"]
+        else "xml" if counts["xml_blocks"] else "markdown" if counts["markdown_blocks"] else "none"
+    )
     category = "ambiguous_code_blocks" if len(blocks) > 1 else "incomplete_code" if incomplete else "no_code_block" if not blocks else None
     if category:
-        return None, counts, ActionIssue(category, HINTS[category])
+        hint = HINTS[category]
+        if category == "incomplete_code" and syntax_issue is not None:
+            hint += f"Python 语法检查：{syntax_issue}。"
+        return None, counts, ActionIssue(category, hint)
     return blocks[0], counts, None
 
 
@@ -97,8 +146,8 @@ def check_action(code: str, authorized_imports: list[str], diagnostics: dict) ->
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:
-        diagnostics.update(syntax_line=exc.lineno, syntax_offset=exc.offset)
-        raise ActionIssue("invalid_python", f"第 {exc.lineno} 行、第 {exc.offset} 列：{exc.msg}。请重交完整 Python；循环必须含冒号和缩进体。") from None
+        location = _record_syntax_issue(exc, diagnostics)
+        raise ActionIssue("invalid_python", f"{location}。请重交完整 Python；循环必须含冒号和缩进体。") from None
     for node in ast.walk(tree):
         imports = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
         for module in imports:

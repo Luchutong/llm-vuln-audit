@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationInfo, field_validator, model_validator
 
-from .worker_strategies import canonical_vulnerability_type
+from .worker_strategies import ROOT_CAUSE_TYPES, canonical_vulnerability_type
 
 CATEGORIES = ("sqli", "xss_r", "command_injection")
 CATEGORY_LABELS = {
@@ -247,6 +247,9 @@ class TaskSpec(BaseModel):
     completion_policy: Literal["goal", "coverage_review"] = Field(
         default="goal", description="Frozen closure policy; coverage_review requires settled work and an explicit review of unread source paths",
     )
+    baseline_policy: Literal["inherit", "fresh"] = Field(
+        default="inherit", description="inherit reuses the project's known findings; fresh audits source without inheriting historical findings",
+    )
     require_poc: bool = Field(
         default=False,
         description="Require vulnerability findings to include manually reviewable POCs when enabled",
@@ -283,8 +286,9 @@ class TaskFinding(CvssCompatibleModel):
     kind: Literal["vulnerability"] = Field(
         description="Must explicitly identify an actionable vulnerability; neutral or safe facts belong in observations",
     )
-    vulnerability_type: str | None = Field(default=None, description="Root-cause class; required for worker-strategy-v1, unknown when uncertain")
-    primary_location: PrimaryLocation | None = Field(default=None, description="Exact root-cause coordinate; required for worker-strategy-v1")
+    vulnerability_type: str | None = Field(default=None, description="Explicit root-cause class required for all newly submitted findings; unknown needs classification_reason. Optional only for historical compatibility")
+    classification_reason: str = Field(default="", max_length=1200, description="Concrete reason for unknown or other root cause; required for those classes on new submissions, optional for historical records")
+    primary_location: PrimaryLocation | None = Field(default=None, description="Exact root-cause coordinate required for all newly submitted findings; optional only for historical compatibility")
     cvss_input: dict[str, object] | None = Field(default=None, description="CVSS 3.1: AV/AC/PR/UI/S/C/I/A -> {value, rationale, evidence}; unknown values=null")
     severity: Severity | None = Field(default=None, description="Legacy label; host scoring is authoritative")
     summary: str = Field(
@@ -308,7 +312,13 @@ class TaskFinding(CvssCompatibleModel):
     @field_validator("vulnerability_type")
     @classmethod
     def _canonical_root_cause(cls, value: str | None) -> str | None:
-        return canonical_vulnerability_type(value) or None
+        # Keep unsupported strings visible to the live submission validator. Mapping
+        # every typo to unknown here would erase the difference between an explicit
+        # uncertainty report and a missing/invalid model classification.
+        if value is None or not value.strip():
+            return None
+        normalized = canonical_vulnerability_type(value)
+        return normalized if normalized != "unknown" or value.strip().casefold() in ROOT_CAUSE_TYPES else value.strip()
 
     @field_validator("title", "kind", "summary", "evidence")
     @classmethod
@@ -355,6 +365,10 @@ class GoalAssessment(BaseModel):
         description="Concise auditable rationale tied to displayed source evidence; do not provide private chain-of-thought",
     )
     next_focus: str = Field(default="", max_length=1600)
+    remaining_work: list[str] = Field(
+        default_factory=list, max_length=8,
+        description="Concrete remaining source paths or audit directions after this bounded finding batch; at most eight",
+    )
     missing_context: list[str] = Field(default_factory=list)
     # ``finding`` was the original single-result field.  Keep it for existing
     # clients and normalise it into ``findings`` below.  One work item can now
@@ -365,6 +379,15 @@ class GoalAssessment(BaseModel):
         default_factory=list,
         description="Source facts, data flows, and security protections or ruled-out risks; these never satisfy the vulnerability goal",
     )
+
+    @field_validator("remaining_work")
+    @classmethod
+    def _concrete_remaining_work(cls, value: list[str]) -> list[str]:
+        for direction in value:
+            _meaningful_text(direction, "remaining_work")
+            if len(direction) > 1600:
+                raise ValueError("each remaining_work direction must contain at most 1600 characters")
+        return value
 
     @model_validator(mode="after")
     def _outcome_has_the_required_payload(self) -> "GoalAssessment":

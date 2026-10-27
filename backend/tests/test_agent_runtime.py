@@ -651,6 +651,15 @@ def test_context_limit_during_host_preparation_still_gets_a_tool_free_verdict(mo
 
     assert outcome.result["analysis"] is not None, outcome.result
     assert outcome.result["exploration_incomplete"] == "context_limit"
+    # The two sources of ``context_limit`` are told apart in the event log: this one is the
+    # source ledger filling up, not the model's history, and only the latter is a window
+    # problem the compressor could have prevented.
+    limit = next(event for event in outcome.events if event["kind"] == "context_limit")
+    assert limit["source"] == "source_ledger"
+    # ``full`` is the stronger condition: the next reading window did not fit even though
+    # the ledger had not reached its last byte.
+    assert limit["full"] is True
+    assert limit["ledger_limit"] == 45 and limit["ledger_bytes"] > 0
 
 
 def test_evidence_parser_keeps_parent_traversal_for_the_snapshot_validator():
@@ -808,6 +817,8 @@ def test_goal_executor_returns_achieved_only_with_exact_source_evidence(monkeypa
             "severity": "high",
             "summary": "请求参数在 a.php 中直接输出。",
             "evidence": "a.php:3-3",
+            "vulnerability_type": "xss_r",
+            "primary_location": {"path": "a.php", "line": 3},
             "input_source": "$_GET['x']",
             "propagation": "参数直接传给 echo",
             "dangerous_operation": "echo（a.php:3）",
@@ -882,6 +893,8 @@ def test_planner_task_allows_more_than_four_requests_before_its_assessment(monke
             "severity": "high",
             "summary": "请求参数在 a.php 中直接拼入查询。",
             "evidence": "a.php:3-3",
+            "vulnerability_type": "sqli",
+            "primary_location": {"path": "a.php", "line": 3},
             "input_source": "$_GET['x']",
             "propagation": "参数直接传入查询",
             "dangerous_operation": "mysqli_query（a.php:3）",
@@ -958,6 +971,8 @@ def test_goal_executor_does_not_accept_achieved_without_the_required_poc(monkeyp
             "severity": "high",
             "summary": "请求参数在 a.php 中直接输出。",
             "evidence": "a.php:3-3",
+            "vulnerability_type": "xss_r",
+            "primary_location": {"path": "a.php", "line": 3},
             "input_source": "$_GET['x']",
             "propagation": "参数直接传给 echo",
             "dangerous_operation": "echo（a.php:3）",
@@ -989,10 +1004,12 @@ def test_goal_executor_does_not_accept_achieved_without_the_required_poc(monkeyp
 
     assert result["outcome"] == "continue"
     assert result["terminal_reason"] == "invalid_output"
-    # The worker keeps its allowance, so the refusal is an observation it can act on: it is
-    # asked again for each correction the policy allows, and the request after the last one
-    # is refused by the host rather than sent.
-    assert len(factory.built().requests) == 1 + AgentPolicy().output_corrections
+    # A failed exploratory conclusion may use the reserved JSON publication phase,
+    # which is separately bounded; neither phase can exceed its correction allowance.
+    correction_requests = 1 + AgentPolicy().output_corrections
+    assert factory.phases.count("task_execute") == correction_requests
+    assert factory.phases.count("task_publish") == correction_requests
+    assert len(factory.built().requests) <= 8
 
 
 def test_goal_executor_allows_a_vulnerability_without_poc_when_explicitly_disabled(monkeypatch):
@@ -1009,6 +1026,8 @@ def test_goal_executor_allows_a_vulnerability_without_poc_when_explicitly_disabl
             "severity": "medium",
             "summary": "请求参数在 a.php 中直接输出。",
             "evidence": "a.php:3-3",
+            "vulnerability_type": "xss_r",
+            "primary_location": {"path": "a.php", "line": 3},
             "input_source": "$_GET['x']",
             "propagation": "参数直接传给 echo",
             "dangerous_operation": "echo（a.php:3）",

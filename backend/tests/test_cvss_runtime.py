@@ -135,7 +135,8 @@ def test_worker_pipeline_scores_using_exact_reads_and_persists(state,tmp_path):
     m=metrics()
     for item in m.values(): item['evidence']=[{'path':'public/index.php','start_line':1,'end_line':4}]
     payload={'title':'原始源码支持的注入风险','kind':'vulnerability','summary':'外部请求输入直接进入危险操作，缺少参数约束。',
-             'severity':'critical','evidence':'public/index.php:4-4','cvss_input':m}
+             'severity':'critical','evidence':'public/index.php:4-4','cvss_input':m,
+             'vulnerability_type':'sqli','primary_location':{'path':'public/index.php','line':4}}
     outcome=worker_outcome('achieved',finding=payload,seen=[{'path':'public/index.php','start_line':1,'end_line':4}])
     result=worker._build_planner_findings(current,{'id':'task',**proposal('entry-flow')},_normalise_task_findings(outcome))[0]
     assert result['candidate'] and result['record']['cvss']['base_score']==7.5

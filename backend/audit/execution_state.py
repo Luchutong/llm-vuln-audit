@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS run_execution_state (
  tools_used INTEGER NOT NULL DEFAULT 0, active_elapsed_ms INTEGER NOT NULL DEFAULT 0,
  claim_epoch INTEGER NOT NULL DEFAULT 0, state_revision INTEGER NOT NULL DEFAULT 0,
  phase TEXT NOT NULL DEFAULT 'queued', stop_reason TEXT, poc_state TEXT NOT NULL DEFAULT '{}',
- final_summary TEXT, updated_at TEXT NOT NULL
+ context TEXT NOT NULL DEFAULT '{}', final_summary TEXT, updated_at TEXT NOT NULL
 );
 """
 
@@ -194,6 +194,68 @@ class ExecutionStoreMixin:
                     self._db.execute("ROLLBACK")
                 raise
 
+    # Counters a later phase's smaller Execution must not overwrite: a peak is a peak,
+    # and "did this run ever hit the ceiling" is answered by the run, not by its last
+    # phase.  Every value is cumulative *within* one Execution, so taking the larger of
+    # the two is monotone and never counts the same request twice.
+    _CONTEXT_MAX_FIELDS = ("peak_request_bytes", "summary_requests", "summary_bytes",
+                           "compactions", "dropped_groups", "limit_hits")
+
+    @classmethod
+    def _merge_context(cls, stored, incoming):
+        merged = dict(stored or {})
+        for key in cls._CONTEXT_MAX_FIELDS:
+            merged[key] = max(int(merged.get(key) or 0), int(incoming.get(key) or 0))
+        if incoming.get("history_bytes"):
+            merged["history_bytes"] = int(incoming["history_bytes"])
+        sources = dict(merged.get("sources") or {})
+        for name, count in (incoming.get("sources") or {}).items():
+            sources[name] = max(int(sources.get(name) or 0), int(count or 0))
+        if sources:
+            merged["sources"] = sources
+        phases = {name: dict(entry) for name, entry in (merged.get("phases") or {}).items()}
+        for name, entry in (incoming.get("phases") or {}).items():
+            current = phases.setdefault(name, {})
+            for key, value in entry.items():
+                current[key] = max(int(current.get(key) or 0), int(value or 0))
+        if phases:
+            merged["phases"] = phases
+        return merged
+
+    def note_context(self, run_id, stats):
+        """Persist the run's aggregate context-window usage.
+
+        Written from ``Execution.note_context`` on every request, so it survives a
+        process restart; the events remain the detailed record.  Each phase writes its
+        own Execution's totals, so the run row keeps the larger of what it already had
+        and what just arrived instead of letting the last phase redefine the peak.
+        """
+        with self._lock:
+            if not self.execution_write_allowed(run_id):
+                return
+            row = self._db.execute("SELECT context FROM run_execution_state WHERE run_id=?",
+                                   (run_id,)).fetchone()
+            stored = json.loads(row["context"]) if row and row["context"] else {}
+            merged = self._merge_context(stored, stats)
+            self._db.execute("UPDATE run_execution_state SET context=?, updated_at=? WHERE run_id=?",
+                             (dump(merged), stamp(), run_id))
+
+    def count_model_requests(self, run_id, purpose=None):
+        """Count the run's model requests, optionally by their recorded purpose.
+
+        The run-wide summary allowance is enforced from this count rather than an
+        in-process counter: a resumed run must not get a fresh quota, and a request that
+        failed after admission still spent the budget it was admitted against.
+        """
+        query = "SELECT COUNT(*) AS total FROM events WHERE run_id=? AND kind='model_request'"
+        args = [run_id]
+        if purpose:
+            query += " AND payload LIKE ?"
+            args.append(f'%"purpose": "{purpose}"%')
+        with self._lock:
+            row = self._db.execute(query, args).fetchone()
+        return int((row["total"] if row is not None else 0) or 0)
+
     def update_execution_agent(self, run_id, invocation_id, info=None):
         with self._lock:
             if info is not None and not self.execution_write_allowed(run_id):
@@ -228,6 +290,7 @@ class ExecutionStoreMixin:
                     "run_limits": limits, "run_usage": usage, "run_remaining": {k: max(0, limits[k]-usage[k]) for k in limits} if limits else None,
                     "active_executions": list(self._active_agents.get(run_id, {}).values()),
                     "stop_reason": json.loads(value["stop_reason"]) if value["stop_reason"] else None,
+                    "context": json.loads(value.get("context") or "{}"),
                     "blocked_task_ids": [item["id"] for item in blocked], "poc": json.loads(value["poc_state"]),
                     "final_summary_available": bool(value["final_summary"]),
                     **({"coverage_review": review} if review is not None else {})}

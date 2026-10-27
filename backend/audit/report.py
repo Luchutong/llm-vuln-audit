@@ -1030,6 +1030,73 @@ def _defence_section(defence: dict | None) -> list[str]:
     return lines
 
 
+_CONTEXT_PHASE_LABELS = {
+    "planner_explore": "规划取证", "planner_decision": "计划决策", "planner_publish": "提交计划",
+    "planner_prepare": "准备规划", "recon_explore": "只读侦察", "task_prepare": "准备审计任务",
+    "task_execute": "源码审计", "task_publish": "提交源码结论",
+    "poc_prepare": "准备隔离靶场", "poc_execute": "POC 执行", "poc_conclude": "POC 结论",
+}
+
+
+def _report_bytes(value: object) -> str:
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return "—"
+    if size <= 0:
+        return "—"
+    return f"{size / 1024:.1f} KiB" if size >= 1024 else f"{size} B"
+
+
+def _context_section(run: dict) -> list[str]:
+    """How close each phase came to the request ceiling, and what that cost.
+
+    The ceiling is a host decision, not a provider one, so a run that ended because of it
+    has to say which phase approached it and how much summarizing it took to stay under.
+    Summaries are visibility only: they are never source evidence.
+    """
+    context = ((run.get("execution_summary") or {}).get("context")) or {}
+    limit = int(context.get("history_bytes") or 0)
+    if not limit:
+        return []
+    lines = [
+        "### 上下文控制",
+        "",
+        "宿主按本次请求序列化后的 UTF-8 字节控制模型上下文；字节不等于 token。接近上限时，较早步骤会被模型摘要替代或按固定规则裁剪；摘要不是源码证据，不能作为发现证据或主定位。",
+        "",
+        "| 阶段 | 峰值请求 | 占上限 | 请求数 | 摘要请求 | 达到上限 |",
+        "|---|---|---|---|---|---|",
+    ]
+    phases = context.get("phases") or {}
+    for name in sorted(phases):
+        entry = phases[name] or {}
+        peak = int(entry.get("peak_request_bytes") or 0)
+        share = f"{peak / limit:.0%}" if peak else "—"
+        lines.append(
+            f"| {_md_cell(_CONTEXT_PHASE_LABELS.get(name, name))} | {_report_bytes(peak)} | {share} "
+            f"| {int(entry.get('requests') or 0)} | {int(entry.get('summary_requests') or 0)} "
+            f"| {int(entry.get('limit_hits') or 0)} |"
+        )
+    if not phases:
+        lines.append(
+            f"| 全部阶段 | {_report_bytes(context.get('peak_request_bytes'))} | — | — "
+            f"| {int(context.get('summary_requests') or 0)} | {int(context.get('limit_hits') or 0)} |"
+        )
+    sources = context.get("sources") or {}
+    if sources:
+        labels = {"history_bytes": "模型历史超过请求上限", "source_ledger": "已读源码账本超过上限",
+                  "planner_pinned": "Planner 保护骨架超过上限"}
+        lines += ["", "达到上限的位置：" + "；".join(
+            f"{labels.get(name, name)} {count} 次" for name, count in sorted(sources.items())) + "。"]
+    lines += [
+        "",
+        f"整次运行：摘要请求 {int(context.get('summary_requests') or 0)} 次、压缩 {int(context.get('compactions') or 0)} 次、"
+        f"丢弃最旧步骤组 {int(context.get('dropped_groups') or 0)} 组；请求上限 {_report_bytes(limit)}。",
+        "",
+    ]
+    return lines
+
+
 def _render_legacy_task_markdown(bundle: dict) -> str:
     """Export a goal run as a general source-audit report.
 
@@ -1271,6 +1338,9 @@ def _render_task_markdown(bundle: dict) -> str:
         "",
         "主 Planner 只使用项目图和已持久化的 worker 摘要来决定下一批跨文件方向；worker 仍必须通过 `read_source`、`search_code` 等只读工具读取原始源码行，才能形成可引用发现。依赖完成后的摘要会交接给后续任务，worker 也可检索其他 worker 的受限工具轨迹作为线索；二者都不是证据，不能替代本任务实际读取的源码行号。规划依据和 worker 审计依据均为简短、可复核摘要；不保存或展示隐藏思维链。",
         "",
+    ]
+    doc += _context_section(run)
+    doc += [
         "## 3. Planner 回合",
         "",
         "| 回合 | 版本 | 状态 | 建立依据摘要 | 下一步 | 任务数 |",

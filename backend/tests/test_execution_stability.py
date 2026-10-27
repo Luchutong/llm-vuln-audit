@@ -272,3 +272,46 @@ def test_active_time_counts_wall_clock_once_and_excludes_quiescent_pause(setup_r
     store.claim_next_run()
     clock[0] = 103
     assert store.execution_summary(run["id"])["run_usage"]["seconds"] == 10
+
+
+def test_context_peaks_merge_across_phases_instead_of_last_write_wins(setup_run):
+    # Every phase owns its own Execution and writes its own totals.  Letting the last
+    # phase's smaller numbers replace the run's row would report a run that never came
+    # close to the ceiling, which is the opposite of what happened.
+    store, _, run = setup_run
+    store.note_context(run["id"], {
+        "peak_request_bytes": 9000, "history_bytes": 4096, "summary_requests": 1,
+        "summary_bytes": 100, "compactions": 1, "dropped_groups": 2, "limit_hits": 0,
+        "sources": {}, "phases": {"task_execute": {"peak_request_bytes": 9000, "requests": 3,
+                                                   "summary_requests": 1, "limit_hits": 0}},
+    })
+    store.note_context(run["id"], {
+        "peak_request_bytes": 2000, "history_bytes": 4096, "summary_requests": 0,
+        "summary_bytes": 0, "compactions": 0, "dropped_groups": 0, "limit_hits": 1,
+        "sources": {"source_ledger": 1},
+        "phases": {"poc_execute": {"peak_request_bytes": 2000, "requests": 2,
+                                   "summary_requests": 0, "limit_hits": 1}},
+    })
+    context = store.execution_summary(run["id"])["context"]
+    assert context["peak_request_bytes"] == 9000
+    assert context["summary_requests"] == 1
+    assert context["limit_hits"] == 1
+    assert context["sources"] == {"source_ledger": 1}
+    assert set(context["phases"]) == {"task_execute", "poc_execute"}
+    assert context["phases"]["task_execute"]["peak_request_bytes"] == 9000
+
+
+def test_execution_context_stats_name_the_phase_that_used_the_window(setup_run):
+    store, _, run = setup_run
+    with execution_context(store, run["id"], run["execution_epoch"]):
+        execution = Execution(budgets={"responses": 4, "tools": 4, "seconds": 30},
+                              policy=AgentPolicy(), emit=lambda event: None)
+        execution.enter("task_execute")
+        execution.note_context(request_bytes=7000)
+        execution.note_context(purpose="history_summary")
+        execution.note_context(limit_hit=True, source="source_ledger")
+    phase = store.execution_summary(run["id"])["context"]["phases"]["task_execute"]
+    assert phase["peak_request_bytes"] == 7000
+    assert phase["requests"] == 1
+    assert phase["summary_requests"] == 1
+    assert phase["limit_hits"] == 1

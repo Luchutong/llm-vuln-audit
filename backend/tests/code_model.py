@@ -53,7 +53,22 @@ def call(name: str, **args) -> str:
     return code(f"print({name}({rendered}))")
 
 
-def final_answer(payload: Any) -> str:
+class FinalAnswer(str):
+    """A semantic answer fixture whose transport follows the requested phase.
+
+    It remains the same Python action string for CodeAgent phases. A structured
+    publication phase requests JSON, so the scripted provider renders the original
+    payload directly instead of pretending that JSON publication executes Python.
+    Raw strings and malformed actions are never adapted by this marker.
+    """
+
+    def __new__(cls, payload: Any):
+        value = super().__new__(cls, code(f"final_answer({payload!r})"))
+        value.payload = payload
+        return value
+
+
+def final_answer(payload: Any) -> FinalAnswer:
     """One scripted step that hands the phase its answer.
 
     The payload is rendered as a Python literal, so a text phase's ``"done"`` answer
@@ -61,8 +76,7 @@ def final_answer(payload: Any) -> str:
     used to be interpolated unquoted, which turned every text answer into a NameError
     in the interpreter -- a broken test, not a broken phase.
     """
-    body = repr(payload)
-    return code(f"final_answer({body})")
+    return FinalAnswer(payload)
 
 
 class Always:
@@ -144,9 +158,19 @@ class ScriptedCodeModel(AuditCodeModel):
     step counter is per phase rather than per model.
     """
 
+    # The compressor's own prompt names itself; a scripted model uses that to tell a
+    # summary request from a conversation step, because a summary must not consume the
+    # phase's script -- it is host bookkeeping, not an ActionStep.
+    SUMMARY_MARKER = "上下文压缩器"
+    DEFAULT_SUMMARY = "已读取 a.php:1-40，入口参数未过滤，随后 b.php 读取失败；未完成的方向：订单接口。"
+
     def __init__(self, script: Iterable[Any] | dict[str, Iterable[Any]], *,
-                 gate: PhaseGate | None = None, max_tokens: int = 1024):
+                 gate: PhaseGate | None = None, max_tokens: int = 1024,
+                 summary: str | None = None):
         super().__init__(CONFIG, gate=gate, max_tokens=max_tokens)
+        self.summary = self.DEFAULT_SUMMARY if summary is None else summary
+        self.summaries: list[list[Any]] = []
+        self.summary_params: list[dict] = []
         # A subscriptable script is kept as it is rather than copied: ``Always`` is one, and
         # materialising it would be a million entries.  Anything else is drained once, so a
         # generator cannot be consumed by the first phase that reads it.
@@ -172,6 +196,15 @@ class ScriptedCodeModel(AuditCodeModel):
         return None
 
     def _complete(self, messages, **kwargs) -> ChatMessage:
+        if any(self.SUMMARY_MARKER in transcript([message]) for message in messages):
+            self.summaries.append(list(messages))
+            self.summary_params.append(dict(kwargs))
+            if isinstance(self.summary, BaseException):
+                raise self.summary
+            return ChatMessage(
+                role="assistant", content=self.summary,
+                token_usage=TokenUsage(input_tokens=90, output_tokens=20),
+            )
         phase = self.gate.execution.phase if self.gate is not None else ""
         index = self.asked.get(phase, 0)
         self.asked[phase] = index + 1
@@ -188,6 +221,8 @@ class ScriptedCodeModel(AuditCodeModel):
         if isinstance(step, BaseException):
             raise step
         text = step(messages) if callable(step) else step
+        if isinstance(text, FinalAnswer) and getattr(self.gate, "response_format", None) == "json":
+            text = json.dumps(text.payload, ensure_ascii=False)
         self.outputs.append(text)
         return ChatMessage(
             role="assistant", content=text, token_usage=TokenUsage(input_tokens=120, output_tokens=8)

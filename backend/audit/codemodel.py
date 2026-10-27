@@ -1,10 +1,9 @@
 """The model client, and the one gate every model request of a phase passes through.
 
-The loop inside a phase belongs to ``smolagents`` now: the model writes a code block, the
-block calls this run's own read-only tools, and the loop repeats until a final answer is
-accepted.  The host still owns everything around that loop -- budgets, phase boundaries,
-the event log, the read ledger, decision validation -- and none of it may be stepped
-around, so every host call the loop makes goes through :class:`PhaseGate`.
+Exploration uses ``smolagents``: code blocks call this run's read-only tools until a final
+answer is accepted. Planner publication sends JSON without an interpreter. Both paths
+use :class:`PhaseGate` for budgets, phase boundaries, events and decision validation;
+neither can bypass the host's source provenance or execution ownership checks.
 
 The loop runs in a worker thread: ``smolagents``' client is synchronous, while
 ``Execution``, the event bus and the sqlite connection all belong to the event loop
@@ -20,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
+import threading
 import time
 from concurrent.futures import TimeoutError as CallbackTimeout
 from dataclasses import dataclass, field
@@ -30,6 +31,9 @@ from smolagents.models import ChatMessage, OpenAIModel
 
 from .config import ModelConfig
 from .actions import ActionIssue, extract_action
+from .context_budget import MIN_SUMMARY_CHARS, HistoryCompactor, message_bytes, message_text
+from .context_config import env_float, env_int
+from .health import TRANSIENT_STATUS
 from .runtime import Execution, StopAudit
 from .tool_errors import ToolFailure, note_tool_result, public_value
 
@@ -38,6 +42,58 @@ from .tool_errors import ToolFailure, note_tool_result, public_value
 # a deadlock detector rather than a budget: if it fires, the driver is wedged and the
 # phase has to end rather than block its thread forever.
 CALLBACK_SECONDS = 30.0
+
+# --- Provider pacing ---------------------------------------------------------------
+# The Ark plan answers a request burst with ``RequestBurstTooFast``, and the retry loop
+# below makes overlapping requests more likely, not less.  One process-wide gate is the
+# cheapest defence: every model call -- Planner, worker, POC agent and history summary --
+# goes through ``AuditCodeModel._complete``, so a single slot and a minimum spacing apply
+# to the whole process.  Configure with LLM_MAX_CONCURRENT_REQUESTS / LLM_MIN_INTERVAL_SECONDS.
+LLM_MAX_CONCURRENT_REQUESTS = env_int("LLM_MAX_CONCURRENT_REQUESTS", 1, 1, 8)
+LLM_MIN_INTERVAL_SECONDS = env_float("LLM_MIN_INTERVAL_SECONDS", 1.0, 0.0, 30.0)
+
+
+class ProviderThrottle:
+    """Serialise and space provider requests without owning any request state."""
+
+    def __init__(self, slots: int, interval: float):
+        self._slots = threading.BoundedSemaphore(max(1, slots))
+        self._spacing = threading.Lock()
+        self._last = 0.0
+        self.interval = max(0.0, float(interval))
+
+    def __enter__(self) -> "ProviderThrottle":
+        self._slots.acquire()
+        # Spacing is applied while holding this lock so two requests cannot both decide
+        # they may start now; the wait happens before the slot is used for its request.
+        with self._spacing:
+            wait = self.interval - (time.monotonic() - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            self._last = time.monotonic()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self._slots.release()
+
+
+_PROVIDER_THROTTLE = ProviderThrottle(LLM_MAX_CONCURRENT_REQUESTS, LLM_MIN_INTERVAL_SECONDS)
+
+
+def _retry_after_seconds(cause: BaseException) -> float | None:
+    """The provider's own instruction, when it gave one."""
+    response = getattr(cause, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    try:
+        raw = headers.get("retry-after") or headers.get("Retry-After")
+    except Exception:  # noqa: BLE001 - arbitrary provider header containers
+        return None
+    try:
+        return float(str(raw).strip()) if raw else None
+    except ValueError:
+        return None
 
 # The agent loop's own wrappers.  A failure the host raised travels out through them, so
 # recovering the host's label means unwrapping exactly these and stopping at the first
@@ -163,17 +219,20 @@ def request_bytes(messages: Any) -> int:
     ``history_size`` used to do this over pydantic-ai's message classes; the cap is the
     same one, and so is the rule that the request being made right now is part of it.
     ``ChatMessage.model_dump_json`` drops ``raw``, so this measures what is sent rather
-    than the provider's own response object.
+    than the provider's own response object.  The per-message rule lives in
+    ``context_budget`` so the compressor and the gate always agree on the number.
     """
-    total = 0
-    for message in messages or ():
-        if isinstance(message, ChatMessage):
-            total += len(message.model_dump_json().encode("utf-8"))
-        elif isinstance(message, dict):
-            total += len(json.dumps(message, ensure_ascii=False, default=str).encode("utf-8"))
-        else:
-            total += len(str(message).encode("utf-8"))
-    return total
+    return sum(message_bytes(message) for message in messages or ())
+
+
+def _top_messages(messages: Any, limit: int = 3) -> list[dict]:
+    """The largest messages, as diagnostics for a request the cap refused."""
+    sized = sorted(
+        ((getattr(message, "role", None) if not isinstance(message, dict) else message.get("role"),
+          message_bytes(message)) for message in messages or ()),
+        key=lambda item: item[1], reverse=True,
+    )
+    return [{"role": str(getattr(role, "value", role)), "bytes": size} for role, size in sized[:limit]]
 
 
 def rejection_reason(exc: BaseException) -> str:
@@ -215,6 +274,8 @@ class PhaseGate:
     error_counts: dict = field(default_factory=dict)
     outstanding_error: str | None = None
     action_tags: tuple[str, str] = ("<code>", "</code>")
+    response_format: str = "code"
+    request_parameters: dict = field(default_factory=dict)
     request_tool_errors: dict = field(default_factory=dict)
     callback_abort: StopAudit | None = None
 
@@ -263,9 +324,48 @@ class PhaseGate:
             future.cancel()
             raise HostStop(self.callback_abort) from None
 
-    def request_ceiling(self, messages: Any) -> float:
+    def request_ceiling(self, messages: Any, *, compact: dict | None = None) -> float:
         """Open one model request and return how long it may take."""
-        return self._on_loop(lambda: self._open_request(messages))
+        return self._on_loop(lambda: self._open_request(messages, compact=compact))
+
+    def start_summary(self, message_count: int, request_bytes: int) -> float:
+        """Admit one history-summary request, or stop with the reason it cannot run.
+
+        A summary is a real provider request: it is admitted against the same response
+        budget as everything else, appears as a ``model_request`` with
+        ``purpose="history_summary"``, and is capped separately per execution and per
+        run.  It never consumes the correction allowance, because it corrects nothing.
+        """
+        return self._on_loop(lambda: self._start_summary(message_count, request_bytes))
+
+    def record_summary(self, message: ChatMessage, *, prompt_bytes: int) -> tuple[str | None, str]:
+        """Count a summary reply and validate it; returns ``(text, failure_reason)``."""
+        return self._on_loop(lambda: self._record_summary(message, prompt_bytes=prompt_bytes))
+
+    def summary_failed(self, *, reason: str, before_bytes: int) -> None:
+        self.emit_context("context_summary_failed", {
+            "reason": str(reason)[:120] or "unknown", "before_bytes": int(before_bytes),
+        })
+
+    def emit_context(self, kind: str, payload: dict) -> None:
+        """Publish one context event from the loop thread, with this phase's usage."""
+        async def emit():
+            self.execution.emit({"kind": kind, "phase": self.execution.phase,
+                                 **payload, "usage": self.execution.snapshot()})
+        self._on_loop(emit)
+
+    def emit_provider_retry(self, *, attempt: int, status: int | None, reason: str,
+                            wait_seconds: float) -> None:
+        """Publish one bounded retry; the payload never carries provider output."""
+        async def emit():
+            self.execution.emit({
+                "kind": "provider_retry", "phase": self.execution.phase,
+                "attempt": int(attempt), "status": status, "reason": str(reason)[:120],
+                "wait_seconds": round(float(wait_seconds), 2),
+                "remaining_attempts": max(0, self.limit - self.execution.attempts),
+                "remaining_seconds": round(max(0.0, self.deadline - time.monotonic()), 1),
+            })
+        self._on_loop(emit)
 
     def call_tool(self, name: str, args: dict) -> str:
         """Run one host tool and return the text the model reads as its observation."""
@@ -314,6 +414,31 @@ class PhaseGate:
         if category is None or self.closed:
             return
         self._on_loop(lambda: self._emit_parse_error(step=step, category=category))
+
+    def record_structured_error(self, *, step: int, category: str, hint: str,
+                                diagnostics: dict, count_error: bool = True) -> None:
+        """Record a bounded JSON failure without retaining the rejected response."""
+        async def record():
+            if self.closed or self.published is not None:
+                return
+            if count_error:
+                self.pending_correction = hint
+                self._count_error(category)
+            self.execution.emit({
+                "kind": "agent_parse_error" if count_error else "agent_output_rejected", "phase": self.execution.phase,
+                "step": step, "category": category, "error_code": category,
+                "hint": hint, "diagnostics": dict(diagnostics),
+                "usage": self.execution.snapshot(),
+            })
+        self._on_loop(record)
+
+    def record_structured_success(self) -> None:
+        async def record():
+            self.consecutive_corrections = 0
+            if self.outstanding_error:
+                self.error_counts[self.outstanding_error]["recovered"] += 1
+                self.outstanding_error = None
+        self._on_loop(record)
 
     def report_progress(self, message: str) -> str:
         """Accept an explicit public update, never model response prose or reasoning."""
@@ -378,12 +503,17 @@ class PhaseGate:
 
     # --- event loop thread ---------------------------------------------------------
 
-    async def _open_request(self, messages: Any) -> float:
+    async def _open_request(self, messages: Any, *, compact: dict | None = None) -> float:
         if self.published is not None:
             raise HostStop(StopAudit("invalid_output", "本阶段已经交回终局，不再发起模型请求"))
-        if request_bytes(messages) > self.execution.policy.history_bytes:
+        size = request_bytes(messages)
+        limit = self.execution.policy.history_bytes
+        if size > limit:
             # Measured on the request being made, not on the history behind it: an
-            # oversized first request has to be caught like any other.
+            # oversized first request has to be caught like any other.  The event makes
+            # the failure diagnosable -- before this, a run knew only that it hit a wall
+            # it could not measure.
+            self._context_limit_event(size, limit, messages, compact)
             raise HostStop(StopAudit("context_limit", "模型历史已达到上下文上限"))
         correction, reason = self.pending_correction is not None, self.pending_correction
         self.pending_correction = None
@@ -393,13 +523,78 @@ class PhaseGate:
             ))
         try:
             ceiling = self.execution.before_model(
-                deadline=self.deadline, limit=self.limit, correction=correction, reason=reason
+                deadline=self.deadline, limit=self.limit, correction=correction, reason=reason,
+                request_bytes=size, message_count=len(messages or ()), purpose="model",
+                compact=compact,
             )
             if correction:
                 self.consecutive_corrections += 1
             return ceiling
         except StopAudit as stop:
             raise HostStop(stop) from None
+
+    def _context_limit_event(self, size: int, limit: int, messages: Any,
+                             compact: dict | None) -> None:
+        self.execution.note_context(request_bytes=size, limit_hit=True, source="history_bytes",
+                                    compact=compact)
+        self.execution.emit({
+            "kind": "context_limit", "source": "history_bytes", "phase": self.execution.phase,
+            "attempt": self.execution.attempts, "request_bytes": int(size),
+            "history_bytes": int(limit), "used_ratio": round(size / max(1, limit), 4),
+            "message_count": len(messages or ()), "top_messages": _top_messages(messages),
+            "compact": dict(compact or {}), "usage": self.execution.snapshot(),
+        })
+
+    async def _start_summary(self, message_count: int, request_bytes: int) -> float:
+        if self.closed or self.published is not None:
+            raise HostStop(StopAudit("cancelled", "本阶段已经结束，宿主不再发起摘要请求"))
+        execution = self.execution
+        policy = execution.policy
+        if execution.summary_requests >= policy.history_summary_responses:
+            raise HostStop(StopAudit("summary_budget", "本阶段的上下文摘要额度已用尽"))
+        owner = getattr(execution, "run_execution", None)
+        counted = getattr(getattr(owner, "store", None), "count_model_requests", None)
+        if (owner is not None and counted is not None
+                and counted(owner.run_id, "history_summary") >= policy.history_summary_run_responses):
+            raise HostStop(StopAudit("summary_budget", "本次运行的上下文摘要额度已用尽"))
+        try:
+            ceiling = execution.before_model(
+                deadline=self.deadline, limit=self.limit, correction=False, reason=None,
+                request_bytes=request_bytes, message_count=message_count,
+                purpose="history_summary",
+            )
+        except StopAudit as stop:
+            raise HostStop(stop) from None
+        execution.summary_requests += 1
+        return ceiling
+
+    async def _record_summary(self, message: ChatMessage, *, prompt_bytes: int) -> tuple[str | None, str]:
+        """Count a summary reply.  It is usage, not an action: nothing is published."""
+        execution = self.execution
+        usage = getattr(message, "token_usage", None)
+        execution.usage.add(
+            requests=1,
+            input_tokens=getattr(usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+        )
+        policy = execution.policy
+        text = message_text(message).strip()
+        reason = ""
+        if not text:
+            reason = "empty"
+        elif finish_reason(message) == "length":
+            reason = "truncated"
+        elif len(text) < MIN_SUMMARY_CHARS:
+            reason = "too_short"
+        elif len(text.encode("utf-8")) > policy.history_summary_bytes:
+            reason = "too_large"
+        if reason:
+            return None, reason
+        execution.summary_bytes += len(text.encode("utf-8"))
+        # ``note_context`` reads ``summary_bytes`` off the execution; passing it here would
+        # count the same summary twice.
+        execution.note_context()
+        return text, ""
 
     async def _call_tool(self, name: str, args: dict) -> str:
         self.tool_calls += 1
@@ -443,6 +638,14 @@ class PhaseGate:
         return "公开进展已保存。" if accepted else "未新增进展，请继续当前审计动作。"
 
     async def _accept(self, payload: Any) -> str:
+        if self.closed:
+            raise HostStop(StopAudit("cancelled", "本阶段已经结束，不接受迟到的决策"))
+        if self.execution.remaining(self.deadline) <= 0:
+            raise HostStop(StopAudit("timeout", "本阶段截止时间已到，不接受迟到的决策"))
+        from .execution_state import comparison_deadline_remaining
+        comparison_remaining = comparison_deadline_remaining()
+        if comparison_remaining is not None and comparison_remaining <= 0:
+            raise HostStop(StopAudit("batch_deadline_exceeded", "Prompt 实验截止时间已到，不接受迟到的决策"))
         owner = getattr(self.execution, "run_execution", None)
         if owner is not None:
             owner.store.assert_execution_write(owner.run_id)
@@ -484,7 +687,12 @@ class PhaseGate:
         )
         content = message.content if isinstance(message.content, str) else str(message.content or "")
         self.request_tool_errors = {}
-        action, self.action_diagnostics, self.action_issue = extract_action(content, finish_reason(message), self.action_tags)
+        if self.response_format == "json":
+            action = None
+            self.action_issue = None
+            self.action_diagnostics = {"response_format": "json"}
+        else:
+            action, self.action_diagnostics, self.action_issue = extract_action(content, finish_reason(message), self.action_tags)
         if finish := finish_reason(message):
             self.action_diagnostics["finish_reason"] = finish
         if action is not None:
@@ -507,6 +715,9 @@ class PhaseGate:
                                      and getattr(usage, "input_tokens", None) is not None
                                      and getattr(usage, "output_tokens", None) is not None),
             "usage": self.execution.snapshot(),
+            "response_format": self.response_format,
+            "request_parameters": dict(self.request_parameters),
+            "content_empty": not bool(content.strip()),
         }
         if max_output_tokens:
             event["max_output_tokens"] = int(max_output_tokens)
@@ -589,8 +800,12 @@ class AuditCodeModel(OpenAIModel):
     the repository's rules:
 
     * no invisible retries -- ``retry=False`` disables the library's own rate-limit
-      retries and ``client_kwargs={"max_retries": 0}`` disables the OpenAI SDK's, because
-      the host budgets every attempt and a hidden retry would multiply that budget;
+      retries and ``client_kwargs={"max_retries": 0}`` disables the OpenAI SDK's.  The
+      host's own retry loop is bounded, only covers statuses the provider calls
+      transient, and re-opens the phase gate for every attempt, so each retry spends the
+      response budget and leaves a ``provider_retry`` event behind;
+    * one request at a time across the process (``ProviderThrottle``), because a burst
+      is what the provider answers with ``RequestBurstTooFast``;
     * the request carries the phase's ceiling and ``extra_body`` (which is where the
       ``LLM_THINKING`` switch lives), both applied at call time so one client can serve
       phases with different limits.
@@ -607,32 +822,116 @@ class AuditCodeModel(OpenAIModel):
         self.gate = gate
         self.max_tokens = max_tokens
         self.extra_body = config.extra_body()
+        self.compactor = HistoryCompactor(gate.execution.policy)
 
     def attach(self, gate: PhaseGate) -> None:
-        """Point the client at the next phase's gate."""
+        """Point the client at the next phase's gate.
+
+        The compressor is rebuilt with the phase: a phase boundary starts a new
+        conversation (``reset=True``), so a summary cached from the previous one could
+        never match its prefix and would only waste a request to discover that.
+        """
         self.gate = gate
+        self.compactor = HistoryCompactor(gate.execution.policy)
+
+    def summarize(self, messages, *, timeout: float) -> ChatMessage:
+        """One provider call for a history summary.
+
+        Called through ``_complete`` directly, never through ``generate``: a summary of
+        the history must not itself be summarized (that is the recursion this avoids),
+        and its output allowance is its own small one.
+        """
+        policy = self.gate.execution.policy
+        return self._complete(
+            messages,
+            timeout=timeout,
+            max_tokens=policy.history_summary_max_output_tokens,
+            # Reasoning tokens would eat the whole 1536-token summary allowance.
+            extra_body={**(self.extra_body or {}), "thinking": {"type": "disabled"}},
+        )
 
     def generate(self, messages, stop_sequences=None, response_format=None,
                  tools_to_call_from=None, **kwargs) -> ChatMessage:
-        # The gate comes first: a phase that cannot afford another request must not open
+        # Compress the request copy, never the library's memory: the next step still
+        # replays the real observations, and only what leaves this process is shortened.
+        messages, compact = self.compactor.compact(messages, self.gate, self)
+        compact_info = compact if any(compact.get(key) for key in
+                                      ("cached", "summary_bytes", "dropped_groups")) else None
+        # The gate comes next: a phase that cannot afford another request must not open
         # one, and the ceiling it returns is what the HTTP client is given as its timeout.
-        ceiling = self.gate.request_ceiling(messages)
+        ceiling = self.gate.request_ceiling(messages, compact=compact_info)
         kwargs.setdefault("timeout", ceiling)
         kwargs.setdefault("max_tokens", self.max_tokens)
         kwargs.setdefault("extra_body", self.extra_body)
-        try:
-            message = self._complete(
-                messages,
-                stop_sequences=stop_sequences,
-                response_format=response_format,
-                tools_to_call_from=tools_to_call_from,
-                **kwargs,
-            )
-        except BaseException as exc:
-            raise self.gate.failure(exc) from exc
+        if self.gate.response_format == "json":
+            # Publication formats already collected facts into a small decision. Keep
+            # reasoning for exploration; a formatting response must have visible room
+            # left for the JSON object. Never mutate the selected provider profile.
+            kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), "thinking": {"type": "disabled"}}
+        thinking = (kwargs.get("extra_body") or {}).get("thinking") or {}
+        self.gate.request_parameters = {
+            "max_output_tokens": int(kwargs["max_tokens"]),
+            "thinking": thinking.get("type") if isinstance(thinking, dict) else None,
+            "stop_sequences": [str(value)[:120] for value in (stop_sequences or ())][:8],
+        }
+        policy = self.gate.execution.policy
+        attempt = 0
+        while True:
+            try:
+                message = self._complete(
+                    messages,
+                    stop_sequences=stop_sequences,
+                    response_format=response_format,
+                    tools_to_call_from=tools_to_call_from,
+                    **kwargs,
+                )
+                break
+            except BaseException as exc:
+                failure = self.gate.failure(exc)
+                wait = self._retry_wait(failure, attempt, policy) if attempt < policy.transient_retries else None
+                if wait is None:
+                    raise failure from exc
+                # A retry is a real request, not a hidden one: reopen the gate so it is
+                # counted against the phase and run budgets and appears as its own
+                # ``model_request``.  If the budget cannot admit it, the original failure
+                # is what the caller sees.
+                try:
+                    ceiling = self.gate.request_ceiling(messages, compact=compact_info)
+                except BaseException:
+                    raise failure from exc
+                remaining = self.gate.deadline - time.monotonic()
+                if remaining <= wait:
+                    raise failure from exc
+                self.gate.emit_provider_retry(
+                    attempt=attempt + 1, status=failure.status_code,
+                    reason=failure.reason, wait_seconds=wait,
+                )
+                time.sleep(wait)
+                attempt += 1
+                kwargs["timeout"] = max(1.0, min(ceiling, self.gate.deadline - time.monotonic()))
         self.gate.record_response(message, max_output_tokens=self.max_tokens)
         return message
 
+    def _retry_wait(self, failure: BaseException, attempt: int, policy) -> float | None:
+        """How long to wait before retrying, or ``None`` when the failure is not transient.
+
+        Only statuses the provider calls temporary and request timeouts are retried.
+        Authentication, routing and malformed-request errors must reach the breaker so
+        a misconfigured endpoint stops being asked.
+        """
+        if not isinstance(failure, ModelCallFailed):
+            return None
+        if failure.status_code not in TRANSIENT_STATUS and failure.reason != "request_timeout":
+            return None
+        retry_after = _retry_after_seconds(failure.cause)
+        if retry_after is not None:
+            return max(0.0, min(float(policy.transient_max_backoff_seconds), retry_after))
+        base = float(policy.transient_backoff_seconds) * (2 ** attempt)
+        # Jitter keeps two phases that failed together from retrying together.
+        return max(0.0, min(float(policy.transient_max_backoff_seconds),
+                            base + random.uniform(0.0, policy.transient_backoff_seconds / 2)))
+
     def _complete(self, messages, **kwargs) -> ChatMessage:
         """The one provider call.  Tests replace this and keep every gate behaviour."""
-        return super().generate(messages, **kwargs)
+        with _PROVIDER_THROTTLE:
+            return super().generate(messages, **kwargs)

@@ -7,6 +7,8 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 
+from .context_config import env_flag, env_int
+
 
 @dataclass
 class Usage:
@@ -41,6 +43,18 @@ class AgentPolicy:
     # 60.0s, and the run ended failed with zero tasks).  What bounds cost is the run's
     # own seconds budget and the phase deadlines; this only bounds a single stall.
     request_seconds: float = 180.0
+    # --- Transient provider failures ---------------------------------------------------
+    # Retries happen inside the model call, before the worker or breaker sees anything.
+    # Each retry re-opens the phase gate, so it spends the same response allowance as
+    # the request it replaces -- there are no invisible retries.  Only statuses the
+    # provider itself calls transient (429/408/5xx) and request timeouts are retried; an
+    # authentication or routing error is still immediate.
+    transient_retries: int = env_int("AUDIT_TRANSIENT_RETRIES", 3, 0, 8)
+    transient_backoff_seconds: int = env_int("AUDIT_TRANSIENT_BACKOFF_SECONDS", 2, 1, 60)
+    transient_max_backoff_seconds: int = env_int("AUDIT_TRANSIENT_MAX_BACKOFF_SECONDS", 20, 1, 120)
+    # Host/model faults that survive the retries are requeued without spending a task
+    # attempt, up to this many times per task before the original settlement applies.
+    host_retries: int = env_int("AUDIT_HOST_RETRIES", 3, 0, 8)
     tool_seconds: float = 5.0
     # Share of the wall-clock budget the exploration phase may use before the model is
     # asked to stop reading and decide.  High on purpose: the phase should end because
@@ -49,9 +63,34 @@ class AgentPolicy:
     exploration_fraction: float = 0.85
     repeated_calls: int = 2
     no_progress_calls: int = 3
-    tool_bytes: int = 16 * 1024
-    source_bytes: int = 64 * 1024
-    history_bytes: int = 192 * 1024
+    tool_bytes: int = env_int("AUDIT_TOOL_BYTES", 16 * 1024, 1024, 256 * 1024)
+    source_bytes: int = env_int("AUDIT_SOURCE_BYTES", 64 * 1024, 8 * 1024, 512 * 1024)
+    # --- Request window -------------------------------------------------------------
+    # The cap is on the *serialized request being sent*, not on the conversation the
+    # library keeps: smolagents replays every ActionStep on each step, so this is the
+    # number that decides whether the provider is asked at all.  Bytes are not tokens --
+    # Chinese UTF-8 text runs about three bytes per character -- so the value is a
+    # deliberately loose ceiling and the summarizer below is what keeps the request under
+    # it.  A model with a smaller window needs this lowered, not the summarizer changed.
+    history_bytes: int = env_int("AUDIT_HISTORY_BYTES", 384 * 1024, 64 * 1024, 2 * 1024 * 1024)
+    # Summarize only once the request is close to the cap: an aged-turn bookkeeping pass
+    # on every step would spend responses the audit needs.
+    history_trigger_ratio: float = 0.85
+    history_target_ratio: float = 0.60
+    history_keep_steps: int = 4
+    history_summary: bool = env_flag("AUDIT_HISTORY_SUMMARY", True)
+    history_summary_bytes: int = env_int("AUDIT_HISTORY_SUMMARY_BYTES", 4 * 1024, 512, 16 * 1024)
+    history_summary_input_bytes: int = env_int(
+        "AUDIT_HISTORY_SUMMARY_INPUT_BYTES", 48 * 1024, 8 * 1024, 128 * 1024)
+    history_summary_max_output_tokens: int = env_int(
+        "AUDIT_HISTORY_SUMMARY_MAX_TOKENS", 1536, 256, 8192)
+    # Two limits, both real: a phase may summarize twice, the whole run eight times.  A
+    # summary is a paid provider request and is counted like any other response.
+    history_summary_responses: int = env_int("AUDIT_HISTORY_SUMMARY_RESPONSES", 2, 0, 8)
+    history_summary_run_responses: int = env_int("AUDIT_HISTORY_SUMMARY_RUN_RESPONSES", 8, 0, 64)
+    history_action_bytes: int = env_int("AUDIT_HISTORY_ACTION_BYTES", 2 * 1024, 256, 8 * 1024)
+    history_observation_bytes: int = env_int(
+        "AUDIT_HISTORY_OBSERVATION_BYTES", 1024, 128, 8 * 1024)
     # Reconnaissance is a Planner tool with its own bounded budget.  Its requests and
     # its source reads are deliberately kept out of the Planner execution and out of a
     # worker's evidence ledger, so a recon brief can never become a finding's evidence.
@@ -70,7 +109,17 @@ class AgentPolicy:
     planner_read_lines: int = 200
     planner_search_limit: int = 40
     planner_source_bytes: int = 64 * 1024
-    planner_max_tokens: int = 8192
+    planner_max_tokens: int = env_int("AUDIT_PLANNER_MAX_TOKENS", 8192, 1024, 32768)
+    worker_max_tokens: int = env_int("AUDIT_WORKER_MAX_TOKENS", 4096, 512, 32768)
+    recon_max_tokens: int = env_int("AUDIT_RECON_MAX_TOKENS", 2048, 256, 16384)
+    poc_max_tokens: int = env_int("AUDIT_POC_MAX_TOKENS", 4096, 512, 16384)
+    # Start workers after a few focused navigation requests. Large code actions can
+    # still read several related files; the Planner must not audit the project itself.
+    planner_explore_responses: int = 3
+    # Publish a small frontier, then incorporate actual worker results next round.
+    planner_publication_tasks: int = 2
+    worker_explore_responses: int = 6
+    worker_publication_findings: int = 2
     # A reading window longer than this is clamped by the host validator, not rejected.
     planner_ref_max_lines: int = 400
     # Corrections allowed per Execution phase before the phase ends as invalid_output.
@@ -82,8 +131,9 @@ class AgentPolicy:
     # one thing the round exists to produce.
     decision_confirmations: int = 2
     # Rounds the host may discard and re-plan after the Planner failed to produce a usable
-    # decision, before it falls back to the durable frontier or settles the goal.
-    planner_decision_retries: int = 1
+    # decision, before it falls back to the durable frontier or settles the goal.  Two
+    # attempts leave room for one gap review that skips a path and one round that corrects it.
+    planner_decision_retries: int = 2
     # New reconnaissance requests a round may start; a repeated question is answered from
     # the pinned investigation instead and costs nothing.
     recon_calls_per_round: int = 2
@@ -91,7 +141,13 @@ class AgentPolicy:
     # folded into every Planner prompt.  Prefetched rather than tool-fetched: a tool call
     # costs a response and can be skipped, and a Planner that forgets what already ran
     # re-dispatches it.
-    planner_pinned_bytes: int = 16 * 1024
+    planner_pinned_bytes: int = env_int("AUDIT_PLANNER_PINNED_BYTES", 16 * 1024, 8 * 1024, 64 * 1024)
+    # One bounded step above the normal ceiling, taken only when the protected closure
+    # facts themselves no longer fit.  Recorded as ``planner_pinned_expanded`` so a review
+    # can see the round needed it; still bounded, still fails rather than truncating the
+    # facts the closure rule depends on.
+    planner_pinned_hard_bytes: int = env_int(
+        "AUDIT_PLANNER_PINNED_HARD_BYTES", 32 * 1024, 16 * 1024, 64 * 1024)
     # --- Code actions ---------------------------------------------------------------
     # A phase's model loop lets the model write Python that calls this run's own read-only
     # tools, so one model request can carry a whole reading loop instead of one call.
@@ -100,7 +156,7 @@ class AgentPolicy:
     # Bytes of one code step's printed output.  Everything the model prints is its own
     # next observation, and printing what it wants to see is the point of the format, so
     # this is generous -- but a code block can print the same tool reply many times over.
-    code_output_bytes: int = 24 * 1024
+    code_output_bytes: int = env_int("AUDIT_CODE_OUTPUT_BYTES", 24 * 1024, 4 * 1024, 256 * 1024)
     # Wall clock one code block may run.  The interpreter applies this with a thread
     # pool, which cannot stop a thread that has already started: this is the point where
     # the host stops *waiting* for a code block, not the point where it stops running.
@@ -167,11 +223,27 @@ class Execution:
     agent_invocation_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     progress_requests: set[int] = field(default_factory=set)
     progress_messages: set[str] = field(default_factory=set)
+    # How many provider requests this execution spent asking the host to summarize its
+    # own history, and how many bytes those summaries produced.  Counted here rather than
+    # only in events so the phase can enforce its own share of the allowance.
+    summary_requests: int = 0
+    summary_bytes: int = 0
+    context_stats: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         from .execution_state import CURRENT_EXECUTION, CURRENT_ROLE
         self.run_execution = CURRENT_EXECUTION.get()
         self.role_context = dict(CURRENT_ROLE.get())
+        self.context_stats = {
+            "peak_request_bytes": 0,
+            "history_bytes": self.policy.history_bytes,
+            "summary_requests": 0,
+            "summary_bytes": 0,
+            "compactions": 0,
+            "dropped_groups": 0,
+            "limit_hits": 0,
+            "sources": {},
+        }
         sink = self.emit
 
         def contextual_emit(event: dict) -> None:
@@ -216,7 +288,9 @@ class Execution:
         self._publish_execution()
         self.emit({"kind": "agent_phase", "phase": phase, **details, "remaining_seconds": round(max(0, self.remaining()), 2)})
 
-    def before_model(self, *, deadline: float, limit: int, correction: bool, reason: str | None = None) -> float:
+    def before_model(self, *, deadline: float, limit: int, correction: bool, reason: str | None = None,
+                     request_bytes: int | None = None, message_count: int | None = None,
+                     purpose: str = "model", compact: dict | None = None) -> float:
         """Open one model request, or stop the phase with the reason that ended it.
 
         The checks run in the order the failure should be reported in: time, then the
@@ -253,7 +327,18 @@ class Execution:
         self.attempts += 1
         self._publish_execution()
         self.phases[self.phase]["model_attempts"] += 1
-        self.emit({"kind": "model_request", "phase": self.phase, "attempt": self.attempts})
+        event = {"kind": "model_request", "phase": self.phase, "attempt": self.attempts,
+                 "purpose": purpose}
+        if request_bytes is not None:
+            event["request_bytes"] = int(request_bytes)
+            event["history_bytes"] = int(self.policy.history_bytes)
+            event["used_ratio"] = round(request_bytes / max(1, self.policy.history_bytes), 4)
+        if message_count is not None:
+            event["message_count"] = int(message_count)
+        if compact:
+            event["compact"] = dict(compact)
+        self.emit(event)
+        self.note_context(request_bytes=request_bytes, purpose=purpose, compact=compact)
         ceiling = min(self.policy.request_seconds, self.remaining(deadline))
         if self.run_execution is not None:
             summary = self.run_execution.store.execution_summary(self.run_execution.run_id)
@@ -268,6 +353,51 @@ class Execution:
                 raise StopAudit("batch_deadline_exceeded", "Prompt 实验的墙钟截止时间已到期")
             ceiling = min(ceiling, comparison_remaining)
         return ceiling
+
+    def note_context(self, *, request_bytes: int | None = None, purpose: str = "model",
+                     compact: dict | None = None,
+                     dropped_groups: int = 0, source: str | None = None,
+                     limit_hit: bool = False) -> None:
+        """Remember what the context window actually did, for the run's summary.
+
+        The event log already carries each request; this aggregate answers the one
+        question a reader has after a run: how close did it get, how often did it have
+        to compress, and did it ever hit the wall.  Persisted through the run execution
+        row so a resumed process does not start the accounting at zero.
+        """
+        stats = self.context_stats
+        # A phase owns its own Execution, so this aggregate is per phase until the store
+        # merges it into the run row.  Keeping a per-phase entry here is what lets the
+        # report say *which* phase approached the ceiling, not just that something did.
+        phases = stats.setdefault("phases", {})
+        phase = phases.setdefault(str(self.phase or "unknown"),
+                                  {"peak_request_bytes": 0, "requests": 0,
+                                   "summary_requests": 0, "limit_hits": 0})
+        if request_bytes is not None:
+            stats["peak_request_bytes"] = max(int(stats.get("peak_request_bytes") or 0), int(request_bytes))
+            phase["peak_request_bytes"] = max(int(phase["peak_request_bytes"]), int(request_bytes))
+            phase["requests"] = int(phase["requests"]) + 1
+        stats["history_bytes"] = int(self.policy.history_bytes)
+        stats["summary_requests"] = int(self.summary_requests)
+        stats["summary_bytes"] = int(self.summary_bytes)
+        if compact:
+            if compact.get("cached") or compact.get("summary_bytes"):
+                stats["compactions"] = int(stats.get("compactions") or 0) + 1
+            stats["dropped_groups"] = int(stats.get("dropped_groups") or 0) + int(
+                compact.get("dropped_groups") or 0)
+        stats["dropped_groups"] = int(stats.get("dropped_groups") or 0) + int(dropped_groups or 0)
+        if purpose == "history_summary":
+            phase["summary_requests"] = int(phase["summary_requests"]) + 1
+        if limit_hit:
+            stats["limit_hits"] = int(stats.get("limit_hits") or 0) + 1
+            phase["limit_hits"] = int(phase["limit_hits"]) + 1
+        if source:
+            sources = stats.setdefault("sources", {})
+            sources[source] = int(sources.get(source) or 0) + 1
+        if self.run_execution is not None:
+            note = getattr(getattr(self.run_execution, "store", None), "note_context", None)
+            if note is not None:
+                note(self.run_execution.run_id, dict(stats))
 
     def before_tool(self) -> None:
         from .execution_state import comparison_deadline_remaining
@@ -297,6 +427,7 @@ class Execution:
             "corrections": self.corrections,
             "elapsed_seconds": round(time.monotonic() - self.started, 3),
             "phases": self.phases,
+            "context": dict(self.context_stats),
         }
 
     def _publish_execution(self):

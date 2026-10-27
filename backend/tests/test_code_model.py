@@ -16,7 +16,7 @@ import pytest
 from audit.codemodel import FINAL_ANSWER_ACCEPTED, HostStop, ModelCallFailed, request_bytes
 from audit.runtime import AgentPolicy, StopAudit
 from audit.toolkit import PLANNER_TOOLS
-from tests.code_model import CONFIG, Answer, Host, Phase, code, transcript
+from tests.code_model import CONFIG, Always, Answer, Host, Phase, call, code, final_answer, transcript
 
 
 def status_error(status: int, message: str) -> openai.APIStatusError:
@@ -90,6 +90,57 @@ def test_the_history_cap_counts_the_request_being_made():
 
     assert outcome.reason() == "context_limit"
     assert len(outcome.model.requests) == 1
+    # The event says which cap was hit and how large the request was: without that, a run
+    # could only report that it stopped somewhere it could not measure.
+    limit = next(event for event in host.events if event["kind"] == "context_limit")
+    assert limit["source"] == "history_bytes"
+    assert limit["request_bytes"] > limit["history_bytes"]
+    assert limit["history_bytes"] == size + 1
+    assert limit["top_messages"] and limit["message_count"] > 0
+    assert limit["used_ratio"] > 1.0
+
+
+def test_a_long_history_is_summarized_so_the_phase_can_continue():
+    """Aged steps are replaced by one host summary instead of ending the phase."""
+    policy = AgentPolicy(history_bytes=34_000, history_keep_steps=2,
+                         history_summary_bytes=512, history_summary_responses=3)
+    host = Host({"read_source": "x" * 900}, policy=policy,
+                budgets={"responses": 16, "tools": 32, "seconds": 600})
+    steps = [call("read_source", path=f"f{index}.php", start=1, end=1) for index in range(6)]
+    outcome = Phase(host, specs=PLANNER_TOOLS, output_model=Answer, limit=12).play(
+        steps + [final_answer({"note": "done"})], max_steps=12)
+
+    assert outcome.failure is None
+    assert outcome.gate.published.note == "done"
+    assert len(outcome.model.summaries) >= 1
+    # Summarizing is itself a request, counted and named -- never a hidden retry.
+    summary_requests = [event for event in host.events
+                        if event["kind"] == "model_request" and event.get("purpose") == "history_summary"]
+    assert len(summary_requests) == len(outcome.model.summaries)
+    assert summary_requests[0]["request_bytes"] <= policy.history_bytes
+    assert any(event["kind"] == "context_summarized" for event in host.events)
+    assert all(event.get("request_bytes", 0) <= policy.history_bytes
+               for event in host.events if event["kind"] == "model_request")
+    context = host.execution.snapshot()["context"]
+    assert context["summary_requests"] >= 1
+    assert context["peak_request_bytes"] > 0
+
+
+def test_the_summary_call_has_its_own_output_budget_and_does_not_recurse():
+    policy = AgentPolicy(history_bytes=34_000, history_keep_steps=2, history_summary_bytes=512)
+    host = Host({"read_source": "x" * 900}, policy=policy,
+                budgets={"responses": 16, "tools": 32, "seconds": 600})
+    steps = [call("read_source", path=f"f{index}.php", start=1, end=1) for index in range(6)]
+    outcome = Phase(host, specs=PLANNER_TOOLS, output_model=Answer, limit=12).play(
+        steps + [final_answer({"note": "done"})], max_steps=12)
+
+    summary = outcome.model.summary_params[0]
+    assert summary["max_tokens"] == policy.history_summary_max_output_tokens
+    assert summary["extra_body"]["thinking"] == {"type": "disabled"}
+    # One user message carrying the instructions: the summary never goes through
+    # ``generate`` again, so a summary of a summary is impossible by construction.
+    assert len(outcome.model.summaries[0]) == 1
+    assert "上下文压缩器" in transcript(outcome.model.summaries[0])
 
 
 def test_the_request_carries_the_ceiling_and_the_thinking_switch():
@@ -114,13 +165,62 @@ def test_a_provider_error_keeps_its_label():
 
 
 def test_a_stalled_request_is_a_timeout_not_a_provider_error():
-    host = Host()
+    host = Host(policy=AgentPolicy(transient_retries=0))
     stall = openai.APITimeoutError(request=httpx.Request("POST", "https://example.invalid"))
     outcome = Phase(host, output_model=Answer).play([stall])
 
     assert outcome.reason() == "request_timeout"
     # A request that never completed is still a spent attempt, and the host counted it.
     assert host.execution.attempts == 1
+
+
+def test_a_transient_429_is_retried_and_costs_another_response(monkeypatch):
+    """One RequestBurstTooFast must not end a phase, and the retry is not free."""
+    monkeypatch.setattr("audit.codemodel.time.sleep", lambda seconds: None)
+    host = Host(policy=AgentPolicy(transient_backoff_seconds=1, transient_max_backoff_seconds=4))
+    outcome = Phase(host, output_model=Answer).play([
+        status_error(429, "RequestBurstTooFast"),
+        code('final_answer({"note": "n"})'),
+    ])
+
+    assert outcome.failure is None
+    assert outcome.gate.published == Answer(note="n")
+    # Two requests were admitted and counted; the response is counted once.
+    assert host.execution.attempts == 2
+    assert host.execution.usage.requests == 1
+    retry = host.events_of("provider_retry")[0]
+    assert retry["status"] == 429 and retry["attempt"] == 1
+    assert retry["remaining_attempts"] == outcome.gate.limit - 2
+
+
+def test_retry_after_from_the_provider_decides_the_wait(monkeypatch):
+    waits = []
+    monkeypatch.setattr("audit.codemodel.time.sleep", lambda seconds: waits.append(seconds))
+    request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+    response = httpx.Response(429, request=request, headers={"retry-after": "0.02"},
+                              json={"error": {"message": "slow down"}})
+    limited = openai.RateLimitError("slow down", response=response, body=None)
+    host = Host(policy=AgentPolicy(transient_backoff_seconds=2, transient_max_backoff_seconds=20))
+    outcome = Phase(host, output_model=Answer).play([
+        limited, code('final_answer({"note": "n"})'),
+    ])
+
+    assert outcome.failure is None
+    assert waits == [pytest.approx(0.02)]
+
+
+def test_exhausted_transient_retries_surface_one_model_error(monkeypatch):
+    monkeypatch.setattr("audit.codemodel.time.sleep", lambda seconds: None)
+    host = Host(policy=AgentPolicy(transient_retries=2, transient_backoff_seconds=1))
+    outcome = Phase(host, output_model=Answer).play(Always([status_error(503, "busy")]))
+
+    assert isinstance(outcome.failure, ModelCallFailed)
+    assert outcome.failure.reason == "model_error" and outcome.failure.status_code == 503
+    assert len(outcome.model.requests) == 3
+    assert host.execution.attempts == 3
+    assert len(host.events_of("provider_retry")) == 2
+    # The failure is recorded once: the retries are requests, not extra responses.
+    assert host.execution.usage.requests == 0
 
 
 def test_an_unexpected_failure_keeps_its_class_name():

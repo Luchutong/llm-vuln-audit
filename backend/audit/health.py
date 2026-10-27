@@ -11,7 +11,14 @@ from dataclasses import dataclass, field
 
 COOLDOWN_LADDER = (60, 300, 1800)
 SOFT_TRIP_AFTER = 3
-HARD_STATUS = {401, 402, 403, 404, 408, 429}
+# Credentials and routing are configuration faults: retrying cannot fix them and a run
+# should stop asking.  Everything else the provider reports as temporary is *not* a
+# reason to end a run -- a single 429 used to trip the breaker and abort the whole audit.
+HARD_STATUS = {401, 402, 403, 404}
+# Statuses the retry loop in ``AuditCodeModel.generate`` handles before the breaker ever
+# sees them.  If one arrives here it means the retries were exhausted, which is a soft
+# signal and only counts toward ``SOFT_TRIP_AFTER``.
+TRANSIENT_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 
 
 @dataclass

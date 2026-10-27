@@ -200,6 +200,8 @@ def collect_trial(store: Store, run_id: str, snapshot: dict | None = None) -> di
         "stop_reason": (run.get("execution_summary") or {}).get("stop_reason") or {"code": run.get("status", "unknown")},
         "warnings": warnings, "audit_started_at": run.get("started_at"),
         "audit_elapsed_seconds": audit_elapsed_seconds(run),
+        "coverage_review": (run.get("execution_summary") or {}).get("coverage_review"),
+        "coverage_gaps": ((run.get("execution_summary") or {}).get("coverage_review") or {}).get("pending_paths"),
     }
     if result["snapshot"] is not None and result["snapshot"].get("file_count") is None:
         result["snapshot"]["file_count"] = len((snapshot or {}).get("files") or [])

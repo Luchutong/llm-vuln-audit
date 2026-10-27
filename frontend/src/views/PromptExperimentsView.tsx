@@ -82,7 +82,7 @@ function Downloads({ id, legacy = false }: { id: string; legacy?: boolean }) {
       </a>
       {!legacy && (
         <a className="btn" href={downloadUrl(`${experimentPath(id)}/report?format=csv`)}>
-          CSV（3 张表 ZIP）
+          CSV（5 张表 ZIP）
         </a>
       )}
     </div>
@@ -410,7 +410,7 @@ function SummaryPanel({ experiment }: { experiment: FullExperiment }) {
               <th>TP 命中</th>
               <th>D 重复</th>
               <th>U 未匹配</th>
-              <th>FN 漏检</th>
+              <th>FN 未命中</th>
               <th>本版有效试次（含非共同轮）</th>
             </tr>
           </thead>
@@ -443,7 +443,9 @@ function SummaryPanel({ experiment }: { experiment: FullExperiment }) {
               <th>输入 tokens</th>
               <th>输出 tokens</th>
               <th>总 tokens</th>
-              <th>耗时（秒）</th>
+              <th>审计秒</th>
+              <th>完整耗时秒</th>
+              <th>审计预算使用率</th>
               <th>每 TP tokens</th>
             </tr>
           </thead>
@@ -457,10 +459,12 @@ function SummaryPanel({ experiment }: { experiment: FullExperiment }) {
                   'input_tokens',
                   'output_tokens',
                   'total_tokens',
-                  'duration_seconds',
+                  'audit_elapsed_seconds',
+                  'wall_elapsed_seconds',
+                  'audit_budget_utilization',
                   'tokens_per_tp',
                 ].map((key) => (
-                  <td key={key}>{metricLabel(item.metrics[key])}</td>
+                  <td key={key}>{metricLabel(item.metrics[key], key === 'audit_budget_utilization')}</td>
                 ))}
               </tr>
             ))}
@@ -508,6 +512,20 @@ function SummaryPanel({ experiment }: { experiment: FullExperiment }) {
         </Disclosure>
       )}
       <CvssSummary summary={summary} />
+      {summary.execution_diagnostics?.length ? (
+        <Disclosure title="停止、覆盖与重复主张">
+          <div className="table-scroll"><table>
+            <thead><tr><th>策略 / 试次</th><th>停止原因</th><th>审计秒</th><th>完整秒</th><th>预算使用率</th><th>仍主张 / 已处置重复</th></tr></thead>
+            <tbody>{summary.execution_diagnostics.map((item) => <tr key={item.trial_id}>
+              <th>{labelOf(experiment, item.prompt_id)}<br /><small>{item.trial_id}</small></th>
+              <td>{item.stop_reason ?? '—'}</td><td>{numeric(item.audit_elapsed_seconds)}</td><td>{numeric(item.wall_elapsed_seconds)}</td>
+              <td>{percent(item.audit_budget_utilization)}</td><td>{item.duplicate_statistics ? `${item.duplicate_statistics.still_asserted} / ${item.duplicate_statistics.resolved}` : '—'}</td>
+            </tr>)}</tbody>
+          </table></div>
+          <p className="small muted">提前结束按真实原因解释；读取覆盖不代表完整审计。历史未保存的字段显示为不可用。</p>
+          <pre className="tl-detail">{JSON.stringify(summary.execution_diagnostics.map(({ trial_id, coverage_review, coverage_gaps }) => ({ trial_id, coverage_review, coverage_gaps })), null, 2)}</pre>
+        </Disclosure>
+      ) : null}
       <FactConclusion experiment={experiment} />
     </div>
   );
@@ -517,6 +535,9 @@ function CvssSummary({ summary }: { summary: ExperimentSummary }) {
   const perVariant = summary.variants.filter((item) => Object.keys(item.metrics).some((key) => key.startsWith('cvss')));
   return (
     <Disclosure title="CVSS 3.1 评级质量（与检出成绩分开）">
+      <p className="small muted">优先比较同轮共同可评分交集及其配对差值。交集为空时不判断优劣；MAE 差为负表示误差减少。各版本自身 MAE 的样本集合可能不同，仅作描述。</p>
+      <CommonCvss summary={summary} />
+      <h4>各版本自身集合（描述性）</h4>
       {perVariant.length > 0 ? (
         <div className="table-scroll">
           <table>
@@ -543,9 +564,23 @@ function CvssSummary({ summary }: { summary: ExperimentSummary }) {
       ) : (
         <p className="small muted">尚无可评分的 CVSS 结果。</p>
       )}
-      {summary.cvss_common_rounds?.length ? (
+      <p className="small muted">
+        严重程度不加入 F1 加权；缺失评分不作为零分，0.0 分仍参与评价。
+      </p>
+    </Disclosure>
+  );
+}
+
+function CommonCvss({ summary }: { summary: ExperimentSummary }) {
+  return summary.cvss_common_rounds?.length ? (
         <>
           <h4>同轮共同命中且均有有效评分的比较集合</h4>
+          <div className="table-scroll"><table>
+            <thead><tr><th>版本</th><th>共同集合 MAE 均值</th><th>MAE 配对差均值</th></tr></thead>
+            <tbody>{summary.variants.map((variant) => <tr key={variant.id}><th>{variant.label}</th>
+              <td>{metricLabel(variant.metrics.cvss_common_mae)}</td>
+              <td>{metricLabel(variant.metrics.cvss_common_delta_mae)}</td></tr>)}</tbody>
+          </table></div>
           <div className="table-scroll">
             <table>
               <thead>
@@ -554,6 +589,7 @@ function CvssSummary({ summary }: { summary: ExperimentSummary }) {
                   <th>共同集合</th>
                   <th>版本</th>
                   <th>基础分 MAE</th>
+                  <th>相对基线 MAE 差</th>
                   <th>等级一致率</th>
                 </tr>
               </thead>
@@ -565,6 +601,7 @@ function CvssSummary({ summary }: { summary: ExperimentSummary }) {
                       <td title={round.truth_ids.join(', ')}>{round.total} 项</td>
                       <td>{variant.label}</td>
                       <td>{numeric(round.variants[variant.id]?.score_mae)}</td>
+                      <td>{numeric(round.paired_deltas?.[variant.id]?.score_mae)}</td>
                       <td>{percent(round.variants[variant.id]?.severity_accuracy)}</td>
                     </tr>
                   )),
@@ -573,12 +610,7 @@ function CvssSummary({ summary }: { summary: ExperimentSummary }) {
             </table>
           </div>
         </>
-      ) : null}
-      <p className="small muted">
-        严重程度不加入 F1 加权；缺失评分不作为零分，0.0 分仍参与评价。各自命中集合与共同命中集合分别统计。
-      </p>
-    </Disclosure>
-  );
+      ) : <p className="small muted">尚无共同可评分集合，暂不判断评级优劣。</p>;
 }
 
 function FactConclusion({ experiment }: { experiment: FullExperiment }) {
@@ -1113,9 +1145,9 @@ function TrialInspector({
   const usage = selectedAttempt?.usage ?? (isCurrentAttempt ? trial.usage : undefined);
   const duration =
     selectedAttempt?.audit_elapsed_seconds ??
-    selectedAttempt?.duration_seconds ??
-    (isCurrentAttempt ? (trial.audit_elapsed_seconds ?? trial.duration_seconds) : undefined);
-  const wallDuration = selectedAttempt?.wall_elapsed_seconds ?? (isCurrentAttempt ? trial.wall_elapsed_seconds : undefined);
+    (isCurrentAttempt ? trial.audit_elapsed_seconds : undefined);
+  const wallDuration = selectedAttempt?.wall_elapsed_seconds ?? selectedAttempt?.duration_seconds ??
+    (isCurrentAttempt ? (trial.wall_elapsed_seconds ?? trial.duration_seconds) : undefined);
   const coverage = detail?.read_coverage ?? detail?.trial?.read_coverage ?? trial.read_coverage;
   const phase = detail?.run?.execution_summary?.phase;
   const canRetry =
@@ -1203,6 +1235,21 @@ function TrialInspector({
           <span>F1 {percent(score.f1)}</span>
         </div>
       )}
+      {score?.missed_diagnostics?.length ? (
+        <Disclosure title="未命中原因（辅助诊断，不改变成绩）">
+          <div className="table-scroll"><table>
+            <thead><tr><th>清单项</th><th>原因</th><th>相关候选</th></tr></thead>
+            <tbody>{score.missed_diagnostics.map((item) => <tr key={item.truth_id}>
+              <th>{item.truth_id}</th>
+              <td>{({ type_mismatch: '漏洞类别失配', evidence_anchor_primary_mismatch: '证据覆盖锚点，主定位失配',
+                primary_location_mismatch: '同文件同类候选，主定位失配', no_related_candidate: '无相关候选',
+                candidate_assigned_to_other_truth: '候选已匹配另一清单项' } as Record<string, string>)[item.reason] ?? item.reason}</td>
+              <td>{item.related_candidates.map((candidate) => candidate.finding_id).join('、') || '无'}</td>
+            </tr>)}</tbody>
+          </table></div>
+          <p className="small muted">相关候选说明可能的定位或分类偏差；宽范围证据不能替代精确主定位，也不增加 TP。</p>
+        </Disclosure>
+      ) : null}
       {(trial.attempts?.length ?? 0) > 0 && (
         <Disclosure title="执行与补跑历史">
           <div className="table-scroll">
@@ -1245,6 +1292,8 @@ function TrialInspector({
                   duplicates: score?.duplicates,
                   unmatched: score?.unmatched,
                   diagnostics: score?.diagnostics,
+                  missed_diagnostics: score?.missed_diagnostics,
+                  duplicate_statistics: score?.duplicate_statistics,
                   truth_results: score?.truth_results,
                 },
                 null,

@@ -179,6 +179,46 @@ def test_common_cvss_denominator_is_intersection_and_missing_is_not_zero():
     assert common["variants"]["a"]["score_mae"] == 1
     assert common["variants"]["b"]["score_mae"] == 0
     assert common["variants"]["b"]["severity_accuracy"] == 0
+    assert common["paired_deltas"]["b"]["score_mae"] == -1
+    assert summary["cvss_paired_deltas"]["b"]["score_mae"]["mean"] == -1
+    assert summary["variants"][1]["metrics"]["cvss_common_delta_mae"]["mean"] == -1
+    assert summary["variants"][1]["metrics"]["cvss_common_mae"]["mean"] == 0
+
+
+def test_explanatory_candidates_never_change_exact_matching():
+    truth, anchors = assets()
+    rows = [finding("same-file", 99), finding("covered", 99, "xss_r", evidence=[
+        {"path": "lab30-shop/app/x.php", "start_line": 40, "end_line": 40}])]
+    score = evaluate_v2(truth, rows, anchors)
+    assert score["TP"] == 0 and score["U"] == 2
+    diagnostics = {item["truth_id"]: item for item in score["missed_diagnostics"]}
+    assert diagnostics["A"]["reason"] == "primary_location_mismatch"
+    assert diagnostics["C"]["reason"] == "evidence_anchor_primary_mismatch"
+    assert all(item["affects_score"] is False for item in diagnostics.values())
+    wrong_type = evaluate_v2(truth, [finding("wrong", 10, "rfi")], anchors)
+    assert wrong_type["TP"] == 0
+    assert wrong_type["missed_diagnostics"][0]["reason"] == "type_mismatch"
+    assert evaluate_v2(truth, [], anchors)["missed_diagnostics"][0]["reason"] == "no_related_candidate"
+
+
+def test_disposition_counts_remain_separate_from_asserted_score_duplicates():
+    truth, anchors = assets()
+    score = evaluate_v2(truth, [finding("a", 20), finding("b", 20), finding("c", 20, disposition="duplicate")], anchors)
+    assert score["duplicate_statistics"] == {"still_asserted": 1, "resolved": 1}
+    assert score["TP"] == 1 and score["D"] == 1
+
+
+def test_empty_common_cvss_and_missing_clocks_do_not_fabricate_comparison():
+    rows = [trial(1, "a", .4), trial(1, "b", .6)]
+    rows[0].update(audit_elapsed_seconds=120, wall_elapsed_seconds=135, audit_budget_utilization=1/6,
+                   stop_reason={"code": "goal_met"}, coverage_gaps=["src/account.php"])
+    summary = summarise_trials([{"id": "a"}, {"id": "b"}], rows, 1, "a")
+    assert summary["cvss_common_rounds"][0]["total"] == 0
+    assert summary["cvss_paired_deltas"]["b"]["score_mae"]["n"] == 0
+    assert summary["variants"][0]["metrics"]["audit_elapsed_seconds"]["mean"] == 120
+    assert summary["variants"][1]["metrics"]["audit_elapsed_seconds"]["mean"] is None
+    assert summary["variants"][0]["metrics"]["duration_seconds"]["mean"] == 10
+    assert summary["execution_diagnostics"][0]["coverage_gaps"] == ["src/account.php"]
 
 
 def test_duplicate_anchor_ids_and_class_mismatch_are_rejected():

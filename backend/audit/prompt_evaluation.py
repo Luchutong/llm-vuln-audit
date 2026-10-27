@@ -165,8 +165,51 @@ def _rating(finding: dict, truth: dict) -> dict:
             "severity_ok": label == expected["severity"] if expected and label is not None else None}
 
 
+def _evidence_coordinates(finding: dict, root: str):
+    """Diagnostic ranges only; these must never become matching edges."""
+    evidence = finding.get("evidence")
+    if isinstance(evidence, dict):
+        evidence = evidence.get("reviewed_ranges", [])
+    for item in evidence if isinstance(evidence, list) else []:
+        if not isinstance(item, dict):
+            continue
+        path = _path(item.get("path"), root)
+        start, end = item.get("start_line"), item.get("end_line")
+        if path and type(start) is int and type(end) is int and 1 <= start <= end:
+            yield path, start, end
+
+
+def _missed_diagnostic(truth_id: str, typ: str, coordinates: set, predictions: list[dict], root: str) -> dict:
+    related = []
+    paths = {path for path, _ in coordinates}
+    for finding in predictions:
+        primary = _location(finding.get("primary_location"), root)
+        same_type = _canonical_type(finding.get("vulnerability_type")) == typ
+        covers = any(path == source and start <= line <= end
+                     for path, start, end in _evidence_coordinates(finding, root) for source, line in coordinates)
+        reason = None
+        if not same_type and (primary in coordinates or covers):
+            reason = "type_mismatch"
+        elif same_type and covers and primary not in coordinates:
+            reason = "evidence_anchor_primary_mismatch"
+        elif same_type and primary in coordinates:
+            reason = "candidate_assigned_to_other_truth"
+        elif same_type and primary and primary[0] in paths:
+            reason = "primary_location_mismatch"
+        if reason:
+            related.append({"finding_id": finding.get("id"), "reason": reason,
+                            "primary_location": finding.get("primary_location"),
+                            "vulnerability_type": _canonical_type(finding.get("vulnerability_type"))})
+    priority = {"type_mismatch": 0, "evidence_anchor_primary_mismatch": 1, "primary_location_mismatch": 2,
+                "candidate_assigned_to_other_truth": 3}
+    related.sort(key=lambda row: (priority[row["reason"]], str(row.get("finding_id", ""))))
+    return {"truth_id": truth_id, "reason": related[0]["reason"] if related else "no_related_candidate",
+            "related_candidates": related, "affects_score": False}
+
+
 def evaluate_v2(truth_payload: dict, findings: list[dict], anchors_payload: dict) -> dict:
     truths, anchors, root = _anchors(truth_payload, anchors_payload)
+    resolved_duplicates = sum(isinstance(x, dict) and x.get("disposition") == "duplicate" for x in findings)
     excluded = [x for x in findings if isinstance(x, dict)
                 and x.get("validation_state") in {"invalid_evidence", "invalid_finding", "invalid"}]
     findings = [x for x in findings if isinstance(x, dict)
@@ -225,6 +268,8 @@ def evaluate_v2(truth_payload: dict, findings: list[dict], anchors_payload: dict
     duplicate = [f for i, f in enumerate(predictions) if i not in matched_indices and edges[i]]
     unmatched = [f for i, f in enumerate(predictions) if i not in matched_indices and not edges[i]]
     tp, d, u, fn = len(matches), len(duplicate), len(unmatched), len(truths) - len(matches)
+    missed_diagnostics = [_missed_diagnostic(row["id"], row["class"], coordinates[row["id"]], predictions, root)
+                          for row in truth_results if not row["detected"]]
     compared = [m for m in matches if m["cvss_status"] == "compared"]
     vectors = [m for m in compared if m["cvss_vector_ok"] is not None]
     labels = [m for m in matches if m["severity_ok"] is not None]
@@ -239,6 +284,8 @@ def evaluate_v2(truth_payload: dict, findings: list[dict], anchors_payload: dict
             "precision": _ratio(tp, tp + d + u), "recall": tp / len(truths),
             "f1": 2 * tp / (2 * tp + d + u + fn), "matches": matches, "truth_results": truth_results,
             "duplicates": duplicate, "unmatched": unmatched, "diagnostics": diagnostics,
+            "missed_diagnostics": missed_diagnostics,
+            "duplicate_statistics": {"still_asserted": d, "resolved": resolved_duplicates},
             "excluded_invalid": [{"finding_id": x.get("id"), "validation_state": x.get("validation_state"),
                                   "validation_errors": x.get("validation_errors", [])} for x in excluded],
             "false_positives": [x.get("title") or x.get("id") for x in duplicate + unmatched],
@@ -290,7 +337,10 @@ def summarise_trials(variants: list[dict], trials: list[dict], repeats: int,
         selected = [slots[r, p] for r in complete]
         metrics = {k: metric([x["score"].get(k) for x in selected]) for k in score_metrics}
         metrics.update({k: metric([(x.get("usage") or {}).get(k) for x in selected]) for k in usage_metrics})
-        metrics["duration_seconds"] = metric([x.get("duration_seconds") for x in selected])
+        for name in ("duration_seconds", "audit_elapsed_seconds", "wall_elapsed_seconds", "audit_budget_utilization"):
+            metrics[name] = metric([x.get(name) for x in selected])
+        metrics["asserted_duplicates"] = metric([x["score"].get("D") for x in selected])
+        metrics["resolved_duplicates"] = metric([(x["score"].get("duplicate_statistics") or {}).get("resolved") for x in selected])
         metrics["tokens_per_tp"] = metric([((x.get("usage") or {}).get("total_tokens") / x["score"]["TP"]
                                            if x["score"].get("TP", 0) and _number((x.get("usage") or {}).get("total_tokens")) else None) for x in selected])
         for name, source in (("cvss_mae", "score_mae"), ("cvss_coverage", "scoring_coverage"), ("cvss_score_accuracy", "score_accuracy")):
@@ -345,13 +395,36 @@ def summarise_trials(variants: list[dict], trials: list[dict], repeats: int,
     for r in complete:
         maps = {p: {str(m["truth_id"]): m for m in slots[r, p]["score"].get("matches", []) if m.get("cvss_status") == "compared"} for p in ids}
         common_ids = sorted(set.intersection(*(set(x) for x in maps.values()))) if maps else []
+        values = {p: {"score_mae": _ratio(sum(maps[p][i]["cvss_score_error"] for i in common_ids), len(common_ids)),
+                      "severity_accuracy": _ratio(sum(maps[p][i].get("severity_ok") is True for i in common_ids), len(common_ids))} for p in ids}
         common_cvss.append({"round_index": r, "truth_ids": common_ids, "total": len(common_ids),
-                            "variants": {p: {"score_mae": _ratio(sum(maps[p][i]["cvss_score_error"] for i in common_ids), len(common_ids)),
-                                             "severity_accuracy": _ratio(sum(maps[p][i].get("severity_ok") is True for i in common_ids), len(common_ids))} for p in ids}})
+                            "variants": values, "paired_deltas": {p: {
+                                "score_mae": values[p]["score_mae"] - values[baseline_prompt_id]["score_mae"] if common_ids else None,
+                                "severity_accuracy": values[p]["severity_accuracy"] - values[baseline_prompt_id]["severity_accuracy"] if common_ids else None,
+                            } for p in ids}})
+    cvss_paired = {p: {key: metric([row["paired_deltas"][p][key] for row in common_cvss])
+                      for key in ("score_mae", "severity_accuracy")} for p in ids}
+    for variant in variant_rows:
+        p = variant["id"]
+        variant["metrics"]["cvss_common_mae"] = metric([row["variants"][p]["score_mae"] for row in common_cvss])
+        variant["metrics"]["cvss_common_delta_mae"] = cvss_paired[p]["score_mae"]
+    execution_diagnostics = []
+    for trial in trials:
+        reason = trial.get("stop_reason") or {}
+        reason_code = reason.get("code") if isinstance(reason, dict) else str(reason)
+        execution_diagnostics.append({"trial_id": trial.get("id"), "prompt_id": trial.get("prompt_id"),
+            "round_index": trial.get("round_index"), "evaluation_status": trial.get("evaluation_status"),
+            "stop_reason": reason_code, "audit_elapsed_seconds": trial.get("audit_elapsed_seconds"),
+            "wall_elapsed_seconds": trial.get("wall_elapsed_seconds"),
+            "audit_budget_utilization": trial.get("audit_budget_utilization"),
+            "coverage_review": trial.get("coverage_review"), "coverage_gaps": trial.get("coverage_gaps"),
+            "duplicate_statistics": (trial.get("score") or {}).get("duplicate_statistics"),
+            "missed_diagnostics": (trial.get("score") or {}).get("missed_diagnostics")})
     total_usage = {k: {"known_total": sum((t.get("usage") or {}).get(k) for t in trials if _number((t.get("usage") or {}).get(k))),
                        "known_trials": sum(_number((t.get("usage") or {}).get(k)) for t in trials), "trials": len(trials)} for k in usage_metrics}
     return {"protocol": PROTOCOL, "baseline_prompt_id": baseline_prompt_id, "repeats": repeats,
             "complete_rounds": complete, "complete_round_count": len(complete), "preliminary": len(complete) < 3,
             "variants": variant_rows, "truth_matrix": truth_matrix, "class_coverage": classes,
-            "cvss_common_rounds": common_cvss, "actual_total_usage": total_usage,
+            "cvss_common_rounds": common_cvss, "cvss_paired_deltas": cvss_paired,
+            "execution_diagnostics": execution_diagnostics, "actual_total_usage": total_usage,
             "interpretation": "官方清单匹配指标；U 不表示已证伪漏洞；无安全负例，不提供 Accuracy/FPR。"}

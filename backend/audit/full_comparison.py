@@ -157,7 +157,7 @@ class FullComparisonRunner:
             for attempt in trial.get("attempts") or []:
                 self._hydrate_attempt(ident, trial, attempt)
             if trial.get("attempts"):
-                for key in ("usage", "read_coverage", "audit_elapsed_seconds", "wall_elapsed_seconds", "audit_started_at", "warnings"):
+                for key in ("usage", "read_coverage", "audit_elapsed_seconds", "wall_elapsed_seconds", "audit_started_at", "warnings", "coverage_review", "coverage_gaps"):
                     if key in trial["attempts"][-1]:
                         trial[key] = trial["attempts"][-1][key]
             trial["can_retry"], trial["retry_reason"] = self._retry_eligibility(row, trial)
@@ -198,7 +198,7 @@ class FullComparisonRunner:
         if (recovered.get("run") or {}).get("id") != attempt["run_id"]:
             attempt.setdefault("warnings", []).append({"code": "run_unavailable", "message": "隔离数据库中已不存在该运行，保留已有用量"})
             return
-        for name in ("usage", "read_coverage", "audit_elapsed_seconds", "audit_started_at", "warnings"):
+        for name in ("usage", "read_coverage", "audit_elapsed_seconds", "audit_started_at", "warnings", "coverage_review", "coverage_gaps"):
             if name in recovered:
                 attempt[name] = recovered[name]
         if not attempt.get("stop_reason") and recovered.get("stop_reason"):
@@ -272,7 +272,9 @@ class FullComparisonRunner:
                 "task_spec": {"objective": OBJECTIVE,
                     "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
                     "max_iterations": 3, "max_planner_rounds": 24, "max_total_attempts": 64,
-                    "max_workers": 1, "stop_on_achieved": False, "require_poc": False},
+                    "max_workers": 1, "stop_on_achieved": False, "require_poc": False,
+                    "completion_policy": "coverage_review"},
+                "closure_policy": {"version": "coverage-review-v1"},
                 "poc_mode": "off", "assets": assets, "source_sha256": _hash(frozen / "source.zip"),
                 "source_name": source.name,
                 "files": {"source": "frozen/source.zip", "truth": "frozen/truth.json", "anchors": "frozen/anchors.json"},
@@ -343,7 +345,12 @@ class FullComparisonRunner:
         previous = self.store.get_prompt_experiment(directory.name)
         catalogue = ((previous or {}).get("summary") or {}).get("truth_matrix") or []
         truth = {"vulnerabilities": [{k: row[k] for k in ("id", "title", "class")} for row in catalogue]} if catalogue else json.loads((directory / "frozen/truth.json").read_text())
-        result = summarise_trials(manifest["variants"], trials, manifest["repeats"], manifest["baseline_prompt_id"], truth)
+        projected = copy.deepcopy(trials)
+        limit = (manifest.get("time_policy") or {}).get("audit_seconds")
+        for trial in projected:
+            elapsed = trial.get("audit_elapsed_seconds")
+            trial["audit_budget_utilization"] = elapsed / limit if type(elapsed) in (int, float) and type(limit) in (int, float) and limit > 0 else None
+        result = summarise_trials(manifest["variants"], projected, manifest["repeats"], manifest["baseline_prompt_id"], truth)
         attempts = [a for trial in trials for a in trial.get("attempts", [])]
         result["actual_total_usage"] = {}
         for key in ("requests", "tool_calls", "input_tokens", "output_tokens", "total_tokens"):
@@ -540,6 +547,7 @@ class FullComparisonRunner:
                 usage=result.get("usage") or {}, duration_seconds=round(self._clock() - started, 3),
                 wall_elapsed_seconds=round(self._clock() - started, 3),
                 read_coverage=result.get("read_coverage"), warnings=result.get("warnings") or [],
+                coverage_review=result.get("coverage_review"), coverage_gaps=result.get("coverage_gaps"),
                 audit_elapsed_seconds=result.get("audit_elapsed_seconds"), audit_started_at=result.get("audit_started_at"),
                 run_id=(result.get("run") or {}).get("id", attempt.get("run_id")),
                 snapshot_id=(result.get("run") or {}).get("snapshot_id", attempt.get("snapshot_id")), finished_at=now())
@@ -573,6 +581,7 @@ class FullComparisonRunner:
                     partial = self._load_result(work, attempt.get("run_id"))
                     attempt.update(usage=partial.get("usage") or attempt.get("usage") or {},
                         read_coverage=partial.get("read_coverage"), warnings=partial.get("warnings") or [],
+                        coverage_review=partial.get("coverage_review"), coverage_gaps=partial.get("coverage_gaps"),
                         audit_started_at=partial.get("audit_started_at"), audit_elapsed_seconds=partial.get("audit_elapsed_seconds"),
                         run_id=(partial.get("run") or {}).get("id", attempt.get("run_id")),
                         snapshot_id=(partial.get("run") or {}).get("snapshot_id", attempt.get("snapshot_id")))
@@ -865,20 +874,39 @@ def markdown_report(row):
                 _number(attempt.get("audit_elapsed_seconds")), _number(attempt.get("wall_elapsed_seconds", attempt.get("duration_seconds"))),
                 _number(tokens), _cell((attempt.get("stop_reason") or {}).get("code", "—"))]) + " |")
     lines += ["", "## 资源与 CVSS（相同共同轮次）", "",
-        "| 版本 | 请求 | 工具调用 | tokens | 耗时秒 | tokens/TP | CVSS 可评分覆盖 | CVSS MAE | 等级一致率 |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        "| 版本 | 请求 | 工具调用 | tokens | 审计秒 | 完整耗时秒 | 审计预算使用率 | tokens/TP | 自身可评分覆盖 | 自身 MAE | 等级一致率 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for variant in summary.get("variants", []):
         m = variant["metrics"]
         lines.append("| " + " | ".join([_cell(variant.get("label") or variant["id"]),
-            *[_stat(m[key]) for key in ("requests", "tool_calls", "total_tokens", "duration_seconds", "tokens_per_tp")],
+            *[_stat(m.get(key, {})) for key in ("requests", "tool_calls", "total_tokens", "audit_elapsed_seconds", "wall_elapsed_seconds")],
+            _stat(m.get("audit_budget_utilization", {}), percent=True), _stat(m["tokens_per_tp"]),
             _stat(m["cvss_coverage"], percent=True), _stat(m["cvss_mae"]),
             _stat(m["cvss_severity_agreement"], percent=True)]) + " |")
-    lines += ["", "CVSS 单独统计，不参与挖掘 F1。各版本交集中的可评分漏洞进一步对照如下；空交集不计算 MAE。", "",
-        "| 轮次 | 共同可评分真值 | 策略 | CVSS MAE | 等级一致率 |", "|---|---|---|---:|---:|"]
+    lines += ["", "CVSS 不参与挖掘 F1；优先比较同轮共同可评分集合。上表自身 MAE 的样本集合可能不同，仅作描述。空交集不判断优劣；负 MAE 差值表示相对基线误差减少。", "",
+        "| 轮次 | 共同可评分真值 | n | 策略 | CVSS MAE | MAE 配对差 | 等级一致率 |", "|---|---|---:|---|---:|---:|---:|"]
     for common in summary.get("cvss_common_rounds", []):
         for prompt_id, value in common["variants"].items():
-            lines.append(f"| {common['round_index']} | {', '.join(common['truth_ids']) or '—'} | {prompt_id} | "
-                         f"{_number(value['score_mae'])} | {_number(value['severity_accuracy'], percent=True)} |")
+            delta = ((common.get("paired_deltas") or {}).get(prompt_id) or {}).get("score_mae")
+            lines.append(f"| {common['round_index']} | {', '.join(common['truth_ids']) or '—'} | {common['total']} | {prompt_id} | "
+                         f"{_number(value['score_mae'])} | {_number(delta)} | {_number(value['severity_accuracy'], percent=True)} |")
+    lines += ["", "| 策略 | 共同集合逐轮 MAE 均值 ± 标准差 | MAE 配对差均值 ± 标准差 |", "|---|---:|---:|"]
+    for variant in summary.get("variants", []):
+        lines.append("| " + " | ".join([variant["id"], _stat(variant["metrics"].get("cvss_common_mae", {})),
+            _stat(variant["metrics"].get("cvss_common_delta_mae", {}))]) + " |")
+    lines += ["", "## 停止、覆盖与匹配诊断", "", "诊断用于解释未命中，不增加 TP；未匹配不等于已证伪。历史未保存的字段保持不可用。", "",
+        "| 试次 | 停止原因 | 审计秒 | 完整秒 | 审计预算使用率 | 仍主张重复 | 已处置重复 |", "|---|---|---:|---:|---:|---:|---:|"]
+    for item in summary.get("execution_diagnostics", []):
+        duplicates = item.get("duplicate_statistics") or {}
+        lines.append("| " + " | ".join([_cell(item["trial_id"]), _cell(item.get("stop_reason")),
+            _number(item.get("audit_elapsed_seconds")), _number(item.get("wall_elapsed_seconds")),
+            _number(item.get("audit_budget_utilization"), percent=True), _number(duplicates.get("still_asserted")),
+            _number(duplicates.get("resolved"))]) + " |")
+        for diagnostic in item.get("missed_diagnostics") or []:
+            lines.append(f"- {_cell(item['trial_id'])} / {_cell(diagnostic['truth_id'])}：{diagnostic['reason']}；"
+                         f"相关候选：{', '.join(str(x.get('finding_id')) for x in diagnostic['related_candidates']) or '无'}。")
+        if item.get("coverage_review") is not None or item.get("coverage_gaps") is not None:
+            lines += ["", "```json", json.dumps({key: item.get(key) for key in ("trial_id", "coverage_review", "coverage_gaps")}, ensure_ascii=False, indent=2), "```", ""]
     lines += ["", "## 30 项命中矩阵", "", "| 真值 | 类别 | " + " | ".join(v["id"] for v in manifest["variants"]) + " |",
         "|---|---|" + "---:|" * len(manifest["variants"]) ]
     for item in summary.get("truth_matrix", []):
@@ -932,12 +960,14 @@ def csv_archive(row):
     summary = row.get("summary") or {}
     names = ("TP", "D", "U", "FP", "FN", "precision", "recall", "f1")
     metrics = (*names, "requests", "tool_calls", "input_tokens", "output_tokens", "total_tokens",
-               "duration_seconds", "tokens_per_tp", "cvss_coverage", "cvss_mae", "cvss_severity_agreement")
+               "duration_seconds", "audit_elapsed_seconds", "wall_elapsed_seconds", "audit_budget_utilization",
+               "asserted_duplicates", "resolved_duplicates", "tokens_per_tp", "cvss_coverage", "cvss_mae", "cvss_severity_agreement",
+               "cvss_common_mae", "cvss_common_delta_mae")
     stat_names = ("mean", "sample_std", "n")
     summary_rows = []
     for variant in summary.get("variants", []):
         summary_rows.append([variant["id"], summary["complete_round_count"],
-            *[variant["metrics"][key][stat] for key in metrics for stat in stat_names],
+            *[variant["metrics"].get(key, {}).get(stat) for key in metrics for stat in stat_names],
             *[(variant["paired_deltas"][key][stat] if stat == "n" else
                None if variant["paired_deltas"][key][stat] is None else variant["paired_deltas"][key][stat] * 100)
               for key in ("f1", "recall") for stat in stat_names]])
@@ -967,6 +997,13 @@ def csv_archive(row):
             "batch_started_at", "batch_deadline_at", "batch_finished_at", "batch_wall_elapsed_seconds"], trial_rows),
         "truth_matrix.csv": table(["truth_id", "title", "class", "prompt_id", "hits", "total"],
         [[t["id"], t["title"], t["class"], p, cell["hits"], cell["total"]] for t in summary.get("truth_matrix", []) for p, cell in t["variants"].items()])}
+    tables["cvss_common.csv"] = table(["round", "truth_ids", "n", "prompt_id", "score_mae", "severity_accuracy", "delta_mae", "delta_severity_accuracy"], [
+        [item["round_index"], ",".join(item["truth_ids"]), item["total"], prompt, value.get("score_mae"), value.get("severity_accuracy"),
+         (item.get("paired_deltas", {}).get(prompt) or {}).get("score_mae"), (item.get("paired_deltas", {}).get(prompt) or {}).get("severity_accuracy")]
+        for item in summary.get("cvss_common_rounds", []) for prompt, value in item["variants"].items()])
+    diagnostic_fields = ("trial_id", "prompt_id", "round_index", "evaluation_status", "stop_reason", "audit_elapsed_seconds", "wall_elapsed_seconds", "audit_budget_utilization", "coverage_review", "coverage_gaps", "duplicate_statistics", "missed_diagnostics")
+    tables["execution_diagnostics.csv"] = table(diagnostic_fields, [[json.dumps(item.get(key), ensure_ascii=False) if isinstance(item.get(key), (list, dict)) else item.get(key)
+        for key in diagnostic_fields] for item in summary.get("execution_diagnostics", [])])
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
         for filename, content in tables.items():

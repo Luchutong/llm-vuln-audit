@@ -21,7 +21,7 @@ CLASSES = ['auth_bypass','code_execution','command_injection','csrf','idor','inf
            'insecure_deserialization','lfi','mass_assignment','open_redirect','path_traversal',
            'price_manipulation','race_condition','rfi','session_fixation','sqli','ssrf','weak_crypto',
            'weak_type_comparison','xss_r','xss_s','xxe']
-IDS = ['worker-w0-v1','worker-w1-v1','worker-w2-v1']
+IDS = ['worker-w0-v1','worker-w1-v2','worker-w2-v2']
 
 
 def metric(value, sd=.03, n=3):
@@ -39,7 +39,8 @@ def full_record():
         for i,prompt_id in enumerate(IDS):
             tp=[12,18,9][i]
             score=dict(TP=tp,D=1,U=2,FN=30-tp,FP=3,precision=tp/(tp+3),recall=tp/30,f1=2*tp/(tp+33),
-                       matches=[dict(finding_id='finding-one',truth_id='01')],duplicates=[],unmatched=[],diagnostics=[])
+                       matches=[dict(finding_id='finding-one',truth_id='01')],duplicates=[],unmatched=[],diagnostics=[],
+                       missed_diagnostics=[dict(truth_id='30',reason='evidence_anchor_primary_mismatch',related_candidates=[dict(finding_id='finding-one')],affects_score=False)])
             trials.append(dict(id=f'trial-{round_index}-{i}',round_index=round_index,prompt_id=prompt_id,
                                status='completed',evaluation_status='valid',stop_reason=dict(code='run_budget_exhausted') if i==2 else 'audit_complete',
                                read_coverage=dict(read_files=20,total_files=69,read_lines=500,total_lines=2000,file_ratio=20/69,line_ratio=.25),
@@ -49,7 +50,8 @@ def full_record():
     for i,p in enumerate(IDS):
         score=trials[i]['score']
         metrics={key:metric(score[key]) for key in ['TP','D','U','FN','precision','recall','f1']}
-        metrics.update({key:metric(value) for key,value in dict(requests=20,tool_calls=80,input_tokens=10000,output_tokens=2000,total_tokens=12000,duration_seconds=60,tokens_per_tp=1000,cvss_mae=1.2,cvss_coverage=.9,cvss_severity_agreement=.8).items()})
+        metrics.update({key:metric(value) for key,value in dict(requests=20,tool_calls=80,input_tokens=10000,output_tokens=2000,total_tokens=12000,duration_seconds=60,audit_elapsed_seconds=45,wall_elapsed_seconds=60,audit_budget_utilization=45/720,tokens_per_tp=1000,cvss_mae=1.2,cvss_coverage=.9,cvss_severity_agreement=.8).items()})
+        metrics.update(cvss_common_mae=metric(1-i*.5,n=1),cvss_common_delta_mae=metric(-i*.5,n=1))
         delta=[0,.1,-.12][i]
         paired=metric(delta)
         paired['values']=[dict(round_index=r,trial_id=f'trial-{r}-{i}',baseline_trial_id=f'trial-{r}-0',value=delta) for r in range(1,4)]
@@ -59,7 +61,9 @@ def full_record():
         truth_matrix.append(dict(id=f'{n:02}',title=f'测试真值 {n:02}',**{'class':CLASSES[(n-1)%22]},variants={p:dict(hits=3 if n<=[12,18,9][i] else 0,total=3,rounds=[dict(round_index=r,trial_id=f'trial-{r}-{i}',detected=n<=[12,18,9][i],finding_id='finding-one' if n==1 else None) for r in range(1,4)]) for i,p in enumerate(IDS)}))
     summary=dict(complete_rounds=[1,2,3],complete_round_count=3,repeats=3,preliminary=False,baseline_prompt_id=IDS[0],variants=summaries,truth_matrix=truth_matrix,
                  class_coverage=[dict(**{'class':category},total=3,variants={p:dict(detected=2,total=3,recall=2/3) for p in IDS}) for category in CLASSES],
-                 cvss_common_rounds=[],actual_total_usage=dict(requests=dict(known_total=180,known_attempts=9,attempts=9),total_tokens=dict(known_total=108000,known_attempts=9,attempts=9)))
+                 cvss_common_rounds=[dict(round_index=1,truth_ids=['01'],total=1,variants={p:dict(score_mae=1-i*.5,severity_accuracy=1) for i,p in enumerate(IDS)},paired_deltas={p:dict(score_mae=-i*.5,severity_accuracy=0) for i,p in enumerate(IDS)})],
+                 execution_diagnostics=[dict(trial_id='trial-1-0',prompt_id=IDS[0],stop_reason='coverage_review_complete',audit_elapsed_seconds=45,wall_elapsed_seconds=60,audit_budget_utilization=45/720,duplicate_statistics=dict(still_asserted=1,resolved=2),coverage_gaps=[])],
+                 actual_total_usage=dict(requests=dict(known_total=180,known_attempts=9,attempts=9),total_tokens=dict(known_total=108000,known_attempts=9,attempts=9)))
     return dict(id='full-comparison',protocol='lab30-full-v2',status='completed',created_at=STAMP,finished_at=STAMP,error='',
                 manifest=dict(variants=variants,baseline_prompt_id=IDS[0],repeats=3,model=dict(model='offline-fixture-model',base_url='http://model.invalid'),
                               budgets=dict(responses=24,tools=96,seconds=720),run_limits=dict(responses=256,tools=2048,seconds=720),hashes=dict(source='a'*64),experiment_wall_seconds=7200),
@@ -308,7 +312,12 @@ def main():
         expect(page.get_by_role('figure',name='各版本 Precision、Recall、F1 均值及样本标准差')).to_be_visible()
         expect(page.locator('.exp-facts')).to_contain_text('提升 +10.0 个百分点')
         expect(page.locator('.exp-facts')).to_contain_text('下降 -12.0 个百分点')
-        expect(page.get_by_role('link',name='CSV（3 张表 ZIP）',exact=True)).to_have_attribute('href','/api/prompt-experiments/full-comparison/report?format=csv')
+        expect(page.get_by_role('link',name='CSV（5 张表 ZIP）',exact=True)).to_have_attribute('href','/api/prompt-experiments/full-comparison/report?format=csv')
+        expect(page.get_by_role('columnheader',name='审计预算使用率')).to_be_visible()
+        page.get_by_role('button',name='CVSS 3.1 评级质量（与检出成绩分开）',exact=True).click()
+        expect(page.get_by_role('columnheader',name='相对基线 MAE 差')).to_be_visible()
+        expect(page.get_by_role('heading',name='各版本自身集合（描述性）',exact=True)).to_be_visible()
+        checks.passed('CVSS intersection and paired deltas precede descriptive own-set scores; audit and lifecycle clocks are distinct')
         checks.passed('backend means and sample SD are charted, positive and negative deltas are factual, full export is available')
 
         page.get_by_role('tab',name='漏洞明细',exact=True).click()
@@ -318,6 +327,9 @@ def main():
         page.get_by_role('button',name='01 W0 基础审计 命中',exact=True).click()
         expect(page.get_by_role('region',name='试次详情')).to_be_visible()
         expect(page.get_by_role('region',name='试次详情')).to_contain_text('实际读取：20 / 69')
+        page.get_by_role('button',name='未命中原因（辅助诊断，不改变成绩）',exact=True).click()
+        expect(page.get_by_role('region',name='试次详情')).to_contain_text('证据覆盖锚点，主定位失配')
+        checks.passed('unmatched candidate explanations remain separate from TP and expose exact-location failure')
         page.get_by_role('button',name='冻结源码证据示例 · auth_bypass',exact=True).click()
         page.get_by_role('button',name='shop/index.php:10–10',exact=True).click()
         expect(page.get_by_role('region',name='试次证据源码')).to_contain_text('scoped frozen source evidence')
@@ -406,6 +418,9 @@ def main():
             for suffix in ['#experiments','#experiments/full-comparison','#experiments/full-comparison?tab=findings','#experiments/full-comparison?tab=prompts','#experiments/full-comparison?tab=trials']:
                 goto(page,args.base,suffix)
                 expect(page.get_by_role('heading',name='Prompt 实验',exact=True)).to_be_visible()
+                if suffix == '#experiments/full-comparison':
+                    page.get_by_role('button',name='CVSS 3.1 评级质量（与检出成绩分开）',exact=True).click()
+                    page.get_by_role('button',name='停止、覆盖与重复主张',exact=True).click()
                 page.wait_for_timeout(120)
                 for width in [1440,1024,768,390]:
                     page.set_viewport_size(dict(width=width,height=1000))

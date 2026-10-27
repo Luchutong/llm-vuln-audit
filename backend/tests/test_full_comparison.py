@@ -109,6 +109,8 @@ def test_freezes_actual_prompts_assets_model_and_budgets_before_execution(runner
         assert final["manifest"] == manifest
         assert final["manifest"]["model"]["model"] == "offline-test"
         assert final["manifest"]["budgets"]["responses"] == 12
+        assert final["manifest"]["task_spec"]["completion_policy"] == "coverage_review"
+        assert final["manifest"]["closure_policy"] == {"version": "coverage-review-v1"}
         assert final["manifest"]["variants"][0]["text"] != "later edit"
         assert all(call["kwargs"]["env"]["LLM_MODEL"] == "offline-test" for call in calls)
         assert all(call["kwargs"]["env"]["LLM_API_KEY"] == "offline-secret" for call in calls)
@@ -403,7 +405,7 @@ def test_trial_lookup_never_falls_back_across_experiments(runner, monkeypatch):
         runner.trial_detail(b["id"], foreign["id"])
 
 
-def test_csv_export_contains_all_three_tables_and_matches_summary(runner, monkeypatch):
+def test_csv_export_contains_diagnostics_and_matches_server_summary(runner, monkeypatch):
     fake_children(monkeypatch)
     async def scenario():
         created = runner.start(request())
@@ -412,12 +414,27 @@ def test_csv_export_contains_all_three_tables_and_matches_summary(runner, monkey
     row = asyncio.run(scenario())
     encoded, mime, filename = runner.report(row["id"], "csv")
     with zipfile.ZipFile(io.BytesIO(encoded)) as archive:
-        assert set(archive.namelist()) == {"summary.csv", "trials.csv", "truth_matrix.csv"}
+        assert set(archive.namelist()) == {"summary.csv", "trials.csv", "truth_matrix.csv", "cvss_common.csv", "execution_diagnostics.csv"}
         matrix = archive.read("truth_matrix.csv").decode("utf-8-sig")
         assert len(matrix.splitlines()) == 61
         assert "open_redirect" in matrix
+        diagnostics = list(csv.DictReader(io.StringIO(archive.read("execution_diagnostics.csv").decode("utf-8-sig"))))
+        for actual, expected in zip(diagnostics, row["summary"]["execution_diagnostics"]):
+            assert actual["trial_id"] == expected["trial_id"]
+            assert actual["stop_reason"] == expected["stop_reason"]
+            assert json.loads(actual["missed_diagnostics"]) == expected["missed_diagnostics"]
+        summary = list(csv.DictReader(io.StringIO(archive.read("summary.csv").decode("utf-8-sig"))))
+        for actual, expected in zip(summary, row["summary"]["variants"]):
+            assert actual["audit_elapsed_seconds_n"] == str(expected["metrics"]["audit_elapsed_seconds"]["n"])
     md, mime, filename = runner.report(row["id"], "markdown")
     assert "POC" in md.decode() and "初步结果" in md.decode()
+    assert "完整耗时秒" in md.decode() and "自身 MAE" in md.decode()
+
+
+def test_planner_context_host_error_is_not_an_effective_low_score():
+    validity, reason = comparison.classify_result({"run": {"id": "run", "status": "failed"},
+        "stop_reason": {"code": "planner_context_error"}}, 0)
+    assert (validity, reason) == ("invalid", "planner_context_error")
 
 
 def test_report_uses_percentage_points_for_both_delta_mean_and_sd(runner, monkeypatch):

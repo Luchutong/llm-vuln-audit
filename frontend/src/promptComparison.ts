@@ -90,6 +90,8 @@ export interface TrialScore {
   duplicates?: FindingMatch[];
   unmatched?: FindingMatch[];
   diagnostics?: Record<string, unknown>[];
+  missed_diagnostics?: { truth_id: string; reason: string; related_candidates: { finding_id?: string; reason?: string }[]; affects_score: false }[];
+  duplicate_statistics?: { still_asserted: number; resolved: number };
   truth_results?: Record<string, unknown>[];
   cvss?: Record<string, unknown>;
 }
@@ -136,6 +138,8 @@ export interface TrialAttempt {
   duration_seconds?: number | null;
   audit_elapsed_seconds?: number | null;
   wall_elapsed_seconds?: number | null;
+  coverage_review?: Record<string, unknown> | null;
+  coverage_gaps?: unknown;
 }
 export interface Trial {
   id: string;
@@ -195,7 +199,13 @@ export interface ExperimentSummary {
     truth_ids: string[];
     total: number;
     variants: Record<string, { score_mae: number | null; severity_accuracy: number | null }>;
+    paired_deltas?: Record<string, { score_mae: number | null; severity_accuracy: number | null }>;
   }[];
+  cvss_paired_deltas?: Record<string, { score_mae: AggregateMetric; severity_accuracy: AggregateMetric }>;
+  execution_diagnostics?: { trial_id: string; prompt_id: string; stop_reason?: string; audit_elapsed_seconds?: number | null;
+    wall_elapsed_seconds?: number | null; audit_budget_utilization?: number | null; coverage_review?: Record<string, unknown> | null;
+    coverage_gaps?: unknown; duplicate_statistics?: { still_asserted: number; resolved: number } | null;
+    missed_diagnostics?: TrialScore['missed_diagnostics'] | null }[];
   actual_total_usage?: Record<
     string,
     { known_total: number; known_trials?: number; trials?: number; known_attempts?: number; attempts?: number }
@@ -284,6 +294,8 @@ export function compatibleStrategies(prompts: Prompt[]): Prompt[] {
 }
 export function defaultStrategies(prompts: Prompt[]): string[] {
   const sorted = [...compatibleStrategies(prompts)].sort((a, b) => a.id.localeCompare(b.id));
+  const current = ['worker-w0-v1', 'worker-w1-v2', 'worker-w2-v2'];
+  if (current.every((id) => sorted.some((item) => item.id === id))) return current;
   const defaults = sorted.filter((item) => /(?:^|[-_])w[012](?:[-_]|$)/i.test(item.id));
   return (defaults.length >= 3 ? defaults : sorted).slice(0, 3).map((item) => item.id);
 }

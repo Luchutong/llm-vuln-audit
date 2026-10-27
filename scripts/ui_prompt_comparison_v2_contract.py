@@ -53,7 +53,9 @@ def fixture_services(directory: Path):
     assets = validate_assets(frozen/'source.zip',frozen/'truth.json',frozen/'anchors.json')
     truth = json.loads((frozen/'truth.json').read_text())
     anchors = json.loads((frozen/'anchors.json').read_text())
-    variants = [freeze_worker_strategy(item) for item in builtin_worker_strategies()]
+    defaults = ['worker-w0-v1', 'worker-w1-v2', 'worker-w2-v2']
+    available = {item['id']: item for item in builtin_worker_strategies()}
+    variants = [freeze_worker_strategy(available[ident]) for ident in defaults]
     for variant in variants:
         variant['sha256'] = variant['text_sha256']
     manifest = dict(protocol=PROTOCOL,scoring_protocol='lab30-v2',created_at=now(),variants=variants,
@@ -197,11 +199,11 @@ def main():
                 archive=client.get(f'/api/prompt-experiments/{ident}/report?format=csv')
                 assert archive.status_code==200 and archive.headers['content-type'].startswith('application/zip')
                 with zipfile.ZipFile(io.BytesIO(archive.content)) as zipped:
-                    assert set(zipped.namelist())=={'summary.csv','trials.csv','truth_matrix.csv'}
+                    assert set(zipped.namelist())=={'summary.csv','trials.csv','truth_matrix.csv','cvss_common.csv','execution_diagnostics.csv'}
                     assert len(zipped.read('truth_matrix.csv').decode('utf-8-sig').splitlines())>=31
                 assert client.get(f'/api/prompt-experiments/{ident}/report?format=markdown').status_code==200
                 assert client.get(f'/api/prompt-experiments/{ident}/report?format=json').json()['summary']['complete_round_count']==3
-                checks.passed('all three real report formats use server statistics and CSV is an actual three-table ZIP')
+                checks.passed('all three real report formats use server statistics and CSV includes common CVSS and execution diagnostics')
                 for theme in ['dark','light']:
                     page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
                     for width in [1440,1024,768,390]:

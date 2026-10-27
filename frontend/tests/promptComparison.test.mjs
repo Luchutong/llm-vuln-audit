@@ -38,6 +38,12 @@ test('frozen prompt changes retain unchanged lines and do not mutate either vers
   assert.deepEqual(lineDiff('same', 'same'), [{ kind: 'same', text: 'same' }]);
 });
 
+test('current comparison prefers the unchanged W0 baseline with both v2 strategies', () => {
+  const ids = ['worker-w0-v1', 'worker-w1-v1', 'worker-w1-v2', 'worker-w2-v1', 'worker-w2-v2'];
+  assert.deepEqual(defaultStrategies(ids.map((id) => ({ id, kind: 'worker_strategy', contract_version: 'worker-strategy-v1' }))),
+    ['worker-w0-v1', 'worker-w1-v2', 'worker-w2-v2']);
+});
+
 test('isolated experiments have a refreshable route and reject paths with unexpected trailing segments', () => {
   assert.deepEqual(parseRoute('#experiments/frozen%20one?tab=findings&round=2&class=sqli'), {
     page: 'experiments',

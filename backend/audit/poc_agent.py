@@ -72,14 +72,14 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
         "target_status",
         "Return target reachability, authentication state and version.",
         output_format="json",
-        identity=Arg("string", "guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
+        identity=Arg("string", "guest、alice、bob、operator 或 admin。省略时使用宿主准备的身份。", ""),
     ),
     spec(
         "target_prepare",
         "Check a configured Lab30 identity in this verification context without resetting data. "
         "A changed role blocks that identity; report missing preconditions instead of guessing credentials.",
         output_format="json",
-        identity=Arg("string", "guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
+        identity=Arg("string", "guest、alice、bob、operator 或 admin。省略时使用宿主准备的身份。", ""),
         expected_state=Arg("object", "需核实的账号前提，例如 {balance: '100.00', tier: 'standard'}；只声明源码要求的前提，不能猜测。默认空对象。", {}),
     ),
     spec(
@@ -92,7 +92,7 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
         script=Arg("string", "完整脚本内容（<= 32 KiB）。"),
         timeout_seconds=Arg("integer", "执行超时（秒），1-120。默认 30。", 30, minimum=1, maximum=120),
         artifacts=Arg("array", "脚本写出的、需要取回的相对文件名列表（<= 8 个）。默认空列表。", [], item_type="string", max_items=8),
-        identity=Arg("string", "脚本 LAB30_USER/PASSWORD 对应的已配置身份。默认 alice；无鉴权对照选 guest。", "alice"),
+        identity=Arg("string", "脚本 LAB30_USER/PASSWORD 对应的已配置身份。省略时使用宿主准备的身份；无鉴权对照选 guest。", ""),
     ),
     spec(
         "http_observe",
@@ -104,7 +104,7 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
         method=Arg("string", "GET 或 POST。默认 GET。", "GET"),
         body=Arg("string", "POST 请求体（application/x-www-form-urlencoded）。默认空串。", ""),
         content_type=Arg("string", "POST 的 Content-Type。默认 application/x-www-form-urlencoded。", "application/x-www-form-urlencoded"),
-        identity=Arg("string", "独立会话身份：guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
+        identity=Arg("string", "独立会话身份：guest、alice、bob、operator 或 admin。省略时使用宿主准备的身份。", ""),
     ),
     spec(
         "browser_check",
@@ -114,7 +114,7 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
         path=Arg("string", "Lab30 内的绝对路径。"),
         wait_ms=Arg("integer", "加载后等待毫秒数，0-10000。默认 1000。", 1000, minimum=0, maximum=10000),
         script=Arg("string", "可选：在页面中求值的 JavaScript，用于构造触发条件。默认空串。", ""),
-        identity=Arg("string", "独立会话身份：guest、alice、bob、operator 或 admin。默认 alice。", "alice"),
+        identity=Arg("string", "独立会话身份：guest、alice、bob、operator 或 admin。省略时使用宿主准备的身份。", ""),
     ),
     spec(
         "save_artifact",
@@ -149,10 +149,24 @@ class PocDeps:
     should_stop: Any = None
     on_job: Any = None
     context_id: str = ""
+    # The identity the host actually prepared for this context.  Tools default to it
+    # instead of a hardcoded "alice": after a lab reset alice may no longer be a
+    # customer, and a host that succeeded with bob must not hand the model a prompt
+    # that pushes it back onto a mismatched account.
+    default_identity: str = "alice"
     preconditions: list[dict] = field(default_factory=list)
     state_changes: list[dict] = field(default_factory=list)
     job_scripts: dict[str, str] = field(default_factory=dict)
     submission_unresolved: bool = False
+    # Context hygiene: this state is replayed in the conclude prompt and in every later
+    # request of the phase, so an unbounded list of near-identical snapshots or artifacts
+    # would eat the window that the summary compressor then has to pay to reclaim.
+    max_preconditions: int = 12
+    max_observations: int = 12
+    max_artifact_bytes: int = 2 * 1024 * 1024
+    preconditions_omitted: int = 0
+    artifacts_omitted: int = 0
+    _precondition_seen: set = field(default_factory=set, repr=False)
 
     @property
     def last_script(self) -> str:
@@ -192,6 +206,12 @@ class PocDeps:
     async def call(self, name: str, args: dict) -> str:
         if self.should_stop is not None and self.should_stop():
             raise StopAudit("interrupted", "POC 所属执行代次已停止")
+        if name in {"target_status", "target_prepare", "run_poc", "http_observe", "browser_check"}:
+            # An omitted identity means "the account the host prepared", not "alice".
+            # Only a missing/empty value is filled: an invalid type still has to reach
+            # the tool's own validation and be rejected.
+            if args.get("identity") is None or args.get("identity") == "":
+                args["identity"] = self.default_identity
         execution = self.execution
         execution.before_tool()
         # Pair every call with a result even when the phase is cancelled: the durable
@@ -274,7 +294,7 @@ class PocDeps:
                     result.update(error_code=detail.get("error") or "precondition_failed",
                                   error=detail.get("message") or detail.get("precondition", {}).get("reason") or detail.get("error") or "实验前提不符",
                                   hint="核对身份和实验前提；必要时人工重置商城后重新检查。" if status == "precondition_failed" else "按工具声明修正后再调用。")
-                result.update(context_id=self.context_id, identity=args.get("identity", "alice"),
+                result.update(context_id=self.context_id, identity=args.get("identity") or self.default_identity,
                               jobs_used=len(self.jobs), max_jobs=self.max_jobs,
                               jobs_remaining=max(0, self.max_jobs - len(self.jobs)))
                 if name in {"run_poc", "browser_check"} and detail.get("job_id"):
@@ -304,7 +324,7 @@ class PocDeps:
             "source_path": path,
             "target": self.target,
             "base_url": self.prepared.get("base_url") or "",
-            "login": {"path": "/auth/login.php", "username_env": "LAB30_USER", "password_env": "LAB30_PASSWORD", "user": self.prepared.get("user") or "alice"},
+            "login": {"path": "/auth/login.php", "username_env": "LAB30_USER", "password_env": "LAB30_PASSWORD", "user": self.prepared.get("user") or self.default_identity},
             "version": self.prepared.get("version") or "",
             "context_id": self.context_id,
             "identities": ["guest", "alice", "bob", "operator", "admin"],
@@ -327,15 +347,46 @@ class PocDeps:
         return self._reply(result)
 
     def _remember_state(self, result: dict) -> None:
-        if isinstance(result.get("precondition"), dict):
-            self.preconditions.append({"identity": result.get("identity", "alice"), **result["precondition"]})
+        precondition = result.get("precondition")
+        if isinstance(precondition, dict):
+            identity = str(result.get("identity") or precondition.get("identity") or "")
+            actual = precondition.get("actual") if isinstance(precondition.get("actual"), dict) else {}
+            # Dedupe on the facts a later decision would read, not on the whole dict: the
+            # runner's snapshot carries volatile fields, so repeated status checks used to
+            # add entries that told the model nothing new.
+            signature = (
+                identity, bool(precondition.get("ok")), str(precondition.get("reason") or ""),
+                str(actual.get("role") or ""), str(actual.get("balance") or ""),
+                str(actual.get("tier") or ""), str(actual.get("nickname") or ""),
+                str(actual.get("homepage") or ""),
+            )
+            if signature not in self._precondition_seen:
+                self._precondition_seen.add(signature)
+                self.preconditions.append({"identity": identity, **precondition})
+                if len(self.preconditions) > self.max_preconditions:
+                    dropped = len(self.preconditions) - self.max_preconditions
+                    del self.preconditions[:dropped]
+                    self.preconditions_omitted += dropped
         for change in result.get("state_changes") or []:
             if change not in self.state_changes:
                 self.state_changes.append(change)
 
+    def _artifact_bytes(self) -> int:
+        return sum(len(payload) for payload in self.artifacts.values())
+
+    def store_artifact(self, name: str, payload: bytes) -> bool:
+        """Keep an artifact only while the phase stays inside its total artifact budget."""
+        if self._artifact_bytes() + len(payload) > self.max_artifact_bytes:
+            self.artifacts_omitted += 1
+            return False
+        self.artifacts[name] = payload
+        return True
+
     def _job_error(self, args: dict, kind: str) -> dict | None:
         """Reject local contract errors before reserving any remote experiment."""
-        identity = args.get("identity", "alice")
+        identity = args.get("identity")
+        if identity is None or identity == "":
+            identity = self.default_identity
         if not isinstance(identity, str) or identity not in {"guest", "alice", "bob", "operator", "admin"}:
             return {"error": "invalid_identity", "message": "请选择已配置身份。"}
         if kind in {"http", "browser"}:
@@ -375,7 +426,7 @@ class PocDeps:
             self.execution.emit({
                 "kind": kind, "job_id": record["job_id"], "job_kind": record["kind"],
                 "context_id": record.get("context_id", self.context_id),
-                "identity": record.get("identity", "alice"),
+                "identity": record.get("identity") or self.default_identity,
                 "language": record.get("request", {}).get("language", ""),
                 "duration_ms": record.get("duration_ms", 0),
                 "timed_out": bool(record.get("result", {}).get("timed_out")),
@@ -485,7 +536,10 @@ class PocDeps:
             except (PocRunnerUnavailable, PocRunnerError):
                 continue
             stored_name = f"{job_id}-{name}"
-            self.artifacts[stored_name] = payload
+            if not self.store_artifact(stored_name, payload):
+                artifacts.append({"name": stored_name, "original_name": name, "job_id": job_id,
+                                  "size": len(payload), "error": "artifact_budget_exceeded"})
+                continue
             artifacts.append({
                 "name": stored_name,
                 "original_name": name,
@@ -577,6 +631,8 @@ class PocDeps:
             "state_changes": result.get("state_changes") or [],
         }
         self.observations.append(record)
+        if len(self.observations) > self.max_observations:
+            del self.observations[:-self.max_observations]
         if result.get("job_id"):
             self.jobs[slot] = {
                 "job_id": result["job_id"], "kind": "http", "context_id": result.get("context_id") or "",
@@ -623,7 +679,10 @@ class PocDeps:
             except (PocRunnerUnavailable, PocRunnerError):
                 continue
             stored_name = f"{job_id}-{name}"
-            self.artifacts[stored_name] = payload
+            if not self.store_artifact(stored_name, payload):
+                artifacts.append({"name": stored_name, "original_name": name, "job_id": job_id,
+                                  "size": len(payload), "error": "artifact_budget_exceeded"})
+                continue
             artifacts.append({
                 "name": stored_name,
                 "original_name": name,
@@ -670,7 +729,9 @@ class PocDeps:
         if len(payload) > 64 * 1024:
             return self._reply({"error": "too_large", "limit": 65536})
         name = "derived-" + name
-        self.artifacts[name] = payload
+        if not self.store_artifact(name, payload):
+            return self._reply({"error": "artifact_budget_exceeded", "limit": self.max_artifact_bytes,
+                                "message": "本 finding 的产物总量已达上限；请保留结论所需的最小证据。"})
         return self._reply({
             "name": name,
             "size": len(payload),
@@ -826,9 +887,9 @@ EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent，只在隔离的 Lab30 
 - http_observe 恰好发送一个请求，不跟随重定向；首个 3xx 与 Location 本身就是观测。
 - browser_check 复用 runner 的会员会话；XSS 必须观察到弹窗或页面求值结果，HTTP 反射不算执行。
 - 脚本不继承 HTTP/浏览器的 CookieJar，必须自行登录。目标映射以 resolve_target 的主机与路径为准。
-- 各工具的 identity 可选 guest/alice/bob/operator/admin；凭据通过该身份的 LAB30_USER/PASSWORD 提供，禁止猜密码。
+- 各工具的 identity 可选 guest/alice/bob/operator/admin；省略时使用宿主准备的身份。凭据通过该身份的 LAB30_USER/PASSWORD 提供，禁止猜密码。
 - 每次执行前宿主核对实际角色。precondition_failed 表示前提不符，不能拿高权限会话冒充普通会员。
-- 会话彼此隔离，但数据库和文件仍共享；前序验证可能改变角色、余额等状态，必须核实本实验必要前提。
+- 会话彼此隔离，但数据库和文件仍共享；同一 finding 内前序实验可能改变角色、余额等状态，必须核实本实验必要前提。
 
 脚本登录模板（这是交给 run_poc 的脚本内容，不是你的动作代码块）：
 ```python
@@ -855,7 +916,7 @@ Lab30 实际运行约定：
   必须先确认会话生效，不把登录页、401、403或脚本成功退出当成漏洞影响。
 - 业务表单可能有名为 csrf 的字段；需要时先 GET 对应表单，从真实 HTML 取值再 POST。
   参数、方法、路由与权限前提都以本条发现的源码为准，不假定所有页面同一规则。
-- 普通会员默认 alice；bob、operator、admin 是靶场提供的其他测试身份。
+- 普通会员身份通常是 alice，也可能是 bob；以宿主准备的提示为准。bob、operator、admin 是靶场提供的其他测试身份。
   若需要角色对照，分开会话；不能用管理员成功访问的结果冒充普通会员越权。
 - 商城没有安全等级切换流程。源码 app/public 对应 Web 根目录；app/src 的文件不能直接访问。
 - /catalog/、/orders/、/wallet/、/account/、/ops/、/partner/、/support/、/content/ 为业务入口。
@@ -864,11 +925,23 @@ Lab30 实际运行约定：
   XSS 核对浏览器实际执行；不能凭常见字符串或成功响应作 verified。
 - 按源码中的引号、HTML上下文、编码与请求方法构造最小 payload；无效时最多尝试不同的最小变体。
 - 始终打印并保留正常侧和攻击侧的原始输出；观测说明必须对应实际 stdout、作业或浏览器结果。
-- target_prepare 只刷新会员会话，不重置商城数据。重置由操作者在审计间隙通过商城 CLI 完成。
+- target_prepare 只刷新会员会话，不重置商城数据。宿主可能在 finding 之间自行复位靶场。
 - 不读取答案、不猜内部标记、不编造执行结果。信息不足时交回 inconclusive。
 - 探索结束调用 final_answer("探索结束")；验证结论下一阶段单独提交。
 - 不输出隐藏思维链或长篇内部推理。
 """
+
+IDENTITY_RULES = """身份决策：
+- 宿主已用 {identity} 完成初始准备（见“靶场”块的 identity/identity_attempts）。
+- 该身份返回 identity_or_role_mismatch 或 identity_preparation_failed 时，普通会员结论先改用 bob；
+  bob 同样不符时按前提缺失如实报告，禁止猜密码，也不得改用特权身份冒充。
+- 只有源码明确要求 operator 或 admin 时才使用特权身份；不得用特权身份成功证明普通会员越权。
+- target_prepare 的 expected_state.balance 可写 100 或 "100.00"，两者等价；只声明源码真正要求的前提。
+"""
+
+
+def execute_instructions(deps: PocDeps) -> str:
+    return EXECUTE_INSTRUCTIONS + "\n" + IDENTITY_RULES.format(identity=deps.default_identity)
 
 CONCLUDE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的结论阶段。执行阶段已经结束，**所有工具都已收回**：
 run_poc、http_observe、browser_check 都不再可用，你的解释器也没有网络能力（`import urllib`
@@ -983,11 +1056,14 @@ def conclude_prompt(finding: dict, deps: PocDeps) -> str:
         + "\n# 执行阶段实际发生的作业（宿主记录）\n"
         + _bound(json.dumps(jobs, ensure_ascii=False, indent=2), 24 * 1024)
         + "\n# 实验前提与状态变化\n"
-        + _bound(json.dumps({"preconditions": deps.preconditions, "state_changes": deps.state_changes}, ensure_ascii=False), 4 * 1024)
+        + _bound(json.dumps({
+            "preconditions": deps.preconditions, "state_changes": deps.state_changes,
+            "preconditions_omitted": deps.preconditions_omitted,
+        }, ensure_ascii=False), 4 * 1024)
         + "\n# 其他观测（http_observe）\n"
         + _bound(json.dumps(deps.observations[-6:], ensure_ascii=False), 8 * 1024)
         + "\n# 产物\n"
-        + json.dumps(sorted(deps.artifacts), ensure_ascii=False)
+        + json.dumps({"names": sorted(deps.artifacts), "omitted": deps.artifacts_omitted}, ensure_ascii=False)
         + "\n现在在一个代码块里调用 final_answer(普通 dict) 提交结论。jobs 只能引用上面出现过的"
         " job_id；normal_evidence/attack_evidence 复制成功作业输出的原文片段；adapted_script 留空。"
     )
@@ -1044,7 +1120,10 @@ async def run_poc_agent(
         output_model=None,
     )
     try:
-        model = build_code_model(config, gate=execute_gate, max_tokens=4096)
+        model = build_code_model(
+            config, gate=execute_gate,
+            max_tokens=max(512, int(deps.policy.get("max_tokens") or AgentPolicy().poc_max_tokens)),
+        )
         agent = build_agent(
             model=model,
             gate=execute_gate,
@@ -1056,7 +1135,7 @@ async def run_poc_agent(
                     description='结束探索阶段。answer 任意字符串即可；验证结论在下一阶段提交。',
                 ),
             ),
-            instructions=EXECUTE_INSTRUCTIONS,
+            instructions=execute_instructions(deps),
             max_steps=max(1, int(deps.policy.get("max_steps", 8))),
             name="poc",
             # The audit template talks about a frozen snapshot and its navigation tools;

@@ -45,15 +45,25 @@ runner 先获取绑定审计任务与发现的独占验证上下文，准备阶�
 - 源码 `app/public` 映射到 Web 根；内部 `app/src` 文件不作为可直接访问的 HTTP 入口。
 - XSS 需 Chromium 实际执行结果；HTTP 反射和脚本退出成功都不能直接表示验证成功。
 
-准备阶段只刷新会话，不自动重置商城；需要恢复初始数据时，在审计间隙执行下面命令。该命令会清空商城业务数据与会话，但不改动审计库：
+准备阶段只刷新会话，不自动重置商城；需要恢复初始数据时，在审计间隙执行 `scripts/reset_lab30.sh`。该命令会清空商城业务数据与会话，不改变审计库；它以 `www-data` 身份执行（`reset_shop()` 会重建 `/var/lib/shop` 下的文件），并在复位后读回种子账号，角色、余额或 tier 不符时以退出码 1 结束：
 
 ```bash
-docker compose --profile poc exec lab30 php /var/www/shop/bin/reset.php
+scripts/reset_lab30.sh
+# 等价于：
+docker compose --profile poc exec -T --user www-data lab30 php /var/www/shop/bin/reset.php
 ```
 
-每条实验前后保存身份、角色及账号变化，观测到的持久状态污染会阻断后续实验。准备接口可明确余额等账号字段断言；
-会话隔离不代表数据库和文件已复原。runner 进程重启遗留的上下文保持未决，确认旧作业结束后需人工重新创建 runner，
-再重置或核实商城。新的宿主要求 runner 健康接口提供 `verification_contexts` 能力，升级时应重新构建 runner。
+`./scripts/start.sh --poc` 默认导出 `POC_RESET_BETWEEN_FINDINGS=1` 与
+`POC_LAB30_RESET_COMMAND=$ROOT_DIR/scripts/reset_lab30.sh`：每条 finding 的自动验证前，
+宿主先等上一条验证上下文报告 `closed`，再执行该脚本，然后才创建新上下文。复位命令只来自
+服务端环境，run 请求可以指定开关但不能提供命令。Compose 内的后端没有 Docker CLI，因此
+保持关闭，由外部编排在每个 run 前后复位。
+
+账号状态语义（runner 3.1.1）：角色不符仍是硬门禁（`identity_or_role_mismatch`），
+余额、tier、昵称等变化只作为本次上下文内的 `state_drift` 观测；只有显式声明的
+`expected_state` 不符才返回 `required_account_state_mismatch`。会话 401（cookie 仍在）
+会自动重登一次，主动登出不会被重登。升级 runner 后首次部署建议重启一次 runner 进程；
+不再需要为清除账号基线而重启。
 
 ## 环境验收
 

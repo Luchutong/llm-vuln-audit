@@ -211,6 +211,20 @@ class PocRunnerClient:
     async def close_context(self, context_id: str) -> dict:
         return await self._json("DELETE", f"/v1/verification-contexts/{quote(_segment(context_id, 'context id'))}")
 
+    async def context_status(self, context_id: str) -> dict:
+        """Read one context without changing it.
+
+        An unknown id means the runner never created it or has already swept it, so no
+        job can still be running under it: report it as closed rather than as an error.
+        """
+        ident = _segment(context_id, "context id")
+        try:
+            return await self._json("GET", f"/v1/verification-contexts/{quote(ident)}", timeout=min(self.timeout, 10.0))
+        except PocRunnerError as exc:
+            if exc.status_code == 404:
+                return {"context_id": ident, "state": "closed", "pending_jobs": 0, "was_unknown": True}
+            raise
+
     async def prepare_target(
         self, target: str = "lab30", *, reset: bool = False, context_id: str = "", identity: str = "alice", expected_role: str | None = None, expected_state: dict | None = None
     ) -> dict:

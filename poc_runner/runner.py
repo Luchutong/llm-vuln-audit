@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 from contextlib import asynccontextmanager
+from decimal import Decimal, InvalidOperation
 from http.cookiejar import Cookie, eff_request_host
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -36,7 +37,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
-VERSION = "3.1.0"
+VERSION = "3.1.1"
 TOKEN = (os.environ.get("POC_RUNNER_TOKEN") or "").strip()
 # Lab30 shop (拾光商城): PHP/Apache + MariaDB, member accounts required.
 LAB30_URL = (os.environ.get("LAB30_URL") or "http://lab30").rstrip("/")
@@ -98,7 +99,6 @@ IDENTITIES = {
 _contexts: dict[str, dict] = {}
 _leases: dict[str, str] = {}
 _contexts_lock = threading.RLock()
-_account_baselines: dict[str, dict] = {}
 _cancelled_contexts: dict[str, float] = {}
 CONTEXT_TOMBSTONE_SECONDS = 24 * 60 * 60
 
@@ -145,7 +145,9 @@ def _restore_leases() -> None:
 
 
 def _context_public(ctx: dict) -> dict:
-    return {key: ctx[key] for key in ("context_id", "target", "run_id", "finding_id", "state", "active", "state_changes")}
+    public = {key: ctx[key] for key in ("context_id", "target", "run_id", "finding_id", "state", "active", "state_changes")}
+    public["pending_jobs"] = int(ctx.get("pending_jobs") or 0)
+    return public
 
 
 def _context(context_id: str, target: str, *, allow_closing: bool = False) -> dict:
@@ -592,30 +594,47 @@ def _identity(identity: str) -> tuple[str, str, str]:
 
 
 def _account_snapshot(session: httpx.Client, identity: str) -> dict:
+    """What the target says about this identity right now.
+
+    ``status`` is kept apart from the role/name verdict on purpose: a 401 means the
+    session is stale (the lab was reset under a cached client) and is worth one fresh
+    login, while a 200 with the wrong role is a real authentication failure.
+    """
     username, _, role = _identity(identity)
     try:
         response = _session(session, "GET", "/account/me.php", headers={"Accept": "application/json"})
         if identity == "guest":
             actual = {"username": "", "role": "guest"} if response.status_code == 401 else {}
             return {"ok": response.status_code == 401, "identity": identity, "expected_role": role,
-                    "actual": actual, "reason": "" if response.status_code == 401 else "guest_session_authenticated"}
+                    "actual": actual, "status": response.status_code,
+                    "reason": "" if response.status_code == 401 else "guest_session_authenticated"}
         payload = response.json() if response.status_code == 200 else {}
         if not isinstance(payload, dict):
             payload = {}
         actual = {key: payload[key] for key in ("id", "username", "role", "balance", "tier", "nickname", "homepage") if key in payload}
         valid = actual.get("username") == username and actual.get("role") == role
         return {"ok": valid, "identity": identity, "expected_role": role, "actual": actual,
+                "status": response.status_code,
                 "reason": "" if valid else "identity_or_role_mismatch"}
     except (httpx.HTTPError, ValueError):
         return {"ok": False, "identity": identity, "expected_role": role,
-                "actual": {}, "reason": "identity_check_unavailable"}
+                "actual": {}, "status": None, "reason": "identity_check_unavailable"}
 
 
-def _identity_state(ctx: dict, identity: str) -> dict:
+def _identity_state(ctx: dict, identity: str, *, refresh: bool = False) -> dict:
+    """Cached logged-in client per identity, recreated on demand.
+
+    ``refresh`` exists because a lab reset clears the target's session files while this
+    process keeps the cookie in memory: every later request answers 401 until the client
+    logs in again.  Without it the host can only report a permanent mismatch.
+    """
     username, password, _ = _identity(identity)
     existing = ctx["sessions"].get(identity)
-    if existing is not None:
+    if existing is not None and not refresh:
         return existing
+    if existing is not None:
+        existing["client"].close()
+        ctx["sessions"].pop(identity, None)
     session = _lab30_client()
     try:
         health = _session(session, "GET", "/health.php")
@@ -634,38 +653,86 @@ def _identity_state(ctx: dict, identity: str) -> dict:
         raise
 
 
-def _precondition(ctx: dict, identity: str) -> dict:
+def _session_present(session: httpx.Client) -> bool:
+    """Whether the client still believes it holds a session.
+
+    A 401 with a cookie means the server forgot us (lab reset, session sweep) and one
+    fresh login is the honest fix.  A 401 without a cookie means the host itself has no
+    session, e.g. an experiment deliberately logged out; silently logging back in would
+    mask that result, so no refresh is attempted.
+    """
+    try:
+        return any(getattr(cookie, "value", "") for cookie in session.cookies.jar)
+    except Exception:
+        return False
+
+
+def _precondition(ctx: dict, identity: str, *, retry_stale: bool = True) -> dict:
     try:
         entry = _identity_state(ctx, identity)
         check = _account_snapshot(entry["client"], identity)
+        if retry_stale and identity != "guest" and check.get("status") == 401 and _session_present(entry["client"]):
+            entry = _identity_state(ctx, identity, refresh=True)
+            check = _account_snapshot(entry["client"], identity)
     except (HTTPException, httpx.HTTPError, ValueError):
         return {"ok": False, "identity": identity, "expected_role": _identity(identity)[2],
-                "actual": {}, "reason": "identity_preparation_failed"}
+                "actual": {}, "status": None, "reason": "identity_preparation_failed"}
     actual = check["actual"]
     _assert_account_state(ctx, identity, check)
-    if check["ok"]:
-        initial = _account_baselines.setdefault(identity, dict(actual))
-        changes = [{"field": key, "before": initial.get(key), "after": actual.get(key)}
-                   for key in sorted(initial.keys() | actual.keys()) if initial.get(key) != actual.get(key)]
-        if changes:
-            check.update(ok=False, reason="target_state_changed_manual_reset_required", state_changes=changes)
-    if identity not in ctx.setdefault("initial_accounts", {}):
-        ctx["initial_accounts"][identity] = dict(actual)
+    # Account fields other than role are observations, not a gate.  A nickname or a
+    # balance changed by an earlier experiment (or by the audit itself) is reported as
+    # drift against what this context saw first; it is not a reason to refuse the
+    # experiment, and it no longer blocks every later context in this process.
+    initial = ctx.setdefault("initial_accounts", {}).setdefault(identity, dict(actual))
+    drift = [{"field": key, "before": initial.get(key), "after": actual.get(key)}
+             for key in sorted(initial.keys() | actual.keys()) if initial.get(key) != actual.get(key)]
+    if drift:
+        check["state_drift"] = drift
     entry["precondition"] = check
     return check
+
+
+def _state_value(value: object):
+    """Normalize an account value for comparison without weakening a real difference.
+
+    ``/account/me.php`` returns ``balance`` as a string ("100.00"); the tool schema lets
+    a caller declare ``100``.  Both name the same state, so numbers compare as decimals
+    and everything else still compares exactly (booleans never equal 1).
+    """
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, (int, float)):
+        try:
+            return ("number", Decimal(str(value)))
+        except InvalidOperation:
+            return ("other", repr(value))
+    if isinstance(value, str):
+        try:
+            return ("number", Decimal(value))
+        except InvalidOperation:
+            return ("str", value)
+    return ("other", repr(value))
 
 
 def _assert_account_state(ctx: dict, identity: str, check: dict) -> None:
     expected = ctx.get("assertions", {}).get(identity, {})
     check["expected_state"] = dict(expected)
-    if check["ok"] and any(type(check["actual"].get(key)) is not type(value) or check["actual"].get(key) != value
-                           for key, value in expected.items()):
-        check.update(ok=False, reason="required_account_state_mismatch")
+    mismatched = {
+        key: value for key, value in expected.items()
+        if _state_value(check["actual"].get(key)) != _state_value(value)
+    }
+    if check["ok"] and mismatched:
+        check.update(ok=False, reason="required_account_state_mismatch",
+                     mismatch={key: {"expected": value, "actual": check["actual"].get(key)}
+                               for key, value in mismatched.items()})
 
 
 def _postcondition(ctx: dict, identity: str, before: dict) -> dict:
     entry = _identity_state(ctx, identity)
     after = _account_snapshot(entry["client"], identity)
+    if identity != "guest" and after.get("status") == 401 and _session_present(entry["client"]):
+        entry = _identity_state(ctx, identity, refresh=True)
+        after = _account_snapshot(entry["client"], identity)
     _assert_account_state(ctx, identity, after)
     previous, actual = before.get("actual", {}), after.get("actual", {})
     changes = [{"identity": identity, "field": key, "before": previous.get(key), "after": actual.get(key)}
@@ -699,7 +766,7 @@ def _observed_action(ctx: dict, identity: str, action) -> dict:
 
 def _prepare_sync(reset: bool = False, context_id: str = "", identity: str = "alice", expected_role: str | None = None, expected_state: dict | None = None) -> dict:
     if reset:
-        raise HTTPException(status_code=400, detail="Reset Lab30 explicitly with its CLI between audits")
+        raise HTTPException(status_code=400, detail="Reset Lab30 with scripts/reset_lab30.sh between audits; the runner never resets a target on its own")
     role = _identity(identity)[2]
     if expected_role is not None and expected_role != role:
         raise HTTPException(status_code=400, detail="expected role must match the configured identity")
@@ -710,7 +777,7 @@ def _prepare_sync(reset: bool = False, context_id: str = "", identity: str = "al
     def prepare(ctx):
         assertions = ctx.setdefault("assertions", {}).setdefault(identity, {})
         for key, value in (expected_state or {}).items():
-            if key in assertions and (type(value) is not type(assertions[key]) or value != assertions[key]):
+            if key in assertions and _state_value(value) != _state_value(assertions[key]):
                 raise HTTPException(status_code=409, detail="verification prerequisites cannot be changed within a context")
         assertions.update(expected_state or {})
         check = _precondition(ctx, identity)
@@ -765,6 +832,22 @@ def close_context(context_id: str) -> dict:
         if ctx["state"] == "open":
             ctx["state"] = "closing"
         _release_context(ctx)
+        return _context_public(ctx)
+
+
+@app.get("/v1/verification-contexts/{context_id}", dependencies=protected)
+def context_status(context_id: str) -> dict:
+    """Read-only view used by the host to wait for a context to finish.
+
+    A missing context means it was never created or has already been swept: the
+    host may treat it as closed, because no job can still be running under it.
+    """
+    if not SAFE_NAME.fullmatch(context_id):
+        raise HTTPException(status_code=400, detail="invalid context id")
+    with _contexts_lock:
+        ctx = _contexts.get(context_id)
+        if ctx is None:
+            raise HTTPException(status_code=404, detail="unknown verification context")
         return _context_public(ctx)
 
 

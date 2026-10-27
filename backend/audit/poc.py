@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import shlex
 import time
 import uuid
 from dataclasses import dataclass, replace
@@ -20,7 +22,7 @@ from .poc_agent import PocDeps, run_poc_agent
 from .poc_runner import PocRunnerClient, PocRunnerError, PocRunnerUnavailable, PocRunnerBusy
 from .poc_readiness import PocReadinessService, normalize_poc_mode
 from .poc_store import poc_target_key
-from .runtime import StopAudit
+from .runtime import AgentPolicy, StopAudit
 from .schemas import PocVerificationResult
 
 
@@ -45,6 +47,10 @@ class PocPolicy:
     max_seconds: int = 300
     browser: bool = True
     max_script_bytes: int = 32768
+    max_tokens: int = 4096
+    reset_between_findings: bool = False
+    reset_command: str = ""
+    reset_timeout: int = 30
 
     @classmethod
     def from_run(cls, run: dict, settings: Settings) -> "PocPolicy":
@@ -67,6 +73,21 @@ class PocPolicy:
                 raw.get("max_script_bytes", getattr(poc, "max_script_bytes", 32768)),
                 32768, 1024, 131072,
             ),
+            # The run may pin its own output budget; the server-side default is the one
+            # ``AUDIT_POC_MAX_TOKENS`` configures, so both paths agree.
+            max_tokens=_int(
+                raw.get("max_tokens", getattr(poc, "max_tokens", AgentPolicy().poc_max_tokens)),
+                AgentPolicy().poc_max_tokens, 512, 16384,
+            ),
+            # The switch may be frozen by the run, but the command is host configuration:
+            # nothing that arrives over HTTP can point the reset at another program.
+            reset_between_findings=bool(
+                raw.get("reset_between_findings", getattr(poc, "reset_between_findings", False))
+            ),
+            reset_command=str(getattr(poc, "reset_command", "") or ""),
+            reset_timeout=_int(
+                raw.get("reset_timeout", getattr(poc, "reset_timeout", 30)), 30, 5, 300
+            ),
         )
 
     def snapshot(self) -> dict:
@@ -82,6 +103,9 @@ class PocPolicy:
             "max_seconds": self.max_seconds,
             "browser": self.browser,
             "max_script_bytes": self.max_script_bytes,
+            "max_tokens": self.max_tokens,
+            "reset_between_findings": self.reset_between_findings,
+            "reset_timeout": self.reset_timeout,
         }
 
 
@@ -91,6 +115,13 @@ def _finding_key(finding: dict) -> str:
 
 def _revision(finding: dict) -> int:
     return _int(finding.get("project_revision") or finding.get("revision") or 1, 1, 1, 10**6)
+
+
+# Ordinary-member accounts, tried in order.  Privileged identities are never chosen
+# automatically: a POC for an operator-only endpoint would otherwise pass by accident
+# and claim a member-level authorization bug.
+MEMBER_IDENTITIES = ("alice", "bob")
+AUTHENTICATION_REASONS = frozenset({"identity_or_role_mismatch", "identity_preparation_failed"})
 
 
 class PocVerifier:
@@ -109,6 +140,9 @@ class PocVerifier:
         self.client_factory = client_factory
         self.readiness = readiness or PocReadinessService(settings, client_factory=client_factory)
         self._notices: set[tuple[str, str]] = set()
+        # The most recent verification context per target.  A reset is only safe once
+        # that context reports closed; the runner keeps the target lease until then.
+        self._last_context: dict[str, str] = {}
 
     def _allowed(self, run_id: str, epoch=None) -> bool:
         check = getattr(self.store, "execution_write_allowed", None)
@@ -145,6 +179,189 @@ class PocVerifier:
         except Exception:
             return
 
+    # --- target reset and identity ------------------------------------------------
+
+    async def _wait_context_closed(self, client: PocRunnerClient, context_id: str, *, timeout: float = 15.0) -> bool:
+        """Wait until the previous context has no active or pending job.
+
+        Resetting the database while a runner job is still executing would corrupt the
+        observation the job is about to report, so a context that will not close blocks
+        the reset instead of being ignored.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                status = await asyncio.wait_for(client.context_status(context_id), timeout=5)
+            except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError):
+                return False
+            closed = (str(status.get("state") or "") == "closed"
+                      and not status.get("active") and not status.get("pending_jobs"))
+            if closed:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.25)
+
+    def _reset_event(self, run: dict, finding: dict, policy: PocPolicy, kind: str, payload: dict) -> None:
+        run_id = str(run.get("id") or "")
+        if not self._allowed(run_id, run.get("execution_epoch")):
+            return
+        self.bus.emit(run_id, str(finding.get("id") or ""), kind, {
+            "target": policy.target,
+            "finding_id": str(finding.get("id") or ""),
+            **payload,
+        })
+
+    async def _reset_target(self, run: dict, finding: dict, policy: PocPolicy) -> tuple[bool, dict]:
+        """Run the server-configured reset command; never a shell, never a user string."""
+        started = time.monotonic()
+        try:
+            argv = shlex.split(policy.reset_command)
+        except ValueError as exc:
+            argv, problem = [], f"复位命令无法解析：{type(exc).__name__}"
+        else:
+            problem = "" if argv else "服务端未配置复位命令（POC_LAB30_RESET_COMMAND）"
+        if problem:
+            self._reset_event(run, finding, policy, "poc_target_reset_failed",
+                              {"reason": "target_reset_failed", "message": problem})
+            return False, {"reason": "target_reset_failed", "message": problem}
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as exc:
+            message = f"复位命令无法启动：{type(exc).__name__}"
+            self._reset_event(run, finding, policy, "poc_target_reset_failed",
+                              {"reason": "target_reset_failed", "message": message})
+            return False, {"reason": "target_reset_failed", "message": message}
+
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=policy.reset_timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+            message = f"复位命令在 {policy.reset_timeout}s 内未完成，已终止"
+            self._reset_event(run, finding, policy, "poc_target_reset_failed", {
+                "reason": "target_reset_failed", "message": message,
+                "duration_ms": round((time.monotonic() - started) * 1000),
+            })
+            return False, {"reason": "target_reset_failed", "message": message}
+
+        # The reset script prints one JSON line with the seed accounts and a drift list;
+        # a custom command may print nothing, in which case only the exit code counts.
+        seed: dict = {}
+        for line in reversed(stdout.decode("utf-8", "replace").strip().splitlines()):
+            try:
+                parsed = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(parsed, dict):
+                seed = parsed
+                break
+        duration_ms = round((time.monotonic() - started) * 1000)
+        drift = seed.get("drift") if isinstance(seed.get("drift"), list) else []
+        accounts = seed.get("accounts") if isinstance(seed.get("accounts"), list) else []
+        if process.returncode != 0 or seed.get("ok") is False:
+            detail = " ".join(stderr.decode("utf-8", "replace").split())[:400]
+            message = f"复位命令返回 {process.returncode}" + (f"：{detail}" if detail else "")
+            self._reset_event(run, finding, policy, "poc_target_reset_failed", {
+                "reason": str(seed.get("error") or "target_reset_failed"),
+                "message": message,
+                "returncode": process.returncode,
+                "drift": drift[:8],
+                "duration_ms": duration_ms,
+            })
+            return False, {"reason": "target_reset_failed", "message": message,
+                           "returncode": process.returncode, "drift": drift[:8]}
+        self._reset_event(run, finding, policy, "poc_target_reset", {
+            "returncode": process.returncode,
+            "duration_ms": duration_ms,
+            "accounts": accounts[:8],
+        })
+        return True, {"returncode": process.returncode, "duration_ms": duration_ms,
+                      "accounts": accounts[:8]}
+
+    def _reset_failure(
+        self, run: dict, finding: dict, policy: PocPolicy, reason: str, message: str,
+        *, attempt_key: str | None, target_key: str,
+    ) -> tuple[PocVerificationResult, str, dict, dict, list]:
+        result = PocVerificationResult(
+            status="inconclusive", verdict="uncertain", summary=message, evidence_notes=message,
+        )
+        record = self._record(
+            run, finding, policy, result,
+            prepared={"context_id": "", "reset": {"reason": reason, "message": message}},
+            jobs=[], artifacts={}, usage={}, reason=reason,
+            attempt_key=attempt_key, target_key=target_key,
+        )
+        return result, reason, record, {}, []
+
+    async def _reset_before_finding(
+        self, run: dict, finding: dict, policy: PocPolicy, client: PocRunnerClient,
+        *, attempt_key: str | None, target_key: str,
+    ) -> tuple[PocVerificationResult, str, dict, dict, list] | None:
+        """Reset the target between findings; ``None`` means the context may be created."""
+        previous = self._last_context.get(policy.target)
+        if previous and not await self._wait_context_closed(client, previous):
+            message = "上一条验证上下文仍未关闭，未复位靶场。"
+            self._reset_event(run, finding, policy, "poc_target_reset_failed", {
+                "reason": "target_reset_blocked", "message": message,
+                "context_id": previous,
+            })
+            return self._reset_failure(run, finding, policy, "target_reset_blocked", message,
+                                       attempt_key=attempt_key, target_key=target_key)
+        ok, detail = await self._reset_target(run, finding, policy)
+        if not ok:
+            return self._reset_failure(run, finding, policy, "target_reset_failed",
+                                       str(detail.get("message") or "靶场复位失败"),
+                                       attempt_key=attempt_key, target_key=target_key)
+        return None
+
+    async def _prepare_identity(
+        self, client: PocRunnerClient, policy: PocPolicy, context_id: str, deadline: float,
+    ) -> dict:
+        """Prepare the first ordinary-member identity that matches its configured role.
+
+        alice is the documented default, but a previously exploited target (or a manual
+        experiment) can leave alice with another role while bob is still a customer.
+        Trying both keeps the isolation honest: privileged accounts are never chosen
+        automatically, and both failing is reported as an authentication problem.
+        """
+        attempts: list[dict] = []
+        chosen: dict | None = None
+        fallback: dict | None = None
+        for identity in MEMBER_IDENTITIES:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("等待独占验证环境的预算已用尽")
+            prepared = await asyncio.wait_for(client.prepare_target(
+                policy.target, reset=False, context_id=context_id, identity=identity,
+            ), timeout=max(.01, min(10, remaining)))
+            check = prepared.get("precondition") if isinstance(prepared.get("precondition"), dict) else {}
+            attempts.append({
+                "identity": identity,
+                "ok": bool(prepared.get("ok")),
+                "reason": str(check.get("reason") or ""),
+                "status": check.get("status"),
+                "actual": check.get("actual") or {},
+            })
+            if prepared.get("ok"):
+                chosen = prepared
+                break
+            fallback = prepared
+        selected = dict(chosen or fallback or {})
+        selected["identity_attempts"] = attempts
+        if chosen is None:
+            selected["authentication_failed"] = True
+        return selected
+
     # --- public entry -----------------------------------------------------------
 
     async def verify_standing(
@@ -175,6 +392,7 @@ class PocVerifier:
         summary = {
             "attempted": 0, "verified": 0, "rejected": 0,
             "inconclusive": 0, "environment_unavailable": 0, "not_applicable": 0,
+            "authentication_failed": 0, "state_mismatch": 0,
         }
         if not selected:
             return summary
@@ -281,19 +499,27 @@ class PocVerifier:
                 if start_attempt and not start_attempt(attempt_key, epoch):
                     continue
                 summary["attempted"] += 1
-                result, reason, usage, artifacts, jobs = await self.verify_finding(
+                result, reason, record, artifacts, jobs = await self.verify_finding(
                     run, finding, policy, prepared, client, model_config=model_config,
                     attempt_key=attempt_key, target_key=target_key,
                 )
                 verified_for[key] = revision
                 summary[result.status if result.status in summary else "inconclusive"] += 1
-                if reason == "environment_unavailable":
+                outcome_status = record.get("execution_status") if isinstance(record, dict) else ""
+                if outcome_status in {"authentication_failed", "state_mismatch"}:
+                    summary[outcome_status] += 1
+                if reason in {"environment_unavailable", "target_reset_failed", "target_reset_blocked"}:
+                    reset_reason = reason if reason != "environment_unavailable" else "runner_unhealthy"
+                    reset_message = ("靶场复位失败，已停止自动验证。" if reason == "target_reset_failed"
+                                     else "上一条验证上下文未关闭，已停止自动验证。" if reason == "target_reset_blocked"
+                                     else "POC 执行期间隔离环境不可用。")
                     if save_state:
-                        save_state(run_id, {**readiness, "available": False, "reason": "runner_unhealthy",
-                                           "message": "POC 执行期间隔离环境不可用。", "legacy": policy.legacy}, epoch)
-                    self._notice(run, "runner_unhealthy", {"reason": "runner_unhealthy", "message": "POC 执行期间隔离环境不可用，已停止自动验证。"})
+                        save_state(run_id, {**readiness, "available": False, "reason": reset_reason,
+                                           "message": reset_message, "legacy": policy.legacy}, epoch)
+                    if reason == "environment_unavailable":
+                        self._notice(run, "runner_unhealthy", {"reason": reset_reason, "message": reset_message})
                     if policy.required:
-                        raise StopAudit("environment_unavailable", "POC 执行期间隔离环境不可用。")
+                        raise StopAudit("environment_unavailable", reset_message)
                     break
         finally:
             await self._close(client)
@@ -308,6 +534,15 @@ class PocVerifier:
         deadline = time.monotonic() + policy.max_seconds
         run_id = str(run.get("id") or "")
         try:
+            # Between findings the target goes back to its seed.  This runs before the
+            # new context is created, so the reset can never race a job of this finding.
+            if policy.reset_between_findings and policy.target == "lab30":
+                outcome = await self._reset_before_finding(
+                    run, finding, policy, client,
+                    attempt_key=attempt_key, target_key=target_key,
+                )
+                if outcome is not None:
+                    return outcome
             while True:
                 if not self._allowed(run_id, run.get("execution_epoch")):
                     raise StopAudit("interrupted", "排队中的验证已停止")
@@ -322,9 +557,8 @@ class PocVerifier:
                     break
                 except PocRunnerBusy:
                     await asyncio.sleep(min(.5, max(.01, remaining)))
-            prepared = await asyncio.wait_for(client.prepare_target(
-                policy.target, reset=False, context_id=context_id, identity="alice",
-            ), timeout=max(.01, min(10, deadline - time.monotonic())))
+            self._last_context[policy.target] = context_id
+            prepared = await self._prepare_identity(client, policy, context_id, deadline)
             remaining_policy = replace(policy, max_seconds=max(1, int(deadline - time.monotonic())))
             return await self._verify_with_context(
                 run, finding, remaining_policy, prepared, client, model_config=model_config,
@@ -392,6 +626,7 @@ class PocVerifier:
             max_script_bytes=policy.max_script_bytes,
             should_stop=lambda: not self._allowed(run_id, run.get("execution_epoch")),
             context_id=context_id,
+            default_identity=str(prepared.get("identity") or MEMBER_IDENTITIES[0]),
             on_job=lambda job_id: self.store.note_poc_job(attempt_key, job_id, run.get("execution_epoch"))
                 if attempt_key and hasattr(self.store, "note_poc_job") else None,
         )
@@ -453,9 +688,26 @@ class PocVerifier:
             ]
         from .poc_agent import _successful_script, _successful_browser
         succeeded = any(_successful_script(job) or _successful_browser(job) is not None for job in jobs)
+        preconditions = [item for item in prepared.get("preconditions") or [] if isinstance(item, dict)]
+        attempts = [item for item in prepared.get("identity_attempts") or [] if isinstance(item, dict)]
+        used_identity = str(prepared.get("identity") or "")
+        # Judge the identity that was actually handed to the agent.  A failed alice
+        # preparation followed by a successful bob one is not an authentication failure.
+        relevant = [
+            item for item in preconditions + attempts
+            if item.get("ok") is False and (not used_identity or str(item.get("identity") or "") in {"", used_identity})
+        ]
+        reasons = {str(item.get("reason") or "") for item in relevant}
+        authentication_failed = bool(
+            not succeeded and (prepared.get("authentication_failed") or (reasons & AUTHENTICATION_REASONS))
+        )
+        state_mismatch = bool(not succeeded and not authentication_failed
+                              and "required_account_state_mismatch" in reasons)
         execution_status = (
             "success" if result.status in {"verified", "rejected"} else
-            "environment_mismatch" if any(item.get("ok") is False for item in prepared.get("preconditions", [])) and not succeeded else
+            "authentication_failed" if authentication_failed else
+            "state_mismatch" if state_mismatch else
+            "environment_mismatch" if any(item.get("ok") is False for item in preconditions) and not succeeded else
             "other_error" if jobs and not succeeded else
             "not_triggered" if succeeded else "not_run"
         )
@@ -480,6 +732,9 @@ class PocVerifier:
             "status": result.status,
             "agent": {
                 "context_id": prepared.get("context_id") or "",
+                "identity": used_identity,
+                "identity_attempts": attempts[:4],
+                "reset": prepared.get("reset") or {},
                 "preconditions": prepared.get("preconditions") or [],
                 "state_changes": prepared.get("state_changes") or [],
                 "normal_evidence": [ref.model_dump() for ref in result.normal_evidence],
@@ -532,12 +787,24 @@ class PocVerifier:
                 "duration_ms": job.get("duration_ms"),
                 "created_at": now(),
             })
+        if execution_status == "authentication_failed":
+            self.bus.emit(run_id, finding_id, "poc_authentication_failed", {
+                "finding_id": finding_id,
+                "project_finding_id": project_finding_id,
+                "identity": used_identity,
+                "reasons": sorted(reasons & AUTHENTICATION_REASONS),
+                "identities": [str(item.get("identity") or "") for item in attempts][:4],
+                "succeeded": succeeded,
+                "target": policy.target,
+            })
         self.bus.emit(run_id, finding_id, "poc_verification_recorded", {
             "verification_id": verification_id,
             "finding_id": finding_id,
             "project_finding_id": project_finding_id,
             "status": result.status,
             "verdict": result.verdict,
+            "execution_status": execution_status,
+            "identity": used_identity,
             "summary": result.summary[:300],
             "jobs": [str(job.get("job_id") or "") for job in jobs if job.get("job_id")],
             "artifacts": [item.get("name") for item in stored_artifacts],

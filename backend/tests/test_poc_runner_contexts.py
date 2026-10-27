@@ -19,7 +19,7 @@ runner = importlib.import_module('poc_runner.runner')
 
 @pytest.fixture
 def isolated(tmp_path, monkeypatch):
-    for name in ('_contexts', '_leases', '_account_baselines', '_jobs', '_cancelled_contexts'):
+    for name in ('_contexts', '_leases', '_jobs', '_cancelled_contexts'):
         monkeypatch.setattr(runner, name, {})
     monkeypatch.setattr(runner, 'WORKDIR', tmp_path)
     monkeypatch.setattr(runner, 'TOKEN', 'test-token')
@@ -108,16 +108,79 @@ def test_changed_role_is_blocked_on_the_next_experiment(isolated):
     assert runner._prepare_sync(context_id=second, identity='bob')['ok']
 
 
-def test_account_mutation_requires_manual_reset(isolated):
-    first = context()
-    assert runner._prepare_sync(context_id=first)['ok']
+def test_account_mutation_is_reported_as_drift_not_a_block(isolated):
+    ident = context()
+    assert runner._prepare_sync(context_id=ident)['ok']
     isolated['alice']['balance'] = '1.00'
-    runner.close_context(first)
+    isolated['alice']['nickname'] = 'renamed'
+    prepared = runner._prepare_sync(context_id=ident)
+    assert prepared['ok'] is True
+    drift = prepared['precondition']['state_drift']
+    assert {entry['field'] for entry in drift} == {'balance', 'nickname'}
+    assert prepared['precondition']['reason'] == ''
+    # Drift is measured against what *this* context saw first, so it stays stable
+    # and no longer depends on a first-ever snapshot in the runner process.
+    assert runner._prepare_sync(context_id=ident)['precondition']['state_drift'] == drift
+    runner.close_context(ident)
     second = context('f2')
-    assert runner._prepare_sync(context_id=second)['precondition']['reason'] == 'target_state_changed_manual_reset_required'
-    assert not runner._prepare_sync(context_id=second)['ok'], 'rechecking cannot acknowledge pollution'
-    isolated['alice']['balance'] = '100.00'  # explicit simulated manual reset
     assert runner._prepare_sync(context_id=second)['ok']
+    assert 'state_drift' not in runner._prepare_sync(context_id=second)['precondition']
+
+
+def test_expected_balance_compares_numerically_and_mismatch_names_both_sides(isolated):
+    ident = context()
+    isolated['alice']['balance'] = '100.00'
+    isolated['alice']['tier'] = 'standard'
+    assert runner._prepare_sync(context_id=ident, expected_state={'balance': 100})['ok']
+    # A differently spelled but equal value is not a conflicting restatement.
+    assert runner._prepare_sync(context_id=ident, expected_state={'balance': '100.00'})['ok']
+    isolated['alice']['tier'] = 'gold'
+    result = runner._prepare_sync(context_id=ident, expected_state={'tier': 'standard'})
+    assert result['ok'] is False
+    assert result['precondition']['reason'] == 'required_account_state_mismatch'
+    assert result['precondition']['mismatch'] == {'tier': {'expected': 'standard', 'actual': 'gold'}}
+
+
+def test_stale_session_is_reacquired_once(isolated, monkeypatch):
+    logins = []
+    valid = {'alice': True}
+
+    def make_client():
+        def respond(request):
+            if request.url.path == '/health.php':
+                return httpx.Response(200, json={'ok': True})
+            if request.url.path == '/auth/login.php':
+                logins.append('alice')
+                valid['alice'] = True
+                return httpx.Response(302, headers={'Set-Cookie': 'SHOPSESSID=alice; Path=/'})
+            if request.url.path == '/account/me.php':
+                if 'SHOPSESSID=alice' not in request.headers.get('cookie', '') or not valid['alice']:
+                    return httpx.Response(401, json={'error': 'guest'})
+                return httpx.Response(200, json=isolated['alice'])
+            return httpx.Response(200, text='alice')
+        return httpx.Client(base_url=runner.LAB30_URL, transport=httpx.MockTransport(respond), follow_redirects=False)
+
+    monkeypatch.setattr(runner, '_lab30_client', make_client)
+    ident = context()
+    assert runner._prepare_sync(context_id=ident)['ok']
+    assert logins == ['alice']
+    valid['alice'] = False  # a lab reset cleared the session files behind the cookie
+    prepared = runner._prepare_sync(context_id=ident)
+    assert prepared['ok'] is True
+    assert prepared['precondition']['status'] == 200
+    assert logins == ['alice', 'alice'], 'exactly one re-login, never a loop'
+
+
+def test_role_mismatch_does_not_trigger_a_relogin(isolated):
+    ident = context()
+    assert runner._prepare_sync(context_id=ident)['ok']
+    client = runner._contexts[ident]['sessions']['alice']['client']
+    isolated['alice']['role'] = 'admin'
+    prepared = runner._prepare_sync(context_id=ident)
+    assert prepared['ok'] is False
+    assert prepared['precondition']['reason'] == 'identity_or_role_mismatch'
+    assert prepared['precondition']['status'] == 200
+    assert runner._contexts[ident]['sessions']['alice']['client'] is client
 
 
 def test_close_keeps_lease_until_active_action_ends(isolated):
@@ -198,6 +261,27 @@ def test_entrypoints_require_valid_context_and_health_advertises_support(isolate
         assert response.status_code == 409
         response = client.post('/v1/browser/check', headers=headers, json={'path':'/'})
         assert response.status_code == 409
+
+
+def test_context_status_is_read_only_and_a_missing_context_counts_as_closed(isolated, monkeypatch):
+    headers = {'Authorization': 'Bearer test-token'}
+    # The journal is replayed by the app lifespan; this test checks the live context.
+    monkeypatch.setattr(runner, '_restore_leases', lambda: None)
+    ident = context()
+    with TestClient(runner.app) as client:
+        assert client.get(f'/v1/verification-contexts/{ident}').status_code == 401
+        status = client.get(f'/v1/verification-contexts/{ident}', headers=headers)
+        assert status.status_code == 200
+        assert status.json()['state'] == 'open'
+        assert status.json()['pending_jobs'] == 0
+        # Reading must not disturb the lease: a second create still collides.
+        with pytest.raises(HTTPException):
+            context('f2')
+        assert runner.close_context(ident)['state'] == 'closed'
+        closed = client.get(f'/v1/verification-contexts/{ident}', headers=headers)
+        assert closed.status_code == 200
+        assert closed.json()['state'] == 'closed'
+        assert client.get('/v1/verification-contexts/swept-away', headers=headers).status_code == 404
 
 
 def test_required_account_assertions_are_sticky_and_typed(isolated):

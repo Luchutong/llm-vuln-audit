@@ -202,6 +202,23 @@ def test_context_lifecycle_and_identity_contract():
     assert seen[6][:2] == ('DELETE', '/v1/verification-contexts/stable-context')
 
 
+def test_context_status_reads_state_without_closing_and_404_means_closed():
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path))
+        return httpx.Response(200, json={'context_id': 'ctx-1', 'state': 'closing', 'pending_jobs': 1})
+
+    client = _client(handler)
+    status = _run(client, lambda: client.context_status('ctx-1'))
+    assert seen == [('GET', '/v1/verification-contexts/ctx-1')]
+    assert status['state'] == 'closing' and status['pending_jobs'] == 1
+
+    missing = _client(lambda _: httpx.Response(404, json={'detail': 'unknown verification context'}))
+    assert _run(missing, lambda: missing.context_status('gone')) == {
+        'context_id': 'gone', 'state': 'closed', 'pending_jobs': 0, 'was_unknown': True}
+
+
 def test_busy_context_has_explicit_status_code():
     from audit.poc_runner import PocRunnerBusy
     client = _client(lambda _: httpx.Response(409, json={'detail':'target busy'}))

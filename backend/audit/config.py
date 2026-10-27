@@ -239,6 +239,9 @@ class PocSettings:
     max_script_bytes: int = 32768
     browser: bool = True
     runner_addrs: tuple[str, ...] = ()
+    reset_between_findings: bool = False
+    reset_command: str = ""
+    reset_timeout: int = 30
 
     @classmethod
     def from_environ(cls, environ: dict[str, str] | None = None) -> "PocSettings":
@@ -276,6 +279,12 @@ class PocSettings:
             max_script_bytes=number("POC_MAX_SCRIPT_BYTES", 32768, 1024, 131072),
             browser=flag("POC_BROWSER", True),
             runner_addrs=addrs,
+            # Resetting between findings keeps every automatic proof on seed accounts.
+            # The command comes only from the server environment: a run request may pin
+            # the switch but can never supply or override the command itself.
+            reset_between_findings=flag("POC_RESET_BETWEEN_FINDINGS", False),
+            reset_command=(env.get("POC_LAB30_RESET_COMMAND") or "").strip(),
+            reset_timeout=number("POC_RESET_TIMEOUT", 30, 5, 300),
         )
 
     @property
@@ -295,6 +304,8 @@ class PocSettings:
             "max_seconds": self.max_seconds,
             "browser": self.browser,
             "max_script_bytes": self.max_script_bytes,
+            "reset_between_findings": self.reset_between_findings,
+            "reset_timeout": self.reset_timeout,
         }
 
     def public(self) -> dict:
@@ -305,6 +316,8 @@ class PocSettings:
             "runner_configured": bool(self.runner_url),
             "browser": self.browser,
             "max_script_bytes": self.max_script_bytes,
+            "reset_between_findings": self.reset_between_findings,
+            "reset_command_configured": bool(self.reset_command),
         }
 
 

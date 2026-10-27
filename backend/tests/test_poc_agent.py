@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -52,6 +54,7 @@ class FakeClient:
         }
         self.jobs: list[dict] = []
         self.prepared: list[dict] = []
+        self.created: list[str] = []
         self.closed = False
 
     async def health(self):
@@ -60,17 +63,23 @@ class FakeClient:
         return {"ok": True, "capabilities": {"php": True, "python": True, "browser": self.browser, "verification_contexts": True, "identity_preconditions": True, "idempotent_jobs": True, "idempotent_http_jobs": True, "idempotent_browser_jobs": True}}
 
     async def create_context(self, *, target="lab30", run_id, finding_id, context_id=None):
+        self.created.append(context_id or "")
         self.context_id = context_id or "test-context"
         return {"ok": True, "context_id": self.context_id}
 
     async def close_context(self, context_id):
         return {"ok": True, "context_id": context_id, "status": "closed"}
 
+    async def context_status(self, context_id):
+        return {"context_id": context_id, "state": getattr(self, "context_state", "closed"),
+                "active": 0, "pending_jobs": 0}
+
     async def prepare_target(self, target="lab30", *, reset=False, security="low", context_id="test-context", identity="alice", expected_role=None, expected_state=None):
         self.prepared.append({"target": target, "reset": reset, "security": security})
         return {"ok": True, "base_url": "http://lab30", "security": security, "version": "2.5", "authenticated": True, "context_id": context_id, "identity": identity, "precondition": {"ok": True}}
 
-    async def target_status(self, target="lab30", **kwargs):
+    async def target_status(self, target="lab30", *, identity="alice", **kwargs):
+        self.last_identity = identity
         return {"ok": True, "authenticated": True, "security": "low"}
 
     async def run_job(self, *, target, language, script, timeout_seconds=30, artifacts=None, context_id="test-context", identity="alice", job_id=None):
@@ -678,9 +687,9 @@ def test_a_small_reply_is_not_marked_truncated():
     assert parsed == {"ok": True, "status": "ok", "job_id": "job-1"}
 
 
-def recorded_deps(client):
+def recorded_deps(client, **overrides):
     events: list[dict] = []
-    deps_ = deps(client)
+    deps_ = deps(client, **overrides)
     deps_.execution = Execution(
         {"responses": 8, "tools": 32, "seconds": 30}, AgentPolicy(), events.append
     )
@@ -829,3 +838,281 @@ def test_outdated_runner_disables_auto_poc_without_rewriting_static_findings(tmp
     assert store.records == [] and store.jobs == [] and FINDING == original
     assert 'poc_verification_skipped' in bus.kinds()
     assert any(payload.get('reason') == 'runner_upgrade_required' for _, _, payload in bus.events)
+
+
+def test_identical_preconditions_are_remembered_once():
+    """A status check repeated with the same account facts is the same precondition."""
+    deps_ = deps(FakeClient())
+    snapshot = {
+        "identity": "alice",
+        "precondition": {"ok": True, "identity": "alice", "reason": "",
+                         "actual": {"role": "customer", "balance": "100.00", "tier": "standard",
+                                    "nickname": "Alice", "homepage": "https://example.invalid"}},
+    }
+
+    for _ in range(5):
+        deps_._remember_state(dict(snapshot))
+    # A different account state is a new fact and is kept.
+    deps_._remember_state({**snapshot, "precondition": {
+        **snapshot["precondition"],
+        "actual": {**snapshot["precondition"]["actual"], "tier": "gold"},
+    }})
+
+    assert len(deps_.preconditions) == 2
+    assert deps_.preconditions[0]["identity"] == "alice"
+
+
+def test_preconditions_are_capped_and_the_omission_is_counted():
+    deps_ = deps(FakeClient())
+    for index in range(20):
+        deps_._remember_state({
+            "identity": "alice",
+            "precondition": {"ok": True, "actual": {"role": "customer", "balance": str(index)}},
+        })
+
+    assert len(deps_.preconditions) == deps_.max_preconditions
+    assert deps_.preconditions_omitted == 20 - deps_.max_preconditions
+    # The newest fact survives; the oldest are what was dropped.
+    assert deps_.preconditions[-1]["actual"]["balance"] == "19"
+
+
+def test_artifacts_share_one_phase_budget():
+    deps_ = deps(FakeClient())
+    deps_.max_artifact_bytes = 10
+
+    assert deps_.store_artifact("a.txt", b"12345") is True
+    assert deps_.store_artifact("b.txt", b"123456") is False
+    assert deps_.artifacts == {"a.txt": b"12345"}
+    assert deps_.artifacts_omitted == 1
+
+
+def test_save_artifact_refuses_past_the_phase_budget():
+    deps_ = deps(FakeClient())
+    deps_.max_artifact_bytes = 4
+
+    reply = json.loads(asyncio.run(deps_._save_artifact({"filename": "a.txt", "content": "12345"})))
+
+    assert reply["error"] == "artifact_budget_exceeded"
+    assert deps_.artifacts == {}
+
+
+def test_observations_are_capped_without_losing_the_newest():
+    deps_, _events = recorded_deps(FakeClient())
+    deps_.max_observations = 5
+
+    for index in range(8):
+        asyncio.run(deps_._http_observe({"path": f"/p{index}.php"}))
+
+    assert len(deps_.observations) == deps_.max_observations
+    assert deps_.observations[-1]["path"] == "/p7.php"
+    assert deps_.observations[0]["path"] == "/p3.php"
+
+
+# --- target reset and member identity ----------------------------------------------
+
+
+class IdentityClient(FakeClient):
+    """A runner that can answer differently per identity and to context reads."""
+
+    def __init__(self, by_identity, **kwargs):
+        super().__init__(**kwargs)
+        self.by_identity = by_identity
+        self.prepared_identities: list[str] = []
+
+    async def prepare_target(self, target="lab30", *, reset=False, security="low",
+                             context_id="test-context", identity="alice",
+                             expected_role=None, expected_state=None):
+        self.prepared_identities.append(identity)
+        return self.by_identity(identity)
+
+
+FINDING_TWO = {**FINDING, "id": "finding-2", "project_finding_id": "project-finding-2"}
+
+
+def member_precondition(identity: str, *, ok: bool, role: str = "customer", status: int = 200) -> dict:
+    return {
+        "ok": ok, "identity": identity, "status": status,
+        "reason": "" if ok else "identity_or_role_mismatch",
+        "expected_role": "customer",
+        "actual": {"id": 1, "username": identity, "role": role, "balance": "100.00", "tier": "standard"},
+    }
+
+
+def prepared_for(identity: str, *, ok: bool, role: str = "customer") -> dict:
+    return {
+        "ok": ok, "identity": identity, "user": identity, "base_url": "http://lab30",
+        "version": "lab30-shop-1.0.0", "authenticated": ok,
+        "precondition": member_precondition(identity, ok=ok, role=role),
+    }
+
+
+def reset_settings(tmp_path, command: str, **overrides):
+    return settings(tmp_path, reset_between_findings=True, reset_command=command, reset_timeout=10, **overrides)
+
+
+def make_reset_verifier(tmp_path, store, bus, client, command, **overrides):
+    return PocVerifier(
+        store=store, bus=bus, settings=reset_settings(tmp_path, command, **overrides),
+        client_factory=lambda: client,
+    )
+
+
+def test_the_first_member_identity_that_matches_its_role_is_used(tmp_path, monkeypatch):
+    seen = {}
+
+    async def fake_agent(*, finding, deps, config, on_event=None):
+        seen["identity"] = deps.default_identity
+        return PocVerificationResult(status="inconclusive", summary="没有可执行结论"), "completed"
+
+    monkeypatch.setattr(poc, "run_poc_agent", fake_agent)
+    client = IdentityClient(lambda identity: prepared_for(
+        identity, ok=identity == "bob", role="admin" if identity == "alice" else "customer"))
+    store, bus = FakeStore(), FakeBus()
+    summary = asyncio.run(make_verifier(tmp_path, store, bus, client).verify_standing(
+        "run-1", [FINDING], {}, model_config=CONFIG))
+
+    assert client.prepared_identities == ["alice", "bob"]
+    assert seen["identity"] == "bob"
+    assert summary["authentication_failed"] == 0
+    assert "poc_authentication_failed" not in bus.kinds()
+    record = store.records[0]
+    assert record["agent"]["identity"] == "bob"
+    assert [item["identity"] for item in record["agent"]["identity_attempts"]] == ["alice", "bob"]
+    assert record["execution_status"] != "authentication_failed"
+
+
+def test_two_failed_member_identities_are_reported_as_authentication_failure(tmp_path, monkeypatch):
+    async def fake_agent(*, finding, deps, config, on_event=None):
+        return PocVerificationResult(status="inconclusive", summary="无法登录普通会员"), "completed"
+
+    monkeypatch.setattr(poc, "run_poc_agent", fake_agent)
+    client = IdentityClient(lambda identity: prepared_for(identity, ok=False, role="admin"))
+    store, bus = FakeStore(), FakeBus()
+    summary = asyncio.run(make_verifier(tmp_path, store, bus, client).verify_standing(
+        "run-1", [FINDING], {}, model_config=CONFIG))
+
+    assert client.prepared_identities == ["alice", "bob"]
+    assert summary["authentication_failed"] == 1
+    assert "poc_authentication_failed" in bus.kinds()
+    record = store.records[0]
+    assert record["execution_status"] == "authentication_failed"
+    event = next(payload for _, kind, payload in bus.events if kind == "poc_authentication_failed")
+    assert event["identities"] == ["alice", "bob"]
+    assert "password" not in json.dumps(event).casefold()
+
+
+def test_a_failed_reset_is_recorded_and_stops_the_batch(tmp_path, monkeypatch):
+    ran = []
+
+    async def fake_agent(*, finding, deps, config, on_event=None):
+        ran.append(finding["id"])
+        return PocVerificationResult(status="inconclusive", summary="x"), "completed"
+
+    monkeypatch.setattr(poc, "run_poc_agent", fake_agent)
+    client = FakeClient()
+    store, bus = FakeStore(), FakeBus()
+    verifier = make_reset_verifier(tmp_path, store, bus, client, f"{sys.executable} -c \"import sys; sys.exit(3)\"")
+    summary = asyncio.run(verifier.verify_standing(
+        "run-1", [FINDING, FINDING_TWO], {}, model_config=CONFIG))
+
+    assert ran == []
+    assert client.created == []
+    assert summary["inconclusive"] == 1
+    assert bus.kinds().count("poc_target_reset_failed") == 1
+    record = store.records[0]
+    assert record["agent"]["reason"] == "target_reset_failed"
+    assert record["agent"]["reset"]["reason"] == "target_reset_failed"
+
+
+def test_a_successful_reset_happens_before_the_context_is_created(tmp_path, monkeypatch):
+    async def fake_agent(*, finding, deps, config, on_event=None):
+        return PocVerificationResult(status="inconclusive", summary="x"), "completed"
+
+    monkeypatch.setattr(poc, "run_poc_agent", fake_agent)
+    client = FakeClient()
+    store, bus = FakeStore(), FakeBus()
+    script = tmp_path / "reset_seed.py"
+    script.write_text(
+        "import json\n"
+        "print(json.dumps({'ok': True, 'accounts': [{'username': 'alice'}]}))\n",
+        encoding="utf-8",
+    )
+    verifier = make_reset_verifier(tmp_path, store, bus, client, f"{sys.executable} {script}")
+    asyncio.run(verifier.verify_standing("run-1", [FINDING, FINDING_TWO], {}, model_config=CONFIG))
+
+    kinds = bus.kinds()
+    assert kinds.count("poc_target_reset") == 2
+    assert kinds.index("poc_target_reset") < kinds.index("poc_verification_started")
+    assert len(client.created) == 2
+    event = next(payload for _, kind, payload in bus.events if kind == "poc_target_reset")
+    assert event["accounts"] == [{"username": "alice"}]
+
+
+def test_a_context_that_will_not_close_blocks_the_reset(tmp_path, monkeypatch):
+    async def still_open(self, client, context_id, *, timeout=15.0):
+        return False
+
+    monkeypatch.setattr(PocVerifier, "_wait_context_closed", still_open)
+    store, bus = FakeStore(), FakeBus()
+    client = FakeClient()
+    verifier = make_reset_verifier(tmp_path, store, bus, client, f"{sys.executable} -c \"raise SystemExit(0)\"")
+    verifier._last_context["lab30"] = "previous-context"
+    asyncio.run(verifier.verify_standing("run-1", [FINDING], {}, model_config=CONFIG))
+
+    assert client.created == []
+    assert store.records[0]["agent"]["reason"] == "target_reset_blocked"
+    event = next(payload for _, kind, payload in bus.events if kind == "poc_target_reset_failed")
+    assert event["reason"] == "target_reset_blocked"
+    assert event["context_id"] == "previous-context"
+
+
+def test_wait_context_closed_polls_until_the_runner_reports_closed(tmp_path):
+    class Client:
+        def __init__(self):
+            self.reads = 0
+
+        async def context_status(self, context_id):
+            self.reads += 1
+            state = "closing" if self.reads < 3 else "closed"
+            return {"context_id": context_id, "state": state, "active": 0, "pending_jobs": 0}
+
+    verifier = make_verifier(tmp_path, FakeStore(), FakeBus(), FakeClient())
+    client = Client()
+    assert asyncio.run(verifier._wait_context_closed(client, "ctx", timeout=2)) is True
+    assert client.reads == 3
+
+
+def test_a_reset_that_times_out_is_killed_and_reported(tmp_path):
+    store, bus = FakeStore(), FakeBus()
+    verifier = PocVerifier(store=store, bus=bus, settings=settings(tmp_path),
+                           client_factory=lambda: FakeClient())
+    policy = PocPolicy(mode="auto", enabled=True, reset_between_findings=True,
+                       reset_command=f"{sys.executable} -c \"import time; time.sleep(10)\"",
+                       reset_timeout=1)
+    started = time.monotonic()
+    ok, detail = asyncio.run(verifier._reset_target(store.run, FINDING, policy))
+    assert ok is False and "未完成" in detail["message"]
+    assert time.monotonic() - started < 5
+    assert "poc_target_reset_failed" in bus.kinds()
+
+
+def test_a_tool_without_an_identity_uses_the_prepared_one():
+    data, _events = recorded_deps(FakeClient(), default_identity="bob")
+    reply = json.loads(asyncio.run(data.call("target_status", {})))
+    assert reply["ok"] is True
+    assert data.client.last_identity == "bob"
+
+    reply = json.loads(asyncio.run(data.call("target_status", {"identity": "alice"})))
+    assert reply["ok"] is True
+    assert data.client.last_identity == "alice"
+
+
+def test_prepare_state_drift_is_handed_to_the_model():
+    prepared = prepared_for("alice", ok=True)
+    prepared["precondition"]["state_drift"] = [
+        {"field": "balance", "before": "100.00", "after": "1.00"},
+    ]
+    data, _events = recorded_deps(IdentityClient(lambda identity: prepared))
+    reply = json.loads(asyncio.run(data._target_prepare({"identity": "alice"})))
+    assert reply["ok"] is True
+    assert data.preconditions[-1]["state_drift"] == prepared["precondition"]["state_drift"]

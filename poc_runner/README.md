@@ -11,6 +11,7 @@ POC 脚本，并把有界输出、退出码和产物清单回传。审计应用�
 | `GET /healthz` | 无需令牌；返回服务版本、目标与 `php`/`python`/浏览器能力 |
 | `POST /v1/verification-contexts` | 绑定 `target/run_id/finding_id`，独占靶场；可由宿主提供 `context_id` 幂等重试创建 |
 | `DELETE /v1/verification-contexts/{id}` | 停止接收新动作；已有动作结束后释放靶场 |
+| `GET /v1/verification-contexts/{id}` | 只读查询上下文状态与未完成作业数；未知上下文返回404（视为已关闭） |
 | `POST /v1/targets/lab30/prepare` | 根据 `context_id/identity` 登录，核对 `/account/me.php`，不重置数据 |
 | `GET /v1/targets/lab30/status` | 可达性、认证状态、登录会员 |
 | `POST /v1/jobs` | 在白名单语言（`php`/`python`）中执行一段脚本 |
@@ -28,11 +29,14 @@ POC 脚本，并把有界输出、退出码和产物清单回传。审计应用�
 内存，既不会返回给模型，也不会写入作业目录。
 
 会员必须匹配已配置用户名及固定角色（Alice、Bob 为 `customer`），访客必须在会员接口得到401。
-准备接口可附加 `expected_state`，支持 `id/balance/tier/nickname/homepage` 的严格等值断言；数值与字符串须符合
-实际 JSON 类型，例如商城余额为 `"100.00"`。同一上下文只能追加断言，不能改写或清空既有断言。
+角色不符是授权前提，始终返回 `identity_or_role_mismatch`。余额、tier、昵称、主页等变化只作为
+本次上下文内的 `state_drift` 观测返回，不阻断后续实验；只有显式 `expected_state` 不符才返回
+`required_account_state_mismatch`。`id` 按整数比较，`balance` 按十进制数比较（`100`、`100.0`、
+`"100.00"` 等价），其余字段按字符串精确比较。同一上下文只能追加断言，不能改写或清空既有断言。
 每个动作前重查身份及账号前提，结束后返回 `precondition/postcondition/state_changes`。
-前提不符返回 `precondition_failed`，不执行脚本或发送实验请求。前一实验已观测到的账号变化会阻断后续实验，
-直到人工重置或恢复；会话隔离不恢复数据库、文件或用户通过浏览器改变的状态。
+前提不符返回 `precondition_failed`，不执行脚本或发送实验请求。靶场数据不会因会话隔离而复原；
+需要从种子开始时由宿主在上下文之间执行 `scripts/reset_lab30.sh`（runner 自己从不重置靶场）。
+缓存会话在会员接口返回 401 时会重新登录一次并重试；主动登出（Cookie 已清空）不会触发重登。
 
 脚本环境中的 `LAB30_USER/LAB30_PASSWORD/LAB30_IDENTITY` 仅对应选定身份，不继承宿主凭据。
 Alice 沿用 `LAB30_USER/LAB30_PASSWORD`；其他身份分别使用 `LAB30_BOB_*`、`LAB30_OPERATOR_*`、`LAB30_ADMIN_*`。

@@ -126,6 +126,50 @@ def test_a_long_history_is_summarized_so_the_phase_can_continue():
     assert context["peak_request_bytes"] > 0
 
 
+def test_a_summary_is_never_bought_with_the_phase_last_response():
+    """A summary costs one response; the request it compresses needs another.
+
+    Observed live: the summary landed on the phase's final response, the compressed
+    request was never sent, and the phase ended on ``budget`` -- bookkeeping paid for and
+    never used.  With two responses left the summary is bought and the compressed request
+    carries its ``compact`` telemetry; with only one, the compressor trims instead.
+    """
+    steps = [call("read_source", path=f"f{index}.php", start=1, end=1) for index in range(12)]
+
+    def play(history_bytes: int, limit: int):
+        host = Host({"read_source": "x" * 900},
+                    policy=AgentPolicy(history_bytes=history_bytes, history_keep_steps=2,
+                                       history_summary_bytes=512),
+                    budgets={"responses": 16, "tools": 32, "seconds": 600})
+        outcome = Phase(host, specs=PLANNER_TOOLS, output_model=Answer, limit=limit).play(
+            steps, max_steps=limit)
+        return outcome, host
+
+    probe, _ = play(10 ** 9, 12)
+    sizes = [request_bytes(request) for request in probe.model.requests]
+    # Pin the cap so the fifth request is the first one over 85% -- therefore the one that
+    # compacts, and (with five allowed) the phase's last response.
+    history_bytes = int((sizes[3] + sizes[4]) / 2 / 0.85)
+    assert 0.85 * history_bytes > sizes[3] and 0.85 * history_bytes < sizes[4]
+
+    starved, starved_host = play(history_bytes, 5)
+    assert starved.model.summaries == []
+    assert [event["reason"] for event in starved_host.events_of("context_summary_failed")] == ["budget"]
+    assert len(starved.model.requests) == 5
+    assert starved.reason() == "budget"
+    assert not starved_host.events_of("context_limit")
+    assert all(event.get("request_bytes", 0) <= history_bytes
+               for event in starved_host.events_of("model_request"))
+
+    paid, paid_host = play(history_bytes, 6)
+    assert len(paid.model.summaries) == 1
+    compacted = [event for event in paid_host.events_of("model_request") if event.get("compact")]
+    # The telemetry a live run could not show: the compacted request names the summary it
+    # carries, so a reviewer can tell compression from a conversation that simply fit.
+    assert compacted and compacted[0]["compact"]["summary_bytes"] > 0
+    assert paid_host.events_of("context_summarized")
+
+
 def test_the_summary_call_has_its_own_output_budget_and_does_not_recurse():
     policy = AgentPolicy(history_bytes=34_000, history_keep_steps=2, history_summary_bytes=512)
     host = Host({"read_source": "x" * 900}, policy=policy,

@@ -268,8 +268,17 @@ class HistoryCompactor:
         digests = [group_digest(group) for group in aged]
 
         summary = ""
-        if policy.history_summary:
-            summary = self._ensure_summary(aged, digests, gate, model)
+        if policy.history_summary and not self.quota_exhausted:
+            if gate.summary_affordable():
+                summary = self._ensure_summary(aged, digests, gate, model)
+            else:
+                # A summary is a full request.  When the phase has only one response left,
+                # buying it would leave the compacted request with nothing to be sent
+                # with -- observed in a live run, where the summary landed and the phase
+                # ended on ``budget`` without ever exercising the compression it paid for.
+                # Degrade deterministically instead, and say once why.
+                self.quota_exhausted = True
+                gate.summary_failed(reason="budget", before_bytes=total)
         covered = self._covered_count(digests)
 
         built, dropped, cached = self._compose(split.prefix, aged, recent, summary, covered, digests)
@@ -278,7 +287,8 @@ class HistoryCompactor:
         # and run allowances.
         target = int(policy.history_bytes * policy.history_target_ratio)
         if (summary and covered < len(aged) and messages_bytes(built) > target
-                and policy.history_summary and not self.quota_exhausted):
+                and policy.history_summary and not self.quota_exhausted
+                and gate.summary_affordable()):
             extended = self._request_summary(aged, gate, model, previous=summary)
             if extended:
                 self.summary, self.covered = extended, list(digests)

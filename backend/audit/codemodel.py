@@ -338,6 +338,16 @@ class PhaseGate:
         """
         return self._on_loop(lambda: self._start_summary(message_count, request_bytes))
 
+    def summary_affordable(self) -> bool:
+        """Whether a summary *and* the request it compresses both still fit.
+
+        A summary is charged like any other request, so on the last response of a phase it
+        would consume the very allowance needed to send the compressed request.  The
+        compressor asks first and falls back to deterministic trimming when the answer is
+        no, rather than paying for a summary nobody gets to use.
+        """
+        return self._on_loop(self._can_summarize)
+
     def record_summary(self, message: ChatMessage, *, prompt_bytes: int) -> tuple[str | None, str]:
         """Count a summary reply and validate it; returns ``(text, failure_reason)``."""
         return self._on_loop(lambda: self._record_summary(message, prompt_bytes=prompt_bytes))
@@ -544,6 +554,22 @@ class PhaseGate:
             "message_count": len(messages or ()), "top_messages": _top_messages(messages),
             "compact": dict(compact or {}), "usage": self.execution.snapshot(),
         })
+
+    async def _can_summarize(self) -> bool:
+        """Reserve room for the summary *and* the request it will compress."""
+        if self.closed or self.published is not None:
+            return False
+        execution = self.execution
+        allowed = min(self.limit, execution.budgets["responses"])
+        if execution.attempts + 2 > allowed:
+            return False
+        owner = getattr(execution, "run_execution", None)
+        if owner is not None:
+            summary = owner.store.execution_summary(owner.run_id)
+            remaining = (summary or {}).get("run_remaining") or {}
+            if "responses" in remaining and remaining["responses"] < 2:
+                return False
+        return True
 
     async def _start_summary(self, message_count: int, request_bytes: int) -> float:
         if self.closed or self.published is not None:

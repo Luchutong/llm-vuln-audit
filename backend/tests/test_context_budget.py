@@ -71,11 +71,18 @@ class Gate:
 
     response_format = "code"
 
-    def __init__(self, *, reply: str | None = "已读取 f1.php:1-20，未发现过滤；待办：订单接口。"):
+    def __init__(self, *, reply: str | None = "已读取 f1.php:1-20，未发现过滤；待办：订单接口。",
+                 affordable: bool = True):
         self.reply = reply
+        self.affordable = affordable
         self.starts: list[dict] = []
         self.failures: list[dict] = []
         self.events: list[tuple[str, dict]] = []
+        self.affordability_checks = 0
+
+    def summary_affordable(self) -> bool:
+        self.affordability_checks += 1
+        return self.affordable
 
     def start_summary(self, message_count: int, request_bytes: int) -> float:
         self.starts.append({"messages": message_count, "bytes": request_bytes})
@@ -175,6 +182,34 @@ def test_a_failed_summary_degrades_deterministically_instead_of_ending_the_phase
     assert messages_bytes(built) < messages_bytes(messages)
     # Clipped, not summarized: the aged observations keep only their bounded head.
     assert any("x" * 200 not in str(getattr(item, "content", "")) for item in built)
+
+
+def test_a_summary_is_never_bought_with_the_phase_last_response():
+    """A live run summarized on its final response and then stopped on ``budget``.
+
+    The summary was a real request, so it consumed the allowance the compressed request
+    needed; the compression it paid for was never sent.  When the gate says only one
+    response is left, the compressor trims deterministically instead -- and says so once,
+    because later requests in the same phase cannot become affordable again.
+    """
+    messages = conversation([step(index, 700) for index in range(6)])
+    gate, model = Gate(affordable=False), Model()
+    compactor = HistoryCompactor(policy())
+
+    built, info = compactor.compact(messages, gate, model)
+
+    assert model.calls == [] and gate.starts == []
+    assert gate.failures == [{"reason": "budget", "before_bytes": messages_bytes(messages)}]
+    assert info["summary_bytes"] == 0
+    assert messages_bytes(built) < messages_bytes(messages)
+    assert messages_bytes(built) <= policy().history_bytes
+
+    # The decision is sticky within the phase: no second event, no second check.
+    checked = gate.affordability_checks
+    compactor.compact(conversation([step(index, 700) for index in range(7)]), gate, model)
+    assert len(gate.failures) == 1
+    assert model.calls == []
+    assert gate.affordability_checks == checked
 
 
 def test_a_provider_failure_in_the_summary_is_a_failure_event_not_a_raise():

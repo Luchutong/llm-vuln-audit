@@ -596,17 +596,6 @@ def _dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _inputs_compatible(left: dict, right: dict) -> bool:
-    """Do two claims agree on where the input enters?
-
-    Only two *different*, non-empty sources conflict.  An unstated source is missing
-    information, not proof of a separate flow, so it must not block a duplicate.
-    """
-    first = " ".join(str(left.get("input_source") or "").split()).casefold()
-    second = " ".join(str(right.get("input_source") or "").split()).casefold()
-    return not (first and second and first != second)
-
-
 # Coverage feedback is a bounded navigation aid for the Planner, not a second project
 # map: it must fit in every round's prompt and answer exactly one question -- which
 # goal-relevant areas has nobody read yet.
@@ -2776,20 +2765,20 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         return review_state(project_map, read_paths, skips)
 
     def classify_run_duplicate(self, run_id: str, finding_id: str) -> dict | None:
-        """Record exact duplicate claims without deleting their source history."""
-        from .project_findings import exact_run_identity, run_identity_tier2
+        """Record host-confirmed duplicate claims without deleting source history."""
+        from .project_findings import exact_run_identity, pick_run_merge_candidate, run_identity_tier2, sink_similarity
         with self._lock:
             self.assert_execution_write(run_id)
             finding = self.get_finding(finding_id)
             if (not finding or finding.get("run_id") != run_id or finding.get("validation_state") != "candidate"
                     or finding.get("disposition", "open") != "open" or not finding.get("project_finding_id")):
                 return None
+            coordinate = run_identity_tier2(finding)
             candidates = [item for item in self.list_findings(run_id)
                 if item["id"] != finding_id and item.get("validation_state") == "candidate"
                 and item.get("disposition", "open") == "open"
                 and (item.get("project_finding_id") == finding["project_finding_id"]
-                     or (item.get("primary_location") == finding.get("primary_location")
-                         and item.get("vulnerability_type") == finding.get("vulnerability_type")))]
+                     or (coordinate is not None and run_identity_tier2(item) == coordinate))]
             identity = exact_run_identity(finding)
             exact = [item for item in candidates if identity is not None and exact_run_identity(item) == identity]
             if exact:
@@ -2799,23 +2788,16 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 payload = {"finding_id": finding_id, "related_finding_id": source["id"], "disposition": "duplicate", "by": "host"}
                 self.append_event(run_id, finding.get("unit_id"), "finding_duplicate", payload)
                 return payload
-            # Second tier: the same type at the same sink, described differently.  The
-            # exact identity above treats evidence ranges, CVSS and POC wording as
-            # identity, which let one vulnerability be reported twice whenever the
-            # model re-cited its evidence.  A different, non-empty input source still
-            # means a different claim, so that pair is never merged here.
-            tier2_identity = run_identity_tier2(finding)
-            tier2 = [
-                item for item in candidates
-                if tier2_identity is not None and run_identity_tier2(item) == tier2_identity
-                and _inputs_compatible(finding, item)
-            ]
-            if tier2:
-                source = min(tier2, key=lambda item: (item.get("created_at") or "", item["id"]))
-                self.set_finding_disposition(finding_id, "duplicate", "同一运行内漏洞类型、主定位与危险操作一致的重复表述。",
+            # A reworded operation can still describe one sink. Only a single
+            # threshold-passing candidate at the exact typed coordinate is safe;
+            # picking the oldest of several similar sinks hides ambiguity.
+            source = pick_run_merge_candidate(finding, candidates)
+            if source is not None:
+                self.set_finding_disposition(finding_id, "duplicate", "同一运行内漏洞类型及主定位相同，危险操作相似度不低于 0.6 且候选唯一的重复表述。",
                     by="host", derived_from_finding_id=source["id"])
                 payload = {"finding_id": finding_id, "related_finding_id": source["id"], "disposition": "duplicate",
-                           "by": "host", "identity_tier": 2}
+                           "by": "host", "identity_tier": 2,
+                           "sink_similarity": sink_similarity(finding.get("dangerous_operation"), source.get("dangerous_operation"))}
                 self.append_event(run_id, finding.get("unit_id"), "finding_duplicate", payload)
                 return payload
             if candidates:
@@ -3671,7 +3653,32 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                     row["task_key"]: row
                     for row in self._db.execute("SELECT * FROM planner_tasks WHERE run_id = ?", (run_id,)).fetchall()
                 }
+                reopen_keys = [
+                    str(item.get("task_key") or "")
+                    for item in updates if item.get("action") == "reopen"
+                ]
+                if len(reopen_keys) != len(set(reopen_keys)):
+                    raise ValueError("A Planner task may only be reopened once per round")
+                # The model-facing validator checks these limits too. Recheck the
+                # frozen policy under the writer lock so a direct caller or a stale
+                # decision cannot turn an atomic replacement into an unlimited retry.
+                if reopen_keys:
+                    from .runtime import policy_from_snapshot
+                    run_row = self._db.execute("SELECT agent_policy FROM runs WHERE id = ?", (run_id,)).fetchone()
+                    policy = policy_from_snapshot(_loads(run_row["agent_policy"], {}) if run_row else {})
+                    if type(reopen_attempts) is not int or reopen_attempts < 1:
+                        raise ValueError("Planner reopen_attempts must be a positive integer")
+                    if int(session["task_reopens"] or 0) + len(reopen_keys) > int(policy.run_reopens):
+                        raise ValueError("Planner run reopen allowance exhausted")
+                    for key in reopen_keys:
+                        prior = existing.get(key)
+                        if prior is None or prior["state"] not in REOPENABLE_TASK_STATES:
+                            raise ValueError(f"Planner task cannot be reopened: {key}")
+                        if int(prior["revisions"] or 0) >= int(policy.task_reopens):
+                            raise ValueError(f"Planner task reopen allowance exhausted: {key}")
                 proposed_keys = {str(item.get("task_key") or "") for item in tasks}
+                if len(proposed_keys) != len(tasks):
+                    raise ValueError("A Planner round cannot contain duplicate task_key values")
                 known_keys = set(existing) | proposed_keys
                 # Keep Store safe even when it is called outside the model-facing
                 # validator (for example by a maintenance import). A circular set of
@@ -3690,8 +3697,15 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                     if unknown or task_key in deps:
                         raise ValueError(f"Planner task dependencies are invalid for {task_key}")
                     prior = existing.get(task_key)
-                    if prior is None or prior["state"] in {"pending", "ready", "deferred"}:
-                        graph[task_key] = deps
+                    replacing_blocked = (
+                        prior is not None and prior["state"] == "blocked" and task_key in reopen_keys
+                    )
+                    if prior is not None and prior["state"] not in {"pending", "ready", "deferred"}:
+                        if not replacing_blocked:
+                            raise ValueError(f"Planner task cannot be redefined without a blocked-task reopen: {task_key}")
+                        if set(_loads(prior["dependencies"], [])) - set(deps):
+                            raise ValueError(f"Blocked task replacement cannot remove dependencies: {task_key}")
+                    graph[task_key] = deps
                 visiting: set[str] = set()
                 visited: set[str] = set()
 
@@ -3741,11 +3755,14 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                                 ).fetchone()["max_iterations"]), stamp, stamp,
                             ),
                         )
-                    elif prior["state"] in {"pending", "ready", "deferred"}:
+                    elif prior["state"] in {"pending", "ready", "deferred"} or (
+                        prior["state"] == "blocked" and task_key in reopen_keys
+                    ):
                         self._db.execute(
                             "UPDATE planner_tasks SET plan_id = ?, title = ?, objective = ?, acceptance_criteria = ?, "
                             "rationale_summary = ?, context_spec = ?, dependencies = ?, priority = ?, state = CASE "
-                            "WHEN state = 'deferred' THEN 'pending' ELSE state END, error = CASE WHEN state = 'deferred' THEN NULL ELSE error END, "
+                            "WHEN state IN ('pending','ready','deferred') THEN 'pending' ELSE state END, "
+                            "error = CASE WHEN state = 'deferred' THEN NULL ELSE error END, "
                             "finished_at = CASE WHEN state = 'deferred' THEN NULL ELSE finished_at END, updated_at = ? WHERE id = ?",
                             (
                                 plan_id, str(task.get("title") or task_key), str(task.get("objective") or ""),

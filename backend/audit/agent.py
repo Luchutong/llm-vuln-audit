@@ -2956,7 +2956,13 @@ def _duplicate_direction(
         str(path) for item in findings if is_vulnerability_finding(item)
         for path in (item.get("paths") or []) if path
     }
+    reopened = {update.task_key for update in decision.updates if update.action == "reopen"}
     for proposal in decision.tasks:
+        if proposal.task_key in reopened:
+            # This is the explicit, separately budgeted correction path, not an
+            # old direction disguised under a fresh key. The frontier validator
+            # still checks state, dependencies and the revision allowance.
+            continue
         files = _declared_files(proposal, directory_files)
         if not files:
             continue
@@ -3066,7 +3072,7 @@ def _validate_planner_decision(
     Two kinds of rejection, deliberately kept apart:
 
     * What a *safety or graph invariant* rests on is refused: a path outside the frozen
-      map, an unknown dependency, a dependency cycle, a settled task being redefined or
+      map, an unknown dependency, a dependency cycle, an unpaired settled-task redefinition or
       updated by an action that cannot apply to it, an empty plan while the goal is unmet
       **and** the frontier is empty.
     * What is merely an *over-ask* is cut down to size and reported through
@@ -3114,12 +3120,23 @@ def _validate_planner_decision(
     prior_keys = set(prior_by_key)
     proposed_keys = {proposal.task_key for proposal in decision.tasks}
     known_keys = prior_keys | proposed_keys
+    reopen_keys = {update.task_key for update in decision.updates if update.action == "reopen"}
+    if sum(update.action == "reopen" for update in decision.updates) != len(reopen_keys):
+        raise ModelRetry("同一任务在一个 Planner 回合中只能 reopen 一次")
     for proposal in decision.tasks:
         prior = prior_by_key.get(proposal.task_key)
         if prior is not None and prior.get("state") not in {"pending", "ready", "deferred"}:
-            raise ModelRetry(
-                f"任务 {proposal.task_key} 已经处于 {prior.get('state')}，不能重新定义已派发或已结算任务"
-            )
+            if prior.get("state") != "blocked" or proposal.task_key not in reopen_keys:
+                raise ModelRetry(
+                    f"任务 {proposal.task_key} 已经处于 {prior.get('state')}，不能重新定义已派发或已结算任务；"
+                    "若要缩小 blocked 任务，请在同一回合提交同 task_key 的 tasks 定义与 updates.reopen"
+                )
+            missing_dependencies = set(prior.get("dependencies") or []) - set(proposal.dependencies)
+            if missing_dependencies:
+                raise ModelRetry(
+                    f"重定义受阻任务 {proposal.task_key} 不能删除原依赖："
+                    f"{', '.join(sorted(missing_dependencies))}；原前提仍须由任务图结算"
+                )
         for ref in proposal.source_refs:
             if ref.path not in files:
                 raise ModelRetry(f"任务 {proposal.task_key} 引用了冻结范围外的源码路径：{ref.path}")
@@ -3437,11 +3454,13 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
 
 每回合提示里还有一段「本轮态势」，由宿主在回合开始前预取，等同你调用相关工具的返回：前沿（pending/ready/running 任务）、已结算任务及其结论摘要、已落库的全部结论、覆盖统计和已固定的调查。**它是你唯一可靠的记忆**——你在回合之间不会记得任何事，重复派发态势里已经结算的方向不会产生新证据，只会浪费 worker 预算。派发前先读它：要么选一个态势里没有覆盖到的方向，要么用 updates 更正已有结论。
 
-因此，**只要目标未达成且前沿为空（态势里 counts.frontier == 0，没有 pending/ready/running 任务），本轮必须产出至少一个新任务**；**否则允许本轮派出 0 个任务**——态势里已有在跑或在排队的任务时，安静地什么都不派是合法且常见的（例如本轮只是更新一条已有方向，或确认前沿仍在推进）。不要为了"每回合都得有活干"而造重复任务。
+因此，**只要目标未达成且前沿为空（态势里 counts.frontier == 0，没有 pending/ready/running 任务），本轮必须产出至少一个新任务或显式 reopen 已结算方向**；**否则允许本轮派出 0 个任务**——态势里已有在跑或在排队的任务时，安静地什么都不派是合法且常见的（例如本轮只是更新一条已有方向，或确认前沿仍在推进）。不要为了"每回合都得有活干"而造重复任务。
 
 宿主还会拒绝一种新任务：它的 source_refs ∪ scope_paths 与某个已结算任务的 files 几乎完全重合（Jaccard ≥ 0.8），而那些文件已经有落库结论。被拒时只有两条正确出路——那条结论有误就用 updates 更正它；确实是新方向就补上对方没有读过的文件。若两者都不成立，本轮就以 0 个任务提交（前沿非空时合法）。
 
 **已结算的结论不是终审，你随时可以更正它。** 允许的 updates 有 cancel / defer / reprioritize / reopen：想推翻某条已结算任务的结论、让 worker 带着新的问题重跑它，就用 `{"action": "reopen", "task_key": "...", "rationale_summary": "为什么这条结论是错的"}`。reopen 是**更正**而非重试——它不会花掉该任务的重试次数，而是把额度往上抬一次，并且**原先的尝试记录一条都不会被删**：重跑会追加新的 attempt，旧结论仍然留在历史里，供你和后续回合对照。所以不要用"再提一个几乎一样的新任务"来绕过一条错的结论，那既会被守卫拦下，也丢掉了"这条结论被谁、因为什么推翻"的记录。reopen 只对已结算（completed/blocked/exhausted/cancelled/skipped）的任务有效，正在跑的任务不能重开；每个任务与整轮 run 各有重开次数上限，用尽后只能以新方向推进。若某条已结算任务的 `stale_dependency` 非空，说明它依赖的方向正在被重新调查，它的结论建立在旧前提上，是否连带 reopen 由你判断。
+
+**受阻方向可以在重开时缩小。** 若 blocked 任务的范围过大或剩余方向未结算，在同一回合的 `tasks` 中提交原 `task_key` 的新定义，并在 `updates` 中对该键提交一次 `reopen`，写明缩小范围与剩余问题。宿主会原子更新读取范围、问题和验收标准，再追加一次重开额度；保留原 dependencies、旧尝试、旧结论与旧计划快照。仅在 tasks 中重复使用 blocked 键不会重开，正在执行或其他已结算状态的定义不能直接改写；只想按原定义补查时，单独 updates.reopen 即可。
 
 **重跑不等于撤回。** 重新调查一个方向而没有得到结论，只说明这次没读到证据，**原来那条结论仍然有效**——宿主不会替你把它推断成"错的"。如果你确认它站不住，就直接说：`{"action": "retract", "task_key": "...", "finding_key": "结论 id", "rationale_summary": "为什么这条结论不成立"}` 把它撤回；如果它是与另一条结论重复的证据，用 `{"action": "duplicate", "task_key": "...", "finding_key": "...", "related_finding_key": "另一条结论 id", "rationale_summary": "..."}` 标出来（`finding_key` 与 `related_finding_key` 都取自态势的 findings，且 `finding_key` 必须属于 `task_key` 那个任务）。撤回与判重都**只改这条结论的处置状态，不删任何东西**：正文、证据、验证记录与历史版本全都留在报告里，只是它不再计入本次运行的结论（没有证据的方向不应成为达成目标的依据）。历史人工结论字段只作只读追溯，不会阻止你撤回；自动验证判为 `rejected` 的结论仍以你的更正为准，宿主会把它排除出可收束结论并在报告里单列。所以撤回要克制而明确——一条被正确推翻的结论是有价值的审计记录，一条被随手抹掉的正确结论不是。
 

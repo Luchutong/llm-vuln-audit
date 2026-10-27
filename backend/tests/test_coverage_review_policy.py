@@ -280,12 +280,12 @@ def test_a_rewritten_evidence_range_is_still_the_same_claim(store, repository):
     assert store.get_finding("first")["disposition"] == "open"
 
 
-def test_a_different_non_empty_input_source_is_not_merged(store, repository):
+def test_input_source_wording_does_not_block_a_unique_same_sink_merge(store, repository):
     run = run_with_policy(store, repository)
     first = {**_conclusion_finding(run, "first"), "vulnerability_type": "path_traversal",
              "primary_location": {"path": "public/index.php", "line": 4}, "input_source": "GET path"}
     second = {**copy.deepcopy(first), "id": "second", "unit_id": "unit-2", "fingerprint": "second",
-              "input_source": "POST avatar", "evidence": [{"path": "public/index.php", "start_line": 3, "end_line": 4}]}
+              "input_source": "用户提交的路径参数", "evidence": [{"path": "public/index.php", "start_line": 3, "end_line": 4}]}
     store.add_finding(first)
     store.add_finding(second)
     store.link_finding_project("first", "same-ledger", 1)
@@ -293,5 +293,6 @@ def test_a_different_non_empty_input_source_is_not_merged(store, repository):
 
     result = store.classify_run_duplicate(run["id"], "second")
 
-    assert result["candidate_ids"] == ["first"]
-    assert store.get_finding("second")["disposition"] == "open"
+    assert result["disposition"] == "duplicate"
+    assert result["identity_tier"] == 2
+    assert store.get_finding("second")["disposition"] == "duplicate"

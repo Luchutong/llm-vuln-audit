@@ -100,6 +100,11 @@ def pick_merge_candidate(finding: dict, candidates: list[dict]) -> dict | None:
         ]
         if len(anchored) == 1:
             return anchored[0]
+    return _pick_unique_sink_candidate(finding, candidates)
+
+
+def _pick_unique_sink_candidate(finding: dict, candidates: list[dict]) -> dict | None:
+    """Share the conservative threshold/ambiguity rule across host merge tiers."""
     scored = [
         (sink_similarity(finding.get("dangerous_operation"), item.get("dangerous_operation")), item)
         for item in candidates
@@ -136,17 +141,11 @@ def exact_run_identity(finding: dict) -> str | None:
 
 
 def run_identity_tier2(finding: dict) -> tuple | None:
-    """Coarser duplicate identity: one vulnerability claim, however it was worded.
+    """The exact coordinate a run-local sink comparison is allowed to consider.
 
-    ``exact_run_identity`` folds in the evidence ranges, CVSS proposal, POC and
-    preconditions, so the same sink re-reported with a slightly different evidence
-    range or rating never merged.  Those are wording, not identity: the claim is the
-    canonical type at the sink line.  Preconditions are deliberately still *not* part
-    of this key -- an unproven precondition is a separate finding on its own merits,
-    not a reason to keep two identical reports.
-
-    Returns ``None`` when the finding has no usable anchor, which keeps the previous
-    behaviour of never merging on incomplete data.
+    Evidence ranges, rating proposals and reworded sink text are not coordinates.
+    Sink similarity is checked separately, and only an unambiguous candidate may
+    be treated as a duplicate.
     """
     cause = canonical_vulnerability_type(finding.get("vulnerability_type"))
     location = finding.get("primary_location") or {}
@@ -155,7 +154,23 @@ def run_identity_tier2(finding: dict) -> tuple | None:
             or not isinstance(location.get("path"), str) or type(location.get("line")) is not int
             or location["line"] < 1 or not sink):
         return None
-    return (cause, str(location["path"]), int(location["line"]), sink)
+    return (cause, str(location["path"]), int(location["line"]))
+
+
+def pick_run_merge_candidate(finding: dict, candidates: list[dict]) -> dict | None:
+    """Pick a unique similar sink at an identical typed primary coordinate.
+
+    This does not use the ledger's evidence-overlap fallback: two operations on
+    one line are possible, so the operation must independently meet the shared
+    similarity threshold. Input and precondition prose is retained as audit history,
+    rather than adding a second text-equality gate to the coordinate identity.
+    """
+    identity = run_identity_tier2(finding)
+    if identity is None:
+        return None
+
+    eligible = [item for item in candidates if run_identity_tier2(item) == identity]
+    return _pick_unique_sink_candidate(finding, eligible)
 
 
 def _evidence(value: object) -> list:

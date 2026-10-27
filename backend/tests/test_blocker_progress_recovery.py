@@ -101,6 +101,10 @@ def _install_replacement_wave(monkeypatch, store, run, *, repair="reopen", termi
 
 def test_replacement_findings_allow_another_round_to_reopen_and_settle_old_block(audit, monkeypatch):
     store, repository, run = audit
+    # Isolate the task-blocker guard. Coverage review now has precedence and is
+    # exercised separately with real residual paths in test_closure_reconcile_order.
+    run["task_spec"]["completion_policy"] = "goal"
+    store._write("UPDATE runs SET task_spec=? WHERE id=?", (json.dumps(run["task_spec"]), run["id"]))
     rounds, attempts = _install_replacement_wave(monkeypatch, store, run)
 
     asyncio.run(make_worker(store, repository)._execute(run))
@@ -134,6 +138,10 @@ def test_new_findings_are_kept_but_unchanged_block_still_ends_inconclusive(audit
 
 def test_noop_replanning_with_only_a_blocker_stops_after_one_repair_opportunity(audit, monkeypatch):
     store, repository, run = audit
+    # This test concerns an unchanged task blocker, without a coverage-gap review
+    # taking its own bounded opportunity before the stall guard runs.
+    run["task_spec"]["completion_policy"] = "goal"
+    store._write("UPDATE runs SET task_spec=? WHERE id=?", (json.dumps(run["task_spec"]), run["id"]))
     rounds = []
 
     async def fake_plan(**kwargs):

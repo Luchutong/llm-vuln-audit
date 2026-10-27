@@ -1,0 +1,66 @@
+{
+  "run_id": "7f00e97c923049fc97126660fc336eea",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "unresolved_blockers",
+    "message": "一次修复规划后阻塞原因仍未改变，停止重复规划。"
+  },
+  "coverage": {
+    "complete": false,
+    "total": 61,
+    "pending_total": 7,
+    "read_paths": 52,
+    "reviewed_paths": 54
+  },
+  "poc": {
+    "jobs": 0,
+    "resets": 0,
+    "reset_failures": 0,
+    "recorded": 0,
+    "verdicts": {},
+    "execution_statuses": {},
+    "confirmed": 0,
+    "authentication_failed": 0,
+    "state_mismatch": 0,
+    "auth_events": 0,
+    "reset_between_findings": true,
+    "seed_verified": true,
+    "seed_accounts": 4,
+    "post_run_reset": true
+  },
+  "context": {
+    "history_bytes": 393216,
+    "peak_request_bytes": 142769,
+    "peak_ratio": 0.3631,
+    "summary_requests": 0,
+    "compactions": 0,
+    "history_limit_hits": 0,
+    "sources": {}
+  },
+  "usage": {
+    "responses": 134,
+    "tools": 259,
+    "seconds": 1341.373
+  },
+  "events": 1490,
+  "report": "datasets/lab30-shop/report_7f00e97c.md",
+  "score_path": "datasets/lab30-shop/score_all_v2.json",
+  "score": {
+    "protocol": "lab30-v2",
+    "TP": 16,
+    "D": 29,
+    "U": 1,
+    "FN": 14,
+    "precision": 0.34782608695652173,
+    "recall": 0.5333333333333333,
+    "f1": 0.42105263157894735,
+    "truths": 30,
+    "findings": 46
+  },
+  "commit": "569a77bdd4648b8a77b4cc166096e4af9779de45",
+  "generated_at": "2026-10-27T16:32:44Z",
+  "failed_checks": [
+    "覆盖复核未完成（pending 7）",
+    "没有 POC 作业"
+  ]
+}

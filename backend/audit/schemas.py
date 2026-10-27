@@ -462,7 +462,11 @@ class PlannerSourceRef(BaseModel):
 
 
 class PlannerTaskProposal(BaseModel):
-    """One dependency-aware, multi-file direction emitted by the main Planner."""
+    """One dependency-aware, multi-file direction emitted by the main Planner.
+
+    A blocked task may receive a replacement definition only when the same decision
+    explicitly reopens its task_key. Its dependency premises and earlier attempts stay.
+    """
 
     task_key: str = Field(
         min_length=3,
@@ -528,6 +532,9 @@ class PlannerTaskUpdate(BaseModel):
     wrong gets replaced.  It never rewrites the earlier attempt -- every attempt stays in
     ``planner_task_attempts`` -- and it is not a retry: it extends the attempt allowance
     instead of spending it.
+
+    A blocked task can be narrowed atomically by also submitting its task_key in
+    ``tasks`` in the same round. The replacement must retain its earlier dependencies.
 
     ``retract`` and ``duplicate`` are how a *finding* stops standing.  They move the
     finding's disposition and nothing else: its text, its evidence and its review history

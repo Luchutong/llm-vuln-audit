@@ -685,8 +685,9 @@ class AuditWorker:
         gap_signature = None
         gap_stalls = 0
         # ``project_finding_id`` -> revision already sent to the POC agent this process.
-        # Verification happens at the closure boundary, where every standing conclusion is
-        # known and the next Planner round is the closure review that should see it.
+        # Verification happens as soon as a worker wave is quiet, before coverage
+        # review or a stalled blocker can close the run. The durable verifier keeps
+        # an unchanged conclusion from running twice across retries/resumes.
         verified_for: dict[str, int] = {}
         poc_verifier = PocVerifier(store=self.store, bus=self.bus, settings=self.settings)
         project_mode = str(run.get("project_mode") or "legacy") == "project"
@@ -775,6 +776,12 @@ class AuditWorker:
 
         async def finish_goal(state: str, basis: str, missing: list[str] | None = None) -> bool:
             """Persist a host-verified terminal goal and its public run state."""
+            # A Planner can request inconclusive directly, without returning to the
+            # reconcile loop. Such a request must not discard standing conclusions'
+            # verification opportunity either. Cancellation and hard budgets still
+            # take precedence over starting any new experiment.
+            if not await verify_before_closure():
+                return False
             try:
                 queue_now = self.store.task_queue_state(run_id)
                 session_now = self.store.get_planner_session(run_id) or {}
@@ -1303,6 +1310,37 @@ class AuditWorker:
                 and str(item.get("verification_status") or "") == "verified"
             ]
 
+        def verification_stopped() -> bool:
+            current = self.store.get_run(run_id)
+            return bool(stop.is_set() or pause.is_set() or current is None or current["status"] != "running")
+
+        async def verify_before_closure() -> bool:
+            """Verify available evidence independently of whether the audit can finish.
+
+            Verification does not settle blocked source directions or coverage gaps.
+            It uses the ordinary run owner, budgets and durable per-revision claims;
+            an unavailable/inconclusive verdict cannot promote the audit to success.
+            """
+            if verification_stopped():
+                return False
+            standing = standing_conclusions()
+            if (not project_mode or not poc_review_required or normalize_poc_mode(run)[0] == "off"
+                    or not standing):
+                return True
+            pending = [item for item in standing if int(verified_for.get(
+                str(item.get("project_finding_id") or item["id"]), 0,
+            )) < int(item.get("project_revision") or item.get("revision") or 1)]
+            if not pending:
+                return True
+            owner = CURRENT_EXECUTION.get()
+            if owner is not None:
+                owner.admit("work")
+            await poc_verifier.verify_standing(
+                run_id, pending, verified_for, model_config=model_config,
+                should_stop=verification_stopped,
+            )
+            return not verification_stopped()
+
         def record_carried() -> None:
             """Mark the project conclusions this run reused without re-finding them."""
             run_row = self.store.get_run(run_id) or {}
@@ -1387,6 +1425,54 @@ class AuditWorker:
                 await finish_goal(goal["status"], goal.get("terminal_reason") or "Goal already settled")
                 return
             queue = self.store.task_queue_state(run_id)
+            # The conclusions the host would close this run on, asked once per pass: they decide
+            # both whether a worker may start another direction and whether the host reviews
+            # before it closes.  The hold is only meaningful while one of them exists.
+            standing = standing_conclusions()
+            inherited = standing_baseline()
+            if closing and not (standing or inherited):
+                closing = False
+            if (queue["ready"] or queue["running"]) and not closing:
+                await run_worker_wave()
+                continue
+            # Candidate verification is useful even when another source direction
+            # remains blocked. Run it before either bounded closure guard, then
+            # refresh conclusions because a verdict can reject a candidate.
+            if not await verify_before_closure():
+                continue
+            standing = standing_conclusions()
+            inherited = standing_baseline()
+            if closing and not (standing or inherited):
+                closing = False
+            # Blocked directions do not make the gaps disappear.  Gating the review on
+            # an empty blocker list meant one stuck task suppressed the coverage review
+            # for the rest of the run -- the paths nobody had read were never even sent
+            # to the Planner.  The review may skip a blocked path with a stated reason.
+            if coverage_mode and not queue["ready"] and not queue["running"]:
+                gap_review = self.store.coverage_review(run_id, project_map) or {}
+                if gap_review.get("pending_total"):
+                    signature = tuple(gap_review["pending_paths"])
+                    gap_stalls = gap_stalls + 1 if signature == gap_signature else 0
+                    gap_signature = signature
+                    # A skip is a Planner review, not another Worker attempt.
+                    # Keep it available after the Worker cap, within the ordinary
+                    # Planner/global budget and bounded no-progress allowance.
+                    if (int(session_state["current_round"]) >= int(session_state["max_rounds"])
+                            or gap_stalls > int(policy.planner_decision_retries)):
+                        await finish_goal("inconclusive", "覆盖复核未完成：预算或无进展上限已到，未读源码方向仍未结算。",
+                            gap_review["pending_paths"][:8])
+                        return
+                    self.bus.emit(run_id, None, "coverage_review_requested", {
+                        "pending_total": gap_review["pending_total"], "total": gap_review["total"],
+                        "pending_paths": gap_review["pending_paths"][:40], "round": session_state["current_round"],
+                    })
+                    state = await run_planner_round()
+                    if state == "closed" or stop.is_set():
+                        return
+                    continue
+            # Only durable, unresolved task blockers reach this guard. Coverage
+            # gaps have already had their own bounded review; skipping a file does
+            # not silently settle a task's remaining business directions.
             tasks_now = self.store.list_tasks(run_id, include_attempts=False)
             blockers = tuple(sorted({
                 (str(item.get("error") or ""), str((item.get("result") or {}).get("missing_context") or []),
@@ -1409,40 +1495,6 @@ class AuditWorker:
                         "reason": "新增已结算尝试、源码证据或结论，继续复核仍未解除的受阻方向。",
                     })
                 repaired_blockers[blockers] = progress
-            # The conclusions the host would close this run on, asked once per pass: they decide
-            # both whether a worker may start another direction and whether the host reviews
-            # before it closes.  The hold is only meaningful while one of them exists.
-            standing = standing_conclusions()
-            inherited = standing_baseline()
-            if closing and not (standing or inherited):
-                closing = False
-            if (queue["ready"] or queue["running"]) and not closing:
-                await run_worker_wave()
-                continue
-            # Blocked directions do not make the gaps disappear.  Gating the review on
-            # an empty blocker list meant one stuck task suppressed the coverage review
-            # for the rest of the run -- the paths nobody had read were never even sent
-            # to the Planner.  The review may skip a blocked path with a stated reason.
-            if coverage_mode and not queue["active"]:
-                gap_review = self.store.coverage_review(run_id, project_map) or {}
-                if gap_review.get("pending_total"):
-                    signature = tuple(gap_review["pending_paths"])
-                    gap_stalls = gap_stalls + 1 if signature == gap_signature else 0
-                    gap_signature = signature
-                    if (int(session_state["current_round"]) >= int(session_state["max_rounds"])
-                            or int(goal["attempts"]) >= int(goal["max_total_attempts"])
-                            or gap_stalls > int(policy.planner_decision_retries)):
-                        await finish_goal("inconclusive", "覆盖复核未完成：预算或无进展上限已到，未读源码方向仍未结算。",
-                            gap_review["pending_paths"][:8])
-                        return
-                    self.bus.emit(run_id, None, "coverage_review_requested", {
-                        "pending_total": gap_review["pending_total"], "total": gap_review["total"],
-                        "pending_paths": gap_review["pending_paths"][:40], "round": session_state["current_round"],
-                    })
-                    state = await run_planner_round()
-                    if state == "closed" or stop.is_set():
-                        return
-                    continue
             # The run is about to satisfy its own completion condition: no direction is being
             # worked on and at least one conclusion survived validation and is still standing.
             # The host's closure is unchanged -- ``finalize_goal`` still checks the same thing --
@@ -1453,27 +1505,6 @@ class AuditWorker:
             # exactly the conclusions that matter.  Costs one model call per closure point; a
             # review that changes nothing closes the run on the next pass instead of repeating.
             if (standing or inherited) and (closing or not queue["active"]):
-                # Automatic verification runs here rather than after every worker wave: it
-                # is the one point where every standing conclusion is already known and the
-                # next round is the closure review that should read the verdicts.  A verdict
-                # can remove a conclusion from the standing set, so both sets are re-read.
-                if project_mode and standing and not stop.is_set():
-                    await poc_verifier.verify_standing(
-                        run_id,
-                        standing,
-                        verified_for,
-                        model_config=model_config,
-                        should_stop=stop.is_set,
-                    )
-                    standing = standing_conclusions()
-                    inherited = standing_baseline()
-                    if closing and not (standing or inherited):
-                        closing = False
-                    if not (standing or inherited):
-                        # Every conclusion the host would have closed on was executed and
-                        # not reproduced.  Nothing is left to review or close on, so go back
-                        # to planning instead of deferring ``met`` forever.
-                        continue
                 signature = conclusion_state()
                 # One agent produced the verdict; a different one has to read the
                 # observations before the host may close on it.  This round is that

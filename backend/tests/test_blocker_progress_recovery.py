@@ -156,9 +156,18 @@ def test_noop_replanning_with_only_a_blocker_stops_after_one_repair_opportunity(
     assert not [event for event in store.list_events(run["id"]) if event["kind"] == "planner_blocker_progress"]
 
 
-def test_repeated_trivial_replacement_tasks_remain_bounded_by_shared_attempts(audit, monkeypatch):
-    store, repository, run = audit
-    store._write("UPDATE task_goals SET max_total_attempts=4 WHERE run_id=?", (run["id"],))
+def test_repeated_trivial_replacement_tasks_remain_bounded_by_shared_attempts(tmp_path, monkeypatch):
+    """The shared worker cap is the last bound left after every direction is settled.
+
+    This run uses the goal completion policy on purpose: under coverage review the gap
+    review now preempts the cap (a blocked direction no longer suppresses it), and that
+    separate bound is covered in ``test_coverage_review_policy.py``.
+    """
+    store = Store(tmp_path / "audit.db")
+    repository = SourceRepository(tmp_path / "sources")
+    task = {**TASK, "max_planner_rounds": 8, "max_total_attempts": 4,
+            "stop_on_achieved": False, "completion_policy": "goal"}
+    run, _ = create_planner_run(store, repository, task=task)
     rounds, attempts = [], []
 
     async def fake_plan(**kwargs):
@@ -173,12 +182,14 @@ def test_repeated_trivial_replacement_tasks_remain_bounded_by_shared_attempts(au
     monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
     monkeypatch.setattr(worker_module, "pursue_planner_task", fake_worker)
 
-    asyncio.run(make_worker(store, repository)._execute(run))
-
-    assert len(attempts) == 4
-    assert len(rounds) <= 4
-    assert store.get_run(run["id"])["status"] == "inconclusive"
-    assert store.execution_summary(run["id"])["stop_reason"]["code"] == "worker_attempt_limit"
+    try:
+        asyncio.run(make_worker(store, repository)._execute(run))
+        assert len(attempts) == 4
+        assert len(rounds) <= 4
+        assert store.get_run(run["id"])["status"] == "inconclusive"
+        assert store.execution_summary(run["id"])["stop_reason"]["code"] == "worker_attempt_limit"
+    finally:
+        store.close()
 
 
 def test_user_cancellation_during_progress_review_is_not_replaced_by_blocker_stop(audit, monkeypatch):

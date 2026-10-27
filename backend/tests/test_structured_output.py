@@ -143,12 +143,22 @@ def test_publication_max_steps_is_a_hard_bound():
     assert outcome.host.execution.attempts == 1
 
 
-def test_request_timeout_is_not_retried_as_a_format_error():
-    outcome = play([TimeoutError("offline timeout")])
+def test_request_timeout_is_retried_as_a_transient_failure_not_a_format_error():
+    """A timeout is a network fault: it is retried as a provider failure, never parsed.
+
+    Each retry is a real request, so it spends the phase's response allowance and leaves
+    a ``provider_retry`` event -- and a timeout must not enter the format-correction loop
+    the way a malformed JSON answer does.
+    """
+    policy = AgentPolicy(transient_backoff_seconds=0, transient_max_backoff_seconds=0)
+    attempts = policy.transient_retries + 1
+    outcome = play([TimeoutError("offline timeout")] * attempts, host=Host(policy=policy))
     assert isinstance(outcome.failure, ModelCallFailed)
     assert outcome.reason() == "request_timeout"
-    assert len(outcome.model.requests) == 1
-    assert not outcome.host.events_of("model_retry")
+    assert len(outcome.model.requests) == attempts
+    assert len(outcome.host.events_of("provider_retry")) == policy.transient_retries
+    assert not outcome.host.events_of("agent_parse_error")
+    assert outcome.host.execution.corrections == 0
 
 
 def test_response_after_the_deadline_cannot_publish():

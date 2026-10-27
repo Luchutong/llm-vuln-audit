@@ -294,14 +294,16 @@ def test_exhausted_decision_retries_settle_with_a_readable_reason(store, reposit
     monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
     asyncio.run(worker._execute(run))
 
-    # One retry is allowed by default, so the run survives the first bad decision and
-    # only settles after the second.
-    assert rounds == [1, 2]
+    # The default allows two retries: a skip plus a correction gets its chance before the
+    # run settles.  Every round is a real decision attempt, so the run ends on the third.
+    retries = AgentPolicy().planner_decision_retries
+    assert retries == 2
+    assert rounds == [1, 2, 3]
     state = store.get_run(run["id"])
     assert state["status"] == "inconclusive"
     goal = store.get_task_goal(run["id"])
     assert "未能产出可验证决策" in goal["terminal_reason"]
-    assert goal["terminal_reason"].startswith("Planner 连续 2 回合")
+    assert goal["terminal_reason"].startswith(f"Planner 连续 {retries + 1} 回合")
 
 
 def test_a_spent_budget_is_labelled_budget_not_invalid_output():

@@ -140,12 +140,17 @@ def test_prepare_authenticates_member_and_reuses_session(tmp_path,monkeypatch,lo
         if request.url.path == '/account/me.php':
             return httpx.Response(member_status,json={'id':1,'username':'alice','role':'customer'})
         return httpx.Response(member_status,text='member')
-    client=httpx.Client(base_url=runner.LAB30_URL,transport=httpx.MockTransport(handle),follow_redirects=False)
-    monkeypatch.setattr(runner,'_lab30_client',lambda:client)
+    # A 401 on the cached session makes the runner re-login with a fresh client, so the
+    # factory has to hand out a new one instead of the instance it just closed.
+    def make_client():
+        return httpx.Client(base_url=runner.LAB30_URL,transport=httpx.MockTransport(handle),follow_redirects=False)
+    client=make_client()
+    monkeypatch.setattr(runner,'_lab30_client',make_client)
     monkeypatch.setattr(runner,'WORKDIR',tmp_path)
     monkeypatch.setattr(runner,'_contexts',{})
     monkeypatch.setattr(runner,'_leases',{})
-    monkeypatch.setattr(runner,'_account_baselines',{})
+    # There is no process-wide account baseline any more: drift inside one context is
+    # reported as state_drift, and only the role is a hard precondition.
     monkeypatch.setattr(runner,'LAB30_USER','alice');monkeypatch.setattr(runner,'LAB30_PASSWORD','Alice123!')
     try:
         context=runner.create_context(runner.ContextRequest(run_id='test-run',finding_id='test-finding'))['context_id']

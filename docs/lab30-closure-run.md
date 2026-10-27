@@ -181,12 +181,73 @@ run id `7e1b9899f51c4c2bbd5b22d416e990ad`，结果（只读取事件）：
 
 ## 闭环运行
 
-（待填：commit SHA、run id、命令、时长、状态）
+| 项 | 值 |
+|---|---|
+| commit | `569a77bdd4648b8a77b4cc166096e4af9779de45` |
+| run id | `7f00e97c923049fc97126660fc336eea` |
+| 命令 | `run_lab30_e2e.py --base http://127.0.0.1:8899 --zip data/imports/lab30-shop-1.0.0-source.zip --closure --out datasets/lab30-shop/score_all_v2.json` |
+| 状态 | `inconclusive`，stop code `unresolved_blockers`（"一次修复规划后阻塞原因仍未改变"） |
+| 时长 | 1341s（上限 5400s） |
+| 用量 | responses 134 / 1024，tools 259 / 8192 |
+| 事件 | 1490 条 |
+
+闭环档配置：POC `auto`、`completion_policy=coverage_review`、`baseline_policy=fresh`、
+`max_rounds=32`、`max_total_attempts=96`、`max_workers=2`。开跑前与结束后各复位一次，
+两次种子断言均通过（4 账号、偏差 0）。
+
+产物：`datasets/lab30-shop/closure_7f00e97c.json`、`score_all_v2.json`、
+`report_7f00e97c.md`。
 
 ## 验收判据
 
-（待填：coverage、POC 计数、上下文峰值、v2 分数）
+| 判据 | 要求 | 实际 | 结论 |
+|---|---|---|---|
+| run 状态 | 非 `failed`，`inconclusive` 须有明确 stop_reason | `inconclusive` / `unresolved_blockers` | 通过 |
+| 覆盖复核已记录 | `coverage_review_recorded` 存在 | 1 条（第 2 轮，2 个 skip） | 通过 |
+| 覆盖收束 | `pending_total == 0` | **7**（read 52/61，reviewed 54/61） | **未通过** |
+| POC 作业 | `jobs > 0` 且至少 1 条 confirmed | **0 / 0** | **未通过** |
+| POC 认证 | `authentication_failed == 0` | 0（无作业，判据空转） | 通过（无意义） |
+| 复位 | `reset_between_findings`、`seed_verified` | 均为 true，post_run_reset true | 通过 |
+| 上下文 | `history_limit_hits == 0`，峰值有记录 | 0；峰值 142,769 字节（36.3%） | 通过 |
+| 摘要 | `summary_requests` 可为 0，须说明 | 0（整轮未接近 384KiB 触发水位） | 通过 |
+| 检出 | TP ≥ 26、F1 ≥ 0.9286、D ≤ 2 | **TP 16、F1 0.421、D 29** | **未通过** |
+| 报告 | 非空 Markdown | `report_7f00e97c.md` | 通过 |
+
+v2 评分：TP 16、D 29、U 1、FN 14，precision 0.348、recall 0.533、F1 0.421。
+46 条 finding 中 29 条是同一评分位置上的重复表述，1 条落在任何 truth 位置之外。
+未命中的 14 条真值：02 greeting 反射 XSS、03 ping 命令注入、06 template-preview RFI、
+07 formula 动态调用、09 database 信息泄露、10 密码 MD5、11 messages 存储型 XSS、
+12 url-preview SSRF、18 maintenance 头信任、19 create.php 金额篡改、20 withdraw 竞争条件、
+21 会话固定、24 batch-check 跨文件命令注入、26 partner JWT。
 
 ## 已知偏差
 
-（待填）
+本轮闭环没有走完，原因按阻断顺序记录（未修改 lab30 源码、ground truth 或评分锚点）：
+
+1. **去重二档实际未合并（D=29）**：`classify_run_duplicate()` 的精确层要求证据区间、前提、
+   POC、CVSS 全一致；二档 `(类型, 路径, 行, normalise_sink(dangerous_operation))` 的
+   `normalise_sink` 只做 NFKC/大小写/空白归一，等于要求危险操作的描述**逐字相同**。
+   同一 sink 被不同 worker 换句话描述就合并不了，例如 `ops/template-render.php:3` 的 5 条
+   分别是「动态代码执行 eval」「eval() on attacker-supplied expression」
+   「第3行 eval 执行客户端表达式」「eval() 执行客户端表达式」「eval 动态执行客户端可控字符串」。
+   本轮 `finding_duplicate` 0 条、`finding_duplicate_candidate` 28 条，46 条 finding 只对应
+   18 个不同的 `(类型, 路径, 行)` 主张（17 个不同位置，全部落在真值位置上，覆盖 16 个 truth）。
+   宿主把候选线索交给 Planner，但 Planner 没有「确认重复」的工具，最终 disposition 全部停留在 `open`。
+2. **覆盖复核被 blocker guard 截断（pending 7）**：第 3、4 轮把剩余未读路径派成新方向后，
+   6 个任务以「当前结果已保存，但剩余方向未结算」阻塞；reconcile loop 里的 blocker guard
+   （`_blocker_progress_signature` 未变即 `inconclusive`）先于覆盖复核判定，于是最后 7 条
+   待复核路径（`bin/lab`、`bin/package.py`、`compose.yaml`、`docker/*`、`fixtures/server.py`）
+   没有机会被显式 skip。这些是非业务文件，第 2 轮对 `assets/app.js`、`assets/products.svg`
+   的 skip 已经证明这条路径可行。
+3. **第 4 轮 Planner 决策被判无效**：`planner_round_failed` 的拒绝原因是
+   「任务 sql-injection-dataflow 已经处于 blocked，不能重新定义已派发或已结算任务」。
+   Planner 想重开/缩小受阻方向，宿主只接受「新任务」，连续 3 次无效后该回合失败。
+4. **POC 一次都没有启动**：`verify_standing()` 位于 reconcile loop 的收束分支
+   （blocker guard 与覆盖复核之后），本轮在 blocker guard 就结束了，从未到达收束边界。
+   因此 `poc.jobs==0`，认证与复位类判据虽然都是 0/true，但没有实际检验。
+5. **上下文没有触发压缩**：峰值 142,769 字节，只有 384KiB 的 36.3%，整轮 0 次摘要、
+   0 次 `context_limit`。这是预算放宽后的预期结果，不是压缩器失效；压缩路径的证据见上一节。
+6. **退出码**：脚本本身在 `failed_checks` 非空时 `return 1`，本次通过 `| tee` 管道运行，
+   管道退出码取自 `tee`，所以终止状态看起来是 0；判定以 `closure_7f00e97c.json` 的
+   `failed_checks` 为准。
+

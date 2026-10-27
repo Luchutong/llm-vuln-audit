@@ -272,6 +272,23 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       title = '自动验证环境不可用';
       message = text(payload.error) || text(payload.reason) || '隔离靶场不可用，相关结论保留为未验证。';
       tone = 'neutral';
+    } else if (kind === 'poc_target_reset') {
+      title = '靶场已复位';
+      const accounts = Array.isArray(payload.accounts) ? payload.accounts.length : 0;
+      message = `复位脚本退出码 ${Number(payload.returncode ?? 0)} · ${Math.round(Number(payload.duration_ms ?? 0))}ms`;
+      secondary = accounts ? `${accounts} 个种子账号已核对` : '';
+      tone = 'progress';
+    } else if (kind === 'poc_target_reset_failed') {
+      title = text(payload.reason) === 'target_reset_blocked' ? '靶场复位被阻止' : '靶场复位失败';
+      message = text(payload.message) || '复位脚本未成功，本次发现不做自动验证。';
+      const drift = Array.isArray(payload.drift) ? payload.drift.length : 0;
+      secondary = drift ? `${drift} 处种子偏差` : text(payload.reason);
+      tone = 'error';
+    } else if (kind === 'poc_authentication_failed') {
+      title = '靶场身份认证失败';
+      const reasons = Array.isArray(payload.reasons) ? payload.reasons.map(text).filter(Boolean).join('、') : '';
+      message = `身份 ${text(payload.identity) || '未知'} 未能满足靶场前提；本次结论按认证失败记录。`;
+      secondary = reasons; tone = 'warning';
     } else if (kind === 'poc_readiness_checked' || kind === 'poc_disabled') {
       title = '自动验证策略'; message = pocReason(text(payload.reason) || (kind === 'poc_disabled' ? 'off' : ''), text(payload.message));
     } else if (kind === 'run_budget_exhausted' || kind === 'goal_inconclusive' || kind === 'run_finalized') {

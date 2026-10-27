@@ -130,6 +130,25 @@ def source_flows(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
     expect(page.locator(".attachment-card")).to_contain_text("审计样例源码.zip")
     checks.passed("failed ZIP switch clears the previous archive and disables creation until that archive is retried")
     expect(page).to_have_url(re.compile(f"snapshot={SNAPSHOT_ID}$"))
+    mode = page.get_by_role("combobox", name="审计模式", exact=True)
+    inherit = page.get_by_role("checkbox", name="使用已有漏洞作为审计线索", exact=True)
+    expect(mode).to_have_value("coverage_review")
+    expect(inherit).not_to_be_checked()
+    expect(page.locator(".composer-fields")).to_contain_text("项目台账 31 条")
+    expect(page.locator(".composer-fields")).to_contain_text("项目台账与旧记录仍保留")
+    page.get_by_role("button", name="高级执行设置", exact=True).click()
+    stop = page.get_by_role("checkbox", name=re.compile("^目标达成后停止未开始的任务"))
+    expect(stop).to_be_disabled()
+    expect(stop).not_to_be_checked()
+    page.get_by_role("button", name="保存设置", exact=True).click()
+    mode.select_option("goal")
+    expect(inherit).to_be_checked()
+    mode.select_option("coverage_review")
+    expect(inherit).not_to_be_checked()
+    inherit.check()
+    expect(mode).to_have_value("coverage_review")
+    inherit.uncheck()
+    checks.passed("new audits explicitly select full coverage and a fresh baseline while quick mode remains available")
     page.get_by_role("textbox", name="审计任务", exact=True).fill(OBJECTIVE)
     uploads = api.upload_count
     page.get_by_role("button", name="开始审计", exact=True).click()
@@ -137,6 +156,12 @@ def source_flows(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
     expect(page.locator(".conversation-meta")).to_contain_text("审计样例源码.zip")
     assert api.create_count == 1 and api.upload_count == uploads
     assert api.create_bodies[-1]["snapshot_id"] == SNAPSHOT_ID
+    assert api.create_bodies[-1]["task"]["completion_policy"] == "coverage_review"
+    assert api.create_bodies[-1]["task"]["baseline_policy"] == "fresh"
+    assert api.create_bodies[-1]["task"]["stop_on_achieved"] is False
+    frozen = page.get_by_label("已冻结的审计策略", exact=True)
+    expect(frozen).to_contain_text("全量覆盖复核")
+    expect(frozen).to_contain_text("空白漏洞基线")
     assert "project_id" not in api.create_bodies[-1]
     expect(page.get_by_role("link", name="项目漏洞台账", exact=True)).to_be_visible()
     checks.passed("latest archive is the default; explicitly selecting an older ZIP submits exactly its snapshot_id")
@@ -145,6 +170,11 @@ def source_flows(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
     page.reload(wait_until="domcontentloaded")
     expect(page.get_by_role("combobox", name="浏览 ZIP 快照", exact=True)).to_have_value(SNAPSHOT_ID)
     checks.passed("a run's ZIP browser opens its actual archive and restores that choice on refresh")
+    navigate(page, f"#run/{COMPLETED_ID}")
+    legacy_policy = page.get_by_label("已冻结的审计策略", exact=True)
+    expect(legacy_policy).to_contain_text("快速目标审计（旧记录默认）")
+    expect(legacy_policy).to_contain_text("继承项目已有漏洞（旧记录默认）")
+    checks.passed("run records show their frozen full/fresh policies and explain legacy goal/inherit defaults")
 
     navigate(page, f"#sources/{PROJECT_ID}/new?snapshot={OTHER_SNAPSHOT_ID}")
     expect(page.get_by_role("alert")).to_contain_text("不属于此源码项目")
@@ -399,7 +429,7 @@ def visual_flows(page: Page, checks: Checks, directory: Path | None) -> None:
     screens = (("library", "#sources"), ("workspace", f"#sources/{PROJECT_ID}"),
                ("archives", f"#sources/{PROJECT_ID}?tab=archives"),
                ("new-audit", f"#sources/{PROJECT_ID}/new"), ("findings", "#findings"),
-               ("finding-detail", f"#findings/{LEDGER_ID}"))
+               ("finding-detail", f"#findings/{LEDGER_ID}"), ("run", f"#run/{COMPLETED_ID}"))
     for theme in ("dark", "light"):
         page.set_viewport_size({"width": 1440, "height": 900})
         if page.locator("html").get_attribute("data-theme") != theme:
@@ -414,6 +444,8 @@ def visual_flows(page: Page, checks: Checks, directory: Path | None) -> None:
                 expect(page.get_by_role("combobox", name="选择源码 ZIP", exact=True)).to_be_visible()
             elif label == "findings":
                 ledger_ready(page, 31)
+            elif label == "run":
+                expect(page.get_by_label("已冻结的审计策略", exact=True)).to_be_visible()
             else:
                 expect(page.get_by_role("heading", name="上传路径可绕过目录边界", level=1, exact=True)).to_be_visible()
             for width in (1440, 1024, 768, 390):
@@ -434,7 +466,7 @@ def visual_flows(page: Page, checks: Checks, directory: Path | None) -> None:
             page.set_viewport_size({"width": 1440, "height": 900})
     page.reload(wait_until="domcontentloaded")
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
-    checks.passed("source-library, workspace, ZIP browser, audit form, ledger and detail fit four widths in both themes")
+    checks.passed("source-library, workspace, ZIP browser, audit form, ledger, detail and frozen run policies fit four widths in both themes")
 
 
 def empty_library(page: Page, base: str, checks: Checks) -> None:

@@ -10,8 +10,8 @@ import { Overlay } from '../components/Overlay';
 import { LongContent } from '../components/LongContent';
 import { Disclosure } from '../components/Disclosure';
 import { SourceViewer } from '../components/SourceViewer';
+import { draftTask, taskForStart, taskWithPolicy, type CompletionPolicy } from '../taskDraft';
 
-const EMPTY_TASK: TaskSpec = { objective: '', success_criteria: '', max_iterations: 3, max_total_attempts: 64, max_planner_rounds: 24, max_workers: 2, stop_on_achieved: true, require_poc: false, scenario: null };
 const EXAMPLES = [
   { title: '追踪危险数据流', description: '查找任意文件写入或危险上传漏洞', objective: '审计文件上传入口，查找可被外部输入触发的任意文件写入、路径穿越或危险文件上传漏洞。' },
   { title: '检查认证边界', description: '查找管理功能的认证与授权绕过', objective: '审计项目中的管理路由，查找无需认证或越权访问敏感管理功能的漏洞。' },
@@ -93,10 +93,9 @@ const SCENARIO_PRESETS: ScenarioPreset[] = [
 function clamp(value: string, minimum: number, maximum: number) { return Math.max(minimum, Math.min(maximum, Math.trunc(Number(value) || minimum))); }
 /** The start screen freezes one decision: what to audit.
  *
- * Acceptance is the server's default ``TaskSpec.success_criteria`` (a goal-related risk
- * backed by original line evidence, with a risk level and trigger conditions), so the
- * request omits the field instead of sending a second editable text the user would have
- * to phrase again.  The frozen run still shows that default wherever a task is described.
+ * Acceptance is frozen by the server for the user's explicit coverage or goal mode.
+ * The request omits that text instead of sending a second editable criterion; the
+ * selected mode and baseline policy are sent explicitly and remain visible on the run.
  */
 /** One source window the user picked from the snapshot dialog.  The window is appended
  * to the objective at submit time only, so the textarea keeps the preset comparison
@@ -107,17 +106,11 @@ function scopeSuffix(scope: AuditScope): string {
   return `\n\n重点审计范围：${scope.path}:${scope.start}-${scope.end}（优先核对所选行窗口及其直接关联的被包含文件；窗口之外若发现同一方向的可触发漏洞仍须上报。）`;
 }
 
-function startTask(task: TaskSpec, objective: string, scope: AuditScope | null): Partial<TaskSpec> {
-  const payload: Partial<TaskSpec> = { ...task, objective: scope ? objective + scopeSuffix(scope) : objective };
-  delete payload.success_criteria;
-  return payload;
-}
-
 export function TaskView({ snapshots, config, seed, project, initialSnapshotId, onOpenRun, onChanged }: { snapshots: SnapshotSummary[]; config: Config | null; seed?: Run; project?: Project; initialSnapshotId?: string; onOpenRun: (runId: string) => void; onChanged: () => void }) {
   const [selected, setSelected] = useState<string | null>(initialSnapshotId ?? seed?.snapshot_id ?? null);
   const [snapshotRevision, setSnapshotRevision] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [task, setTask] = useState<TaskSpec>(() => ({ ...EMPTY_TASK, ...seed?.task_spec }));
+  const [task, setTask] = useState<TaskSpec>(() => draftTask(seed?.task_spec ?? undefined));
   const [budgets, setBudgets] = useState<Budget>(seed?.budgets ?? config?.budget_limits?.defaults ?? config?.budgets ?? { responses: 24, tools: 96, seconds: 1800 });
   const [runLimits, setRunLimits] = useState<Budget>(() => draftRunLimits(seed, config));
   const [pocMode, setPocMode] = useState<PocMode>('off');
@@ -224,7 +217,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     const generation = ++startGeneration.current;
     const sourceHash = window.location.hash;
     try {
-      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, run_limits: runLimits, poc_mode: pocMode, task: startTask(task, objective, scope) });
+      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, run_limits: runLimits, poc_mode: pocMode, task: taskForStart(task, objective, scope ? scopeSuffix(scope) : '') });
       if (active.current) {
         onChanged();
         if (startGeneration.current === generation && window.location.hash === sourceHash) onOpenRun(run.id);
@@ -241,6 +234,8 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   };
   const stats = snapshot?.stats ?? {};
   const textCount = stats.text_files ?? snapshot?.files.filter((file) => file.kind === 'text' || (file.kind === undefined && !file.excluded)).length ?? 0;
+  const sourceProject = snapshot?.project ?? project;
+  const inheritedCount = snapshot?.project?.finding_counts?.total ?? project?.finding_counts?.total;
   const busy = uploading || loading || starting;
   const runBounds = config?.run_budget_limits ?? FALLBACK_RUN_BOUNDS;
   return <section className={`draft-workspace${project ? ' source-draft' : ''}${dragging ? ' is-dragging' : ''}`}
@@ -275,6 +270,10 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
         </div>}
         {attachmentError && <div className="composer-error" role="alert"><FileArchive size={16} /><span>{attachmentError}</span><button type="button" className="text-button" onClick={() => fileInput.current?.click()}>重新选择</button></div>}
         <div className="composer-fields">
+          <label className="composer-field"><span>审计模式</span><select aria-label="审计模式" disabled={starting} value={task.completion_policy ?? 'goal'} onChange={(event) => setTask((value) => taskWithPolicy(value, event.target.value as CompletionPolicy))}><option value="coverage_review">全量覆盖复核 · 检查完整源码范围</option><option value="goal">快速目标审计 · 按目标达成收束</option></select></label>
+          <p className="field-hint">{task.completion_policy === 'coverage_review' ? '全量模式会复核尚未覆盖的源码方向；发现漏洞后继续处理可执行任务。达到预算仍会停止并保留已落库结果，不代表读完每行。' : '快速模式允许在目标达成后停止后续任务，适合检查一个明确风险或入口。'}</p>
+          <label className="checkbox"><input type="checkbox" aria-label="使用已有漏洞作为审计线索" disabled={starting} checked={task.baseline_policy !== 'fresh'} onChange={(event) => setTask((value) => ({ ...value, baseline_policy: event.target.checked ? 'inherit' : 'fresh' }))} /><span>使用已有漏洞作为审计线索{inheritedCount !== undefined ? `（项目台账 ${inheritedCount} 条）` : ''}</span></label>
+          <p className="field-hint">{task.baseline_policy === 'fresh' ? '本次从空白漏洞基线独立审计，不向 Agent 继承历史结论；项目台账与旧记录仍保留，新发现继续关联该源码项目。' : '本次会冻结项目已有漏洞作为线索，适合继续排查或复核既有结论。'}{sourceProject && <> <a href={sourceHref(sourceProject.id, 'findings')}>查看项目漏洞台账及清理入口</a></>}</p>
           <label className="composer-field"><span>审计任务 <span className="faint">/ 你想查清什么</span></span><textarea ref={objectiveRef} aria-label="审计任务" rows={2} maxLength={4000} disabled={starting} value={task.objective} onChange={(event) => setTask((value) => ({ ...value, objective: event.target.value, scenario: null }))} placeholder="例如：追踪文件上传入口，检查是否存在任意文件写入路径…" /></label>
           <div className="scenario-fill">
             <span className="scenario-fill-label"><Sparkles size={13} />分场景快捷填充</span>
@@ -294,7 +293,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
               ))}
             </div>
           </div>
-          <p className="field-hint">验收条件按平台默认要求冻结：结论需有原始源码行号证据与明确触发条件；CVSS 3.1 指标不足时保留待评分。{scope && <span className="scope-chip" title="提交时会拼进审计任务末尾"><span className="mono">{scope.path}:{scope.start}-{scope.end}</span><button type="button" className="icon-button" aria-label="移除重点范围" disabled={starting} onClick={() => setScope(null)}><X size={12} /></button></span>}</p>
+          <p className="field-hint">验收条件按所选模式冻结：{task.completion_policy === 'coverage_review' ? '结算可执行任务，并记录覆盖缺口或按路径给出跳过理由；' : '找到有证据支持的目标相关风险；'}结论需有原始源码行号证据与明确触发条件，CVSS 3.1 指标不足时保留待评分。{scope && <span className="scope-chip" title="提交时会拼进审计任务末尾"><span className="mono">{scope.path}:{scope.start}-{scope.end}</span><button type="button" className="icon-button" aria-label="移除重点范围" disabled={starting} onClick={() => setScope(null)}><X size={12} /></button></span>}</p>
         </div>
         {error && <div className="composer-error" role="alert">{error}{selected && !snapshot && !loading && <button className="text-button" type="button" onClick={() => setSnapshotRevision((value) => value + 1)}>重试读取 ZIP</button>}</div>}
         <div className="composer-toolbar"><div className="composer-tools">
@@ -331,7 +330,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       <div className="settings-section-label"><SlidersHorizontal size={16} />单次 Planner / worker 执行预算</div><div className="form-grid">
         {([{ key: 'responses', label: '模型响应次数', min: 1, max: 256 }, { key: 'tools', label: '工具调用次数', min: 0, max: 2048 }, { key: 'seconds', label: '墙钟时间（秒）', min: 30, max: 14400 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={budgets[field.key]} onChange={(event) => setBudgets((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
       </div><p className="field-hint">单次执行和整次审计均受限，先到达的上限生效。所有 worker 还共享总尝试上限，暂停继续保留全部消耗。</p>
-      <label className="checkbox option-checkbox"><input type="checkbox" checked={task.stop_on_achieved} onChange={(event) => setTask((value) => ({ ...value, stop_on_achieved: event.target.checked }))} /><span>目标达成后停止未开始的任务</span></label>
+      <label className="checkbox option-checkbox"><input type="checkbox" checked={task.stop_on_achieved} disabled={task.completion_policy === 'coverage_review'} onChange={(event) => setTask((value) => ({ ...value, stop_on_achieved: event.target.checked }))} /><span>目标达成后停止未开始的任务{task.completion_policy === 'coverage_review' ? '（全量覆盖复核时关闭）' : ''}</span></label>
       <div className="settings-section-label"><ShieldCheck size={16} />POC 自动验证</div>
       <label className="field"><span className="field-label">自动验证模式</span><select value={pocMode} onChange={(event) => setPocMode(event.target.value as PocMode)}><option value="off">关闭 · 仅源码审计</option><option value="auto">自动 · 环境可用时验证</option><option value="required">必须 · 需要验证后收束</option></select></label>
       <p className="field-hint">关闭时不启动 POC agent。自动模式环境不可用时跳过验证，源码结论仍保留为未验证；必须模式要求环境可用且结论已复现。</p>

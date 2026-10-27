@@ -44,6 +44,8 @@ const EXECUTION_LABELS: Record<string, string> = {
   syntax_error: '脚本语法错误',
   connection_failed: '无法连接目标',
   environment_mismatch: '环境不匹配',
+  authentication_failed: '身份认证失败',
+  state_mismatch: '账号状态不符',
   not_triggered: '执行成功但漏洞未触发',
   not_run: '未执行 / 仅静态阅读',
   other_error: '其他执行错误',

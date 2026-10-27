@@ -847,6 +847,57 @@ async def search_project_findings(
     )
 
 
+async def _delete_project_findings(state: Services, project_id: str | None) -> dict:
+    try:
+        return await asyncio.to_thread(state.store.delete_project_findings, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project does not exist") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.delete("/api/project-findings")
+async def clear_project_findings(
+    request: Request,
+    project_id: str | None = Query(None, min_length=1),
+) -> dict:
+    """Clear a project's ledger, or every project's ledger when no scope is given.
+
+    This includes linked historical discoveries and their verification records,
+    including withdrawn conclusions. Search filters are not accepted here.
+    Source archives, audit records and independent Prompt experiments are retained.
+    Active or resumable audits must be cancelled and fully settled first.
+    """
+    if set(request.query_params) - {"project_id"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Bulk deletion only supports project_id; search filters are not supported",
+        )
+    return await _delete_project_findings(services(request), project_id)
+
+
+@app.delete("/api/projects/{project_id}/findings")
+async def clear_project_findings_for_project(request: Request, project_id: str) -> dict:
+    """Explicit project-scoped alias for clearing the shared vulnerability ledger."""
+    return await _delete_project_findings(services(request), project_id)
+
+
+@app.delete("/api/project-findings/{project_finding_id}")
+async def delete_project_finding(request: Request, project_finding_id: str) -> dict:
+    """Remove one canonical conclusion and every linked historical discovery.
+
+    Deleting the run findings as well prevents migration/backfill from restoring
+    a removed conclusion when the service restarts.
+    """
+    try:
+        return await asyncio.to_thread(
+            services(request).store.delete_project_finding, project_finding_id
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project finding does not exist") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
 
 def _cvss_edit(state, ident, payload):
     finding = state.store.get_project_finding(ident)
@@ -1030,14 +1081,25 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     }
     if worker_strategy is not None:
         model_profile["thinking"] = str(getattr(active_model, "thinking", "disabled"))
-    # The ledger is frozen at run start: a sibling run that discovers something later must
-    # not change what this run is trying to prove.  Withdrawn rows are excluded -- they are
-    # history, not standing conclusions.
-    baseline = state.store.list_project_findings(project["id"], include_withdrawn=False)
+    # Store freezes the requested ledger policy in the run-creation transaction.
+    # A fresh run does not inherit old conclusions and never deletes the shared ledger.
+    # A concurrent clear either runs first or sees this pending audit and refuses.
     poc_policy = state.settings.poc.snapshot()
     poc_policy["mode"] = payload.poc_mode
     poc_policy["required"] = payload.poc_mode == "required"
     task_spec = payload.task.model_dump()
+    if task_spec.get("completion_policy") == "coverage_review":
+        # This is an explicit API mode, not a guess based on words such as “全部” in
+        # the objective. Keep legacy requests on their original goal policy and
+        # preserve explicit criteria frozen in comparison experiment manifests.
+        task_spec["stop_on_achieved"] = False
+        if task_spec["success_criteria"] == type(payload.task).model_fields["success_criteria"].default:
+            task_spec["success_criteria"] = (
+                "在所选完整源码范围内发现由原始行号证据支撑、具有明确触发条件的漏洞风险；"
+                "结算所有可执行方向，并复核未覆盖的第一方源码模块与入口，按实际路径记录跳过理由或未覆盖方向。"
+                "发现漏洞后继续处理剩余可执行任务，不以首个目标达成作为收束条件。"
+                "预算耗尽时保留已落库发现并诚实报告覆盖缺口。提供 CVSS 3.1 基础指标与依据，信息不足时保留待评分状态。"
+            )
     if task_spec.get("scenario"):
         # A scenario run must exhaust the whole class, not stop at the first finding.
         # ``stop_on_achieved`` is forced off and the frozen acceptance criterion states the
@@ -1054,7 +1116,7 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
         "snapshot_name": snapshot["name"],
         "project_id": project["id"],
         "project_mode": "project",
-        "project_baseline": baseline,
+        "project_baseline": [],
         "poc_policy": poc_policy,
         # The whole snapshot is the scope, so no explicit file list is stored. Downstream
         # code must branch on ``scope_mode`` (see ``runtime.allowed_paths_for_run``)
@@ -1081,7 +1143,7 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
         "mode": "off", "available": False, "reason": "disabled",
         "message": "本次审计未启用自动执行 POC。", "checked_at": _iso(),
     }
-    state.store.create_run(run)
+    state.store.create_run(run, freeze_project_baseline=True)
     state.store.touch_project_run(project["id"], run_id)
     state.store.create_planner_session(
         run_id,
@@ -1092,17 +1154,21 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     persisted = state.store.get_run(run_id)
     if persisted is None:  # pragma: no cover - the preceding transaction created it
         raise RuntimeError("Run disappeared after it was persisted")
+    baseline = persisted["project_baseline"]
     state.bus.emit(run_id, None, "planner_run_queued", {
         "objective": payload.task.objective,
         "scope_mode": run["scope_mode"],
         "scope_files": len(project_map.get("scope") or []),
         "project_map_stats": project_map.get("stats") or {},
         "max_planner_rounds": payload.task.max_planner_rounds,
+        "completion_policy": task_spec.get("completion_policy", "goal"),
+        "baseline_policy": task_spec.get("baseline_policy", "inherit"),
         "model_profile": persisted["model_profile"],
     })
     state.bus.emit(run_id, None, "project_findings_baseline_frozen", {
         "project_id": project["id"],
         "project_name": project["name"],
+        "baseline_policy": task_spec.get("baseline_policy", "inherit"),
         "count": len(baseline),
         "ids": [item["id"] for item in baseline][:64],
         "verified": sum(1 for item in baseline if item.get("verification_status") == "verified"),

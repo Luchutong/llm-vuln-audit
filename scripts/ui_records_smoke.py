@@ -227,22 +227,23 @@ def exercise(page, base, api, checks, screenshots):
     expect(empty_project.get_by_role('link',name='开始审计',exact=True)).to_have_count(0)
     checks.passed('a project with no remaining ZIP offers an upload instead of a broken audit action')
 
-    navigate(page,'#settings')
-    page.get_by_role('button',name='提示词草稿',exact=True).click()
-    expect(page.get_by_role('region',name='提示词 内置规则',exact=True).get_by_role('button',name='删除提示词草稿',exact=True)).to_be_disabled()
+    navigate(page,'#prompts')
+    page.get_by_role('button',name=re.compile('^内置规则')).click()
+    expect(page.get_by_role('button',name='删除提示词草稿',exact=True)).to_be_disabled()
     # A still-existing active audit references this prompt.
     api.runs['record-running']['prompt_id']='used'
-    page.get_by_role('button',name='刷新提示词',exact=True).click()
     page.wait_for_timeout(5200)
-    expect(page.get_by_role('region',name='提示词 已引用草稿',exact=True).get_by_role('button',name='删除提示词草稿',exact=True)).to_be_disabled()
-    draft=page.get_by_role('region',name='提示词 待删除草稿',exact=True)
-    draft.get_by_role('button',name='删除提示词草稿',exact=True).click()
+    page.get_by_role('button',name=re.compile('^已引用草稿')).click()
+    expect(page.get_by_role('button',name='删除提示词草稿',exact=True)).to_be_disabled()
+    draft=page.get_by_role('button',name=re.compile('^待删除草稿'))
+    draft.click()
+    page.get_by_role('button',name='删除提示词草稿',exact=True).click()
     expect(dialog(page,'删除提示词草稿')).to_contain_text('待删除草稿')
     confirm(page).click()
     expect(draft).to_have_count(0)
     assert api.mutations[-1][1]=='/prompts/draft'
     expect(page.locator('.source-import-notice')).to_contain_text('已删除提示词草稿')
-    checks.passed('settings expose prompt management with built-in/reference guards and successful empty-body deletion')
+    checks.passed('prompt library keeps built-in/reference guards and successful empty-body deletion')
 
     # Responsiveness and keyboard cancellation on a real confirmation dialog.
     for theme in ('dark','light'):

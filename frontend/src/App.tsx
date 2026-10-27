@@ -90,6 +90,7 @@ export default function App() {
     setRecordEpoch((value) => value + 1);
     const visible = parseRoute(window.location.hash);
     if (visible.runId && removed.has(visible.runId)) navigate(change.projectId ? sourceHref(change.projectId) : '#sources');
+    if (change.projectFindingId && visible.findingId === change.projectFindingId) navigate(change.projectId ? sourceHref(change.projectId, 'findings') : '#findings');
     if (change.snapshotId && visible.snapshotId === change.snapshotId && visible.projectId) navigate(sourceHref(visible.projectId, 'archives'));
     window.dispatchEvent(new Event(RECORDS_CHANGED));
     void load();

@@ -3,7 +3,19 @@ import type { Prompt, Run, SnapshotSummary } from './types';
 export const RECORDS_CHANGED = 'audit-records-changed';
 export interface RunDeletion { run_id: string; status_before: string; deleted: Record<string, number> }
 export interface RunCleanup { deleted_runs: number; runs: RunDeletion[] }
-export interface RecordsChange { runIds?: string[]; snapshotId?: string; promptId?: string; projectId?: string | null; notice: string }
+export interface FindingDeletion { deleted_project_findings: number; deleted_run_findings: number; deleted: Record<string, number>; affected_project_ids: string[] }
+export interface RecordsChange { runIds?: string[]; snapshotId?: string; promptId?: string; projectFindingId?: string; projectId?: string | null; notice: string }
+
+/** Finding cleanup spans historical runs; a paused run could still write on resume. */
+export function findingDeletionBlock(runs: Pick<Run, 'status' | 'project_id'>[], projectId?: string): string | null {
+  return runs.some((run) => (!projectId || run.project_id === projectId) && ['pending', 'running', 'paused'].includes(run.status))
+    ? '请先取消或完成此范围内排队、运行或已暂停的审计，再删除漏洞。' : null;
+}
+
+export function findingDeletionPath(projectId?: string, findingId?: string): string {
+  return findingId ? `/project-findings/${encodeURIComponent(findingId)}`
+    : `/project-findings${projectId ? `?${new URLSearchParams({ project_id: projectId })}` : ''}`;
+}
 
 export function runDeletionBlock(run: Pick<Run, 'status'>): string | null {
   return ['pending', 'running'].includes(run.status) ? '请先停止排队或运行中的审计，再删除记录。' : null;

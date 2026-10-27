@@ -279,6 +279,24 @@ test('phase replay cannot join a new result to a dangling invocation from an ear
   assert.equal(groupTrace(entries)[0].phases.length, 3);
 });
 
+test('JSON publication distinguishes empty and truncated replies from a valid response or rejected decision', () => {
+  const summary = (kind, payload) => eventSummary(normalizeTrace([event(1, kind, payload)])[0]);
+  assert.match(summary('model_response', { content_empty: true, finish_reason: 'length' }), /输出额度耗尽.*未返回正文/);
+  assert.match(summary('model_response', { finish_reason: 'length' }), /长度上限/);
+  assert.match(summary('model_response', { response_format: 'json' }), /JSON 决策响应已记录/);
+  assert.match(summary('agent_output_rejected', { hint: 'field invalid' }), /未通过宿主校验/);
+  assert.match(summary('agent_parse_error', { category: 'invalid_json', phase: 'planner_publish' }), /JSON 格式无效/);
+});
+
+test('context events say which side of the ceiling was reached and in what sizes', () => {
+  const summary = (kind, payload) => eventSummary(normalizeTrace([event(1, kind, payload)])[0]);
+  assert.match(summary('context_summarized', { before_bytes: 400000, after_bytes: 230000, cached: true }), /390\.6 KiB → 224\.6 KiB.*复用既有摘要/);
+  assert.match(summary('context_summary_failed', { reason: 'empty_summary' }), /摘要失败.*empty_summary/);
+  assert.match(summary('context_limit', { source: 'source_ledger' }), /已读源码账本超过上限/);
+  assert.match(summary('context_limit', { source: 'history_bytes', request_bytes: 70000, history_bytes: 65536 }), /模型历史超过上限 · 68\.4 KiB \/ 64\.0 KiB/);
+  assert.match(summary('planner_pinned_expanded', { hard_bytes: 32768 }), /32\.0 KiB/);
+});
+
 test('a parse failure is summarized as an output-format problem, not an execution error', () => {
   const [entry] = normalizeTrace([tool(1, 'agent_parse_error', {
     phase: 'poc_conclude', step: 2, request_index: 2, category: 'no_code_block', hint: '宿主固定提示',

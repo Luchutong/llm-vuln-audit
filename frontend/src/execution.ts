@@ -1,4 +1,4 @@
-import type { Budget, Config, ExecutionSummary, Run, RunDetail } from './types';
+import type { Budget, Config, ExecutionContextStats, ExecutionSummary, Run, RunDetail } from './types';
 
 export const DEFAULT_RUN_LIMITS: Budget = { responses: 256, tools: 2048, seconds: 1800 };
 export const FALLBACK_RUN_BOUNDS = {
@@ -33,6 +33,20 @@ export function draftRunLimits(seed?: Run, config?: Config | null): Budget {
 }
 export function executionSummary(detail: RunDetail): ExecutionSummary | null {
   return detail.execution_summary ?? detail.run.execution_summary ?? null;
+}
+export function formatBytes(value?: number | null): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '—';
+  return value >= 1024 ? `${(value / 1024).toFixed(1)} KiB` : `${Math.round(value)} B`;
+}
+
+/** One line for the run summary: how close the window got, and what staying under cost. */
+export function contextLine(context?: ExecutionContextStats | null): string {
+  if (!context || typeof context.history_bytes !== 'number' || !context.history_bytes) return '';
+  const parts = [`上下文峰值 ${formatBytes(context.peak_request_bytes)} / 上限 ${formatBytes(context.history_bytes)}`];
+  if (context.compactions) parts.push(`触发压缩 ${context.compactions} 次`);
+  if (context.summary_requests) parts.push(`摘要请求 ${context.summary_requests} 次`);
+  if (context.limit_hits) parts.push(`达到上限 ${context.limit_hits} 次`);
+  return parts.join(' · ');
 }
 export function executionPhase(phase: string): string { return PHASE_LABELS[phase] ?? phase; }
 export function activeExecutionCount(summary: ExecutionSummary): number { return Array.isArray(summary.active_executions) ? summary.active_executions.length : summary.active_executions; }

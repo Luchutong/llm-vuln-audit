@@ -20,6 +20,7 @@ import { ExecutionStatus, HostSummary } from '../components/ExecutionStatus';
 import { DefencePanel } from '../components/DefencePanel';
 import { executionSummary } from '../execution';
 import { SeverityBadge } from '../components/CvssPanel';
+import { frozenTaskPolicy } from '../taskDraft';
 
 const SCENARIO_LABELS: Record<string, string> = { sqli: 'SQL 注入', xss_r: '反射型 XSS', command_injection: '命令注入' };
 
@@ -106,6 +107,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
   const reviews = detail.verification_reviews ?? [];
   const contested = reviews.filter((item) => item.decision !== 'confirmed').length;
   const statusLabel = runLabel(run.status, goal?.status);
+  const frozenPolicy = frozenTaskPolicy(run.task_spec);
   return <section className="run-workspace">
     <header className="conversation-header"><div className="conversation-heading"><span className="eyebrow">AUDIT SESSION</span><h1 title={run.task_spec?.objective}>{run.task_spec?.objective ?? run.snapshot_name}</h1><div className="conversation-meta"><span className={`chip chip-${run.status}`}><span className={`status-dot status-${run.status}`} />{statusLabel}</span>{run.task_spec?.scenario && <span className="chip" title="分场景专属运行：宿主要求穷尽该类别全部方向后才允许收束">{SCENARIO_LABELS[run.task_spec.scenario] ?? run.task_spec.scenario} · 分场景穷尽</span>}<span>{run.snapshot_name}</span><span className="mono" title="实际 ZIP 快照">ZIP {run.snapshot_id.slice(0, 8)}</span><span className="mono">{run.id.slice(0, 8)}</span>{run.project_id && <><a href={sourceHref(run.project_id)}>{detail.project?.name ?? run.project_name ?? '所属源码包'}</a><a href={sourceHref(run.project_id, 'findings')}>项目漏洞台账</a><a href={`${sourceHref(run.project_id, 'archives')}&snapshot=${encodeURIComponent(run.snapshot_id)}`}>ZIP 与源码</a></>}</div></div><div className="conversation-actions"><DeleteRunButton run={run} />{executing && <button className="btn" disabled={busy} onClick={() => void control('pause')}><Pause size={13} />暂停运行</button>}{paused && <button className="btn btn-primary" disabled={busy || pauseSettling} onClick={() => void control('resume')}><Play size={13} />继续运行</button>}{live && <button className="btn btn-danger" disabled={busy} onClick={() => void cancel()}><Square size={13} />{busy ? '取消中…' : '停止审计'}</button>}<button className="btn" onClick={() => openDetails('overview')}><PanelRightOpen size={16} /><span>审计详情</span></button></div></header>
     <div className="chat-scroll" ref={scrollbox} onScroll={() => { const box = scrollbox.current; if (box) { follow.current = box.scrollHeight - box.scrollTop - box.clientHeight < 100; if (follow.current) setNewActivity(false); } }}>
@@ -114,6 +116,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
         <article className="user-message"><div className="message-label">你 <span>审计任务</span></div><div className="user-bubble">
           <button className="message-attachment" onClick={() => openDetails('overview')}><FileArchive size={24} /><span><strong>{run.snapshot_name}</strong><small>{scopeFileCount(run, detail.project_map)} 个可读文件 · 冻结项目快照</small></span><ArrowUpRight size={16} /></button>
           <LongContent value={run.task_spec?.objective ?? run.prompt_text ?? '历史审计任务'} label="审计任务" />
+          {run.task_spec && <><div className="result-actions" aria-label="已冻结的审计策略"><span className="chip">{frozenPolicy.mode}</span><span className="chip">{frozenPolicy.baseline}</span></div><p className="field-hint">{frozenPolicy.baselineDescription}</p></>}
           {run.task_spec?.success_criteria && <LongContent value={run.task_spec.success_criteria} label="验收目标" />}
         </div></article>
         <article className="assistant-message"><div className="assistant-avatar"><ShieldCheck size={20} /></div><div className="assistant-body"><div className="message-label"><BrandWordmark compact /> <span>源码审计助手</span></div>

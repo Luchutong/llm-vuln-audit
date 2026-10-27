@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError, api } from '../src/api.ts';
-import { activeExecutionCount, DEFAULT_RUN_LIMITS, draftRunLimits, executionPhase, executionSummary, pocReason, stopReason } from '../src/execution.ts';
+import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, draftRunLimits, executionPhase, executionSummary, formatBytes, pocReason, stopReason } from '../src/execution.ts';
 import { projectActivity } from '../src/activity.ts';
 
 test('drafts copy only the frozen limits and never previous consumption', () => {
@@ -41,4 +41,19 @@ test('POC off and unavailable environment are neutral lifecycle information', ()
   const items = projectActivity(events, { run: { status: 'inconclusive' } });
   assert.equal(items.length, events.length);
   assert.ok(items.every((item) => item.tone === 'neutral'));
+});
+
+test('contextLine reports the peak against the byte ceiling, never as a token count', () => {
+  assert.equal(contextLine(undefined), '');
+  assert.equal(contextLine({}), '');
+  assert.equal(formatBytes(0), '0 B');
+  assert.equal(formatBytes(393216), '384.0 KiB');
+  assert.equal(formatBytes(null), '—');
+  const line = contextLine({ history_bytes: 393216, peak_request_bytes: 300000, compactions: 2,
+    summary_requests: 3, limit_hits: 0 });
+  assert.match(line, /上下文峰值 293\.0 KiB \/ 上限 384\.0 KiB/);
+  assert.match(line, /触发压缩 2 次/);
+  assert.match(line, /摘要请求 3 次/);
+  assert.doesNotMatch(line, /达到上限/);
+  assert.match(contextLine({ history_bytes: 65536, limit_hits: 1 }), /达到上限 1 次/);
 });

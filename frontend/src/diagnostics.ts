@@ -15,6 +15,8 @@ export const ERROR_LABELS: Record<string, string> = {
   internal_error: '内部异常', cancelled: '已取消', no_code_block: '没有可解析的代码块',
   ambiguous_code_blocks: '存在多个动作代码块', incomplete_code: '动作代码不完整',
   invalid_python: 'Python 语法错误', unauthorized_import: '模块不在允许导入范围',
+  invalid_json: 'JSON 格式无效', empty_response: '模型未返回正文',
+  truncated_output: '结构化输出被截断', invalid_output: '决策未通过校验',
 };
 const FAILED = new Set(['error', 'failed', 'timeout', 'invalid_arguments', 'path_not_found', 'scope_denied', 'context_missing', 'retry_exhausted', 'internal_error']);
 const OK = new Set(['ok', 'success', 'completed']);
@@ -40,8 +42,9 @@ export function toolOutcome(payload: Record<string, unknown> | undefined) {
   let executionText = timedOut ? '作业执行超时' : exitCode !== null ? (exitCode === 0 ? '脚本退出码 0' : `脚本执行失败 · 退出码 ${exitCode}`)
     : ({ success: '作业执行成功', completed: '作业执行完成', failed: '作业执行失败', error: '作业执行失败',
       environment_mismatch: '实验前提不符', precondition_failed: '实验前提不符', preconditions_failed: '实验前提不符',
+      authentication_failed: '身份认证失败', state_mismatch: '账号状态不符',
       not_run: '作业未执行', cancelled: '作业已取消', inconclusive: '作业结果未决' } as Record<string, string>)[execution] || (execution ? `作业状态：${execution}` : '');
-  const executionFailed = timedOut || exitCode !== null && exitCode !== 0 || ['failed', 'error', 'environment_mismatch', 'precondition_failed', 'preconditions_failed', 'cancelled'].includes(execution);
+  const executionFailed = timedOut || exitCode !== null && exitCode !== 0 || ['failed', 'error', 'environment_mismatch', 'precondition_failed', 'preconditions_failed', 'authentication_failed', 'state_mismatch', 'cancelled'].includes(execution);
   if (timedOut && exitCode !== null) executionText += ` · 退出码 ${exitCode}`;
   return { failed, cached, executionFailed, executionText,
     callText: failed ? (ERROR_LABELS[errorCode || status] || '调用失败') : status === 'cancelled' ? '调用已取消' : OK.has(status) || cached ? '调用完成' : '调用已返回',
@@ -62,7 +65,7 @@ export interface DiagnosticIncident {
 function diagnosticError(entry: TraceEntry): boolean {
   const kind = entry.event.kind;
   if (kind === 'agent_error_summary') return false;
-  if (['agent_parse_error', 'agent_execution_error', 'model_retry', 'model_error'].includes(kind)) return true;
+  if (['agent_parse_error', 'agent_execution_error', 'agent_output_rejected', 'model_retry', 'model_error'].includes(kind)) return true;
   if (kind === 'agent_code') return Boolean(entry.payload.error);
   return kind === 'tool_result' && toolOutcome(entry.payload)?.failed === true;
 }
@@ -119,6 +122,7 @@ export function diagnosticGroups(incidents: DiagnosticIncident[]) {
 export function verificationExecution(record: Verification): string {
   const labels: Record<string, string> = { success: '作业执行成功', syntax_error: '脚本语法错误', connection_failed: '无法连接目标',
     environment_mismatch: '实验前提不符', precondition_failed: '实验前提不符', timeout: '作业执行超时',
+    authentication_failed: '身份认证失败', state_mismatch: '账号状态不符',
     not_triggered: '执行完成，未观察到预期触发', not_run: '未执行', other_error: '作业执行失败' };
   return labels[record.execution_status ?? ''] || (record.execution_status ? `执行状态：${record.execution_status}` : '历史记录未保存执行状态');
 }
@@ -127,7 +131,7 @@ export function verificationJobOutcome(job: VerificationJob): ReturnType<typeof 
   const result = object(job.result);
   const http = object(result.response);
   const candidate = scalar(job.execution_status ?? result.execution_status ?? job.status ?? result.status);
-  const execution = new Set(['success', 'completed', 'failed', 'error', 'precondition_failed', 'preconditions_failed', 'environment_mismatch', 'timeout', 'cancelled', 'not_run']);
+  const execution = new Set(['success', 'completed', 'failed', 'error', 'precondition_failed', 'preconditions_failed', 'environment_mismatch', 'authentication_failed', 'state_mismatch', 'timeout', 'cancelled', 'not_run']);
   return toolOutcome({ ...result, status: 'ok', exit_code: job.exit_code ?? result.exit_code,
     execution_status: execution.has(candidate) ? candidate : undefined,
     precondition: job.precondition ?? result.precondition,

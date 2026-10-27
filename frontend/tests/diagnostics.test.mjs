@@ -6,6 +6,22 @@ import { projectActivity, groupCompletedTools } from '../src/activity.ts';
 const event = (id, kind, payload = {}) => ({ id, kind, run_id: 'run-a', created_at: `2026-10-23T15:00:${String(id % 60).padStart(2, '0')}Z`,
   payload: { role: 'worker', task_id: 'task-a', attempt: 1, agent_invocation_id: 'worker-a', request_index: 1, phase: 'task_execute', ...payload } });
 
+test('JSON validation rejection and its retry count once and recover after a committed planner decision', () => {
+  const planner = (id, kind, payload = {}) => event(id, kind, { role: 'planner', phase: 'planner_publish',
+    agent_invocation_id: 'planner-json', task_id: undefined, ...payload });
+  const incidents = diagnosticIncidents([
+    planner(1, 'model_response', { response_format: 'json' }),
+    planner(2, 'agent_output_rejected', { error_code: 'invalid_output', hint: '任务路径不在冻结快照内' }),
+    planner(3, 'model_retry'),
+    planner(4, 'model_response', { request_index: 2, response_format: 'json' }),
+    planner(5, 'planner_agent_terminal', { request_index: 2, reason: 'completed' }),
+  ]);
+  assert.equal(incidents.length, 1);
+  assert.equal(incidents[0].requestIndex, '1');
+  assert.equal(incidents[0].recovery.event.id, 5);
+  assert.deepEqual(diagnosticGroups(incidents).map(({ errors, recovered }) => ({ errors, recovered })), [{ errors: 1, recovered: 1 }]);
+});
+
 test('request diagnostics merge nested tool/interpreter errors, duplicate frames and host summaries', () => {
   const events = [event(1, 'model_request'), event(2, 'tool_result', { tool: 'read_source', status: 'invalid_arguments',
     error_code: 'invalid_arguments', error: 'start must be an integer', args: { path: 'src/file.php', start: true } }),

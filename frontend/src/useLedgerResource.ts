@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, errorText } from './api';
+import { ApiError, api, errorText } from './api';
 import { RECORDS_CHANGED } from './records';
 
 /** Keep a visible ledger current without remounting its evidence or form controls. */
@@ -22,7 +22,9 @@ export function useLedgerResource<T>(path: string) {
       api<T>(path, { signal: request.signal }).then((data) => {
         if (active && startedVersion === version) setState({ path, data, error: null, refreshing: false });
       }).catch((error) => {
-        if (active && startedVersion === version) setState((current) => ({ path, data: current.path === path ? current.data : null, error: errorText(error), refreshing: false }));
+        if (active && startedVersion === version) setState((current) => ({ path,
+          data: error instanceof ApiError && error.status === 404 ? null : current.path === path ? current.data : null,
+          error: errorText(error), refreshing: false }));
       }).finally(() => { inFlight = false; if (queued && active) { queued = false; read(); } });
     };
     refreshRef.current = read;

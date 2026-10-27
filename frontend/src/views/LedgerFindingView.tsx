@@ -2,6 +2,7 @@ import { CvssEditor, SeverityBadge } from '../components/CvssPanel';
 import { ArrowLeft, ArrowUpRight, FileArchive, GitBranch, LoaderCircle } from 'lucide-react';
 import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
+import { DeleteFindingButton } from '../components/RecordActions';
 import { LEDGER_DISPOSITION_LABELS, RELATION_LABELS, ledgerFindingForDisplay, ledgerReturnHash } from '../ledger';
 import { localDate, runLabel } from '../status';
 import type { LedgerFindingDetail, LedgerRunReference } from '../types';
@@ -24,7 +25,7 @@ export function LedgerFindingView({ findingId }: { findingId: string }) {
   const currentVerification = detail.current_verification;
 
   return <article className="ledger-page ledger-detail-page">
-    <div className="ledger-backlinks"><a className="ledger-back" href={ledgerReturnHash(window.location.hash, project.id)}><ArrowLeft size={16} />返回漏洞列表</a><a href={`#sources/${encodeURIComponent(project.id)}?tab=findings`}>包内漏洞</a><a href="#findings">全部漏洞</a><button className="text-button" aria-label="刷新漏洞详情" disabled={refreshing} onClick={refresh}>{refreshing ? '刷新中…' : '刷新'}</button></div>
+    <div className="ledger-backlinks"><a className="ledger-back" href={ledgerReturnHash(window.location.hash, project.id)}><ArrowLeft size={16} />返回漏洞列表</a><a href={`#sources/${encodeURIComponent(project.id)}?tab=findings`}>包内漏洞</a><a href="#findings">全部漏洞</a><button className="text-button" aria-label="刷新漏洞详情" disabled={refreshing} onClick={refresh}>{refreshing ? '刷新中…' : '刷新'}</button><DeleteFindingButton finding={finding} /></div>
     {error && <div className="ledger-error" role="alert"><span>刷新失败：{error}</span><button className="btn" onClick={refresh}>重试</button></div>}
     <header className="ledger-page-head"><div><span className="ledger-eyebrow">VULNERABILITY DETAIL</span><h1>{finding.title}</h1><p>{project.name} · 首次发现 {localDate(finding.discovered_at)} · 最近更新 {localDate(finding.updated_at)}</p><div className="ledger-detail-tags"><SeverityBadge finding={finding} /><span className={`chip chip-${finding.verification_status}`}>{VERIFICATION_LABELS[finding.verification_status] ?? finding.verification_status}</span><span className="chip">{LEDGER_DISPOSITION_LABELS[finding.disposition] ?? finding.disposition}</span><span className="chip">第 {finding.revision} 版</span></div></div></header>
     <section className="ledger-provenance" aria-label="漏洞来源">

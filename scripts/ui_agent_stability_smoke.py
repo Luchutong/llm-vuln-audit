@@ -127,6 +127,40 @@ def run_checks(page, base, api, checks, screenshots):
     expect(page.get_by_role("button", name="实验前提与实际身份", exact=True)).to_have_count(0)
     checks.passed("legacy verification rows without context or evidence references remain readable")
 
+    # The JSON publisher has no Python action event. Its rejected decisions must
+    # still contribute to request diagnostics and retain inspectable recovery.
+    context = {"role": "planner", "phase": "planner_publish", "agent_invocation_id": "planner-json"}
+    api.event_overrides[COMPLETED_ID].extend([
+        event(COMPLETED_ID, 17, "model_response", {**context, "request_index": 1, "content_empty": True, "finish_reason": "length"}),
+        event(COMPLETED_ID, 18, "agent_parse_error", {**context, "request_index": 1, "category": "empty_response", "hint": "只提交最小完整 JSON 对象"}),
+        event(COMPLETED_ID, 19, "model_retry", {**context, "request_index": 1}),
+        event(COMPLETED_ID, 20, "model_response", {**context, "request_index": 2, "response_format": "json"}),
+        event(COMPLETED_ID, 21, "agent_output_rejected", {**context, "request_index": 2, "error_code": "invalid_output", "hint": "任务路径不在冻结快照内"}),
+        event(COMPLETED_ID, 22, "model_retry", {**context, "request_index": 2}),
+        event(COMPLETED_ID, 23, "model_response", {**context, "request_index": 3, "response_format": "json"}),
+        event(COMPLETED_ID, 24, "planner_agent_terminal", {**context, "request_index": 3, "reason": "completed"}),
+    ])
+    page.set_viewport_size({"width": 1440, "height": 900})
+    goto(page, base, f"#run/{COMPLETED_ID}")
+    expect(page.locator(".activity-stream .agent-diagnostics")).to_contain_text("4 次异常请求 · 4 次已恢复")
+    dialog = open_logs(page)
+    dialog.get_by_role("button", name="筛选轨迹", exact=False).click()
+    kind = dialog.get_by_role("combobox", name="按事件类型筛选轨迹", exact=True)
+    kind.select_option("model_response")
+    for selector in (".trace-group > button", ".trace-phase > button"):
+        for button in dialog.locator(selector).all():
+            if button.get_attribute("aria-expanded") == "false":
+                button.click()
+    expect(dialog.locator(".trace-groups")).to_contain_text("模型输出额度耗尽，未返回正文")
+    expect(dialog.locator(".trace-groups")).to_contain_text("模型 JSON 决策响应已记录")
+    kind.select_option("agent_output_rejected")
+    for selector in (".trace-group > button", ".trace-phase > button"):
+        for button in dialog.locator(selector).all():
+            if button.get_attribute("aria-expanded") == "false":
+                button.click()
+    expect(dialog.locator(".trace-groups")).to_contain_text("结构化决策未通过宿主校验")
+    checks.passed("JSON publication shows empty output, rejected decisions and recovery without a Python action")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

@@ -10,6 +10,10 @@ export interface TaskSpec {
   max_planner_rounds: number;
   max_workers: number;
   stop_on_achieved: boolean;
+  /** Missing on historical runs means legacy goal closure. */
+  completion_policy?: 'goal' | 'coverage_review';
+  /** Fresh audits keep the shared ledger but start with no inherited findings. */
+  baseline_policy?: 'inherit' | 'fresh';
   require_poc: boolean;
   /** Single vulnerability class the run must exhaustively cover (backend hard constraint). */
   scenario?: Category | null;
@@ -212,6 +216,24 @@ export interface PocReadiness {
   checked_at: string;
   capabilities: { supported_targets: string[]; browser: boolean; verification_contexts?: boolean };
 }
+/** Serialized request bytes, not tokens: the host's own ceiling on one model request. */
+export interface ExecutionContextPhase {
+  peak_request_bytes?: number;
+  requests?: number;
+  summary_requests?: number;
+  limit_hits?: number;
+}
+export interface ExecutionContextStats {
+  peak_request_bytes?: number;
+  history_bytes?: number;
+  summary_requests?: number;
+  summary_bytes?: number;
+  compactions?: number;
+  dropped_groups?: number;
+  limit_hits?: number;
+  sources?: { [key: string]: number };
+  phases?: { [phase: string]: ExecutionContextPhase };
+}
 export interface ExecutionSummary {
   policy_version?: string;
   phase: string;
@@ -222,6 +244,7 @@ export interface ExecutionSummary {
   stop_reason?: { code: string; dimension?: string | null; message?: string | null } | null;
   blocked_task_ids: string[];
   poc: { mode?: PocMode; available?: boolean | null; reason?: string | null; message?: string | null };
+  context?: ExecutionContextStats | null;
   final_summary_available: boolean;
 }
 export interface HostFinalSummary {
@@ -492,7 +515,16 @@ export interface PromptExperiment {
 }
 /** Public provider identity frozen with a run. It deliberately has no credential. */
 export interface ModelProfileSnapshot { profile_id: string; model: string; base_url: string }
-export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; run_limits?: Budget | null; poc_mode?: PocMode; execution_summary?: ExecutionSummary | null; final_summary?: HostFinalSummary | null; agent_policy?: {version: string}; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number; project_id?: string | null; project_name?: string | null; project_mode?: 'project' | 'legacy'; poc_policy?: Record<string, unknown> }
+/** The frozen policy a run is interpreted under; older runs carry only `version`. */
+export interface AgentPolicySnapshot {
+  version: string;
+  history_bytes?: number;
+  history_summary?: boolean;
+  history_trigger_ratio?: number;
+  history_target_ratio?: number;
+  history_keep_steps?: number;
+}
+export interface Run { id: string; snapshot_id: string; snapshot_name: string; scope?: string[]; scope_mode?: 'snapshot' | 'explicit'; prompt_id?: string; prompt_label?: string; prompt_text?: string; model: string; model_profile?: ModelProfileSnapshot; budgets: Budget; run_limits?: Budget | null; poc_mode?: PocMode; execution_summary?: ExecutionSummary | null; final_summary?: HostFinalSummary | null; agent_policy?: AgentPolicySnapshot; task_spec?: TaskSpec | null; status: RunStatus; created_at: string; started_at?: string; finished_at?: string; error?: string; usage: Usage; total_units?: number; completed_units?: number; total_tasks?: number; completed_tasks?: number; project_id?: string | null; project_name?: string | null; project_mode?: 'project' | 'legacy'; poc_policy?: Record<string, unknown> }
 /** One execution the isolated runner performed for a verification record. */
 export interface VerificationJob {
   id?: number | string;
@@ -516,7 +548,7 @@ export interface VerificationJob {
 export interface POC { filename: string; language: string; script: string; instructions: string; normal_input: string; attack_input: string; expected_result: string }
 export type Verdict = 'confirmed' | 'rejected' | 'uncertain';
 export type Conclusion = 'candidate' | 'no_candidate' | 'insufficient_context';
-export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'not_triggered' | 'not_run' | 'other_error' | 'timeout' | 'precondition_failed';
+export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'authentication_failed' | 'state_mismatch' | 'not_triggered' | 'not_run' | 'other_error' | 'timeout' | 'precondition_failed';
 export type VerificationStatus = 'verified' | 'rejected' | 'inconclusive' | 'not_applicable' | 'environment_unavailable' | 'unverified' | 'stale';
 /** Where a verification row came from: the isolated POC agent, or a pre-migration human record. */
 export type VerificationSource = 'poc_agent' | 'legacy_human';

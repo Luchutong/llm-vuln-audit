@@ -85,6 +85,12 @@ function first(...values: unknown[]): string {
   return values.map(scalar).find(Boolean) ?? '';
 }
 
+/** Request sizes are serialized UTF-8 bytes; a bare digit count is unreadable in a trace. */
+function bytesLabel(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '—';
+  return value >= 1024 ? `${(value / 1024).toFixed(1)} KiB` : `${Math.round(value)} B`;
+}
+
 function roleOf(event: AuditEvent, payload: Record<string, unknown>): string {
   const explicit = first(event.actor_role, payload.role);
   if (explicit) return explicit;
@@ -326,12 +332,18 @@ export function eventSummary(entry: TraceEntry): string {
   const { payload, event, context } = entry;
   if (event.kind === 'audit_progress') return shortText(payload.message, 280) || '审计进展已记录';
   if (event.kind === 'model_request') return '正在调用模型';
-  if (event.kind === 'model_response') return '模型响应已记录';
+  if (event.kind === 'model_response') {
+    if (payload.content_empty === true) return payload.finish_reason === 'length' ? '模型输出额度耗尽，未返回正文' : '模型返回空正文';
+    if (payload.finish_reason === 'length') return '模型输出达到长度上限，请检查响应完整性';
+    return payload.response_format === 'json' ? '模型 JSON 决策响应已记录' : '模型响应已记录';
+  }
+  if (event.kind === 'agent_output_rejected') return '结构化决策未通过宿主校验';
   if (event.kind === 'agent_parse_error') {
     const details = ['输出格式错误'];
     if (payload.step !== undefined && payload.step !== null) details.push(`第 ${shortText(payload.step, 12)} 步`);
     const categories: Record<string, string> = { no_code_block: '回复中没有可解析的代码块', ambiguous_code_blocks: '存在多个动作代码块',
-      incomplete_code: '动作代码不完整', invalid_python: 'Python 语法错误', unauthorized_import: '模块不在允许导入范围' };
+      incomplete_code: '动作代码不完整', invalid_python: 'Python 语法错误', unauthorized_import: '模块不在允许导入范围',
+      invalid_json: 'JSON 格式无效', empty_response: '模型未返回正文', truncated_output: '结构化输出被截断' };
     details.push(categories[scalar(payload.category)] || shortText(payload.category, 40) || '无法解析回复');
     return details.join(' · ');
   }
@@ -362,6 +374,26 @@ export function eventSummary(entry: TraceEntry): string {
   if (event.kind === 'planner_investigation_superseded') return `固定调查已被更新 · ${shortText(payload.topic, 80) || '保留既有记录'}`;
   if (event.kind === 'recon_started') return shortText(payload.question) || '开始只读侦察';
   if (event.kind === 'recon_brief_prepared') return '侦察简报已保存 · 导航线索，需源码证据核验';
+  if (event.kind === 'context_summarized') {
+    const parts = [`早期历史已摘要 · ${bytesLabel(payload.before_bytes)} → ${bytesLabel(payload.after_bytes)}`];
+    if (payload.cached === true) parts.push('复用既有摘要');
+    if (typeof payload.dropped_groups === 'number' && payload.dropped_groups > 0) parts.push(`省略 ${payload.dropped_groups} 组`);
+    return parts.join(' · ');
+  }
+  if (event.kind === 'context_summary_failed') {
+    return `摘要失败，改用确定性裁剪 · ${shortText(payload.reason, 40) || '未知原因'}`;
+  }
+  if (event.kind === 'context_limit') {
+    const labels: Record<string, string> = { history_bytes: '模型历史', source_ledger: '已读源码账本',
+      planner_pinned: 'Planner 保护骨架' };
+    const where = labels[scalar(payload.source)] || '上下文';
+    const sizes = typeof payload.request_bytes === 'number' && typeof payload.history_bytes === 'number'
+      ? ` · ${bytesLabel(payload.request_bytes)} / ${bytesLabel(payload.history_bytes)}` : '';
+    return `${where}超过上限${sizes}`;
+  }
+  if (event.kind === 'planner_pinned_expanded') {
+    return `Planner 态势超过常态上限，已放宽到 ${bytesLabel(payload.hard_bytes)}`;
+  }
   const summary = first(payload.summary, payload.basis_summary, payload.reason,
     payload.terminal_reason, payload.next_action, payload.title, payload.objective,
     payload.status, payload.outcome, payload.state, payload.error);

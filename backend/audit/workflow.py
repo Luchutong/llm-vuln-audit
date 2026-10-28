@@ -6,17 +6,31 @@ STAGES = ("discovery", "poc", "review")
 
 
 def freeze_workflow(run: dict, limits: dict) -> dict:
-    if (run.get("task_spec") or {}).get("workflow_policy") != "discovery_first":
+    task_spec = run.get("task_spec") or {}
+    if task_spec.get("workflow_policy") != "discovery_first":
         return {}
     total = int(limits["responses"])
-    review = min(max(0, total - 1), (total * 3 + 63) // 64)
     policy = run.get("poc_policy") or {}
     enabled = policy.get("mode") != "off" and bool(policy.get("enabled"))
-    poc = min(total // 4, max(0, total - review - 1)) if enabled else 0
-    planner_rounds = int((run.get("task_spec") or {}).get("max_planner_rounds") or 24)
+    explicit = task_spec.get("workflow_limits")
+    if isinstance(explicit, dict):
+        review = int(explicit.get("review") or 0)
+        poc = int(explicit.get("poc") or 0)
+        if review < 1 or poc < 0 or (poc and not enabled) or review + poc > total - 1:
+            # The API validates this already; a direct Store call must fail loudly
+            # instead of silently rewriting the caller's quotas.
+            raise ValueError("workflow_limits do not fit the frozen run budget")
+        discovery = total - review - poc
+        source = "explicit"
+    else:
+        review = min(max(0, total - 1), (total * 3 + 63) // 64)
+        poc = min(total // 4, max(0, total - review - 1)) if enabled else 0
+        discovery = total - review - poc
+        source = "derived"
+    planner_rounds = int(task_spec.get("max_planner_rounds") or 24)
     return {
-        "version": VERSION, "stage": "discovery",
-        "limits": {"discovery": total - review - poc, "poc": poc, "review": review},
+        "version": VERSION, "stage": "discovery", "source": source,
+        "limits": {"discovery": discovery, "poc": poc, "review": review},
         "used": {stage: 0 for stage in STAGES}, "transferred": 0,
         "review_reserved_seconds": min(60.0, float(limits["seconds"]) * .05),
         "review_reserved_rounds": min(max(0, planner_rounds - 1), max(1, review // 2)) if review else 0,

@@ -41,7 +41,7 @@ def render_host_summary(summary: dict) -> str:
         doc += ["", "## 阶段配额与复核", "", "| 阶段 | 模型请求额度 | 实际使用 | 剩余 |", "|---|---:|---:|---:|"]
         for stage, label in (("discovery", "源码规划与挖掘"), ("poc", "POC 验证"), ("review", "验证复核与收束")):
             doc += [f"| {label} | {workflow['limits'][stage]} | {workflow['used'][stage]} | {workflow['remaining'][stage]} |"]
-        doc += ["", f"静态阶段转入验证的请求：{workflow.get('transferred', 0)}；最终复核预留：{workflow.get('review_reserved_seconds', 0)} 秒。",
+        doc += ["", f"阶段配额来源：{'创建时自定义' if workflow.get('source') == 'explicit' else '宿主自动分配'}；静态阶段转入验证的请求：{workflow.get('transferred', 0)}；最终复核预留：{workflow.get('review_reserved_seconds', 0)} 秒。",
                 f"未决方向：{directions.get('unsettled_total', 0)}；待验证：{verification.get('pending', 0)}；正式复核记录：{verification.get('reviewed', 0)}；待复核：{verification.get('pending_review', 0)}。", ""]
     import json
     doc += ["", "## 预算与覆盖事实", "", "```json", json.dumps({"execution": execution, "coverage": summary.get("coverage"), "directions": directions, "verification": verification}, ensure_ascii=False, indent=2), "```", ""]

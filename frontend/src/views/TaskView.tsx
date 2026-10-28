@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUp, Braces, Check, ChevronDown, Database, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, X, type LucideIcon } from 'lucide-react';
 import { api, ApiError, errorText, post } from '../api';
-import type { Budget, Config, PocMode, PocReadiness, Project, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
-import { draftRunLimits, draftWorkflowAllocation, FALLBACK_RUN_BOUNDS, POC_MODE_LABELS, pocReason } from '../execution';
+import type { Budget, Config, PocMode, PocReadiness, Project, Run, Snapshot, SnapshotSummary, TaskSpec, WorkflowAllocation, WorkflowStage } from '../types';
+import { draftRunLimits, draftWorkflowAllocation, FALLBACK_RUN_BOUNDS, POC_MODE_LABELS, pocReason, workflowLimitsIssue } from '../execution';
 import '../execution.css';
 import { localDate } from '../status';
 import { sourceHref } from '../routes';
@@ -91,6 +91,13 @@ const SCENARIO_PRESETS: ScenarioPreset[] = [
   },
 ];
 function clamp(value: string, minimum: number, maximum: number) { return Math.max(minimum, Math.min(maximum, Math.trunc(Number(value) || minimum))); }
+/** The three discovery-first stages share the run's response ceiling. */
+const QUOTA_FIELDS = [
+  { key: 'discovery', label: '源码规划与挖掘', min: 1 },
+  { key: 'poc', label: 'POC 验证', min: 0 },
+  { key: 'review', label: '验证复核与收束', min: 1 },
+] as const satisfies readonly { key: WorkflowStage; label: string; min: number }[];
+const sameQuota = (a: WorkflowAllocation, b: WorkflowAllocation) => a.discovery === b.discovery && a.poc === b.poc && a.review === b.review;
 /** The start screen freezes one decision: what to audit.
  *
  * Acceptance is frozen by the server for the user's explicit coverage or goal mode.
@@ -114,6 +121,8 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const [budgets, setBudgets] = useState<Budget>(seed?.budgets ?? config?.budget_limits?.defaults ?? config?.budgets ?? { responses: 24, tools: 96, seconds: 1800 });
   const [runLimits, setRunLimits] = useState<Budget>(() => draftRunLimits(seed, config));
   const [pocMode, setPocMode] = useState<PocMode>('off');
+  const [quota, setQuota] = useState<WorkflowAllocation>(() => draftWorkflowAllocation(draftRunLimits(seed, config).responses, 'off'));
+  const quotaEdited = useRef(false);
   const [readiness, setReadiness] = useState<PocReadiness | null>(null);
   const [readinessError, setReadinessError] = useState<string | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
@@ -157,6 +166,16 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   useEffect(() => {
     if (!configuredBudget.current && config) { setBudgets(config.budget_limits?.defaults ?? config.budgets); setRunLimits(draftRunLimits(seed, config)); configuredBudget.current = true; }
   }, [config]);
+  // Untouched quotas follow the run ceiling; an edited split is the user's decision and
+  // is only validated, never silently rewritten, when that ceiling changes.
+  useEffect(() => {
+    if (!quotaEdited.current) setQuota(draftWorkflowAllocation(runLimits.responses, pocMode));
+  }, [runLimits.responses, pocMode]);
+  // Turning POC off cannot strand a quota no stage may spend.
+  useEffect(() => {
+    if (pocMode !== 'off') return;
+    setQuota((value) => value.poc ? { ...value, discovery: value.discovery + value.poc, poc: 0 } : value);
+  }, [pocMode]);
   useEffect(() => {
     active.current = true;
     return () => { active.current = false; uploadRequest.current?.abort(); };
@@ -205,6 +224,8 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     finally { if (!abort.signal.aborted) { setUploading(false); setUploadName(''); } }
   };
   const remove = () => { uploadRequest.current?.abort(); setUploading(false); setUploadName(''); setSelected(null); setSnapshot(null); setAttachmentError(null); };
+  const editQuota = () => { quotaEdited.current = true; };
+  const resetQuota = () => { quotaEdited.current = false; setQuota(draftWorkflowAllocation(runLimits.responses, pocMode)); };
   const start = async () => {
     if (startLock.current || uploading || loading) return;
     setError(null);
@@ -213,11 +234,15 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     if ([...objective].length < 8 || [...objective].length > 2000) { setError('审计任务需填写 8–2000 个字符。'); objectiveRef.current?.focus(); return; }
     if (!config?.configured) { setError('模型尚未配置完成，请在工作空间设置中检查连接。'); return; }
     if (pocMode === 'required' && (!readiness?.available || readinessLoading)) { setError('必须验证模式需要可用的自动验证环境，请先检查环境或选择其它模式。'); return; }
+    const issue = workflowLimitsIssue(quota, runLimits.responses, pocMode);
+    if (task.workflow_policy === 'discovery_first' && issue) { setError(`阶段请求配额：${issue}`); setDialog('options'); return; }
     startLock.current = true; setStarting(true);
     const generation = ++startGeneration.current;
     const sourceHash = window.location.hash;
     try {
-      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, run_limits: runLimits, poc_mode: pocMode, task: taskForStart(task, objective, scope ? scopeSuffix(scope) : '') });
+      const payload = taskForStart(task, objective, scope ? scopeSuffix(scope) : '');
+      if (payload.workflow_policy === 'discovery_first' && !sameQuota(quota, draftWorkflowAllocation(runLimits.responses, pocMode))) payload.workflow_limits = quota;
+      const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, run_limits: runLimits, poc_mode: pocMode, task: payload });
       if (active.current) {
         onChanged();
         if (startGeneration.current === generation && window.location.hash === sourceHash) onOpenRun(run.id);
@@ -238,7 +263,10 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const inheritedCount = snapshot?.project?.finding_counts?.total ?? project?.finding_counts?.total;
   const busy = uploading || loading || starting;
   const runBounds = config?.run_budget_limits ?? FALLBACK_RUN_BOUNDS;
-  const phaseAllocation = draftWorkflowAllocation(runLimits.responses, pocMode);
+  const automaticQuota = draftWorkflowAllocation(runLimits.responses, pocMode);
+  const quotaAdjusted = !sameQuota(quota, automaticQuota);
+  const quotaIssue = workflowLimitsIssue(quota, runLimits.responses, pocMode);
+  const quotaTotal = quota.discovery + quota.poc + quota.review;
   return <section className={`draft-workspace${project ? ' source-draft' : ''}${dragging ? ' is-dragging' : ''}`}
     onDragEnter={(event) => { if (!project && event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current += 1; setDragging(true); } }}
     onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
@@ -306,7 +334,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
           <button type="button" className="icon-button" disabled={busy} aria-label="高级执行设置" title="高级执行设置" onClick={() => setDialog('options')}><SlidersHorizontal size={17} /></button>
         </div><button type="submit" className={`send-button${project ? ' source-start-button' : ''}`} disabled={busy || !config?.configured || !snapshot || snapshot.id !== selected || (pocMode === 'required' && (!readiness?.available || readinessLoading))} aria-label="开始审计">{starting ? <LoaderCircle size={19} className="spin" /> : <ArrowUp size={21} />}{project && <span>{starting ? '创建中…' : '开始审计'}</span>}</button></div>
         <p className="field-hint">整次上限：模型 {runLimits.responses} 次 · 工具 {runLimits.tools} 次 · 活跃 {runLimits.seconds} 秒；POC：{POC_MODE_LABELS[pocMode]}。可在高级执行设置调整。</p>
-        {task.workflow_policy === 'discovery_first' && <p className="field-hint" aria-label="阶段请求配额预览">阶段请求配额预览：源码挖掘 {phaseAllocation.discovery} · POC 验证 {phaseAllocation.poc} · 最终复核 {phaseAllocation.review}。源码阶段提前完成的余额可转给验证，最终复核额度保留；实际配额以创建时的环境检查和冻结结果为准。</p>}
+        {task.workflow_policy === 'discovery_first' && <p className="field-hint" aria-label="阶段请求配额预览">阶段请求配额{quotaAdjusted ? '（自定义）' : '（自动）'}：源码挖掘 {quota.discovery} · POC 验证 {quota.poc} · 最终复核 {quota.review}（合计 {quotaTotal} / {runLimits.responses}）。{quotaIssue ? <span className="quota-warning" role="alert">{quotaIssue}</span> : '源码阶段提前完成的余额可转给验证，最终复核额度保留；实际配额以创建时的冻结结果为准。可在高级执行设置调整。'}</p>}
         {pocMode === 'required' && !readiness?.available && <p className="field-hint" role="status">{readinessLoading ? '正在检查必须验证所需环境…' : readinessError ? '自动验证环境检查失败，请重新检查或切换模式。' : pocReason(readiness?.reason, readiness?.message)}</p>}
       </form>
       <div className="composer-footnote"><span><ShieldCheck size={12} /> 源码只读审计 · 执行过程持久保存</span><span>Ctrl / ⌘ + Enter 发送</span></div>
@@ -329,6 +357,15 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       </div><div className="settings-section-label"><SlidersHorizontal size={16} />整次审计硬预算</div><div className="form-grid">
         {([{ key: 'responses', label: '整次模型请求上限' }, { key: 'tools', label: '整次工具调用上限' }, { key: 'seconds', label: '整次活跃时间（秒）' }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={runBounds.min[field.key]} max={runBounds.max[field.key]} value={runLimits[field.key]} onChange={(event) => setRunLimits((value) => ({ ...value, [field.key]: clamp(event.target.value, runBounds.min[field.key], runBounds.max[field.key]) }))} /><span className="field-hint">{runBounds.min[field.key]}–{runBounds.max[field.key]}</span></label>)}
       </div><p className="field-hint">Planner、侦察、worker 与 POC 共享整次额度。{task.workflow_policy === 'discovery_first' && '先完成源码挖掘，再每批最多验证两条并交给 Planner 正式复核；成功小批推进仍消耗共享总尝试，不占无进展重试。'}失败请求也计入消耗；暂停不重置预算，暂停后的静止时间不计入活跃时间。达到上限将自动结束为未完成，并保存阶段报告。</p>
+      {task.workflow_policy === 'discovery_first' && <>
+        <div className="settings-section-label"><SlidersHorizontal size={16} />阶段请求配额</div>
+        <div className="form-grid">
+          {QUOTA_FIELDS.map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={runLimits.responses} value={quota[field.key]} disabled={field.key === 'poc' && pocMode === 'off'} aria-label={`${field.label}请求配额`} onChange={(event) => { editQuota(); setQuota((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, Math.max(field.min, runLimits.responses)) })); }} /><span className="field-hint">{field.min}–{runLimits.responses}</span></label>)}
+        </div>
+        <p className="field-hint">三段共用整次模型请求上限，合计 {quotaTotal} / {runLimits.responses}。少于上限的部分在创建时归入源码挖掘；POC 关闭时 POC 配额固定为 0，关闭前已留出的余额会并入源码挖掘。{quotaAdjusted ? '当前为自定义配额，创建时按此冻结。' : '当前为自动分配，创建时不提交自定义配额，由服务端按默认规则冻结。'}</p>
+        {quotaIssue && <p className="field-hint quota-warning" role="alert">{quotaIssue}</p>}
+        <button type="button" className="text-button" disabled={!quotaAdjusted} onClick={resetQuota}>恢复自动分配（{automaticQuota.discovery} / {automaticQuota.poc} / {automaticQuota.review}）</button>
+      </>}
       <div className="settings-section-label"><SlidersHorizontal size={16} />单次 Planner / worker 执行预算</div><div className="form-grid">
         {([{ key: 'responses', label: '模型响应次数', min: 1, max: 256 }, { key: 'tools', label: '工具调用次数', min: 0, max: 2048 }, { key: 'seconds', label: '墙钟时间（秒）', min: 30, max: 14400 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={budgets[field.key]} onChange={(event) => setBudgets((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
       </div><p className="field-hint">单次执行和整次审计均受限，先到达的上限生效。所有 worker 还共享总尝试上限，暂停继续保留全部消耗。</p>

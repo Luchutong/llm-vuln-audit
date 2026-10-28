@@ -99,11 +99,14 @@
 {objective,success_criteria,max_iterations:1..8,max_total_attempts:1..512,
  max_planner_rounds:1..128,max_workers:1..4,stop_on_achieved,require_poc,
  completion_policy:"goal"|"coverage_review",baseline_policy:"inherit"|"fresh",
- workflow_policy:"legacy"|"discovery_first"}
+ workflow_policy:"legacy"|"discovery_first",
+ workflow_limits?:{discovery:1..4096,poc:0..4096,review:1..4096}}
 ```
 
 三种政策的模型缺省值依次为 `goal`、`inherit`、`legacy`；创建接口对未显式指定工作流的新覆盖复核运行采用 `discovery_first`。
 新工作流中的 `max_iterations` 限制无进展或失败重试；有效新增取证或结论的成功批次仍消耗 `max_total_attempts`、请求和时间。
+
+`workflow_limits` 可选，用于显式指定三个阶段的请求配额。仅当运行使用 `discovery_first`（显式提供，或覆盖复核模式下工作流字段缺省）时接受；`poc_mode="off"` 时 `poc` 必须为 0，三段之和不得超过 `run_limits.responses`，`discovery` 与 `review` 至少为 1，否则返回 `422`。三者之和小于整次上限是合法的：创建时未用余额并入源码挖掘，冻结后的配额始终加总为整次上限。服务端未启用 POC 能力而请求为 `auto` 时，`poc` 配额在创建时归 0 并并入源码挖掘（该阶段不可能执行）。运行记录的 `execution_summary.workflow.source` 标记为 `explicit` 或 `derived`（未提供配额时的宿主默认分配）；历史运行没有该字段。
 
 `max_total_attempts` 默认 64、`max_planner_rounds` 默认 24。`budgets` 保留单次 Planner/worker 执行含义，默认 `{responses:24,tools:96,seconds:1800}`，上限 `{responses:256,tools:2048,seconds:14400}`。探索与判定共用单次额度，预留最终提交和最多两次纠正，不突破硬上限。
 
@@ -128,8 +131,8 @@
 `Run.execution_summary` 包含 `policy_version,phase,run_limits,run_usage,run_remaining,active_executions,stop_reason,blocked_task_ids,poc,final_summary_available`。额度对象为 `{responses,tools,seconds}`，剩余不小于零；`active_executions` 每项含 invocation、角色、任务、阶段、实际单次额度和消耗。停止原因至少区分 `goal_met/run_budget_exhausted/planner_round_limit/worker_attempt_limit/unresolved_blockers/invalid_output_limit/environment_unavailable/worker_exit_without_terminal/user_cancelled/interrupted`；预算耗尽附 `dimension`。历史没有总限额时 `run_limits/run_remaining=null`。
 
 新全量审计默认冻结 `task.workflow_policy="discovery_first"`，明确提供 `legacy` 或旧运行缺字段时沿用原流程。
-`execution_summary.workflow` 返回 `version,stage,limits,used,remaining,transferred,review_reserved_seconds,review_reserved_rounds,stage_remaining_seconds,discovery_stop`；
-阶段为 `discovery/poc/review`，额度对象按这三个键计请求。POC 开启的默认分配为 180/64/12，关闭为 244/0/12。
+`execution_summary.workflow` 返回 `version,source,stage,limits,used,remaining,transferred,review_reserved_seconds,review_reserved_rounds,stage_remaining_seconds,discovery_stop`；
+阶段为 `discovery/poc/review`，额度对象按这三个键计请求。POC 开启的默认分配为 180/64/12，关闭为 244/0/12；请求通过 `task.workflow_limits` 显式指定时改用该分配，并在 `source` 标记 `explicit`。
 `directions` 返回宿主待办全量计数和有界摘要；`verification` 返回 `total,pending,verified,reviewed,pending_review`。
 同一对象同时用于前端和最终宿主报告。阶段停止区分 `stage_budget_exhausted`、`discovery_round_limit`，不扩张整次硬预算。
 完整兼容及分派协议见 [先挖掘后验证修复说明](discovery-first-repair.md)。

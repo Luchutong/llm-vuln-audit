@@ -2,6 +2,7 @@
 import io
 import json
 import zipfile
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -56,6 +57,7 @@ def test_explicit_full_coverage_freezes_consistent_criteria_and_goal(state):
     assert goal["success_criteria"] == spec["success_criteria"]
     assert goal["status"] == "open"
     assert spec["workflow_policy"] == "discovery_first"
+    assert created["execution_summary"]["workflow"]["source"] == "derived"
     assert created["execution_summary"]["workflow"]["limits"] == {"discovery": 244, "poc": 0, "review": 12}
 
 
@@ -177,3 +179,34 @@ def test_unknown_policies_are_rejected(state, field, value):
     })
     assert response.status_code == 422
     assert state.store.list_runs() == []
+
+
+def test_explicit_stage_quotas_are_frozen_and_reported(state):
+    response = state.client.post("/api/runs", json={
+        "snapshot_id": state.snapshot["id"], "poc_mode": "off",
+        "run_limits": {"responses": 400, "tools": 2048, "seconds": 1800},
+        "task": {"objective": "审查全部第一方源码及可执行审计方向", "completion_policy": "coverage_review",
+                 "workflow_limits": {"discovery": 300, "poc": 0, "review": 20}},
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["task_spec"]["workflow_limits"] == {"discovery": 300, "poc": 0, "review": 20}
+    workflow = body["execution_summary"]["workflow"]
+    assert workflow["source"] == "explicit"
+    # The unused remainder joins discovery so the frozen allocation still sums to the run cap.
+    assert workflow["limits"] == {"discovery": 380, "poc": 0, "review": 20}
+    assert state.store.workflow_state(body["id"])["limits"] == workflow["limits"]
+
+
+def test_a_poc_quota_is_released_when_this_server_cannot_run_poc(state):
+    state.settings.poc = replace(state.settings.poc, enabled=False)
+    response = state.client.post("/api/runs", json={
+        "snapshot_id": state.snapshot["id"], "poc_mode": "auto",
+        "run_limits": {"responses": 400, "tools": 2048, "seconds": 1800},
+        "task": {"objective": "审查全部第一方源码及可执行审计方向", "completion_policy": "coverage_review",
+                 "workflow_limits": {"discovery": 300, "poc": 60, "review": 20}},
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["task_spec"]["workflow_limits"]["poc"] == 0
+    assert body["execution_summary"]["workflow"]["limits"] == {"discovery": 380, "poc": 0, "review": 20}

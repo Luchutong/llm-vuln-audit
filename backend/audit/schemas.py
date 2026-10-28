@@ -219,6 +219,21 @@ class PocBundle(BaseModel):
 # --- goal-driven source tasks ----------------------------------------------
 
 
+class WorkflowLimits(BaseModel):
+    """Explicit per-stage response quotas for a discovery-first run.
+
+    The three stages share ``run_limits.responses``. A sum below the total is allowed:
+    the remainder is assigned to discovery when the workflow is frozen, so the frozen
+    allocation always adds up to the run total.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    discovery: int = Field(ge=1, le=4096, description="Source planning and mining requests")
+    poc: int = Field(ge=0, le=4096, description="POC execution requests; must be 0 when POC is off")
+    review: int = Field(ge=1, le=4096, description="Verification review and closure requests")
+
+
 class TaskSpec(BaseModel):
     """A user-defined white-box vulnerability target, frozen with its run."""
 
@@ -252,6 +267,10 @@ class TaskSpec(BaseModel):
     )
     workflow_policy: Literal["legacy", "discovery_first"] = Field(
         default="legacy", description="Frozen workflow semantics; discovery_first tracks unresolved directions and successful source batches independently of failure retries",
+    )
+    workflow_limits: WorkflowLimits | None = Field(
+        default=None,
+        description="Optional explicit discovery/POC/review response quotas; omitted means the host's fixed allocation",
     )
     require_poc: bool = Field(
         default=False,
@@ -808,6 +827,25 @@ class CreateRunRequest(BaseModel):
     def _one_scope(self) -> "CreateRunRequest":
         if bool(self.snapshot_id) == bool(self.project_id):
             raise ValueError("snapshot_id 与 project_id 必须恰好提供一个")
+        return self
+
+    @model_validator(mode="after")
+    def _workflow_limits_fit(self) -> "CreateRunRequest":
+        limits = self.task.workflow_limits
+        if limits is None:
+            return self
+        # An omitted policy becomes discovery_first for coverage_review in app.py, so
+        # the quota is valid there too; an explicit legacy policy would silently drop
+        # it, which is worse than rejecting the request.
+        workflow_on = self.task.workflow_policy == "discovery_first" or (
+            "workflow_policy" not in self.task.model_fields_set
+            and self.task.completion_policy == "coverage_review")
+        if not workflow_on:
+            raise ValueError("workflow_limits requires the discovery_first workflow")
+        if limits.discovery + limits.poc + limits.review > self.run_limits.responses:
+            raise ValueError("workflow_limits must not exceed run_limits.responses")
+        if self.poc_mode == "off" and limits.poc:
+            raise ValueError("workflow_limits.poc must be 0 when poc_mode is off")
         return self
 
 

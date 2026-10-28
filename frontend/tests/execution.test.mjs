@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError, api } from '../src/api.ts';
-import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, draftRunLimits, draftWorkflowAllocation, executionPhase, executionSummary, formatBytes, pocReason, stopReason, workflowFacts, workflowStopLabel, WORKFLOW_STAGE_LABELS } from '../src/execution.ts';
+import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, draftRunLimits, draftWorkflowAllocation, executionPhase, executionSummary, formatBytes, pocReason, stopReason, workflowFacts, workflowLimitsIssue, workflowStopLabel, WORKFLOW_STAGE_LABELS } from '../src/execution.ts';
 import { projectActivity } from '../src/activity.ts';
 
 test('drafts copy only the frozen limits and never previous consumption', () => {
@@ -87,4 +87,16 @@ test('workflow stop reasons support persisted structured administrative facts an
   assert.equal(workflowStopLabel({ state: 'inconclusive', basis: '源码阶段额度已到，未决方向已保留。', code: 'stage_budget_exhausted' }), '源码阶段额度已到，未决方向已保留。');
   assert.equal(workflowStopLabel({ code: 'stage_budget_exhausted' }), '源码阶段额度已耗尽');
   assert.equal(workflowStopLabel('settled'), '源码阶段已结算');
+});
+
+test('stage quotas are validated client-side before the request reaches the host', () => {
+  const automatic = draftWorkflowAllocation(400, 'auto');
+  assert.equal(workflowLimitsIssue(automatic, 400, 'auto'), null);
+  assert.deepEqual(automatic, { discovery: 281, poc: 100, review: 19 });
+  assert.match(workflowLimitsIssue({ discovery: 300, poc: 60, review: 41 }, 400, 'auto'), /超过整次模型请求上限/);
+  assert.match(workflowLimitsIssue({ discovery: 320, poc: 10, review: 20 }, 400, 'off'), /POC 配额必须为 0/);
+  assert.match(workflowLimitsIssue({ discovery: 0, poc: 0, review: 19 }, 400, 'off'), /至少保留 1 次/);
+  assert.match(workflowLimitsIssue({ discovery: 300, poc: 0, review: 0 }, 400, 'off'), /至少保留 1 次/);
+  // A remainder below the ceiling is legal: the host adds it to discovery when frozen.
+  assert.equal(workflowLimitsIssue({ discovery: 100, poc: 20, review: 10 }, 400, 'auto'), null);
 });

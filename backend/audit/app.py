@@ -1088,6 +1088,14 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     poc_policy["mode"] = payload.poc_mode
     poc_policy["required"] = payload.poc_mode == "required"
     task_spec = payload.task.model_dump()
+    # "auto" is best effort: when this server cannot run POC at all, its reserved quota
+    # could never be spent, so release it to discovery instead of freezing an unusable
+    # stage. ("required" already returned 409 above when the environment is unavailable.)
+    stage_quota = task_spec.get("workflow_limits")
+    if isinstance(stage_quota, dict) and stage_quota.get("poc") and not (
+        poc_policy.get("enabled") and payload.poc_mode != "off"
+    ):
+        stage_quota["poc"] = 0
     if task_spec.get("completion_policy") == "coverage_review":
         if "workflow_policy" not in payload.task.model_fields_set:
             task_spec["workflow_policy"] = "discovery_first"

@@ -58,6 +58,17 @@ export function draftWorkflowAllocation(responses: number, mode: PocMode): Workf
   const poc = mode === 'off' ? 0 : Math.min(Math.floor(total / 4), Math.max(0, total - review - 1));
   return { discovery: total - review - poc, poc, review };
 }
+/** The request's quotas must partition an existing run budget; the server rejects the
+ * same shapes, so catching them here keeps the user on the settings panel. */
+export function workflowLimitsIssue(limits: WorkflowAllocation, responses: number, mode: PocMode): string | null {
+  const total = Math.max(1, Math.floor(responses));
+  if (limits.discovery < 1 || limits.review < 1) return '源码挖掘与最终复核各至少保留 1 次请求。';
+  if (limits.poc < 0) return 'POC 验证配额不能为负。';
+  if (mode === 'off' && limits.poc) return '关闭自动验证时 POC 配额必须为 0。';
+  const sum = limits.discovery + limits.poc + limits.review;
+  if (sum > total) return `三段合计 ${sum} 次，超过整次模型请求上限 ${total} 次。`;
+  return null;
+}
 export function formatBytes(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '—';
   return value >= 1024 ? `${(value / 1024).toFixed(1)} KiB` : `${Math.round(value)} B`;

@@ -14,6 +14,8 @@ export interface TaskSpec {
   completion_policy?: 'goal' | 'coverage_review';
   /** Absent on historical records: preserve the original shared-budget scheduler. */
   workflow_policy?: 'legacy' | 'discovery_first';
+  /** Explicit discovery/POC/review response quotas; omitted means the host's derived split. */
+  workflow_limits?: WorkflowAllocation | null;
   /** Fresh audits keep the shared ledger but start with no inherited findings. */
   baseline_policy?: 'inherit' | 'fresh';
   require_poc: boolean;
@@ -257,6 +259,8 @@ export type WorkflowAllocation = Record<WorkflowStage, number>;
 export interface WorkflowExecution {
   version: 'discovery-first-v1';
   stage: WorkflowStage;
+  /** Where the frozen split came from; historical records predate the field. */
+  source?: 'explicit' | 'derived';
   limits: WorkflowAllocation;
   used: WorkflowAllocation;
   remaining: WorkflowAllocation;

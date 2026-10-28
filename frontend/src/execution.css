@@ -5,6 +5,7 @@
 .execution-budget-grid strong { font-size: 15px; font-variant-numeric: tabular-nums; }
 .execution-budget-grid small { color: var(--ink-faint); }
 .execution-stop { color: var(--warn); line-height: 1.6; }
+.quota-warning { color: var(--warn); }
 .execution-facts { display: flex; flex-wrap: wrap; gap: 10px 20px; font-variant-numeric: tabular-nums; }
 .poc-readiness { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; overflow-wrap: anywhere; }
 .poc-readiness p { margin: 0 0 6px; }

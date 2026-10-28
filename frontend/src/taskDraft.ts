@@ -42,5 +42,8 @@ export function taskForStart(task: TaskSpec, objective: string, scopeSuffix = ''
   // Acceptance is frozen by the server for the explicit mode, never guessed from
   // the user's natural-language objective or a copied historical criterion.
   delete payload.success_criteria;
+  // Stage quotas are chosen in the settings panel for this request; a cloned run's
+  // frozen quotas must not leak into a different mode or budget.
+  delete payload.workflow_limits;
   return payload;
 }

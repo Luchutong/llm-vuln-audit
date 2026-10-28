@@ -74,3 +74,12 @@ test('copied historical full audits do not silently adopt the new workflow', () 
   assert.equal(taskWithPolicy(historical, 'coverage_review').workflow_policy, 'discovery_first');
   assert.equal(frozenTaskPolicy({}).workflow, '共享预算调度（旧政策）');
 });
+
+test('a cloned run never carries its frozen stage quotas into the next request', () => {
+  const clone = draftTask({ completion_policy: 'coverage_review', workflow_policy: 'discovery_first',
+    workflow_limits: { discovery: 281, poc: 100, review: 19 } });
+  const payload = taskForStart(clone, '继续复核未覆盖的源码方向');
+  assert.equal('workflow_limits' in payload, false);
+  // The settings panel decides the new split, including for a legacy-mode clone.
+  assert.equal('workflow_limits' in taskForStart(taskWithPolicy(clone, 'goal'), '快速复核入口'), false);
+});

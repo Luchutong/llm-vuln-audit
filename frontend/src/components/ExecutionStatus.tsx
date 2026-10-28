@@ -15,7 +15,7 @@ function WorkflowStatus({ facts }: { facts?: Partial<ExecutionSummary> | null })
   if (!workflow && !directions && !verification) return null;
   return <div className="execution-workflow" aria-label="阶段配额与未决事项">
     {workflow?.version === 'discovery-first-v1' && <>
-      <div className="execution-status-heading"><strong>先挖掘后验证</strong><span className="chip">当前阶段：{WORKFLOW_STAGE_LABELS[workflow.stage] ?? workflow.stage}</span></div>
+      <div className="execution-status-heading"><strong>先挖掘后验证</strong><span className="chip">当前阶段：{WORKFLOW_STAGE_LABELS[workflow.stage] ?? workflow.stage}</span>{workflow.source && <span className="chip">{workflow.source === 'explicit' ? '创建时自定义配额' : '自动分配配额'}</span>}</div>
       <div className="execution-stage-grid">{(['discovery', 'poc', 'review'] as WorkflowStage[]).map((stage) => <div key={stage} data-stage={stage} className={workflow.stage === stage ? 'is-current' : undefined}>
         <span className="small">{WORKFLOW_STAGE_LABELS[stage]}</span>
         <strong>已用 {count(workflow.used?.[stage])} / 配额 {count(workflow.limits?.[stage])}</strong>

@@ -859,6 +859,16 @@ def _runner_text(job: dict) -> str:
     return "\n".join(pieces)
 
 
+def _evidence_channels(job: dict) -> tuple[str, ...]:
+    if job.get("kind") == "http":
+        return ("body", "headers", "body_text")
+    if job.get("kind") == "script":
+        return ("stdout", "stderr")
+    if job.get("kind") == "browser":
+        return ("body_text", "dialogs", "evaluated")
+    return ()
+
+
 def _evidence_channel(job: dict, channel: str) -> str:
     result = job.get("result") or {}
     if job.get("kind") == "http":
@@ -867,31 +877,26 @@ def _evidence_channel(job: dict, channel: str) -> str:
         if channel == "headers":
             return "\n".join(f"{key}: {value}" for key, value in sorted((result.get("headers") or {}).items()))
         return ""
-    allowed = {"stdout", "stderr"} if job.get("kind") == "script" else {"body_text", "dialogs", "evaluated"}
-    if channel not in allowed:
+    if channel not in _evidence_channels(job):
         return ""
     value = result.get(channel)
     return "\n".join(str(item) for item in value) if isinstance(value, list) else str(value or "")
 
 
-def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationResult:
-    """Accept only exact, paired citations to successful jobs in this experiment."""
+def _usable_evidence_job(job: dict, deps: PocDeps) -> bool:
+    return (
+        bool(deps.context_id) and job.get("context_id") == deps.context_id
+        and (job.get("precondition") or {}).get("ok") is True
+        and not (job.get("result") or {}).get("timed_out")
+        and not (job.get("result") or {}).get("error")
+        and successful_job(job)
+    )
+
+
+def evidence_errors(result: PocVerificationResult, deps: PocDeps) -> list[str]:
+    """Diagnose a deterministic verdict without changing the submitted candidate."""
     notes: list[str] = []
     by_id = {str(job.get("job_id") or ""): job for job in deps.jobs if job.get("job_id")}
-
-    def usable(job: dict) -> bool:
-        return (
-            bool(deps.context_id) and job.get("context_id") == deps.context_id
-            and (job.get("precondition") or {}).get("ok") is True
-            and not (job.get("result") or {}).get("timed_out")
-            and not (job.get("result") or {}).get("error")
-            and successful_job(job)
-        )
-
-    if result.status in {"not_applicable", "environment_unavailable"}:
-        result.status, result.verdict = "inconclusive", "uncertain"
-        notes.append("模型自报的环境结论由宿主覆盖为 inconclusive")
-
     supporting: list[dict] = []
     if result.status in {"verified", "rejected"}:
         if not result.jobs:
@@ -900,7 +905,7 @@ def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationR
             job = by_id.get(ident)
             if job is None:
                 notes.append(f"未知作业引用：{ident}")
-            elif not usable(job):
+            elif not _usable_evidence_job(job, deps):
                 notes.append(f"作业 {ident} 未成功、身份前提未核实或不属于本次上下文")
             else:
                 supporting.append(job)
@@ -914,28 +919,41 @@ def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationR
                 notes.append(f"{label}缺少观测或原文证据引用")
             for ref in references:
                 job = by_id.get(ref.job_id)
-                if ref.job_id not in result.jobs or job is None or not usable(job):
+                if ref.job_id not in result.jobs or job is None or not _usable_evidence_job(job, deps):
                     notes.append(f"{label}引用的作业 {ref.job_id} 不可作为成功证据")
+                elif ref.channel not in _evidence_channels(job):
+                    notes.append(f"{label}作业 {ref.job_id} 的 {ref.channel} 不是有效输出通道（仅 {'/'.join(_evidence_channels(job))}）")
                 elif not ref.excerpt.strip() or ref.excerpt not in _evidence_channel(job, ref.channel):
                     notes.append(f"{label}原文片段不在作业 {ref.job_id} 的 {ref.channel} 中")
         if result.status == "verified" and _is_xss(deps.finding):
             attack_browser = [by_id[ref.job_id] for ref in result.attack_evidence
-                              if ref.job_id in by_id and usable(by_id[ref.job_id])
+                              if ref.job_id in by_id and _usable_evidence_job(by_id[ref.job_id], deps)
                               and ref.channel in {"dialogs", "evaluated"}]
             if not result.browser_execution or not any(
                 (job.get("result") or {}).get("dialogs") or (job.get("result") or {}).get("evaluated")
                 for job in attack_browser
             ):
                 notes.append("XSS 结论缺少攻击侧浏览器执行证据")
+    return notes
+
+
+def host_check(result: PocVerificationResult, deps: PocDeps) -> PocVerificationResult:
+    """Fail closed on invalid evidence, including callers outside the publication loop."""
+    notes = evidence_errors(result, deps)
+    by_id = {str(job.get("job_id") or ""): job for job in deps.jobs if job.get("job_id")}
+    if result.status in {"not_applicable", "environment_unavailable"}:
+        result.status, result.verdict = "inconclusive", "uncertain"
+        notes.append("模型自报的环境结论由宿主覆盖为 inconclusive")
 
     # Never replace a cited successful script with the last (possibly failed) attempt.
     cited = [ref.job_id for ref in result.attack_evidence] + list(result.jobs)
     selected = next((ident for ident in cited if ident in deps.job_scripts
-                     and ident in by_id and usable(by_id[ident])), None)
+                     and ident in by_id and _usable_evidence_job(by_id[ident], deps)), None)
     result.adapted_script = deps.job_scripts[selected] if selected else ""
     if notes and result.status in {"verified", "rejected"}:
         result.status, result.verdict = "inconclusive", "uncertain"
         result.adapted_script = ""
+        result.summary = "宿主证据校验未通过，当前结论无法确定。"
     if notes:
         result.evidence_notes = ("；".join(notes) + ("\n" + result.evidence_notes if result.evidence_notes else ""))[:4000]
     return result
@@ -1015,6 +1033,10 @@ CONCLUDE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的结论阶段，所�
 verified/rejected 必须提供 jobs、normal_observation、attack_observation、normal_evidence、attack_evidence。
 证据格式为 {"job_id":"真实作业ID","channel":"输出通道","excerpt":"原文片段"}。
 脚本可引用 stdout/stderr，HTTP 可引用 body/headers，浏览器可引用 body_text/dialogs/evaluated。
+excerpt 必须复制该 job 的对应通道内一段短且连续的原文，保留原始字符与换行。
+不要添加 .../省略号，不要删去中间行后拼接，不要改写HTML、引号或转义；可用多个引用分别引用不同片段。
+state_changes/precondition/postcondition 是宿主状态元数据，不能写成 stdout/body_text 等通道中的原文。
+宿主拒绝引用后，只修正 JSON 中的引用或改为 inconclusive；工具不会重新开放，不重复实验。
 headers 原文格式为每行“header-name: value”，按字段名排序；body_text 仅作为旧HTTP引用别名。
 两侧可引用同一个成功作业。成功完成HTTP并不证明漏洞成立，状态码、退出码不能替代实际影响与正常/攻击对照。
 XSS 必须引用攻击侧浏览器 dialogs/evaluated 的真实执行证据，HTTP反射不是浏览器执行。
@@ -1025,23 +1047,94 @@ summary只写一句结论，evidence_notes简短说明局限，不重复整份�
 示例：{"status":"inconclusive","summary":"对照证据不足，保留待验证","jobs":[],"normal_evidence":[],"attack_evidence":[]}
 字段契约由宿主提供；只输出JSON。"""
 
-def _bound(text: str, limit: int) -> str:
-    raw = str(text or "")
-    if len(raw.encode("utf-8")) <= limit:
-        return raw
-    return raw.encode("utf-8")[:limit].decode("utf-8", "ignore") + "\n[已截断]"
+def _context_json(value: Any, limit: int) -> str:
+    """Bound metadata structurally, without cutting a serialized JSON document."""
+    text = json.dumps(value, ensure_ascii=False)
+    if len(text.encode("utf-8")) <= limit:
+        return text
+    for size, items in ((2048, 16), (512, 8), (128, 4), (32, 2)):
+        text = json.dumps({"host_truncated": True, "data": _clip(value, size, items)}, ensure_ascii=False)
+        if len(text.encode("utf-8")) <= limit:
+            return text
+    return json.dumps({"host_truncated": True, "data_omitted": True})
+
+
+def _output_segments(text: str, byte_limit: int) -> dict:
+    """Keep exact, separate raw-output windows; omission markers are never evidence."""
+    encoded = text.encode("utf-8")
+    if byte_limit <= 0:
+        segments = []
+    elif len(encoded) <= byte_limit:
+        segments = [{"offset": 0, "text": text}] if text else []
+    else:
+        first = encoded[:byte_limit // 2].decode("utf-8", "ignore")
+        last = encoded[-(byte_limit // 2):].decode("utf-8", "ignore")
+        segments = [{"offset": 0, "text": first}, {"offset": len(text) - len(last), "text": last}]
+    return {
+        "segments": segments, "total_characters": len(text),
+        "omitted_characters": len(text) - sum(len(part["text"]) for part in segments),
+    }
+
+
+def _conclusion_jobs(deps: PocDeps) -> str:
+    """Share the existing 24KiB across jobs instead of hiding later experiments."""
+    for output_bytes in (16384, 8192, 4096, 2048, 1024, 512, 256, 128, 64, 0):
+        jobs = []
+        for job in deps.jobs:
+            result = job.get("result") or {}
+            precondition = job.get("precondition") or {}
+            channels = {
+                # At the tightest level omit bulky pages before browser execution
+                # proof. Never drop every dialog just because there are 32 pages.
+                channel: _output_segments(_evidence_channel(job, channel), output_bytes or (
+                    128 if job.get("kind") == "browser" and channel in {"dialogs", "evaluated"} else 0
+                ))
+                for channel in _evidence_channels(job)
+                if not (job.get("kind") == "http" and channel == "body_text")
+                and _evidence_channel(job, channel)
+            }
+            jobs.append({
+                "job_id": job.get("job_id"), "kind": job.get("kind"),
+                "context_id": job.get("context_id"), "identity": job.get("identity"),
+                "exit_code": job.get("exit_code"), "evidence_usable": _usable_evidence_job(job, deps),
+                "precondition": {
+                    "ok": precondition.get("ok"),
+                    "reason": str(precondition.get("reason") or "")[:128],
+                },
+                "result": {key: _clip(result.get(key), 256, 8) for key in (
+                    "status", "execution_status", "http_status", "timed_out", "error", "truncated",
+                ) if key in result},
+                "request": {key: _clip((job.get("request") or {})[key], 256, 8)
+                            for key in ("path", "language", "script_sha256")
+                            if (job.get("request") or {}).get(key) is not None},
+                "evidence_channels": channels,
+            })
+        text = json.dumps({
+            "items": jobs, "total": len(jobs), "omitted_jobs": 0,
+            "output_truncated": not output_bytes or any(
+                channel["omitted_characters"] for job in jobs for channel in job["evidence_channels"].values()
+            ),
+        }, ensure_ascii=False, separators=(",", ":"))
+        if len(text.encode("utf-8")) <= 24 * 1024:
+            return text
+    # Job IDs are host-generated, and policy permits at most 32 jobs. This only
+    # handles malformed external metadata; never shorten an ID or imply success.
+    return json.dumps({"items": [{"job_id": job.get("job_id"), "kind": job.get("kind"),
+                                "evidence_usable": False} for job in deps.jobs],
+                       "total": len(deps.jobs), "omitted_jobs": 0,
+                       "output_truncated": True, "metadata_unavailable": True}, ensure_ascii=False)
 
 
 def _finding_block(finding: dict) -> str:
     payload = {
         key: finding.get(key)
         for key in (
-            "id", "title", "category", "severity", "file_path", "symbol", "summary",
+            "id", "title", "category", "vulnerability_type", "severity", "file_path", "symbol", "summary",
             "evidence", "input_source", "propagation", "dangerous_operation",
             "protection", "preconditions", "missing_context", "poc", "remediation",
         )
     }
-    return _bound(json.dumps(payload, ensure_ascii=False, indent=2), 12 * 1024)
+    return _context_json(payload, 12 * 1024)
 
 
 def execute_prompt(finding: dict, deps: PocDeps, policy: dict) -> str:
@@ -1049,7 +1142,7 @@ def execute_prompt(finding: dict, deps: PocDeps, policy: dict) -> str:
         "# 待验证的源码结论\n"
         + _finding_block(finding)
         + "\n# 靶场（宿主已准备）\n"
-        + _bound(json.dumps(deps.prepared, ensure_ascii=False), 4 * 1024)
+        + _context_json(deps.prepared, 4 * 1024)
         + "\n# 限额\n"
         + json.dumps({
             "language": ["php", "python"],
@@ -1063,38 +1156,21 @@ def execute_prompt(finding: dict, deps: PocDeps, policy: dict) -> str:
 
 
 def conclude_prompt(finding: dict, deps: PocDeps) -> str:
-    jobs = []
-    for job in deps.jobs:
-        result = dict(job.get("result") or {})
-        result.pop("script", None)
-        jobs.append({
-            "job_id": job.get("job_id"),
-            "kind": job.get("kind"),
-            "exit_code": job.get("exit_code"),
-            "context_id": job.get("context_id"),
-            "identity": job.get("identity"),
-            "precondition": job.get("precondition"),
-            "state_changes": job.get("state_changes"),
-            "request": {
-                "path": (job.get("request") or {}).get("path"),
-                "language": (job.get("request") or {}).get("language"),
-                "script_sha256": (job.get("request") or {}).get("script_sha256"),
-            },
-            "result": result,
-            "artifacts": [item.get("name") for item in job.get("artifacts") or []],
-        })
     return (
         "# 待验证的源码结论\n"
         + _finding_block(finding)
         + "\n# 执行阶段实际发生的作业（宿主记录）\n"
-        + _bound(json.dumps(jobs, ensure_ascii=False, indent=2), 24 * 1024)
+        + _conclusion_jobs(deps)
+        + "\n证据仅从 evidence_usable=true 的作业 evidence_channels 中复制。每个 segments[].text "
+        "都是对应通道的连续原文；offset 为字符位置，omitted_characters 表示未展示的字符数。"
+        "不要把分开的 segments 拼成一个 excerpt，也不要把省略标记、元数据或状态变化当成输出。"
         + "\n# 实验前提与状态变化\n"
-        + _bound(json.dumps({
+        + _context_json({
             "preconditions": deps.preconditions, "state_changes": deps.state_changes,
             "preconditions_omitted": deps.preconditions_omitted,
-        }, ensure_ascii=False), 4 * 1024)
+        }, 4 * 1024)
         + "\n# 其他观测（http_observe）\n"
-        + _bound(json.dumps(deps.observations[-6:], ensure_ascii=False), 8 * 1024)
+        + json.dumps({"count": len(deps.observations), "note": "HTTP 原文已列入上述作业，不重复展开。"}, ensure_ascii=False)
         + "\n# 产物\n"
         + json.dumps({"names": sorted(deps.artifacts), "omitted": deps.artifacts_omitted}, ensure_ascii=False)
         + "\n现在只输出一个完整JSON对象提交结论。jobs 只能引用上面出现过的"
@@ -1229,6 +1305,28 @@ async def run_poc_agent(
     # ``None`` means "the conclusion loop ended without an exception": only then can a
     # missing publication be labelled a format failure rather than a budget/timeout one.
     conclusion_reason: str | None = None
+    rejected_conclusion: PocVerificationResult | None = None
+
+    def validate_conclusion(value: PocVerificationResult) -> PocVerificationResult:
+        nonlocal rejected_conclusion
+        errors = evidence_errors(value, deps)
+        if errors:
+            # Keep a separate, fail-closed diagnostic result. Refusing the original
+            # candidate lets the existing JSON correction loop spend its reserved
+            # responses; it never reopens the execution phase or submits another job.
+            rejected_conclusion = host_check(value.model_copy(deep=True), deps)
+            execution.emit({
+                "kind": "poc_evidence_rejected", "phase": "poc_conclude",
+                "errors": errors[:12], "jobs": list(value.jobs),
+            })
+            raise ValueError(
+                "证据引用未通过校验。excerpt须为对应job/channel中短且连续的逐字原文，"
+                "不得添加省略号或拼接。脚本仅stdout/stderr，HTTP仅body/headers（旧别名body_text），"
+                "浏览器仅body_text/dialogs/evaluated；state_changes不是输出通道。"
+                "无原文支撑时改为inconclusive。具体问题：" + "；".join(errors)
+            )
+        return host_check(value.model_copy(deep=True), deps)
+
     execution.enter("poc_conclude")
     conclude_gate = PhaseGate(
         execution=execution,
@@ -1238,7 +1336,7 @@ async def run_poc_agent(
         limit=execution.attempts + 1 + execution.policy.output_corrections,
         callback_seconds=min(budgets["seconds"], deps.job_seconds + 40),
         output_model=PocVerificationResult,
-        validate=lambda value: host_check(value, deps),
+        validate=validate_conclusion,
     )
     try:
         await drive_structured_phase(
@@ -1286,4 +1384,12 @@ async def run_poc_agent(
             "reason": conclusion_reason,
             "message": "结论阶段结束，但没有提交可校验的 final_answer",
         })
+    if rejected_conclusion is not None:
+        # Even when all corrections fail, retain the actual jobs and diagnosis as
+        # inconclusive history. No rejected deterministic claim can be published.
+        rejected_conclusion.evidence_notes = (
+            rejected_conclusion.evidence_notes
+            + f"\n结论纠正未完成（{conclusion_reason}），保留原作业与校验诊断。"
+        )[:4000]
+        return rejected_conclusion, conclusion_reason
     return None, conclusion_reason

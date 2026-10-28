@@ -153,6 +153,18 @@ def run_checks(page, base, api, checks, screenshots):
     expect(page.get_by_role("button", name="实验前提与实际身份", exact=True)).to_have_count(0)
     checks.passed("legacy verification rows without context or evidence references remain readable")
 
+    unresolved = verification_record()
+    unresolved.update(status="inconclusive", verdict="uncertain", execution_status="not_triggered",
+                      notes="攻击侧原文片段不在成功作业的 stdout 中；结论纠正未完成，保留作业与诊断。")
+    api.ledger_verifications[LEDGER_ID] = [unresolved]
+    api.ledger_records[LEDGER_ID].update(verification_status="inconclusive", verification_verdict="uncertain")
+    page.reload()
+    page.get_by_role("button", name="未决", exact=False).filter(has=page.locator(".faint.small")).first.click()
+    expect(page.get_by_text("执行完成，尚无确定验证结论", exact=True)).to_be_visible()
+    expect(page.get_by_text("攻击侧原文片段不在成功作业的 stdout 中", exact=False)).to_be_visible()
+    expect(page.get_by_text("执行成功但漏洞未触发", exact=True)).to_have_count(0)
+    checks.passed("insufficient citations stay inconclusive without claiming the vulnerability did not trigger")
+
     # The JSON publisher has no Python action event. Its rejected decisions must
     # still contribute to request diagnostics and retain inspectable recovery.
     context = {"role": "planner", "phase": "planner_publish", "agent_invocation_id": "planner-json"}

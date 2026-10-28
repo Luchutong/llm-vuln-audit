@@ -123,7 +123,7 @@ export function verificationExecution(record: Verification): string {
   const labels: Record<string, string> = { success: '作业执行成功', syntax_error: '脚本语法错误', connection_failed: '无法连接目标',
     environment_mismatch: '实验前提不符', precondition_failed: '实验前提不符', timeout: '作业执行超时',
     authentication_failed: '身份认证失败', state_mismatch: '账号状态不符',
-    not_triggered: '执行完成，未观察到预期触发', not_run: '未执行', other_error: '作业执行失败' };
+    not_triggered: '执行完成，尚无确定验证结论', not_run: '未执行', other_error: '作业执行失败' };
   return labels[record.execution_status ?? ''] || (record.execution_status ? `执行状态：${record.execution_status}` : '历史记录未保存执行状态');
 }
 

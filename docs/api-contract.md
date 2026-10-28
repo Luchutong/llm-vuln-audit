@@ -140,6 +140,10 @@
 POC 证据引用的 `channel` 在原有 `stdout/stderr/body_text/dialogs/evaluated` 上增加 `body/headers`。
 HTTP 响应头按字段名排序并格式化为逐行 `name: value` 原文；执行完成不要求 2xx，也不直接代表漏洞成立。
 尚未形成验证结论的已知作业也保存在 `verification_jobs`，其 `verification_id=""`，不得据此推断 verified。
+verified/rejected 的错误证据引用进入原有最多三次 JSON 发布纠正，不重开工具或增加预算；纠正失败保留
+inconclusive、作业和诊断。`poc_evidence_rejected` 记录被拒绝的作业及错误类型，不能作为验证成立依据。
+作业上下文按通道展示连续原文片段，省略信息与输出隔离；禁止拼接片段或引用省略标记。
+详见 [POC 证据发布修复记录](poc-evidence-publication-repair.md)。
 
 终结事务同时保存 run、goal、Planner、剩余任务、终结事件及 `Run.final_summary`。宿主摘要包含状态/完成性、停止原因、原始与有效发现数、按台账 ID 分组数、逐发现修订/证据/验证、任务状态、覆盖、预算和限制；没有模型叙述也可下载完整阶段报告。新 Markdown 报告以该事实快照渲染；旧模型内容保留在原始事件及 JSON 追溯记录中。模型报告引用采用 `finding_refs:[{finding_id,revision}]` 和 `no_evidence_task_ids`，遗漏、外部 ID、过期修订及受阻“安全”引用会被拒绝，任务图仍可提交。
 

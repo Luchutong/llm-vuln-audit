@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { diagnosticGroups, diagnosticIncidents, toolOutcome, verificationExecution, verificationJobOutcome } from '../src/diagnostics.ts';
+
+test('completed jobs with insufficient citations do not claim the vulnerability failed to trigger', () => {
+  assert.equal(verificationExecution({ execution_status: 'not_triggered', status: 'inconclusive' }), '执行完成，尚无确定验证结论');
+  for (const status of ['verified', 'rejected', 'inconclusive']) {
+    assert.equal(verificationExecution({ execution_status: 'success', status }), '作业执行成功');
+  }
+});
 import { projectActivity, groupCompletedTools } from '../src/activity.ts';
 
 const event = (id, kind, payload = {}) => ({ id, kind, run_id: 'run-a', created_at: `2026-10-23T15:00:${String(id % 60).padStart(2, '0')}Z`,

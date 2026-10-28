@@ -10,6 +10,11 @@ the second step prints.  This script does the whole chain and, at the end, calls
 Usage:
     # 闭环验收（POC auto + 覆盖复核收束 + 前后复位靶场 + v2 评分）
     run_lab30_e2e.py --zip /path/lab30-shop-1.0.0-source.zip --closure
+    # 闭环验收 + 放宽预算与阶段配额（整轮 1600 次请求，阶段 1230/250/120）
+    run_lab30_e2e.py --zip /path/lab30-shop-1.0.0-source.zip --closure
+        --run-limit responses=1600 --run-limit tools=12000 --run-limit seconds=14400
+        --stage-limit discovery=1230 --stage-limit poc=250 --stage-limit review=120
+        --max-rounds 96 --attempts 192 --max-wait 18000
     # 全量审计（默认）：穷尽源码中全部漏洞类别，对全量数据集评分
     run_lab30_e2e.py --base http://127.0.0.1:8899 --zip /path/lab30-shop-1.0.0-source.zip
     # 只跑某个分场景（sqli / xss_r / command_injection）
@@ -120,7 +125,8 @@ def upload(client: httpx.Client, archive: Path) -> dict:
 
 def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, objective: str | None,
                iterations: int, max_rounds: int, attempts: int, poc_mode: str = "auto",
-               *, closure: bool = False) -> dict:
+               *, closure: bool = False, budgets: dict | None = None, limits: dict | None = None,
+               quotas: dict | None = None, task_overrides: dict | None = None) -> dict:
     # ``all`` (or None) is the local full-audit mode: do not send a scenario, and
     # turn off stop-on-achieved ourselves so the planner keeps settling every class.
     specific = scenario if scenario in SPECIFIC_SCENARIOS else None
@@ -137,18 +143,32 @@ def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, obj
     payload: dict = {"snapshot_id": snapshot_id, "task": task, "poc_mode": poc_mode}
     if closure:
         # A closure run must not inherit the project's historical findings and must
-        # have room for the coverage review the acceptance criteria require.
+        # have room for the coverage review the acceptance criteria require. Explicit
+        # operator overrides win over the profile so a run can be given more room.
         task.update(CLOSURE_TASK)
+        task.update(task_overrides or {})
         task["completion_policy"] = "coverage_review"
         task["stop_on_achieved"] = False
-        payload["budgets"] = dict(CLOSURE_BUDGETS)
-        payload["run_limits"] = dict(CLOSURE_LIMITS)
+        payload["budgets"] = {**CLOSURE_BUDGETS, **(budgets or {})}
+        payload["run_limits"] = {**CLOSURE_LIMITS, **(limits or {})}
+    else:
+        if budgets:
+            payload["budgets"] = {**budgets}
+        if limits:
+            payload["run_limits"] = {**limits}
+    if quotas:
+        # Explicit stage quotas are only accepted for the discovery-first workflow,
+        # which ``coverage_review`` selects (and the API validates).
+        task["workflow_limits"] = dict(quotas)
     print(f"[2/4] 创建审计任务（scenario={specific or 'all 全量'}{' · 闭环档' if closure else ''}）")
     response = client.post("/api/runs", json=payload)
     if response.status_code >= 400:
         sys.exit(f"    创建失败 {response.status_code}: {response.text[:600]}")
     run = response.json()
     print(f"    run {run['id'][:8]} · 模型 {run.get('model')} · 预算 {run.get('budgets')}")
+    workflow = (run.get("execution_summary") or {}).get("workflow") or {}
+    if workflow.get("limits"):
+        print(f"    整次上限 {run.get('run_limits')} · 阶段配额 {workflow['limits']}（{workflow.get('source')}）")
     return run
 
 
@@ -403,6 +423,28 @@ def score(run_id: str | None, base: str, scenario: str | None, out: Path,
     return subprocess.call(cmd)
 
 
+BUDGET_FIELDS = ("responses", "tools", "seconds")
+RUN_LIMIT_FIELDS = ("responses", "tools", "seconds")
+STAGE_FIELDS = ("discovery", "poc", "review")
+
+
+def parse_pairs(values: list[str] | None, flag: str, fields: tuple[str, ...]) -> dict:
+    """Parse repeated ``KEY=VALUE`` flags into an int dict, failing before the run starts."""
+    parsed: dict = {}
+    for value in values or []:
+        key, _, raw = value.partition("=")
+        key = key.strip()
+        if key not in fields:
+            raise SystemExit(f"{flag} 只接受 {'/'.join(fields)}，收到 {value!r}")
+        try:
+            parsed[key] = int(raw)
+        except ValueError:
+            raise SystemExit(f"{flag} 的取值必须是整数，收到 {value!r}") from None
+        if parsed[key] < 0:
+            raise SystemExit(f"{flag} 的取值不能为负，收到 {value!r}")
+    return parsed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", default="http://127.0.0.1:8899", help="审计实例基址")
@@ -412,9 +454,12 @@ def main() -> int:
     parser.add_argument("--class", dest="klass", default=None,
                         help="评分时只评某个类别（如 auth_bypass），透传给 score_dataset.py")
     parser.add_argument("--objective", default=None, help="覆盖默认任务目标文案")
-    parser.add_argument("--iterations", type=int, default=3)
-    parser.add_argument("--max-rounds", type=int, default=24)
-    parser.add_argument("--attempts", type=int, default=64)
+    parser.add_argument("--iterations", type=int, default=None,
+                        help="单任务迭代上限（默认 3；--closure 档为 5）")
+    parser.add_argument("--max-rounds", type=int, default=None,
+                        help="Planner 轮次上限（默认 24；--closure 档为 32）")
+    parser.add_argument("--attempts", type=int, default=None,
+                        help="单任务尝试上限（默认 64；--closure 档为 96）")
     parser.add_argument("--max-wait", type=int, default=None,
                         help="最长等待秒数（默认 5400；--closure 为 7200）")
     parser.add_argument("--interval", type=int, default=5, help="轮询间隔秒数")
@@ -426,6 +471,12 @@ def main() -> int:
                         help="离线模式：直接对已导出的 findings.json 评分，不起服务、不跑模型")
     parser.add_argument("--check-severity", action="store_true", help="比较文字等级与 CVSS 基础分等级")
     parser.add_argument("--check-cvss", action="store_true", help="比较 CVSS 基础分与基础向量")
+    parser.add_argument("--budget", action="append", metavar="KEY=VALUE",
+                        help="覆盖单次执行预算（responses/tools/seconds），可重复")
+    parser.add_argument("--run-limit", action="append", metavar="KEY=VALUE",
+                        help="覆盖整次运行的模型请求上限（responses/tools/seconds），可重复")
+    parser.add_argument("--stage-limit", action="append", metavar="KEY=VALUE",
+                        help="覆盖 discovery-first 阶段配额（discovery/poc/review），可重复；仅全量覆盖复核")
     parser.add_argument("--closure", action="store_true",
                         help="闭环验收档：POC auto、覆盖复核收束、放宽预算、前后复位靶场，并写 closure.json")
     parser.add_argument("--legacy-score", action="store_true",
@@ -456,6 +507,31 @@ def main() -> int:
         parser.error("--closure 必须由本脚本发起 run：接受证据需要开跑前的复位与种子断言，不能用 --follow 补做")
     max_wait = args.max_wait if args.max_wait is not None else (7200 if args.closure else 5400)
 
+    iterations = args.iterations if args.iterations is not None else 3
+    rounds = args.max_rounds if args.max_rounds is not None else 24
+    attempts = args.attempts if args.attempts is not None else 64
+    # In the closure profile the task limits come from CLOSURE_TASK, so only an
+    # explicitly passed flag may override them; silently widening via the old
+    # positional values would hide a typo in a short run.
+    overrides = {}
+    if args.closure:
+        for key, value in (("max_iterations", args.iterations), ("max_planner_rounds", args.max_rounds),
+                           ("max_total_attempts", args.attempts)):
+            if value is not None:
+                overrides[key] = value
+
+    budgets = parse_pairs(args.budget, "--budget", BUDGET_FIELDS)
+    limits = parse_pairs(args.run_limit, "--run-limit", RUN_LIMIT_FIELDS)
+    quotas = parse_pairs(args.stage_limit, "--stage-limit", STAGE_FIELDS)
+    if quotas and tag != "all":
+        parser.error("--stage-limit 只适用于全量覆盖复核（--scenario all），分场景任务以 goal 收束")
+    if quotas.get("poc") and args.poc_mode == "off":
+        parser.error("--poc-mode off 时 --stage-limit poc 必须为 0 或省略")
+    if quotas and "responses" in limits:
+        total = sum(quotas.get(key, 0) for key in STAGE_FIELDS)
+        if total > limits["responses"]:
+            parser.error(f"阶段配额合计 {total} 超过 --run-limit responses={limits['responses']}")
+
     seed: dict | None = None
     config: dict = {}
     closure: dict | None = None
@@ -479,8 +555,9 @@ def main() -> int:
         else:
             snapshot = upload(client, Path(args.zip))
             run = create_run(client, snapshot["id"], args.scenario, args.objective,
-                             args.iterations, args.max_rounds, args.attempts, args.poc_mode,
-                             closure=args.closure)
+                             iterations, rounds, attempts, args.poc_mode,
+                             closure=args.closure, budgets=budgets, limits=limits, quotas=quotas,
+                             task_overrides=overrides)
             run_id = run["id"]
 
         bundle = poll(client, run_id, max_wait, args.interval)
@@ -488,6 +565,13 @@ def main() -> int:
 
         if args.closure:
             closure = closure_metrics(bundle, collect_events(client, run_id), config, seed=seed)
+            closure["frozen"] = {
+                "budgets": run.get("budgets"),
+                "run_limits": run.get("run_limits"),
+                "workflow": (run.get("execution_summary") or {}).get("workflow"),
+                "task_limits": {key: (run.get("task_spec") or {}).get(key) for key in
+                                ("max_iterations", "max_planner_rounds", "max_total_attempts")},
+            }
             report_path = out.with_name(f"report_{run_id[:8]}.md")
             if fetch_report(client, run_id, report_path) is not None:
                 closure["report"] = str(report_path)

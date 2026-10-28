@@ -117,6 +117,102 @@ def test_closure_problems_names_every_failed_acceptance_condition():
         assert expected in problems
 
 
+def test_closure_create_merges_operator_overrides_over_the_default_profile():
+    requests=[]
+    def handle(request):
+        import json
+        requests.append(json.loads(request.content))
+        return httpx.Response(200,json={'id':'run','model':'test'})
+    with httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)) as client:
+        script.create_run(client,'zip','all',None,6,96,192,'auto',closure=True,
+                          budgets={'responses':40},limits={'responses':1600},
+                          quotas={'discovery':1230,'poc':250,'review':120},
+                          task_overrides={'max_planner_rounds':96,'max_total_attempts':192})
+    payload=requests[0]
+    assert payload['budgets']=={**script.CLOSURE_BUDGETS,'responses':40}
+    assert payload['run_limits']=={**script.CLOSURE_LIMITS,'responses':1600}
+    assert payload['task']['workflow_limits']=={'discovery':1230,'poc':250,'review':120}
+    assert payload['task']['max_planner_rounds']==96
+    assert payload['task']['max_total_attempts']==192
+    # Unset task limits keep the closure profile instead of falling back to the CLI defaults.
+    assert payload['task']['max_iterations']==script.CLOSURE_TASK['max_iterations']
+
+
+def test_non_closure_create_sends_only_explicit_overrides():
+    requests=[]
+    def handle(request):
+        import json
+        requests.append(json.loads(request.content))
+        return httpx.Response(200,json={'id':'run','model':'test'})
+    with httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)) as client:
+        script.create_run(client,'zip','all',None,3,24,64,'auto',
+                          budgets={'seconds':900},limits={'responses':300},
+                          quotas={'discovery':200,'poc':0,'review':20})
+    payload=requests[0]
+    assert payload['budgets']=={'seconds':900}
+    assert payload['run_limits']=={'responses':300}
+    assert payload['task']['max_iterations']==3
+    assert payload['task']['workflow_limits']=={'discovery':200,'poc':0,'review':20}
+
+
+def test_pair_flags_reject_unknown_or_negative_values():
+    assert script.parse_pairs(['responses=12','tools=0'],'--run-limit',script.RUN_LIMIT_FIELDS)=={'responses':12,'tools':0}
+    with pytest.raises(SystemExit):
+        script.parse_pairs(['tokens=12'],'--run-limit',script.RUN_LIMIT_FIELDS)
+    with pytest.raises(SystemExit):
+        script.parse_pairs(['responses=-1'],'--run-limit',script.RUN_LIMIT_FIELDS)
+
+
+def test_main_forwards_budget_and_stage_flags_into_the_run(monkeypatch,tmp_path):
+    captured={}
+    def fake_create(*args,**kwargs):
+        captured['positional']=args
+        captured.update(kwargs)
+        return {'id':'run-abcdef123456','model':'test','budgets':{},'run_limits':{},
+                'execution_summary':{'workflow':{'source':'explicit'}}}
+    class Client:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def get(self,path):
+            return httpx.Response(200,request=httpx.Request('GET','http://test'+path))
+    monkeypatch.setattr(script.sys,'argv',['run_lab30_e2e.py','--zip','src.zip','--closure','--no-score',
+                                           '--out',str(tmp_path/'s.json'),'--run-limit','responses=1600',
+                                           '--stage-limit','discovery=1230','--stage-limit','poc=250',
+                                           '--stage-limit','review=120','--max-rounds','96','--attempts','192'])
+    monkeypatch.setattr(script,'client_for',lambda _:Client())
+    monkeypatch.setattr(script,'closure_config',lambda client:{'agent_policy':{'history_bytes':393216}})
+    monkeypatch.setattr(script,'reset_target',lambda *a,**k:{'ok':True,'accounts':[{}]})
+    monkeypatch.setattr(script,'upload',lambda client,archive:{'id':'snap'})
+    monkeypatch.setattr(script,'create_run',fake_create)
+    monkeypatch.setattr(script,'poll',lambda *a,**k:{'run':{'id':'run-abcdef123456','status':'completed',
+                       'poc_policy':{'reset_between_findings':True},
+                       'execution_summary':{'coverage_review':{'complete':True,'pending_total':0},
+                                            'context':{'peak_request_bytes':1024,'limit_hits':0}}},'findings':[]})
+    monkeypatch.setattr(script,'collect_events',lambda client,run:[{'kind':'poc_job_finished'}])
+    monkeypatch.setattr(script,'fetch_report',lambda client,run,path:None)
+    assert script.main()==0
+    assert captured['positional'][2:7]==('all',None,3,96,192)
+    assert captured['limits']=={'responses':1600}
+    assert captured['quotas']=={'discovery':1230,'poc':250,'review':120}
+    assert captured['task_overrides']=={'max_planner_rounds':96,'max_total_attempts':192}
+    import json
+    closure=json.loads((tmp_path/'closure_run-abcd.json').read_text())
+    assert closure['frozen']['workflow']=={'source':'explicit'}
+
+
+@pytest.mark.parametrize('argv',[
+    ['--scenario','sqli','--stage-limit','discovery=10'],
+    ['--poc-mode','off','--stage-limit','poc=10'],
+    ['--run-limit','responses=100','--stage-limit','discovery=90','--stage-limit','review=20'],
+])
+def test_incompatible_stage_quotas_fail_before_connecting(monkeypatch,argv):
+    monkeypatch.setattr(script.sys,'argv',['run_lab30_e2e.py','--zip','src.zip','--no-score',*argv])
+    def forbidden(_):raise AssertionError('an invalid quota must not reach the server')
+    monkeypatch.setattr(script,'client_for',forbidden)
+    with pytest.raises(SystemExit):
+        script.main()
+
+
 def test_closure_run_writes_report_and_acceptance_record(monkeypatch,tmp_path):
     score_path=tmp_path/'score_all_v2.json'
     monkeypatch.setattr(script.sys,'argv',['run_lab30_e2e.py','--zip','src.zip','--closure',

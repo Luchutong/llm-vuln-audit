@@ -116,7 +116,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
         <article className="user-message"><div className="message-label">你 <span>审计任务</span></div><div className="user-bubble">
           <button className="message-attachment" onClick={() => openDetails('overview')}><FileArchive size={24} /><span><strong>{run.snapshot_name}</strong><small>{scopeFileCount(run, detail.project_map)} 个可读文件 · 冻结项目快照</small></span><ArrowUpRight size={16} /></button>
           <LongContent value={run.task_spec?.objective ?? run.prompt_text ?? '历史审计任务'} label="审计任务" />
-          {run.task_spec && <><div className="result-actions" aria-label="已冻结的审计策略"><span className="chip">{frozenPolicy.mode}</span><span className="chip">{frozenPolicy.baseline}</span></div><p className="field-hint">{frozenPolicy.baselineDescription}</p></>}
+          {run.task_spec && <><div className="result-actions" aria-label="已冻结的审计策略"><span className="chip">{frozenPolicy.mode}</span><span className="chip">{frozenPolicy.baseline}</span><span className="chip">{frozenPolicy.workflow}</span></div><p className="field-hint">{frozenPolicy.baselineDescription}</p></>}
           {run.task_spec?.success_criteria && <LongContent value={run.task_spec.success_criteria} label="验收目标" />}
         </div></article>
         <article className="assistant-message"><div className="assistant-avatar"><ShieldCheck size={20} /></div><div className="assistant-body"><div className="message-label"><BrandWordmark compact /> <span>源码审计助手</span></div>

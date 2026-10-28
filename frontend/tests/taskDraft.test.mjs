@@ -7,8 +7,10 @@ test('new interactive audits default to explicit full coverage review', () => {
   assert.equal(task.completion_policy, 'coverage_review');
   assert.equal(task.stop_on_achieved, false);
   assert.equal(task.baseline_policy, 'fresh');
+  assert.equal(task.workflow_policy, 'discovery_first');
   const submitted = taskForStart(task, '检查完整项目中的漏洞风险');
   assert.equal(submitted.completion_policy, 'coverage_review');
+  assert.equal(submitted.workflow_policy, 'discovery_first');
   assert.equal(submitted.stop_on_achieved, false);
   assert.equal('success_criteria' in submitted, false);
 });
@@ -18,14 +20,17 @@ test('legacy task copies preserve goal closure and explicit switching controls s
   assert.equal(historical.completion_policy, 'goal');
   assert.equal(historical.stop_on_achieved, true);
   assert.equal(historical.baseline_policy, 'inherit');
+  assert.equal(historical.workflow_policy, 'legacy');
   const full = taskWithPolicy(historical, 'coverage_review');
   assert.equal(full.stop_on_achieved, false);
   assert.equal(full.baseline_policy, 'fresh');
+  assert.equal(full.workflow_policy, 'discovery_first');
   assert.equal(full.objective, historical.objective);
   const quick = taskWithPolicy(full, 'goal');
   assert.equal(quick.completion_policy, 'goal');
   assert.equal(quick.stop_on_achieved, true);
   assert.equal(quick.baseline_policy, 'inherit');
+  assert.equal(quick.workflow_policy, 'legacy');
 });
 
 test('full audits can explicitly inherit the ledger without changing the completion policy', () => {
@@ -60,4 +65,12 @@ test('run policy labels reflect the frozen fields and distinguish historical def
   const explicit = frozenTaskPolicy({ completion_policy: 'goal', baseline_policy: 'inherit' });
   assert.equal(explicit.mode, '快速目标审计');
   assert.equal(explicit.baseline, '继承项目已有漏洞');
+});
+
+test('copied historical full audits do not silently adopt the new workflow', () => {
+  const historical = draftTask({ completion_policy: 'coverage_review', baseline_policy: 'fresh' });
+  assert.equal(historical.workflow_policy, 'legacy');
+  assert.equal(taskForStart(historical, '重放旧任务').workflow_policy, 'legacy');
+  assert.equal(taskWithPolicy(historical, 'coverage_review').workflow_policy, 'discovery_first');
+  assert.equal(frozenTaskPolicy({}).workflow, '共享预算调度（旧政策）');
 });

@@ -1089,6 +1089,8 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     poc_policy["required"] = payload.poc_mode == "required"
     task_spec = payload.task.model_dump()
     if task_spec.get("completion_policy") == "coverage_review":
+        if "workflow_policy" not in payload.task.model_fields_set:
+            task_spec["workflow_policy"] = "discovery_first"
         # This is an explicit API mode, not a guess based on words such as “全部” in
         # the objective. Keep legacy requests on their original goal policy and
         # preserve explicit criteria frozen in comparison experiment manifests.

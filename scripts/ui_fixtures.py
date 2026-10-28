@@ -476,6 +476,10 @@ class MockAPI:
             return
         if method == "GET" and path == "/config":
             self.json(route, self.config())
+        elif method == "GET" and path == "/poc/readiness":
+            self.json(route, {"available": False, "reason": "unsupported_target", "message": "离线界面夹具不连接验证靶场。",
+                              "checked_at": STAMP, "capabilities": {"supported_targets": ["lab30"], "browser": False,
+                                                                     "verification_contexts": True}})
         elif parts[:2] == ["config", "profiles"]:
             self.profile_api(route, parts, method)
         elif method == "GET" and path == "/snapshots":

@@ -26,7 +26,7 @@ from .cvss_assessment import propose
 from .finding_policy import is_vulnerability_finding
 from .health import HARD_STATUS, ModelHealth
 from .poc import PocPolicy, PocVerifier
-from .project_findings import canonical_fingerprint, ledger_record
+from .project_findings import canonical_fingerprint, ledger_record, exact_run_identity, pick_run_merge_candidate
 from .prompts import system_prompt
 from .source import SourceRepository
 from .runtime import AgentPolicy, StopAudit, allowed_paths_for_run, policy_from_snapshot
@@ -78,6 +78,24 @@ def _account_provider_result(
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _new_conclusion_keys(prepared: list[dict], existing: list[dict]) -> list[str]:
+    """Use the same conservative duplicate rules for successful-batch accounting."""
+    candidates = [item for item in existing if item.get("validation_state") == "candidate"
+                  and is_vulnerability_finding(item)
+                  and item.get("disposition", "open") not in WITHDRAWN_FINDING_DISPOSITIONS]
+    keys = []
+    for item in prepared:
+        if not item["candidate"]:
+            continue
+        record = item["record"]
+        identity = exact_run_identity(record)
+        exact = identity and any(exact_run_identity(other) == identity for other in candidates)
+        if not exact and pick_run_merge_candidate(record, candidates) is None:
+            keys.append(record["fingerprint"])
+            candidates.append(record)
+    return keys
 
 
 def _blocker_progress_signature(tasks: list[dict], findings: list[dict], gap_state: dict | None = None) -> tuple:
@@ -689,6 +707,10 @@ class AuditWorker:
         # review or a stalled blocker can close the run. The durable verifier keeps
         # an unchanged conclusion from running twice across retries/resumes.
         verified_for: dict[str, int] = {}
+        discovery_first = bool(self.store.workflow_state(run_id))
+        workflow_finishing = False
+        workflow_may_close = False
+        last_verification_batch: dict = {}
         poc_verifier = PocVerifier(store=self.store, bus=self.bus, settings=self.settings)
         project_mode = str(run.get("project_mode") or "legacy") == "project"
         # POC verification is the layer this closure gate belongs to.  When it is off for
@@ -776,11 +798,31 @@ class AuditWorker:
 
         async def finish_goal(state: str, basis: str, missing: list[str] | None = None) -> bool:
             """Persist a host-verified terminal goal and its public run state."""
+            if discovery_first and not workflow_finishing:
+                frontier = self.store.task_queue_state(run_id)
+                directions = self.store.audit_direction_summary(run_id)
+                gaps = self.store.coverage_review(run_id, project_map) or {}
+                if state in {"met", "unreachable"} and (
+                    frontier["active"] or frontier["blocked"] or directions["unsettled_total"]
+                    or (state == "met" and gaps.get("pending_total"))
+                    or (state == "unreachable" and not frontier["total"])
+                ):
+                    self.bus.emit(run_id, None, "planner_terminal_deferred", {
+                        "state": state, "reason": "源码任务、覆盖或宿主方向尚未结算，继续原静态阶段。",
+                        "basis_summary": basis,
+                    })
+                    return False
+                await finish_discovery_flow(state, basis, missing)
+                return stop.is_set()
+            if discovery_first and not workflow_may_close:
+                # A review can correct evidence, but cannot cut off the remaining
+                # validation queue or borrow another phase's allowance.
+                return False
             # A Planner can request inconclusive directly, without returning to the
             # reconcile loop. Such a request must not discard standing conclusions'
             # verification opportunity either. Cancellation and hard budgets still
             # take precedence over starting any new experiment.
-            if not await verify_before_closure():
+            if not discovery_first and not await verify_before_closure():
                 return False
             try:
                 queue_now = self.store.task_queue_state(run_id)
@@ -793,6 +835,13 @@ class AuditWorker:
                     "environment_unavailable" if normalize_poc_mode(run)[0] == "required" and not (self.store.execution_summary(run_id) or {}).get("poc", {}).get("available", False) else
                     "invalid_output_limit"
                 )
+                if discovery_first and state == "inconclusive":
+                    workflow = self.store.workflow_state(run_id)
+                    terminal = workflow.get("discovery_stop") or {}
+                    if isinstance(terminal, dict) and terminal.get("code"):
+                        code = terminal["code"]
+                    elif workflow.get("remaining", {}).get("review") == 0:
+                        code = "stage_budget_exhausted"
                 if state == "met":
                     record_carried()
                 settled = self.store.finalize_goal(
@@ -842,9 +891,22 @@ class AuditWorker:
         async def run_planner_round() -> str:
             """Reserve, execute and commit one Planner revision."""
             nonlocal round_mutations
+            if discovery_first:
+                workflow = self.store.workflow_state(run_id)
+                if workflow.get("stage") == "discovery":
+                    current_session = self.store.get_planner_session(run_id) or {}
+                    if int(current_session.get("current_round") or 0) >= (
+                        int(current_session.get("max_rounds") or 0) - int(workflow.get("review_reserved_rounds") or 0)
+                    ):
+                        return "stage_exhausted"
             owner = CURRENT_EXECUTION.get()
             if owner is not None:
-                owner.admit("work")
+                try:
+                    owner.admit("work")
+                except StopAudit as exc:
+                    if discovery_first and exc.reason == "stage_budget_exhausted":
+                        return "stage_exhausted"
+                    raise
             round_mutations = 0
             plan = self.store.begin_planner_round(run_id, session["session_id"])
             if plan is None:
@@ -874,7 +936,7 @@ class AuditWorker:
                 self.bus.emit(run_id, None, kind, payload)
 
             context = self.store.list_planner_context(run_id, project_map=project_map)
-            outcome = await plan_audit_frontier(
+            round_call = plan_audit_frontier(
                 project_map=project_map,
                 run_context=context,
                 context_reader=lambda: self.store.list_planner_context(run_id, project_map=project_map),
@@ -895,6 +957,15 @@ class AuditWorker:
                 agent_invocation_id=invocation_id,
                 on_event=record,
             )
+            try:
+                with execution_role("planner"):
+                    outcome = await round_call
+            except StopAudit as exc:
+                if not discovery_first or exc.reason != "stage_budget_exhausted":
+                    raise
+                self.store.finish_planner_round(run_id, plan["id"], goal_state="continue",
+                    basis_summary=str(exc), error=str(exc))
+                return "stage_exhausted"
             if outcome.get("terminal_reason") == "planner_context_error":
                 message = outcome.get("error") or "Planner 上下文构造失败"
                 self.store.finish_planner_round(run_id, plan["id"], goal_state="inconclusive",
@@ -946,6 +1017,7 @@ class AuditWorker:
                 reopen_attempts=int(policy.reopen_attempts),
                 narrative=narrative,
                 coverage_review=list(decision.get("coverage_review") or []),
+                **({"direction_updates": list(decision.get("direction_updates") or [])} if discovery_first else {}),
             )
             if narrative:
                 self.bus.emit(run_id, None, "report_narrative_committed", {
@@ -1008,7 +1080,7 @@ class AuditWorker:
                     "contested": sum(1 for item in applied_reviews if item["decision"] == "contested"),
                     "finding_ids": [item["finding_id"] for item in applied_reviews][:32],
                 })
-            round_mutations = len(tasks) + len(updates) + applied_projects + len(decision.get("coverage_review") or [])
+            round_mutations = len(tasks) + len(updates) + applied_projects + len(decision.get("coverage_review") or []) + len(decision.get("direction_updates") or [])
             self.bus.emit(run_id, None, "planner_round_committed", {
                 "plan_id": plan["id"],
                 "round": plan["round_no"],
@@ -1166,6 +1238,7 @@ class AuditWorker:
                             allowed_paths=allowed_paths_for_run(run),
                             dependency_handoffs=dependency_handoffs,
                             known_findings=list((run.get("project_baseline") or [])[:8]),
+                            **({"current_findings": self.store.list_findings(run_id), "current_run_id": run_id} if discovery_first else {}),
                             peer_trace_search=search_peer_traces,
                             peer_trace_read=get_peer_trace,
                             config=model_config,
@@ -1230,6 +1303,8 @@ class AuditWorker:
                         seen=outcome.get("seen"),
                         error=outcome.get("error"),
                         terminal_reason=outcome.get("terminal_reason"),
+                        **({"progress": {"new_conclusion_keys": _new_conclusion_keys(
+                            prepared_findings, self.store.list_findings(run_id))}} if discovery_first else {}),
                     )
                     if resolved is None:
                         return
@@ -1273,8 +1348,12 @@ class AuditWorker:
                             closing = True
             except asyncio.CancelledError:
                 raise
-            except StopAudit:
-                raise
+            except StopAudit as exc:
+                if not discovery_first or exc.reason != "stage_budget_exhausted":
+                    raise
+                if "task_id" in locals():
+                    self.store.requeue_task_attempt(task_id, worker_id,
+                        reason=exc.reason, error="阶段额度已到，保留未完成方向")
             except Exception as exc:
                 await abort(f"Planner worker {slot} failure: {type(exc).__name__}: {str(exc)[:400]}")
 
@@ -1314,13 +1393,17 @@ class AuditWorker:
             current = self.store.get_run(run_id)
             return bool(stop.is_set() or pause.is_set() or current is None or current["status"] != "running")
 
-        async def verify_before_closure() -> bool:
+        async def verify_before_closure(*, force: bool = False) -> bool:
             """Verify available evidence independently of whether the audit can finish.
 
             Verification does not settle blocked source directions or coverage gaps.
             It uses the ordinary run owner, budgets and durable per-revision claims;
             an unavailable/inconclusive verdict cannot promote the audit to success.
             """
+            nonlocal last_verification_batch
+            if discovery_first and not force:
+                return True
+            last_verification_batch = {}
             if verification_stopped():
                 return False
             standing = standing_conclusions()
@@ -1335,10 +1418,12 @@ class AuditWorker:
             owner = CURRENT_EXECUTION.get()
             if owner is not None:
                 owner.admit("work")
-            await poc_verifier.verify_standing(
-                run_id, pending, verified_for, model_config=model_config,
-                should_stop=verification_stopped,
-            )
+            with execution_role("poc"):
+                last_verification_batch = await poc_verifier.verify_standing(
+                    run_id, pending, verified_for, model_config=model_config,
+                    should_stop=verification_stopped,
+                    **({"max_findings": 2} if discovery_first else {}),
+                ) or {}
             return not verification_stopped()
 
         def record_carried() -> None:
@@ -1391,6 +1476,92 @@ class AuditWorker:
                     worker.cancel()
                 await asyncio.gather(*workers, return_exceptions=True)
 
+        async def finish_discovery_flow(state: str, basis: str, missing: list[str] | None = None,
+                                        *, code: str | None = None) -> None:
+            """Validate only after discovery ends, with a protected review allowance."""
+            nonlocal workflow_finishing, workflow_may_close
+            workflow_finishing = True
+            workflow = self.store.workflow_state(run_id)
+            saved = workflow.get("discovery_stop")
+            terminal = saved if isinstance(saved, dict) else {
+                "state": state, "basis": basis, "missing": missing or [], "code": code,
+            }
+            if workflow.get("stage") == "discovery":
+                # A complete static frontier is the only source of transferable
+                # requests. Blockers and exhausted discovery retain their limits.
+                frontier = self.store.task_queue_state(run_id)
+                gaps = self.store.coverage_review(run_id, project_map) or {}
+                directions = self.store.audit_direction_summary(run_id) if hasattr(self.store, "audit_direction_summary") else {}
+                early = (state in {"met", "unreachable"} and not frontier["active"] and not frontier["blocked"]
+                         and not gaps.get("pending_total") and not directions.get("unsettled_total", 0))
+                self.store.set_workflow_stage(run_id, "poc", reason=terminal,
+                    transfer_unused=early and normalize_poc_mode(run)[0] != "off")
+                self.bus.emit(run_id, None, "workflow_stage_changed", {
+                    "stage": "poc", "reason": terminal, "workflow": self.store.workflow_state(run_id),
+                })
+            reviewed_any = False
+            review_stalls = 0
+            while not verification_stopped():
+                workflow = self.store.workflow_state(run_id)
+                can_validate = (normalize_poc_mode(run)[0] != "off" and poc_review_required
+                    and workflow.get("remaining", {}).get("poc", 0) >= 4
+                    and workflow.get("remaining", {}).get("review", 0) > 0
+                    and not self.store.unreviewed_verified_findings(run_id))
+                last_verification_batch.clear()
+                if can_validate:
+                    self.store.set_workflow_stage(run_id, "poc")
+                    workflow = self.store.workflow_state(run_id)
+                    can_validate = workflow.get("stage_remaining_seconds", 0) > 0
+                if can_validate:
+                    try:
+                        await verify_before_closure(force=True)
+                    except StopAudit as exc:
+                        if exc.reason != "stage_budget_exhausted":
+                            raise
+                        self.bus.emit(run_id, None, "workflow_stage_exhausted", {
+                            "stage": "poc", "reason": str(exc),
+                        })
+                if verification_stopped():
+                    return
+                self.store.set_workflow_stage(run_id, "review")
+                self.bus.emit(run_id, None, "workflow_stage_changed", {
+                    "stage": "review", "workflow": self.store.workflow_state(run_id),
+                })
+                pending_before = self.store.unreviewed_verified_findings(run_id)
+                before = tuple(sorted((item["id"], item.get("revision"), item.get("verification_id"))
+                                      for item in pending_before))
+                workflow = self.store.workflow_state(run_id)
+                if workflow.get("remaining", {}).get("review", 0) > 0 and (before or not reviewed_any or last_verification_batch.get("processed")):
+                    response = await run_planner_round()
+                    reviewed_any = True
+                    if verification_stopped():
+                        return
+                    after = tuple(sorted((item["id"], item.get("revision"), item.get("verification_id"))
+                        for item in self.store.unreviewed_verified_findings(run_id)))
+                    review_stalls = review_stalls + 1 if before and before == after else 0
+                    if after and response not in {"stage_exhausted", "no_round"} and review_stalls <= policy.planner_decision_retries:
+                        # Do not build up more unreviewed dynamic verdicts while the
+                        # current small batch has not been formally examined.
+                        continue
+                    if response in {"stage_exhausted", "no_round"} or after:
+                        break
+                    if before and not after:
+                        # A resumed run may enter with a previous batch still
+                        # awaiting review. Recompute eligibility after that review;
+                        # the old can_validate=False must not discard later POCs.
+                        continue
+                if not can_validate or not last_verification_batch.get("processed"):
+                    break
+                if not last_verification_batch.get("remaining"):
+                    break
+            if verification_stopped():
+                return
+            workflow_may_close = True
+            settled = await finish_goal(str(terminal.get("state") or "inconclusive"),
+                str(terminal.get("basis") or basis), list(terminal.get("missing") or []))
+            if not settled:
+                await finish_goal("inconclusive", "阶段执行已结束，仍有未决方向、未完成验证或未复核结论。")
+
         while not stop.is_set():
             current = self.store.get_run(run_id)
             goal = self.store.get_task_goal(run_id)
@@ -1424,7 +1595,23 @@ class AuditWorker:
             if goal["status"] != "open":
                 await finish_goal(goal["status"], goal.get("terminal_reason") or "Goal already settled")
                 return
+            if discovery_first:
+                workflow = self.store.workflow_state(run_id)
+                if workflow.get("stage") != "discovery":
+                    await finish_discovery_flow("inconclusive", "继续已冻结的验证与复核阶段")
+                    return
+                if (not workflow.get("remaining", {}).get("discovery")
+                        or workflow.get("stage_remaining_seconds", 0) <= 0):
+                    await finish_discovery_flow("inconclusive", "源码挖掘阶段额度已到，未完成方向保留。",
+                        code="stage_budget_exhausted")
+                    return
             queue = self.store.task_queue_state(run_id)
+            if discovery_first and not queue["ready"] and not queue["running"]:
+                workflow = self.store.workflow_state(run_id)
+                if int(session_state["current_round"]) >= int(session_state["max_rounds"]) - int(workflow.get("review_reserved_rounds") or 0):
+                    await finish_discovery_flow("inconclusive", "源码规划回合已到预留边界，保留最终验证复核机会。",
+                        code="discovery_round_limit")
+                    return
             # The conclusions the host would close this run on, asked once per pass: they decide
             # both whether a worker may start another direction and whether the host reviews
             # before it closes.  The hold is only meaningful while one of them exists.

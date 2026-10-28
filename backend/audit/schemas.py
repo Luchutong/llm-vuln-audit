@@ -250,6 +250,9 @@ class TaskSpec(BaseModel):
     baseline_policy: Literal["inherit", "fresh"] = Field(
         default="inherit", description="inherit reuses the project's known findings; fresh audits source without inheriting historical findings",
     )
+    workflow_policy: Literal["legacy", "discovery_first"] = Field(
+        default="legacy", description="Frozen workflow semantics; discovery_first tracks unresolved directions and successful source batches independently of failure retries",
+    )
     require_poc: bool = Field(
         default=False,
         description="Require vulnerability findings to include manually reviewable POCs when enabled",
@@ -483,6 +486,10 @@ class PlannerTaskProposal(BaseModel):
         description="Short project-map-grounded reason to schedule this task; never private reasoning",
     )
     source_refs: list[PlannerSourceRef] = Field(default_factory=list, max_length=16)
+    direction_ids: list[str] = Field(
+        default_factory=list, max_length=32,
+        description="Host direction IDs explicitly assigned to this task; a narrowed reopen inherits only these selected directions",
+    )
     scope_paths: list[str] = Field(
         default_factory=list,
         max_length=24,
@@ -562,6 +569,30 @@ class PlannerTaskUpdate(BaseModel):
         max_length=64,
         description="duplicate 专用：这条结论与哪一条重复（同一 run 里的另一个 finding id）",
     )
+
+
+class PlannerDirectionUpdate(BaseModel):
+    """Assign or explicitly settle one host-owned unresolved audit direction."""
+
+    model_config = ConfigDict(extra="forbid")
+    direction_id: str = Field(pattern=r"^dir_[a-f0-9]{32}$")
+    action: Literal["assign", "resolve", "skip"]
+    task_key: str | None = Field(default=None, min_length=3, max_length=96)
+    finding_ids: list[str] = Field(default_factory=list, max_length=8)
+    rationale_summary: str = Field(min_length=8, max_length=1200)
+
+    @field_validator("rationale_summary")
+    @classmethod
+    def _concrete_direction_reason(cls, value: str) -> str:
+        return _meaningful_text(value, "direction rationale_summary")
+
+    @model_validator(mode="after")
+    def _direction_update_basis(self) -> "PlannerDirectionUpdate":
+        if self.action == "assign" and not self.task_key:
+            raise ValueError("assign requires a target task_key")
+        if self.action == "resolve" and not (self.finding_ids or self.task_key):
+            raise ValueError("resolve requires current finding_ids or an evidence-bearing completed task_key")
+        return self
 
 
 class PlannerProjectUpdate(BaseModel):
@@ -666,6 +697,7 @@ class PlannerDecision(BaseModel):
     missing_context: list[str] = Field(default_factory=list, max_length=24)
     tasks: list[PlannerTaskProposal] = Field(default_factory=list, max_length=8)
     updates: list[PlannerTaskUpdate] = Field(default_factory=list, max_length=16)
+    direction_updates: list[PlannerDirectionUpdate] = Field(default_factory=list, max_length=64)
     # Dispositions on the project ledger.  Kept separate from `updates` because those are
     # keyed by task, and a project row deliberately belongs to no single run's task.
     project_updates: list[PlannerProjectUpdate] = Field(default_factory=list, max_length=16)
@@ -997,7 +1029,7 @@ class PocEvidenceReference(BaseModel):
     """An exact excerpt from a successful runner job, never model-generated proof."""
 
     job_id: str = Field(min_length=1, max_length=64)
-    channel: Literal["stdout", "stderr", "body_text", "dialogs", "evaluated"]
+    channel: Literal["stdout", "stderr", "body_text", "dialogs", "evaluated", "body", "headers"]
     excerpt: str = Field(min_length=1, max_length=4000)
 
 

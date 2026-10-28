@@ -12,6 +12,8 @@ export interface TaskSpec {
   stop_on_achieved: boolean;
   /** Missing on historical runs means legacy goal closure. */
   completion_policy?: 'goal' | 'coverage_review';
+  /** Absent on historical records: preserve the original shared-budget scheduler. */
+  workflow_policy?: 'legacy' | 'discovery_first';
   /** Fresh audits keep the shared ledger but start with no inherited findings. */
   baseline_policy?: 'inherit' | 'fresh';
   require_poc: boolean;
@@ -245,7 +247,38 @@ export interface ExecutionSummary {
   blocked_task_ids: string[];
   poc: { mode?: PocMode; available?: boolean | null; reason?: string | null; message?: string | null };
   context?: ExecutionContextStats | null;
+  workflow?: WorkflowExecution | null;
+  directions?: DirectionSummary | null;
+  verification?: VerificationSummary | null;
   final_summary_available: boolean;
+}
+export type WorkflowStage = 'discovery' | 'poc' | 'review';
+export type WorkflowAllocation = Record<WorkflowStage, number>;
+export interface WorkflowExecution {
+  version: 'discovery-first-v1';
+  stage: WorkflowStage;
+  limits: WorkflowAllocation;
+  used: WorkflowAllocation;
+  remaining: WorkflowAllocation;
+  transferred: number;
+  review_reserved_seconds: number;
+  stage_remaining_seconds?: number;
+  discovery_stop?: string | { state?: string; basis?: string; missing?: string[]; code?: string | null } | null;
+}
+export interface DirectionSummary {
+  total: number;
+  unsettled_total: number;
+  pending_total: number;
+  assigned_total: number;
+  [key: string]: unknown;
+}
+export interface VerificationSummary {
+  total: number;
+  pending: number;
+  verified: number;
+  reviewed: number;
+  pending_review: number;
+  [key: string]: unknown;
 }
 export interface HostFinalSummary {
   source: 'host';
@@ -258,7 +291,7 @@ export interface HostFinalSummary {
   finding_groups: { id: string; project_finding_id?: string | null; finding_ids: string[]; findings?: (CvssFields & { id: string; revision: number; project_revision?: number | null; title: string; severity: string; category: string; evidence: Evidence[]; verification_status?: VerificationStatus; disposition: FindingDisposition })[] }[];
   tasks: { id: string; title: string; state: string; error?: string | null; result?: unknown; depends_on?: string[] }[];
   coverage: Record<string, unknown>;
-  execution?: Record<string, unknown>;
+  execution?: Partial<ExecutionSummary>;
   limitations: string[];
 }
 export interface Usage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number }

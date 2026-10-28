@@ -1,4 +1,4 @@
-import type { Budget, Config, ExecutionContextStats, ExecutionSummary, Run, RunDetail } from './types';
+import type { Budget, Config, ExecutionContextStats, ExecutionSummary, PocMode, Run, RunDetail, WorkflowAllocation, WorkflowExecution, WorkflowStage } from './types';
 
 export const DEFAULT_RUN_LIMITS: Budget = { responses: 256, tools: 2048, seconds: 1800 };
 export const FALLBACK_RUN_BOUNDS = {
@@ -33,6 +33,30 @@ export function draftRunLimits(seed?: Run, config?: Config | null): Budget {
 }
 export function executionSummary(detail: RunDetail): ExecutionSummary | null {
   return detail.execution_summary ?? detail.run.execution_summary ?? null;
+}
+/** A final host report can retain the facts even when an older response omits its live projection. */
+export function workflowFacts(detail: RunDetail): Partial<ExecutionSummary> | null {
+  return executionSummary(detail) ?? detail.run.final_summary?.execution ?? null;
+}
+export const WORKFLOW_STAGE_LABELS: Record<WorkflowStage, string> = {
+  discovery: '源码规划与挖掘', poc: 'POC 验证', review: '验证复核与收束',
+};
+export function workflowStopLabel(stop?: WorkflowExecution['discovery_stop']): string {
+  if (!stop) return '';
+  if (typeof stop === 'object') return stop.basis || (stop.code ? workflowStopLabel(stop.code) : '源码阶段已结算');
+  const labels: Record<string, string> = {
+    settled: '源码阶段已结算', stage_budget_exhausted: '源码阶段额度已耗尽',
+    discovery_budget_exhausted: '源码阶段额度已耗尽', met: '源码阶段验收已完成',
+    inconclusive: '源码阶段仍有未决事项', unreachable: '源码阶段暂无可执行方向',
+  };
+  return labels[stop] ?? stop;
+}
+/** Preview only: execution always displays the server's frozen allocation and counters. */
+export function draftWorkflowAllocation(responses: number, mode: PocMode): WorkflowAllocation {
+  const total = Math.max(1, Math.floor(responses));
+  const review = Math.min(total - 1, Math.ceil(total * 3 / 64));
+  const poc = mode === 'off' ? 0 : Math.min(Math.floor(total / 4), Math.max(0, total - review - 1));
+  return { discovery: total - review - poc, poc, review };
 }
 export function formatBytes(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '—';

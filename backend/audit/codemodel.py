@@ -569,6 +569,9 @@ class PhaseGate:
             remaining = (summary or {}).get("run_remaining") or {}
             if "responses" in remaining and remaining["responses"] < 2:
                 return False
+            workflow = (summary or {}).get("workflow") or {}
+            if workflow and workflow.get("remaining", {}).get(workflow.get("stage"), 0) < 2:
+                return False
         return True
 
     async def _start_summary(self, message_count: int, request_bytes: int) -> float:

@@ -167,8 +167,12 @@ async def execute_trial(
         # The shared run creator may notify, but only this function claims its run.
         worker.notify = lambda: None
         state = SimpleNamespace(settings=settings, store=store, repository=repository, bus=bus, health=health, worker=worker)
+        frozen_task = dict(manifest["task_spec"])
+        # A manifest created before stage allocation keeps its actual historical
+        # execution policy, rather than inheriting a new interactive API default.
+        frozen_task.setdefault("workflow_policy", "legacy")
         request = CreateRunRequest(
-            snapshot_id=snapshot["id"], task=manifest["task_spec"],
+            snapshot_id=snapshot["id"], task=frozen_task,
             budgets=manifest["budgets"], run_limits=manifest["run_limits"], poc_mode="off",
         )
         if request.task.stop_on_achieved or request.task.max_workers != 1 or request.task.scenario is not None or request.task.require_poc:

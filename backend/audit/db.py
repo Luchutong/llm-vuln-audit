@@ -23,6 +23,7 @@ from .execution_state import ExecutionStoreMixin, TERMINAL
 from .poc_store import PocStoreMixin, POC_SCHEMA
 from .cvss_store import CvssStoreMixin, decode_rating
 from .cvss_assessment import normalise_record
+from .directions import DirectionStoreMixin
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -822,7 +823,7 @@ def build_verification_records(list_verifications, findings: list[dict]) -> list
         })
     return records
 
-class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
+class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def __init__(self, path: Path | str):
         self.path = str(path)
         self._lock = threading.RLock()
@@ -2649,7 +2650,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             return None
         task = self._planner_task_dict(row)
         task["attempt_history"] = self.list_task_attempts(task_id)
-        return task
+        return self._project_active_directions(task)
 
     def list_task_attempts(self, task_id: str) -> list[dict]:
         return [
@@ -3316,6 +3317,9 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
             "coverage": self.planner_coverage(run_id, project_map),
             "completion_policy": (run.get("task_spec") or {}).get("completion_policy", "goal"),
             "baseline_policy": (run.get("task_spec") or {}).get("baseline_policy", "inherit"),
+            "workflow_policy": (run.get("task_spec") or {}).get("workflow_policy", "legacy"),
+            "workflow": self.workflow_state(run_id),
+            "directions": self.audit_direction_summary(run_id),
             "coverage_review": self.coverage_review(run_id, project_map),
             "duplicate_candidates": [_loads(row["payload"], {}) for row in reversed(self._rows(
                 "SELECT payload FROM events WHERE run_id=? AND kind='finding_duplicate_candidate' ORDER BY id DESC LIMIT 20", (run_id,)))],
@@ -3627,6 +3631,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         reopen_attempts: int = 1,
         narrative: dict | None = None,
         coverage_review: list[dict] | None = None,
+        direction_updates: list[dict] | None = None,
     ) -> list[dict]:
         """Commit a Planner decision and its validated frontier mutation atomically."""
         tasks = list(tasks or [])
@@ -3638,6 +3643,12 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 session = self._db.execute("SELECT * FROM planner_sessions WHERE run_id = ?", (run_id,)).fetchone()
                 if plan is None or session is None or plan["status"] != "planning":
                     raise ValueError("Planner round is not an active draft")
+                workflow = self.workflow_state(run_id) if self.discovery_first(run_id) else {}
+                if workflow.get("stage") == "review" and (
+                    tasks or any(item.get("action") == "reopen" for item in updates)
+                    or any(item.get("action") == "assign" for item in direction_updates or [])
+                ):
+                    raise ValueError("最终复核阶段不能新建、重开或分派源码任务；只能复核已有成果并有依据结算方向")
                 stamp = now()
                 exclusions = list(coverage_review or [])
                 if exclusions:
@@ -3736,6 +3747,8 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                         "target_symbols": task.get("target_symbols") or [],
                         "query_hints": task.get("query_hints") or [],
                     }
+                    if self.discovery_first(run_id):
+                        context_spec["direction_ids"] = list(task.get("direction_ids") or [])
                     prior = existing.get(task_key)
                     if prior is None:
                         task_id = uuid.uuid4().hex
@@ -3817,15 +3830,17 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                         # The shared goal budget is what `claim_ready_task` exhausts every
                         # pending task against, so a revision that did not extend it would be
                         # re-opened and killed in the same breath.
-                        self._db.execute(
-                            "UPDATE task_goals SET max_total_attempts = COALESCE(max_total_attempts, 0) + ?,"
-                            " updated_at = ? WHERE id = ?",
-                            (int(reopen_attempts), stamp, goal_id),
-                        )
+                        if not self.discovery_first(run_id):
+                            self._db.execute(
+                                "UPDATE task_goals SET max_total_attempts = COALESCE(max_total_attempts, 0) + ?,"
+                                " updated_at = ? WHERE id = ?",
+                                (int(reopen_attempts), stamp, goal_id),
+                            )
                         self._db.execute(
                             "UPDATE planner_sessions SET task_reopens = COALESCE(task_reopens, 0) + 1 WHERE run_id = ?",
                             (run_id,),
                         )
+                self._apply_direction_updates_tx(run_id, list(direction_updates or []), tasks, reopen_keys)
                 self._refresh_planner_task_states_tx(run_id, goal_id, stamp)
                 self._db.execute(
                     "UPDATE planner_plans SET status = ?, goal_state = ?, basis_summary = ?, next_action = ?, "
@@ -3924,6 +3939,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
         seen: list[dict] | None,
         error: str | None = None,
         terminal_reason: str | None = None,
+        progress: dict | None = None,
     ) -> dict | None:
         """Settle one worker pass without letting a worker settle the whole goal."""
         with self._lock:
@@ -3941,6 +3957,7 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 stored_result["outcome"] = outcome
                 stored_result["attempt"] = attempt
                 reason = terminal_reason or str(stored_result.get("terminal_reason") or "")
+                discovery_first = self.discovery_first(row["run_id"])
                 # A host/model failure produced no assessment of the previously
                 # outstanding directions. Preserve that work across retries and
                 # explicit reopens; a normally completed assessment may clear it.
@@ -3954,17 +3971,30 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 state = "completed"
                 finished_at: str | None = now()
                 stored_error = error
+                failure_attempts = attempt
+                if discovery_first:
+                    stored_result["terminal_reason"] = reason or "completed"
+                    stored_result["error"] = error or stored_result.get("error")
+                    direction_records = self._capture_worker_directions_tx(row, stored_result)
+                    _, failure_attempts = self._worker_batch_progress_tx(row, stored_result, seen, progress)
+                remaining_for_task = bool(stored_result.get("remaining_work"))
+                if discovery_first:
+                    returned = {" ".join(str(text).split()) for text in stored_result.get("remaining_work") or []}
+                    remaining_for_task = any(
+                        item["state"] == "assigned" and item.get("assigned_task_key") == row["task_key"]
+                        and item["text"] in returned for item in direction_records.values()
+                    )
                 if outcome == "continue" or (
-                    outcome in {"achieved", "no_evidence"} and stored_result.get("remaining_work")
+                    outcome in {"achieved", "no_evidence"} and remaining_for_task
                 ):
-                    if attempt < int(row["max_attempts"]):
+                    if failure_attempts < int(row["max_attempts"]):
                         state = "ready"
                         finished_at = None
-                    elif reason in TASK_RETRY_FAILURE_REASONS or stored_result.get("remaining_work"):
+                    elif reason in TASK_RETRY_FAILURE_REASONS or remaining_for_task:
                         state = "blocked"
                         stored_error = stored_error or (
                             "当前结果已保存，但剩余方向未结算，需要 Planner 缩小范围或重开任务"
-                            if stored_result.get("remaining_work") else "模型或执行预算耗尽，不能据此排除目标"
+                            if remaining_for_task else "模型或执行预算耗尽，不能据此排除目标"
                         )
                     else:
                         state = "exhausted"
@@ -4120,6 +4150,10 @@ class Store(CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
                 if run_state is None or run_state["status"] in TERMINAL:
                     raise ValueError("运行已经终结，拒绝覆盖")
                 queue = self.task_queue_state(run_id)
+                if state in {"met", "unreachable"} and self.discovery_first(run_id):
+                    directions = self.audit_direction_summary(run_id)
+                    if directions["unsettled_total"]:
+                        raise ValueError(f"仍有 {directions['unsettled_total']} 条宿主未决方向尚未分配或结算，不能因分页未显示而完成全量审计")
                 if state == "met":
                     review = self.coverage_review(run_id)
                     if review is not None:

@@ -10,4 +10,12 @@
 .poc-readiness p { margin: 0 0 6px; }
 .poc-readiness button { display: block; margin-top: 6px; }
 .execution-poc { line-height: 1.6; }
+.execution-workflow { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; min-width: 0; }
+.execution-stage-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.execution-stage-grid > div { display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
+.execution-stage-grid > .is-current { border-color: var(--accent); }
+.execution-stage-grid strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.execution-stage-grid small { color: var(--ink-faint); }
+.execution-workflow-facts { margin: 10px 0; font-size: 12px; }
 @media(max-width: 480px) { .execution-status { padding: 12px; } .execution-budget-grid { gap: 6px; } .execution-budget-grid strong { font-size: 13px; } }
+@media(max-width: 600px) { .execution-stage-grid { grid-template-columns: 1fr; } .execution-stage-grid > div { display: grid; grid-template-columns: 1fr auto; align-items: center; } .execution-stage-grid small { grid-column: 1 / -1; } }

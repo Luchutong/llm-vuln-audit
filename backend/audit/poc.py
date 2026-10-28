@@ -48,6 +48,8 @@ class PocPolicy:
     browser: bool = True
     max_script_bytes: int = 32768
     max_tokens: int = 4096
+    # Host-derived allowance for this invocation, never read from user policy.
+    max_responses: int | None = None
     reset_between_findings: bool = False
     reset_command: str = ""
     reset_timeout: int = 30
@@ -104,6 +106,7 @@ class PocPolicy:
             "browser": self.browser,
             "max_script_bytes": self.max_script_bytes,
             "max_tokens": self.max_tokens,
+            **({"max_responses": self.max_responses} if self.max_responses is not None else {}),
             "reset_between_findings": self.reset_between_findings,
             "reset_timeout": self.reset_timeout,
         }
@@ -372,6 +375,7 @@ class PocVerifier:
         *,
         model_config: ModelConfig,
         should_stop=None,
+        max_findings: int | None = None,
     ) -> dict:
         """Verify each standing conclusion this run has not verified yet.
 
@@ -380,26 +384,45 @@ class PocVerifier:
         """
         run = self.store.get_run(run_id) or {}
         policy = PocPolicy.from_run(run, self.settings)
-        selected: list[tuple[dict, str, int]] = []
+        current: dict[str, tuple[dict, str, int]] = {}
         for finding in findings:
+            if finding.get("run_id") not in {None, run_id}:
+                continue
+            if finding.get("disposition", "open") in {"duplicate", "retracted", "superseded"}:
+                continue
+            if finding.get("validation_state", "candidate") != "candidate":
+                continue
             key = _finding_key(finding)
             revision = _revision(finding)
             if not key:
                 continue
-            if int(verified_for.get(key, 0)) >= revision:
-                continue
-            selected.append((finding, key, revision))
+            previous = current.get(key)
+            if previous is None or (revision, int(finding.get("revision") or 1), str(finding.get("id") or "")) > (
+                previous[2], int(previous[0].get("revision") or 1), str(previous[0].get("id") or ""),
+            ):
+                current[key] = (finding, key, revision)
+        eligible = [entry for key, entry in current.items() if int(verified_for.get(key, 0)) < entry[2]]
+        if max_findings is not None and (type(max_findings) is not int or max_findings < 1):
+            raise ValueError("max_findings must be a positive integer or None")
+        # The cap counts newly executed experiments, not already durable claims
+        # encountered while rebuilding the local index after pause/restart.
+        selected = eligible
         summary = {
             "attempted": 0, "verified": 0, "rejected": 0,
             "inconclusive": 0, "environment_unavailable": 0, "not_applicable": 0,
             "authentication_failed": 0, "state_mismatch": 0,
+            "processed": 0, "remaining": len(eligible) - len(selected), "processed_findings": [],
         }
-        if not selected:
+        def finished_summary():
+            summary["remaining"] = sum(int(verified_for.get(key, 0)) < revision for _, key, revision in eligible)
             return summary
+
+        if not selected:
+            return finished_summary()
 
         epoch = run.get("execution_epoch")
         if not self._allowed(run_id, epoch) or (should_stop is not None and should_stop()):
-            return summary
+            return finished_summary()
         profile = str(run.get("target_profile") or "unknown")
         readiness = await self.readiness.check(profile, mode=policy.mode, target=policy.target)
         if not policy.enabled and policy.mode != "off":
@@ -419,45 +442,12 @@ class PocVerifier:
                 summary["environment_unavailable"] = len(selected)
             if policy.required:
                 raise StopAudit("environment_unavailable", readiness["message"])
-            return summary
+            return finished_summary()
 
         target_key = poc_target_key(run, policy, self.settings)
-        claims = []
-        recoveries = []
         claim_method = getattr(self.store, "claim_poc_attempt", None)
-        for finding, key, revision in selected:
-            claim = claim_method(run_id, finding, target_key, epoch) if claim_method else {"claimed": True}
-            if claim.get("claimed"):
-                claims.append((finding, key, revision, claim.get("key")))
-            else:
-                verified_for[key] = revision
-                if claim.get("state") in {"interrupted", "unavailable"}:
-                    summary["inconclusive"] += 1
-                    if claim.get("runner_job_id"):
-                        recoveries.append(claim)
-        # Interrupted verification only inspects its known original job; it never
-        # resumes execution, resubmits side effects or infers a verified verdict.
-        if recoveries and self._allowed(run_id, epoch):
-            recovery_client = self._make_client(policy)
-            try:
-                for attempt in recoveries:
-                    try:
-                        prior_job = await asyncio.wait_for(recovery_client.get_job(attempt["runner_job_id"]), timeout=5)
-                        state = "recovered" if isinstance(prior_job, dict) else "unknown"
-                    except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError):
-                        state = "unknown"
-                    self.bus.emit(run_id, attempt.get("finding_id"), "poc_job_recovered", {
-                        "job_id": attempt["runner_job_id"], "state": state,
-                        "message": "已查询原作业；验证结论未完整提交，保留未完成状态，不自动重新执行。",
-                    })
-            finally:
-                await self._close(recovery_client)
-        if not claims or not self._allowed(run_id, epoch):
-            return summary
         from .execution_state import CURRENT_EXECUTION
         owner = CURRENT_EXECUTION.get()
-        if owner is not None:
-            owner.admit("work")
         client = None
         try:
             client = self._make_client(policy)
@@ -470,40 +460,92 @@ class PocVerifier:
                                    "message": "隔离靶场准备失败。", "legacy": policy.legacy}, epoch)
             self._notice(run, "runner_unhealthy", {
                 "reason": "runner_unhealthy", "message": "隔离靶场准备失败，本次保留静态审计结果。",
-                "count": len(claims),
+                "count": len(selected),
             })
-            abandon = getattr(self.store, "finish_poc_attempt_without_result", None)
-            for _, key, revision, attempt_key in claims:
-                if abandon:
-                    abandon(attempt_key, "unavailable", epoch)
+            for _, key, revision in selected:
                 verified_for[key] = revision
-            summary["environment_unavailable"] = len(claims)
+            summary["environment_unavailable"] = len(selected)
             if client is not None:
                 await self._close(client)
             if policy.required:
                 raise StopAudit("environment_unavailable", "隔离靶场准备失败，无法满足必须动态验证的要求。")
-            return summary
+            return finished_summary()
 
         if not self._allowed(run_id, epoch) or (should_stop is not None and should_stop()):
             await self._close(client)
-            return summary
+            return finished_summary()
         self.bus.emit(run_id, None, "poc_agent_phase", {
             "phase": "poc_prepare", "target": policy.target,
-            "count": len(claims), "policy": policy.snapshot(),
+            "count": len(selected), "policy": policy.snapshot(),
         })
         try:
-            for finding, key, revision, attempt_key in claims:
+            for finding, key, revision in selected:
+                if max_findings is not None and summary["processed"] >= max_findings:
+                    break
                 if not self._allowed(run_id, epoch) or (should_stop is not None and should_stop()):
                     break
+                # Do not claim a side-effectful experiment that cannot afford even
+                # one execution response and the three bounded conclusion responses.
+                # Re-read after every finding: the previous one may have spent the
+                # final allowance in this batch. Legacy runs have no workflow policy.
+                state_method = getattr(self.store, "workflow_state", None)
+                workflow = state_method(run_id) if state_method else {}
+                allowance = None
+                if workflow:
+                    allowance = int((workflow.get("remaining") or {}).get("poc", 0))
+                    if (workflow.get("stage") != "poc" or allowance < 4
+                            or workflow.get("stage_remaining_seconds", 1) <= 0):
+                        self.bus.emit(run_id, finding.get("id"), "poc_verification_deferred", {
+                            "reason": "stage_budget_reserved", "responses_remaining": allowance,
+                            "required_responses": 4,
+                            "message": "剩余额度不足以执行并发布结论，保留未验证状态及最终复核额度。",
+                        })
+                        break
+                if owner is not None:
+                    owner.admit("work")
+                claim = claim_method(run_id, finding, target_key, epoch) if claim_method else {"claimed": True}
+                if not claim.get("claimed"):
+                    verified_for[key] = revision
+                    if claim.get("state") in {"interrupted", "unavailable"}:
+                        summary["inconclusive"] += 1
+                        if claim.get("runner_job_id"):
+                            # Query only the original job; never replay its effects
+                            # or invent a verdict from an interrupted attempt.
+                            try:
+                                prior_job = await asyncio.wait_for(client.get_job(claim["runner_job_id"]), timeout=5)
+                                state = "recovered" if isinstance(prior_job, dict) else "unknown"
+                            except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError):
+                                state = "unknown"
+                            self.bus.emit(run_id, claim.get("finding_id"), "poc_job_recovered", {
+                                "job_id": claim["runner_job_id"], "state": state,
+                                "message": "已查询原作业；验证结论未完整提交，保留未完成状态，不自动重新执行。",
+                            })
+                    continue
+                attempt_key = claim.get("key")
                 start_attempt = getattr(self.store, "start_poc_attempt", None)
                 if start_attempt and not start_attempt(attempt_key, epoch):
                     continue
                 summary["attempted"] += 1
-                result, reason, record, artifacts, jobs = await self.verify_finding(
-                    run, finding, policy, prepared, client, model_config=model_config,
-                    attempt_key=attempt_key, target_key=target_key,
+                summary["processed"] += 1
+                finding_policy = policy if allowance is None else replace(
+                    policy, max_responses=min(max(2, policy.max_steps) + 3, allowance),
+                    max_seconds=min(policy.max_seconds, max(1, int(workflow.get("stage_remaining_seconds", policy.max_seconds)))),
+                    job_seconds=min(policy.job_seconds, max(1, int(workflow.get("stage_remaining_seconds", policy.max_seconds)))),
                 )
+                try:
+                    result, reason, record, artifacts, jobs = await self.verify_finding(
+                        run, finding, finding_policy, prepared, client, model_config=model_config,
+                        attempt_key=attempt_key, target_key=target_key,
+                    )
+                except StopAudit as exc:
+                    if exc.reason == "stage_budget_exhausted" and attempt_key:
+                        finish = getattr(self.store, "finish_poc_attempt_without_result", None)
+                        if finish is not None:
+                            finish(attempt_key, "interrupted", epoch)
+                    raise
                 verified_for[key] = revision
+                summary["processed_findings"].append({"finding_id": finding["id"], "ledger_id": key,
+                    "revision": revision, "status": result.status})
                 summary[result.status if result.status in summary else "inconclusive"] += 1
                 outcome_status = record.get("execution_status") if isinstance(record, dict) else ""
                 if outcome_status in {"authentication_failed", "state_mismatch"}:
@@ -523,7 +565,7 @@ class PocVerifier:
                     break
         finally:
             await self._close(client)
-        return summary
+        return finished_summary()
 
     async def verify_finding(
         self, run: dict, finding: dict, policy: PocPolicy, prepared: dict,
@@ -629,6 +671,8 @@ class PocVerifier:
             default_identity=str(prepared.get("identity") or MEMBER_IDENTITIES[0]),
             on_job=lambda job_id: self.store.note_poc_job(attempt_key, job_id, run.get("execution_epoch"))
                 if attempt_key and hasattr(self.store, "note_poc_job") else None,
+            on_job_fact=lambda job: self.store.persist_poc_job_fact(attempt_key, job, run.get("execution_epoch"))
+                if attempt_key and hasattr(self.store, "persist_poc_job_fact") else None,
         )
         deps._remember_state(prepared)
         result, reason = await run_poc_agent(
@@ -686,8 +730,8 @@ class PocVerifier:
             stored_artifacts = [
                 item.model_dump() for item in result.artifacts
             ]
-        from .poc_agent import _successful_script, _successful_browser
-        succeeded = any(_successful_script(job) or _successful_browser(job) is not None for job in jobs)
+        from .poc_agent import successful_job
+        succeeded = any(successful_job(job) for job in jobs)
         preconditions = [item for item in prepared.get("preconditions") or [] if isinstance(item, dict)]
         attempts = [item for item in prepared.get("identity_attempts") or [] if isinstance(item, dict)]
         used_identity = str(prepared.get("identity") or "")

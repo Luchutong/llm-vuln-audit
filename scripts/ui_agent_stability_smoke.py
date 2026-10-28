@@ -48,6 +48,30 @@ def diagnostic_events():
 
 def run_checks(page, base, api, checks, screenshots):
     goto(page, base, f"#run/{COMPLETED_ID}")
+    workflow = page.get_by_role("region", name="执行预算与验证策略")
+    expect(workflow).to_contain_text("当前阶段：POC 验证")
+    expect(workflow.locator('[data-stage="discovery"]')).to_contain_text("已用 142 / 配额 142")
+    expect(workflow.locator('[data-stage="poc"]')).to_contain_text("已用 4 / 配额 102")
+    expect(workflow.locator('[data-stage="review"]')).to_contain_text("剩余 10 次请求")
+    expect(workflow).to_contain_text("静态阶段转入验证 38 次请求")
+    expect(workflow).to_contain_text("未决方向 3")
+    expect(workflow).to_contain_text("待验证 5")
+    expect(workflow).to_contain_text("正式复核 2")
+    expect(workflow).to_contain_text("待正式复核 1")
+    expect(workflow).to_contain_text("源码阶段停止原因：已处理全部可执行源码方向")
+    checks.passed("discovery-first stages show frozen allocation, actual consumption, transfer and unsettled review facts")
+    for theme in ("dark", "light"):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        if page.locator("html").get_attribute("data-theme") != theme:
+            page.get_by_role("button", name=f"切换{'深' if theme == 'dark' else '浅'}色主题", exact=True).click()
+        for width in (1440, 1024, 768, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            workflow.scroll_into_view_if_needed()
+            no_overflow(page, f"workflow allocation {theme} {width}", checks)
+            expect(workflow.locator('[data-stage="review"]')).to_be_visible()
+            if screenshots:
+                page.screenshot(path=str(screenshots / f"audit-workflow-{theme}-{width}.png"), animations="disabled")
+    page.set_viewport_size({"width": 1440, "height": 900})
     summary = page.locator(".activity-stream .agent-diagnostics")
     expect(summary).to_contain_text("2 次异常请求 · 2 次已恢复")
     summary.get_by_role("button", name="错误与恢复", exact=False).click()
@@ -100,8 +124,10 @@ def run_checks(page, base, api, checks, screenshots):
     expect(page.get_by_text('"actual_role": "admin"', exact=False)).to_be_visible()
     page.get_by_role("button", name="正常侧证据引用（1）", exact=True).click()
     expect(page.get_by_text("normal=member", exact=True)).to_be_visible()
+    expect(page.get_by_text("输出通道 body", exact=False)).to_be_visible()
     page.get_by_role("button", name="攻击侧证据引用（1）", exact=True).click()
     expect(page.get_by_text("attack=admin", exact=True)).to_be_visible()
+    expect(page.get_by_text("输出通道 headers", exact=False)).to_be_visible()
     page.get_by_role("button", name="作业执行历史（2）", exact=True).click()
     expect(page.get_by_role("button", name="script · failed-script", exact=False)).to_contain_text("退出码 2")
     expect(page.get_by_role("button", name="http · identity-check", exact=False)).to_contain_text("HTTP 200")
@@ -160,6 +186,13 @@ def run_checks(page, base, api, checks, screenshots):
                 button.click()
     expect(dialog.locator(".trace-groups")).to_contain_text("结构化决策未通过宿主校验")
     checks.passed("JSON publication shows empty output, rejected decisions and recovery without a Python action")
+    api.runs[COMPLETED_ID].pop("execution_summary")
+    api.runs[COMPLETED_ID]["task_spec"].pop("workflow_policy")
+    goto(page, base, f"#run/{COMPLETED_ID}")
+    page.reload()
+    expect(page.get_by_label("已冻结的审计策略", exact=True)).to_contain_text("共享预算调度（旧政策）")
+    expect(page.get_by_label("阶段配额与未决事项", exact=True)).to_have_count(0)
+    checks.passed("historical runs keep legacy scheduling labels and do not invent stage consumption")
 
 
 def main():
@@ -170,14 +203,29 @@ def main():
     if args.screenshots:
         args.screenshots.mkdir(parents=True, exist_ok=True)
     api = sources_api()
+    api.runs[COMPLETED_ID]["task_spec"].update(workflow_policy="discovery_first", completion_policy="coverage_review")
+    api.runs[COMPLETED_ID]["execution_summary"] = {
+        "phase": "poc", "run_limits": {"responses": 256, "tools": 2048, "seconds": 1800},
+        "run_usage": {"responses": 148, "tools": 81, "seconds": 531},
+        "run_remaining": {"responses": 108, "tools": 1967, "seconds": 1269},
+        "active_executions": [], "blocked_task_ids": [], "poc": {"mode": "auto", "available": True},
+        "final_summary_available": False,
+        "workflow": {"version": "discovery-first-v1", "stage": "poc",
+                     "limits": {"discovery": 142, "poc": 102, "review": 12},
+                     "used": {"discovery": 142, "poc": 4, "review": 2},
+                     "remaining": {"discovery": 0, "poc": 98, "review": 10},
+                     "transferred": 38, "review_reserved_seconds": 60, "stage_remaining_seconds": 1209,
+                     "discovery_stop": {"state": "met", "basis": "已处理全部可执行源码方向", "missing": [], "code": None}},
+        "directions": {"total": 8, "unsettled_total": 3, "pending_total": 1, "assigned_total": 2},
+        "verification": {"total": 9, "pending": 5, "verified": 3, "reviewed": 2, "pending_review": 1}}
     api.event_overrides[COMPLETED_ID] = diagnostic_events()
     record = verification_record()
     record.update(status="inconclusive", verdict="uncertain", execution_status="environment_mismatch", agent={
         "context_id": "independent-context", "jobs": ["failed-script", "identity-check"],
         "preconditions": {"identity": "alice", "expected_role": "member", "actual_role": "admin", "valid": False},
         "state_changes": [{"identity": "alice", "from": "member", "to": "admin"}],
-        "normal_evidence": [{"job_id": "identity-check", "channel": "stdout", "excerpt": "normal=member"}],
-        "attack_evidence": [{"job_id": "identity-check", "channel": "stdout", "excerpt": "attack=admin"}],
+        "normal_evidence": [{"job_id": "identity-check", "channel": "body", "excerpt": "normal=member"}],
+        "attack_evidence": [{"job_id": "identity-check", "channel": "headers", "excerpt": "attack=admin"}],
         "job_results": [
             {"verification_id": record["id"], "finding_id": record["finding_id"], "job_id": "failed-script", "kind": "script", "exit_code": 2,
              "request": {"script": "raise SystemExit(2)"}, "result": {"stderr": "identity polluted"}},

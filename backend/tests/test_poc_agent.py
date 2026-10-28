@@ -249,8 +249,8 @@ INCONCLUSIVE = {"status": "inconclusive", "verdict": "uncertain", "summary": "�
 @pytest.mark.parametrize("reply", [
     "攻击请求和正常请求的结果相同，无法确认漏洞。",
     'final_answer({"status": "inconclusive", "summary": "证据不足"})',
-    '{"status": "inconclusive", "summary": "证据不足"}',
-], ids=["prose", "bare-call", "pure-json"])
+    '{"status": "inconclusive", "summary":',
+], ids=["prose", "bare-call", "truncated-json"])
 def test_an_unparsable_conclusion_is_recorded_and_corrected(monkeypatch, reply):
     """Prose, a bare call and pure JSON all arrive with no ``<code>`` block of their own.
 
@@ -274,7 +274,7 @@ def test_an_unparsable_conclusion_is_recorded_and_corrected(monkeypatch, reply):
     assert event["step"] == 1
     # The request that produced the unparsable reply: one execute request came before it.
     assert event["request_index"] == 2
-    assert event["category"] == "no_code_block"
+    assert event["category"] == "invalid_json"
     assert event["hint"]
     retries = [item for item in events if item.get("kind") == "model_retry"]
     assert len(retries) == 1 and retries[0]["phase"] == "poc_conclude"
@@ -285,7 +285,7 @@ def test_an_unparsable_conclusion_is_recorded_and_corrected(monkeypatch, reply):
         item for item in events
         if item.get("kind") == "agent_code" and item.get("phase") == "poc_conclude"
     ]
-    assert len(conclude_codes) == 1
+    assert conclude_codes == []
 
 
 def test_three_format_failures_end_as_invalid_output_without_an_extra_request(monkeypatch):
@@ -324,19 +324,18 @@ def test_an_invalid_submission_is_a_contract_correction_not_a_parse_error(monkey
     assert len(retries) == 1 and "status" in (retries[0]["reason"] or "")
 
 
-def test_a_conclusion_without_its_closing_tag_still_parses(monkeypatch):
-    """The loop appends the closing tag itself; that must not be mistaken for a bad reply."""
+def test_python_conclusion_is_rejected_then_corrected_as_json(monkeypatch):
     client = FakeClient()
     payload = json.dumps(INCONCLUSIVE, ensure_ascii=False)
     script = {
         "poc_execute": [final_answer("探索结束")],
-        "poc_conclude": [f"<code>\nfinal_answer({payload})"],
+        "poc_conclude": [f"<code>\nfinal_answer({payload})", payload],
     }
     result, reason, _, _, events = run_agent_events(monkeypatch, script, client)
 
     assert result is not None and result.status == "inconclusive", reason
     assert reason == "completed"
-    assert not [item for item in events if item.get("kind") == "agent_parse_error"]
+    assert len([item for item in events if item.get("kind") == "agent_parse_error"]) == 1
 
 
 def test_a_bad_reply_s_prose_never_reaches_the_durable_events(monkeypatch):
@@ -408,7 +407,7 @@ def test_exhausting_the_exploration_budget_still_leaves_a_conclusion(monkeypatch
     # in its event rather than becoming the whole agent's reason.
     assert reason == "completed"
     finished = [event for event in events if event.get("kind") == "poc_execution_finished"]
-    assert len(finished) == 1 and finished[0]["reason"] == "budget"
+    assert len(finished) == 1 and finished[0]["reason"] == "job_limit"
     assert not [event for event in events if event.get("kind") == "poc_conclusion_failed"]
 
 
@@ -649,13 +648,10 @@ def test_each_poc_phase_carries_its_own_rules_and_tool_table(monkeypatch):
     assert "def http_observe(" not in conclude
     assert "def browser_check(" not in conclude
     assert "json.loads" not in conclude
-    # What replaces them: the one remaining tool and an exact submission example.  A bare
-    # "submit the result" is what a model answered with prose; the code block is the
-    # format the parser actually accepts.
-    assert "def final_answer(" in conclude
-    assert "final_answer({" in conclude
-    assert '"status": "inconclusive"' in conclude
-    assert "普通 dict" in conclude
+    # Publication is JSON, with neither interpreter nor tool signatures.
+    assert "def final_answer(" not in conclude
+    assert "只输出JSON" in conclude
+    assert '"status":"inconclusive"' in conclude
     # Named only to forbid constructing it inside the interpreter.
     assert "PocVerificationResult(" not in conclude
     # The host supplies the last executed script, so the model is not asked to repeat it.

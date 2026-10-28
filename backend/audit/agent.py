@@ -92,7 +92,7 @@ def model_failure_reason(exc: BaseException) -> str:
     ``reason``, so the only thing left to decide here is what an unlabelled failure is:
     not the model's output, since nothing about its answer was judged.
     """
-    if isinstance(exc, StopAudit) and exc.reason == "run_budget_exhausted":
+    if isinstance(exc, StopAudit) and exc.reason in {"run_budget_exhausted", "stage_budget_exhausted"}:
         raise exc
     return getattr(exc, "reason", None) or "invalid_output"
 
@@ -108,9 +108,14 @@ def provider_refused(exc: BaseException) -> bool:
     settlement retry this run does not do, and which the run-level failure counter would
     then read as two failures instead of one.
     """
-    if isinstance(exc, StopAudit) and exc.reason == "run_budget_exhausted":
+    if isinstance(exc, StopAudit) and exc.reason in {"run_budget_exhausted", "stage_budget_exhausted"}:
         raise exc
     return isinstance(exc, ModelCallFailed) and exc.reason != "request_timeout"
+
+
+PLANNER_REVIEW_TOOLS = frozenset({
+    "get_task_results", "get_coverage", "list_directions", "list_verifications", "read_verification",
+})
 
 
 @dataclass
@@ -725,9 +730,16 @@ class PlannerDeps:
         status = "ok"
         failure = None
         cached = False
-        dynamic = name in {"get_task_results", "get_coverage", "list_verifications", "read_verification"}
+        dynamic = name in {"get_task_results", "get_coverage", "list_verifications", "read_verification", "list_directions"}
         json_output = next(item for item in PLANNER_TOOLS if item.name == name).output_format == "json" if name in {item.name for item in PLANNER_TOOLS} else False
-        if key in self.calls and not dynamic:
+        review_only = (self.run_context.get("workflow_policy") == "discovery_first"
+                       and (self.run_context.get("workflow") or {}).get("stage") == "review")
+        if review_only and name not in PLANNER_REVIEW_TOOLS:
+            failure = ToolFailure("invalid_argument", "最终复核阶段已收回源码导航与侦察工具。",
+                                  "只读取当前验证、任务及方向记录，保留无法结算的方向为未决。")
+            status = failure.code
+            text = json.dumps({"ok": False, "tool": name, **failure.fields()}, ensure_ascii=False) if json_output else failure.error
+        elif key in self.calls and not dynamic:
             self.repeats += 1
             text = self.call_results[key]
             failure = self.call_failures.get(key)
@@ -813,6 +825,7 @@ class PlannerDeps:
             "search_project_map": self._tool_project_search,
             "get_task_results": self._tool_task_results,
             "get_coverage": self._tool_coverage,
+            "list_directions": self._tool_directions,
             "list_verifications": self._tool_verifications,
             "read_verification": self._tool_verification,
             "get_investigation": self._tool_investigation,
@@ -843,6 +856,40 @@ class PlannerDeps:
 
     async def _tool_task_results(self, args: dict) -> str:
         return _planner_json(_planner_task_results(self.run_context), limit=12 * 1024)
+
+    async def _tool_directions(self, args: dict) -> str:
+        reader = getattr(self.pins, "list_audit_directions", None)
+        if reader is None or not self.run_id:
+            if self.run_context.get("workflow_policy") != "discovery_first":
+                return json.dumps({"items": [], "total": 0, "unsettled_total": 0, "next_cursor": None,
+                                   "notice": "该旧运行未启用持久化方向账本。"}, ensure_ascii=False)
+            raise ValueError("当前运行的方向账本读取接口不可用；不能将无法读取视为没有剩余方向。")
+        result = await asyncio.to_thread(reader, self.run_id, cursor=args.get("cursor", 0),
+                                         limit=args.get("limit", 20), state=args.get("state", "open"))
+        # Direction IDs and text must not be cut by the generic JSON shrinker. Fetch a
+        # smaller page when necessary, preserving the authoritative full counts.
+        while _situation_bytes(result) > 12 * 1024 and len(result.get("items") or []) > 1:
+            result = await asyncio.to_thread(reader, self.run_id, cursor=args.get("cursor", 0),
+                                             limit=max(1, len(result["items"]) // 2), state=args.get("state", "open"))
+        if _situation_bytes(result) > 12 * 1024:
+            raise ValueError("单个方向记录超过读取容量；宿主保留完整 ID，不能截断后当作已结算。")
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+    def direction_records(self) -> list[dict]:
+        """Read the complete host set for validation, independently of prompt paging."""
+        reader = getattr(self.pins, "list_audit_directions", None)
+        if reader is None or not self.run_id:
+            return list((self.run_context.get("directions") or {}).get("items") or [])
+        records, cursor = [], 0
+        while True:
+            page = reader(self.run_id, cursor=cursor, limit=100, state="all")
+            records.extend(page.get("items") or [])
+            next_cursor = page.get("next_cursor")
+            if next_cursor is None:
+                return records
+            if type(next_cursor) is not int or next_cursor <= cursor:
+                raise ValueError("方向账本返回无效游标，不能据此宣称所有方向已完成")
+            cursor = next_cursor
 
     async def _tool_coverage(self, args: dict) -> str:
         """Return actual read coverage plus a bounded page of durable closure gaps."""
@@ -1504,6 +1551,9 @@ def _planner_situation(run_context: dict) -> dict:
         "project_findings": project_findings,
         "verification_summary": verification_summary,
         "completion_policy": completion_policy,
+        "workflow_policy": run_context.get("workflow_policy", "legacy"),
+        "workflow": dict(run_context.get("workflow") or {}),
+        "directions": {**(run_context.get("directions") or {}), "read_tool": "list_directions"},
         "coverage_review": {
             **{key: (run_context.get("coverage_review") or {}).get(key)
                for key in ("version", "total", "pending_total", "complete")
@@ -1530,6 +1580,7 @@ def _planner_situation(run_context: dict) -> dict:
             "has_standing_findings": bool(standing or standing_project),
             "unreviewed_verifications": len(pending_reviews),
             "all_dispatched_tasks_settled": not frontier and not counts["blocked"],
+            "unsettled_directions": int((run_context.get("directions") or {}).get("unsettled_total") or 0),
         },
         # Stated as a field as well as in the notice: the round after this one does not exist
         # unless the host reopens the run, so a client reading the block should not have to
@@ -1584,7 +1635,9 @@ def _bound_situation(situation: dict, *, limit: int = 16 * 1024) -> dict:
     raw-prefix wrapper, which would erase the difference between absent and omitted.
     """
     bounded = dict(situation)
-    bounded.update(verification_projection(situation))
+    review_only = ((situation.get("workflow") or {}).get("stage") == "review"
+                   and situation.get("workflow_policy") == "discovery_first")
+    bounded.update(verification_projection(situation, count=2 if review_only else 4))
     names = ("settled", "findings", "observations", "project_findings", "verification_records",
              "verification_reviews_required", "verification_reviews", "duplicate_candidates")
     for name in names:
@@ -1615,6 +1668,11 @@ def _bound_situation(situation: dict, *, limit: int = 16 * 1024) -> dict:
     totals["pinned_investigations"] = len(pins["recent"])
     lists = {name: bounded[name] for name in names}
     lists["pinned_investigations"] = pins["recent"]
+    direction_summary = dict(situation.get("directions") or {})
+    direction_summary["items"] = list(direction_summary.get("items") or [])
+    bounded["directions"] = direction_summary
+    totals["directions"] = len(direction_summary["items"])
+    lists["directions"] = direction_summary["items"]
     original_notice = str(bounded.get("notice") or "")
     while _situation_bytes(bounded) > limit and any(lists.values()):
         candidates = [name for name, values in lists.items() if values]
@@ -2008,7 +2066,7 @@ async def audit_unit(*, repository: SourceRepository, snapshot_id: str, snapshot
                 try:
                     await deps.call("get_context", {})
                 except StopAudit as exc:
-                    if exc.reason == "run_budget_exhausted":
+                    if exc.reason in {"run_budget_exhausted", "stage_budget_exhausted"}:
                         raise
                     # The host's initial cross-file read uses the same source ledger as
                     # model-driven exploration. Reaching that ledger cap should switch
@@ -2386,6 +2444,65 @@ def _worker_publication_schema(batch_limit: int) -> dict:
     return schema
 
 
+def _worker_current_findings(findings: list[dict] | None, context_task: dict | None,
+                             *, run_id: str = "", max_bytes: int = 32 * 1024,
+                             related_paths: list[str] | None = None) -> dict:
+    """Current-run memory scoped by root-cause location, not shared bootstrap evidence.
+
+    Keep identifiers and coordinates intact; shorten descriptive fields and then omit
+    complete rows with an explicit count rather than handing the model broken IDs.
+    These records describe prior conclusions, never substitute for reading source.
+    """
+    context = (context_task or {}).get("context_spec") or {}
+    selected = {str(item.get("path") or "") for item in context.get("source_refs") or [] if isinstance(item, dict)}
+    selected.update(str(path) for path in context.get("scope_paths") or [])
+    selected.update(str(path) for path in related_paths or [])
+    selected.discard("")
+    current = [item for item in findings or [] if isinstance(item, dict) and item.get("id")
+               and (not run_id or str(item.get("run_id") or "") == run_id)
+               and is_vulnerability_finding(item)]
+    records: list[dict] = []
+    for item in current:
+        location = item.get("primary_location") or {}
+        if isinstance(location, str):
+            try:
+                location = json.loads(location)
+            except ValueError:
+                location = {}
+        location = location if isinstance(location, dict) else {}
+        path = str(location.get("path") or item.get("file_path") or "")
+        evidence = item.get("evidence") or []
+        if isinstance(evidence, str):
+            try:
+                evidence = json.loads(evidence)
+            except ValueError:
+                evidence = []
+        refs = [value for value in evidence if isinstance(value, dict)] if isinstance(evidence, list) else []
+        if not path and refs:
+            path = str(refs[0].get("path") or "")
+        if selected and not any(path == entry or path.startswith(entry.rstrip("/") + "/") for entry in selected):
+            continue
+        line = location.get("line") or (refs[0].get("start_line") if refs else None)
+        records.append({
+            "id": str(item["id"]), "run_id": str(item.get("run_id") or run_id),
+            "vulnerability_type": str(item.get("vulnerability_type") or item.get("category") or "unknown"),
+            "primary_location": {"path": path, "line": line},
+            "title": _planner_text(item.get("title"), 160),
+            "sink": _planner_text(item.get("dangerous_operation"), 240),
+            "preconditions": _planner_text(item.get("preconditions"), 200),
+            "revision": int(item.get("revision") or 1),
+            "validation_state": str(item.get("validation_state") or "candidate"),
+            "disposition": str(item.get("disposition") or "open"),
+        })
+    result = {"source": "current_run", "total_in_run": len(current), "relevant_total": len(records),
+              "items": records, "omitted": 0,
+              "notice": "本轮累计结论仅用于区分根因及避免重复；证据必须读取原始源码。省略记录不能视为不存在。"}
+    while _situation_bytes(result) > max_bytes and result["items"]:
+        result["items"].pop(0)
+        result["omitted"] += 1
+    return result
+
+
 async def pursue_task_work(
     *,
     repository: SourceRepository,
@@ -2400,6 +2517,8 @@ async def pursue_task_work(
     initial_excerpts: list[dict] | None = None,
     dependency_handoffs: list[dict] | None = None,
     known_findings: list[dict] | None = None,
+    current_findings: list[dict] | None = None,
+    current_run_id: str = "",
     peer_trace_search: Callable[[str], list[dict]] | None = None,
     peer_trace_read: Callable[[str, list[int] | None], list[dict]] | None = None,
     config: ModelConfig,
@@ -2549,7 +2668,22 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
         "不能为了缩短输出丢弃已发现风险；不能将尚未审查的方向写成安全或已完成。"
         "summary、reasoning 和各字段保持简短，CVSS 每项只写必要依据，避免重复整段源码。"
     )
-    if known_findings:
+    if current_findings:
+        memory = _worker_current_findings(
+            current_findings, context_task, run_id=current_run_id,
+            related_paths=[str(item.get("path") or "") for item in initial_excerpts or [] if isinstance(item, dict)],
+        )
+        instruction += (
+            "\n# 当前运行已落库的相关结论（跨本轮全部工作项累计，不是历史项目基线）\n"
+            + json.dumps(memory, ensure_ascii=False, separators=(",", ":"))
+            + "\n同一根因、同一危险操作与相同前提不要重复主张；不同操作或利用前提仍可独立报告，"
+              "并写明与已有结论的差异。这里的摘要不能作为源码证据。"
+        )
+        emit({"kind": "worker_current_findings_prepared", "source": "current_run",
+              "total_in_run": memory["total_in_run"], "relevant_total": memory["relevant_total"],
+              "included": len(memory["items"]), "omitted": memory["omitted"],
+              "finding_ids": [item["id"] for item in memory["items"]]})
+    if known_findings and task.get("baseline_policy") != "fresh":
         # What the project already concluded, not what this direction has read.  Saying it
         # here stops a worker from spending its budget re-proving a sink and reporting it
         # as if the project had never seen it; the host still merges the record either way.
@@ -2628,7 +2762,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                 try:
                     await deps.call("get_context", {})
                 except StopAudit as exc:
-                    if exc.reason == "run_budget_exhausted":
+                    if exc.reason in {"run_budget_exhausted", "stage_budget_exhausted"}:
                         raise
                     # Source bounds are still intact; the verdict call below receives the
                     # exact ledger replay and can honestly report a blocked outcome.
@@ -2934,7 +3068,7 @@ def _declared_files(proposal, directory_files: dict[str, set[str]] | None = None
 
 def _duplicate_direction(
     decision: PlannerDecision, prior_tasks: list[dict], findings: list[dict], policy: AgentPolicy,
-    *, directory_files: dict[str, set[str]] | None = None,
+    *, directory_files: dict[str, set[str]] | None = None, assigned_directions: bool = False,
 ) -> str | None:
     """The cheapest guardrail against a same-thing-new-name direction, and no more than that.
 
@@ -2958,6 +3092,10 @@ def _duplicate_direction(
     }
     reopened = {update.task_key for update in decision.updates if update.action == "reopen"}
     for proposal in decision.tasks:
+        if assigned_directions and proposal.direction_ids:
+            # The host-owned direction has already been checked for identity, state and
+            # ownership. A distinct concrete operation may live in the same source file.
+            continue
         if proposal.task_key in reopened:
             # This is the explicit, separately budgeted correction path, not an
             # old direction disguised under a fresh key. The frontier validator
@@ -3056,6 +3194,74 @@ def _check_disposition(update, prior: dict, findings: dict[str, dict]) -> None:
         raise ModelRetry(f"related_finding_key {related} 不在本次运行的结论里")
 
 
+def _validate_direction_contract(decision: PlannerDecision, *, workflow_policy: str,
+                                 directions: list[dict], prior_tasks: list[dict], findings: list[dict]) -> None:
+    updates = list(getattr(decision, "direction_updates", []) or [])
+    if len({item.direction_id for item in updates}) != len(updates):
+        raise ModelRetry("同一宿主方向每回合只能提交一次 direction_update")
+    selected = [(proposal.task_key, identity) for proposal in decision.tasks for identity in proposal.direction_ids]
+    if workflow_policy != "discovery_first":
+        if updates or selected:
+            raise ModelRetry("旧运行未启用方向账本，不能提交 direction_ids 或 direction_updates")
+        return
+    by_id = {str(item.get("id")): item for item in directions if isinstance(item, dict) and item.get("id")}
+    by_task = {str(item.get("task_key")): item for item in prior_tasks}
+    proposed = {item.task_key for item in decision.tasks}
+    reopened = {item.task_key for item in decision.updates if item.action == "reopen"}
+    findings_by_id = {str(item.get("id")): item for item in findings if isinstance(item, dict)}
+    actions: dict[str, tuple[str, str | None]] = {}
+    for task_key, identity in selected:
+        previous = actions.get(identity)
+        if previous and previous != ("assign", task_key):
+            raise ModelRetry(f"方向 {identity} 不能同时分派给多个工作项")
+        actions[identity] = ("assign", task_key)
+    for update in updates:
+        action = (update.action, update.task_key)
+        if update.direction_id in actions and actions[update.direction_id] != action:
+            raise ModelRetry(f"方向 {update.direction_id} 在同一回合有冲突的分派或结算")
+        actions[update.direction_id] = action
+    for identity, (action, task_key) in actions.items():
+        row = by_id.get(identity)
+        if row is None:
+            raise ModelRetry(f"方向 {identity} 不属于本次运行；请从 list_directions 读取真实 ID")
+        if row.get("state") not in {"pending", "assigned"}:
+            raise ModelRetry(f"方向 {identity} 已结算，不能重新分派或覆盖")
+        if action == "assign":
+            owner = row.get("assigned_task_key")
+            if owner and owner != task_key and (by_task.get(str(owner)) or {}).get("state") == "running":
+                raise ModelRetry(f"方向 {identity} 正由任务 {owner} 执行，不能抢占分派")
+            target = by_task.get(str(task_key))
+            if task_key not in proposed and not (target and (target.get("state") in {"pending", "ready", "deferred"} or task_key in reopened)):
+                raise ModelRetry(f"方向 {identity} 必须分派给本轮新建或可执行的任务，不能指向不存在或已结算任务")
+        elif action == "resolve":
+            update = next(item for item in updates if item.direction_id == identity)
+            if update.finding_ids:
+                for finding_id in update.finding_ids:
+                    finding = findings_by_id.get(finding_id)
+                    paths = set(finding.get("paths") or []) if finding else set()
+                    if finding and not paths:
+                        paths = {ref.get("path") for ref in finding.get("evidence") or [] if isinstance(ref, dict)}
+                    if (not finding or finding.get("validation_state") != "candidate"
+                            or not is_vulnerability_finding(finding)
+                            or finding.get("disposition", "open") not in {"", "open", None}
+                            or finding.get("verification_status") == "rejected"
+                            or not paths or (row.get("paths") and not paths.intersection(row["paths"]))):
+                        raise ModelRetry(f"方向 {identity} 只能引用本轮仍有效的源码证据结论：{finding_id}")
+            else:
+                target = by_task.get(str(task_key))
+                result = (target or {}).get("result") or {}
+                if not target or target.get("state") != "completed" or result.get("outcome") not in {"achieved", "no_evidence"}:
+                    raise ModelRetry(f"方向 {identity} 的 resolve 必须引用已完成、有证据的任务或有效 finding_ids")
+    unresolved = [identity for identity, item in by_id.items() if item.get("state") in {"pending", "assigned"}
+                  and actions.get(identity, ("", None))[0] not in {"resolve", "skip"}]
+    if decision.goal_state in {"met", "unreachable"} and unresolved:
+        raise ModelRetry(f"仍有 {len(unresolved)} 个宿主方向未分派结算或显式说明跳过，不能声明完整收束；用 list_directions 查看")
+    for proposal in decision.tasks:
+        proposal.direction_ids = sorted(set(proposal.direction_ids) | {
+            identity for identity, action in actions.items() if action == ("assign", proposal.task_key)
+        })
+
+
 def _validate_planner_decision(
     decision: PlannerDecision,
     project_map: dict,
@@ -3065,6 +3271,9 @@ def _validate_planner_decision(
     findings: list[dict] | None = None,
     project_findings: list[dict] | None = None,
     run_reopens: int = 0,
+    workflow_policy: str = "legacy",
+    workflow: dict | None = None,
+    directions: list[dict] | None = None,
     on_sanitize=None,
 ) -> PlannerDecision:
     """Apply host-owned map and graph constraints before a Planner may mutate the frontier.
@@ -3082,6 +3291,11 @@ def _validate_planner_decision(
       the next failure ends the run.
     """
     policy = policy or AgentPolicy()
+    if workflow_policy == "discovery_first" and (workflow or {}).get("stage") == "review" and (
+        decision.tasks or any(item.action == "reopen" for item in decision.updates)
+        or any(item.action == "assign" for item in decision.direction_updates)
+    ):
+        raise ModelRetry("最终复核阶段不能新建、重开或分派源码任务；复核已有验证和结论，按证据结算方向或诚实报告未完成")
     notes: list[dict] = []
     # How many more corrections this run may ask for.  A revision is not a retry, so it is
     # budgeted separately: the per-task limit stops one direction being re-opened forever,
@@ -3117,6 +3331,8 @@ def _validate_planner_decision(
         for item in (project_findings or [])
         if isinstance(item, dict) and item.get("id")
     }
+    _validate_direction_contract(decision, workflow_policy=workflow_policy, directions=directions or [],
+                                 prior_tasks=prior_tasks, findings=findings or [])
     prior_keys = set(prior_by_key)
     proposed_keys = {proposal.task_key for proposal in decision.tasks}
     known_keys = prior_keys | proposed_keys
@@ -3124,6 +3340,14 @@ def _validate_planner_decision(
     if sum(update.action == "reopen" for update in decision.updates) != len(reopen_keys):
         raise ModelRetry("同一任务在一个 Planner 回合中只能 reopen 一次")
     for proposal in decision.tasks:
+        if workflow_policy == "discovery_first" and not (
+            proposal.source_refs or any(_frozen_path(path) in files for path in proposal.scope_paths)
+            or any(str(value).casefold() in {
+                str(symbol.get(key) or "").casefold() for symbol in project_map.get("symbols") or []
+                for key in ("name", "short_name") if symbol.get("path") in files
+            } for value in proposal.target_symbols)
+        ):
+            raise ModelRetry(f"任务 {proposal.task_key} 需显式选择实际源码文件窗口或符号；新工作流不会从宽泛目录或查询提示自动预载整个模块")
         prior = prior_by_key.get(proposal.task_key)
         if prior is not None and prior.get("state") not in {"pending", "ready", "deferred"}:
             if prior.get("state") != "blocked" or proposal.task_key not in reopen_keys:
@@ -3287,13 +3511,15 @@ def _validate_planner_decision(
         if str(item.get("state") or "") in {"pending", "ready", "running"}
     ]
     if (decision.goal_state == "continue" and not decision.tasks and not decision.updates and not frontier_open
-            and not decision.verification_reviews and not getattr(decision, "coverage_review", [])):
+            and not decision.verification_reviews and not getattr(decision, "coverage_review", [])
+            and not getattr(decision, "direction_updates", [])):
         raise ModelRetry(
             "目标仍未达成而前沿为空（没有 pending/ready/running 任务），本轮必须给出至少一个新任务；"
             "若无可派方向且仍有阻塞，请用 goal_state=inconclusive；无阻塞时才可用 unreachable"
         )
     duplicate = _duplicate_direction(
-        decision, prior_tasks, findings or [], policy, directory_files=directory_files
+        decision, prior_tasks, findings or [], policy, directory_files=directory_files,
+        assigned_directions=workflow_policy == "discovery_first",
     )
     if duplicate is not None:
         raise ModelRetry(duplicate)
@@ -3333,6 +3559,9 @@ async def plan_audit_frontier(
     # clamp turned "the model explored a little too long" into "the run planned nothing".
     # Stopping a run early is the user's `pause`/`cancel`, not an allowance that expires
     # between the exploration and the decision.
+    review_only = (task.get("workflow_policy") == "discovery_first"
+                   and (run_context.get("workflow") or {}).get("stage") == "review")
+    planner_specs = tuple(item for item in PLANNER_TOOLS if not review_only or item.name in PLANNER_REVIEW_TOOLS)
     planner_budgets = {
         **budgets,
         "responses": max(1, int(budgets.get("responses", 1))),
@@ -3505,6 +3734,28 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
     )
     instruction += _scenario_constraint(task.get("scenario"))
 
+    if task.get("workflow_policy") == "discovery_first":
+        stage = (run_context.get("workflow") or {}).get("stage", "discovery")
+        instruction += (
+            "\n本运行采用先挖掘后验证，宿主 workflow 中的 stage、limits、used 与 remaining 是当前阶段及持久化请求额度。"
+            "每个源码任务至少显式选择一个真实文件窗口、文件路径或项目图可解析符号；仅目录和 query_hints 不会自动展开并预载源码。"
+            "remaining_work 已纳入宿主方向账本：用 list_directions 读取真实稳定 ID；"
+            "通过 tasks.direction_ids 或 direction_updates.assign 明确选择窄任务要处理的方向，未选择的旧方向仍留在全局待办。"
+            "仅分派不等于已结算；resolve 必须引用本轮已完成且读过对应源码的任务或有效 finding_ids，skip 必须说明具体范围限制。"
+            "成功小批推进与失败重试分别计数，所有尝试仍计入全局时间、请求与总尝试上限。"
+        )
+        if stage == "review":
+            instruction += (
+                "\n当前为最终复核阶段：不得新建、重开或分派任何源码任务。"
+                "源码导航与 investigate_project 已收回；直接读取当前小批至多两条验证的 normal_observation、attack_observation，再提交 verification_reviews。"
+                "只读取并复核当前验证记录、修订结论和有证据结算方向；无证据结算的方向保留未决，"
+                "通过 inconclusive 和报告列出未覆盖、未验证及未复核项，不追加源码任务来消耗保留额度。"
+            )
+        elif stage == "poc":
+            instruction += "\n当前为 POC 阶段：优先复核本波至多两条已完成验证，结论与证据不足时保留未决；源码挖掘阶段已经结束。"
+        else:
+            instruction += "\n当前为源码挖掘阶段：优先推进源码任务、宿主方向账本和覆盖缺口；不要提前要求 POC 抢占静态审计额度。"
+
     try:
         async with asyncio.timeout(planner_budgets["seconds"]):
             def validate_decision(value: PlannerDecision) -> PlannerDecision:
@@ -3558,6 +3809,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                         # The run's own correction count, kept in the database rather than
                         # recovered from events: it is the budget the host enforces.
                         run_reopens=int((run_context.get("planner") or {}).get("task_reopens") or 0),
+                        workflow_policy=str(task.get("workflow_policy") or "legacy"),
+                        workflow=run_context.get("workflow") or {},
+                        directions=deps.direction_records() if task.get("workflow_policy") == "discovery_first" else [],
                         on_sanitize=pending.append,
                     )
                 except ModelRetry as rejection:
@@ -3655,6 +3909,16 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                         "引用其中任何路径仍须由 worker 读取原始行）\n"
                         + _planner_json(deps.recon_briefs[-1], limit=policy.recon_brief_bytes)
                     )
+                if review_only:
+                    return prompt + (
+                        "\n当前仅做验证复核和有证据的方向结算，tasks 必须为空，不得 reopen 或 assign。"
+                        "优先处理态势中至多两条 verification_reviews_required；未展示的条目仍保持待复核。"
+                        + ("在一个代码块中批量调用 read_verification 读取两侧完整观测，下一次请求提交 final_answer(PlannerDecision)。"
+                           "不能用摘要或 verified 标签代替实际观测。"
+                           if tools else
+                           "读取工具已经收回，只能基于本回合已完整读取的观测提交 JSON PlannerDecision；未读记录保留未决。"
+                           "不要输出 Python、XML、final_answer 或说明文字。")
+                    )
                 if not deciding:
                     return prompt + (
                         "\n概览已在上方；不要先调用 get_project_map。通常应当直接交回本回合的 "
@@ -3681,7 +3945,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 """A small JSON task batch, with the same complete host contract."""
                 task_limit = max(1, min(8, int(policy.planner_publication_tasks)))
                 schema = PlannerDecision.model_json_schema()
-                schema["properties"]["tasks"]["maxItems"] = task_limit
+                schema["properties"]["tasks"]["maxItems"] = 0 if review_only else task_limit
                 # An actual frozen path avoids teaching the model a fictitious evidence
                 # location. This demonstrates syntax only; the model chooses its tasks.
                 sample_file = next((row for row in project_map.get("files", [])
@@ -3690,7 +3954,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     "goal_state": "continue", "basis_summary": "项目图中仍有尚待核对的源码方向。",
                     "tasks": [],
                 }
-                if sample_file:
+                if review_only:
+                    sample = {"goal_state": "inconclusive", "basis_summary": "当前只能说明已完成部分成果，尚未完成的方向和未读取验证继续保留未决。", "tasks": []}
+                if sample_file and not review_only:
                     sample["tasks"] = [{
                         "task_key": "entry-boundary", "title": "入口及相关边界检查",
                         "objective": "沿源码入口检查可控输入、权限边界与敏感操作，确认是否存在可利用缺陷。",
@@ -3699,13 +3965,18 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                         "source_refs": [{"path": sample_file["path"], "start_line": 1,
                                          "end_line": min(40, max(1, int(sample_file.get("line_count") or 1)))}],
                     }]
-                return (
-                    planner_prompt(deciding=True, tools=False)
-                    + f"\n# 小批发布约束\n本回合最多 {task_limit} 个新任务。先启动最优先的证据方向，"
+                guidance = (
+                    "\n# 复核发布约束\n只提交已实际读取观测的小批 verification_reviews、有依据的 direction_updates 及真实收束说明。tasks 必须为空。"
+                    if review_only else
+                    f"\n# 小批发布约束\n本回合最多 {task_limit} 个新任务。先启动最优先的证据方向，"
                     "后续回合依据 worker 结果继续覆盖；不要一次罗列整个项目的全部方向。"
                     "basis_summary 简短说明依据；任务目标、验收条件和理由各用一两句话。"
                     "每个任务通常只需 1–3 个初始源码窗口，worker 会继续补读相关文件。"
-                    "省略没有使用的默认字段、空数组和空 report，不复述历史，不复制源码。"
+                )
+                return (
+                    planner_prompt(deciding=True, tools=False)
+                    + guidance
+                    + "省略没有使用的默认字段、空数组和空 report，不复述历史，不复制源码。"
                     "已有前沿时可只提交更新或小批复核；需要复核的其余记录留待后续回合。"
                     "以下是完整字段契约，JSON 中使用 true/false/null：\n"
                     + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
@@ -3746,8 +4017,15 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
             # allowance this leaves exploration nothing, which is the point -- the round's
             # first duty is to produce a decision.
             confirmations = max(0, int(policy.decision_confirmations))
-            reserve = 1 + max(0, int(policy.output_corrections)) + confirmations
+            corrections = max(0, int(policy.output_corrections))
+            if task.get("workflow_policy") == "discovery_first":
+                corrections = min(2, corrections)
+            if review_only:
+                confirmations = min(2, confirmations)
+            reserve = 1 + corrections + confirmations
             explore_limit = min(max(0, int(policy.planner_explore_responses)), max(0, response_cap - reserve))
+            if review_only:
+                explore_limit = 0
             exploration_reason = None
             execution.enter("planner_prepare", round=round_no, reserved_responses=reserve)
             emit({
@@ -3787,7 +4065,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 )
                 try:
                     await drive_phase(
-                        planner_agent(gate=explore_gate, specs=PLANNER_TOOLS, max_steps=explore_limit),
+                        planner_agent(gate=explore_gate, specs=planner_specs, max_steps=explore_limit),
                         explore_gate,
                         planner_prompt(deciding=False),
                         max_steps=explore_limit,
@@ -3832,7 +4110,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     # exploration asked.  Inheriting the exploration's own steps instead
                     # would start this phase one observation away from the history cap.
                     await drive_phase(
-                        planner_agent(gate=decision_gate, specs=PLANNER_TOOLS, max_steps=steps),
+                        planner_agent(gate=decision_gate, specs=planner_specs, max_steps=steps),
                         decision_gate,
                         planner_prompt(deciding=True),
                         max_steps=steps,
@@ -3853,7 +4131,6 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 # other half of the decision phase's trade: a model that would rather keep
                 # browsing than commit cannot spend the round's last request on a listing.
                 execution.enter("planner_publish", reason=exploration_reason or "direct")
-                corrections = max(0, int(policy.output_corrections))
                 publish_gate = phase_gate(
                     deadline=execution.deadline,
                     limit=min(response_cap, execution.attempts + 1 + corrections),
@@ -3952,6 +4229,8 @@ async def pursue_planner_task(
     allowed_paths: set[str] | None,
     dependency_handoffs: list[dict] | None = None,
     known_findings: list[dict] | None = None,
+    current_findings: list[dict] | None = None,
+    current_run_id: str = "",
     peer_trace_search: Callable[[str], list[dict]] | None = None,
     peer_trace_read: Callable[[str, list[int] | None], list[dict]] | None = None,
     config: ModelConfig,
@@ -3967,12 +4246,14 @@ async def pursue_planner_task(
 
     def emit(event: dict) -> None:
         sink({"agent_invocation_id": invocation_id, "request_index": 0, **event})
+    discovery_first = run_task.get("workflow_policy") == "discovery_first"
     bundle = await asyncio.to_thread(
         repository.build_context_bundle,
         snapshot_id,
         planner_task,
         allowed_paths,
         (policy or AgentPolicy()).source_bytes,
+        **({"workflow_policy": "discovery_first"} if discovery_first else {}),
     )
     excerpts = list(bundle.get("excerpts") or [])
     emit({
@@ -3983,6 +4264,7 @@ async def pursue_planner_task(
         "excerpts": len(excerpts),
         "unresolved_dependencies": bundle.get("unresolved_dependencies") or [],
         "limitations": bundle.get("limitations") or [],
+        "relation_summary": bundle.get("relation_summary") or {},
     })
     if dependency_handoffs:
         emit({
@@ -4039,6 +4321,30 @@ async def pursue_planner_task(
         "success_criteria": planner_task.get("acceptance_criteria") or run_task.get("success_criteria"),
         "max_iterations": planner_task.get("max_attempts") or run_task.get("max_iterations"),
     }
+    result = planner_task.get("result") or {}
+    if discovery_first:
+        assigned = [
+            {"id": str(item.get("id") or ""), "text": _planner_text(item.get("text"), 600),
+             "state": item.get("state"), "origin_task_key": item.get("origin_task_key")}
+            for item in result.get("active_directions") or [] if isinstance(item, dict)
+        ]
+        focus = (
+            "本工作项只推进当前 objective 与宿主明确分派的方向；未分派的旧剩余方向由 Planner 管理，不自动继承。\n"
+            + json.dumps({"assigned_directions": assigned,
+                          "direction_ids": (planner_task.get("context_spec") or {}).get("direction_ids") or []},
+                         ensure_ascii=False, separators=(",", ":"))
+        )
+        relations = bundle.get("relation_summary") or {}
+        focus += "\n# 仅导航、尚未预载的相关源码路径（不能作为已读证据）\n" + json.dumps({
+            "items": relations.get("navigation_only") or [],
+            "omitted": relations.get("navigation_omitted", 0),
+            "notice": "必要时使用 find_files/list_tree/read_source 明确补读；共享 bootstrap 的调用者未自动展开。",
+        }, ensure_ascii=False, separators=(",", ":"))
+    else:
+        focus = (str(result.get("next_focus") or "")
+                 + "\n尚未结算的方向：" + "；".join(result.get("remaining_work") or [])
+                 + "\n本工作项上次已保存的发现（仅用于避免重复，证据仍需实际读取）："
+                 + "；".join(str(item.get("title") or "") for item in result.get("findings", []) if isinstance(item, dict)))
     return await pursue_task_work(
         repository=repository,
         snapshot_id=snapshot_id,
@@ -4046,15 +4352,14 @@ async def pursue_planner_task(
         unit=virtual_unit,
         task=worker_task,
         attempt=attempt,
-        focus=(str((planner_task.get("result") or {}).get("next_focus") or "")
-               + "\n尚未结算的方向：" + "；".join((planner_task.get("result") or {}).get("remaining_work") or [])
-               + "\n本工作项上次已保存的发现（仅用于避免重复，证据仍需实际读取）："
-               + "；".join(str(item.get("title") or "") for item in (planner_task.get("result") or {}).get("findings", []) if isinstance(item, dict))),
+        focus=focus,
         allowed_paths=allowed_paths,
         context_task=planner_task,
         initial_excerpts=excerpts,
         dependency_handoffs=dependency_handoffs,
         known_findings=known_findings,
+        current_findings=current_findings,
+        current_run_id=current_run_id,
         peer_trace_search=peer_trace_search,
         peer_trace_read=peer_trace_read,
         config=config,

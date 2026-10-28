@@ -1,0 +1,263 @@
+"""Host-owned audit obligations, stored in existing task JSON without a migration."""
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+
+from .finding_policy import is_vulnerability_finding
+
+OPEN_DIRECTION_STATES = frozenset({"pending", "assigned"})
+
+
+def _load(value, default):
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value) if value else default
+    except (ValueError, TypeError):
+        return default
+
+
+def _dump(value):
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _text(value):
+    return " ".join(str(value or "").split())
+
+
+def _seen_spans(rows):
+    """Keep bounded intervals; expanding original line numbers is unnecessary."""
+    grouped = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        path, start, end = row.get("path"), row.get("start_line"), row.get("end_line")
+        if not isinstance(path, str) or type(start) is not int or type(end) is not int or start < 1 or end < start:
+            continue
+        grouped.setdefault(path, []).append((start, end))
+    result = {}
+    for path, intervals in grouped.items():
+        merged = []
+        for start, end in sorted(intervals):
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+            else:
+                merged.append((start, end))
+        result[path] = merged
+    return result
+
+
+def has_new_source_evidence(seen, previous):
+    before = _seen_spans(previous)
+    for path, intervals in _seen_spans(seen).items():
+        for start, end in intervals:
+            if not any(left <= start and end <= right for left, right in before.get(path, [])):
+                return True
+    return False
+
+
+class DirectionStoreMixin:
+    def discovery_first(self, run_id: str) -> bool:
+        row = self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,))
+        return bool(row and (_load(row["task_spec"], {}) or {}).get("workflow_policy") == "discovery_first")
+
+    def _audit_direction_records(self, run_id):
+        records = {}
+        for row in self._db.execute("SELECT id,task_key,result FROM planner_tasks WHERE run_id=? ORDER BY created_at,id", (run_id,)):
+            result = _load(row["result"], {}) or {}
+            for item in result.get("host_directions") or []:
+                if isinstance(item, dict) and item.get("id"):
+                    records[item["id"]] = {**item, "origin_task_id": row["id"], "origin_task_key": row["task_key"]}
+        return records
+
+    def _persist_audit_directions_tx(self, run_id, records):
+        grouped = {}
+        for item in records.values():
+            grouped.setdefault(item["origin_task_id"], []).append(item)
+        for row in self._db.execute("SELECT id,result FROM planner_tasks WHERE run_id=?", (run_id,)).fetchall():
+            result = _load(row["result"], {}) or {}
+            if row["id"] in grouped or "host_directions" in result:
+                result["host_directions"] = sorted(grouped.get(row["id"], []), key=lambda item: item["id"])
+                self._db.execute("UPDATE planner_tasks SET result=? WHERE id=?", (_dump(result), row["id"]))
+
+    def list_audit_directions(self, run_id: str, *, cursor: int = 0, limit: int = 20, state: str = "open") -> dict:
+        if type(cursor) is not int or cursor < 0 or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("direction cursor and limit must be strict integers, cursor >=0 and limit 1..100")
+        if state not in {"all", "open", "pending", "assigned", "resolved", "skipped"}:
+            raise ValueError("direction state must be all/open/pending/assigned/resolved/skipped")
+        with self._lock:
+            records = sorted(self._audit_direction_records(run_id).values(), key=lambda item: item["id"]) if self.discovery_first(run_id) else []
+        open_count = sum(item["state"] in OPEN_DIRECTION_STATES for item in records)
+        selected = [item for item in records if state == "all" or (state == "open" and item["state"] in OPEN_DIRECTION_STATES) or item["state"] == state]
+        page = selected[cursor:cursor + limit]
+        return {"items": page, "total": len(selected), "unsettled_total": open_count,
+                "offset": cursor, "limit": limit, "next_cursor": cursor + len(page) if cursor + len(page) < len(selected) else None}
+
+    def audit_direction_summary(self, run_id: str) -> dict:
+        with self._lock:
+            records = list(self._audit_direction_records(run_id).values()) if self.discovery_first(run_id) else []
+        counts = {state: sum(item["state"] == state for item in records) for state in ("pending", "assigned", "resolved", "skipped")}
+        unresolved = sorted((item for item in records if item["state"] in OPEN_DIRECTION_STATES), key=lambda item: item["id"])
+        return {"version": "audit-directions-v1", "total": len(records), **{key + "_total": value for key, value in counts.items()},
+                "unsettled_total": len(unresolved), "complete": not unresolved, "items": unresolved[:4],
+                "omitted": max(0, len(unresolved) - 4), "next_cursor": 4 if len(unresolved) > 4 else None}
+
+    def assigned_task_directions(self, run_id: str, task_key: str) -> list[dict]:
+        if not self.discovery_first(run_id):
+            return []
+        with self._lock:
+            return sorted((item for item in self._audit_direction_records(run_id).values()
+                           if item["state"] == "assigned" and item.get("assigned_task_key") == task_key), key=lambda item: item["id"])
+
+    def _project_active_directions(self, task):
+        if task is None or not self.discovery_first(task["run_id"]):
+            return task
+        result = dict(task.get("result") or {})
+        active = self.assigned_task_directions(task["run_id"], task["task_key"])
+        result["active_directions"] = active
+        # A completed Worker assessment may explicitly clear its own remaining
+        # work. The host obligation remains open until Planner evidence review,
+        # but must not be re-labelled as a Worker request to keep executing.
+        if task.get("state") in {"pending", "ready", "running", "deferred"}:
+            result["remaining_work"] = [item["text"] for item in active]
+        task["result"] = result
+        return task
+
+    def _capture_worker_directions_tx(self, row, stored_result):
+        records = self._audit_direction_records(row["run_id"])
+        previous = _load(row["result"], {}) or {}
+        task_spec = _load(row["context_spec"], {}) or {}
+        declared = [str(ref.get("path") or "") for ref in task_spec.get("source_refs") or [] if isinstance(ref, dict)]
+        declared += [str(path) for path in task_spec.get("scope_paths") or []]
+        project_map = self.get_project_map(row["run_id"]) or {}
+        known_paths = [item["path"] for item in project_map.get("files") or [] if isinstance(item, dict) and item.get("path")]
+        selected = set(task_spec.get("direction_ids") or [])
+        for value in stored_result.get("remaining_work") or []:
+            text = _text(value)
+            if not text:
+                continue
+            identity = "dir_" + hashlib.sha256((row["run_id"] + "\0" + text).encode()).hexdigest()[:32]
+            if identity in records:
+                continue
+            paths = sorted(path for path in known_paths if path in text)
+            local = bool(paths) and all(any(path == target or path.startswith(target.rstrip("/") + "/") for target in declared if target) for path in paths)
+            auto_assign = not int(row["revisions"] or 0) and local
+            records[identity] = {"id": identity, "origin_task_id": row["id"], "origin_task_key": row["task_key"],
+                                 "text": text, "paths": paths, "state": "assigned" if auto_assign or identity in selected else "pending",
+                                 "assigned_task_key": row["task_key"] if auto_assign or identity in selected else None,
+                                 "created_at": datetime.now(timezone.utc).isoformat()}
+        stored_result["host_directions"] = [item for item in records.values() if item["origin_task_id"] == row["id"]]
+        # Origin rows other than this task are unchanged by capture. Preserve the
+        # host register even when the model omits it or fabricates a similarly named field.
+        return records
+
+    def _worker_batch_progress_tx(self, row, stored_result, seen, progress):
+        previous = _load(row["result"], {}) or {}
+        counters = dict(previous.get("host_progress") or {})
+        known_keys = set(str(key) for key in counters.get("conclusion_keys") or [])
+        incoming = set(str(key) for key in (progress or {}).get("new_conclusion_keys") or [] if isinstance(key, str) and key)
+        previous_seen = []
+        for attempt in self._db.execute("SELECT seen FROM planner_task_attempts WHERE task_id=? AND attempt>0", (row["id"],)):
+            previous_seen.extend(_load(attempt["seen"], []) or [])
+        new_evidence = has_new_source_evidence(seen or [], previous_seen)
+        gained = bool(incoming - known_keys) or new_evidence
+        success = stored_result.get("outcome") in {"achieved", "no_evidence", "continue"} and stored_result.get("terminal_reason", "completed") == "completed" and not stored_result.get("error")
+        productive = success and gained
+        counters.update(conclusion_keys=sorted(known_keys | incoming),
+                        successful_batches=int(counters.get("successful_batches") or 0) + int(productive),
+                        failed_attempts=int(counters.get("failed_attempts") or 0) + int(not productive),
+                        new_evidence=new_evidence, new_conclusions=len(incoming - known_keys), productive=productive)
+        stored_result["host_progress"] = counters
+        return productive, counters["failed_attempts"]
+
+    def _apply_direction_updates_tx(self, run_id, updates, proposals, reopened):
+        if not self.discovery_first(run_id):
+            if updates or any(item.get("direction_ids") for item in proposals):
+                raise ValueError("direction_updates require discovery_first workflow")
+            return
+        records = self._audit_direction_records(run_id)
+        tasks = {row["task_key"]: dict(row) for row in self._db.execute("SELECT * FROM planner_tasks WHERE run_id=?", (run_id,))}
+        explicitly_selected = {item["task_key"]: list(item.get("direction_ids") or []) for item in proposals}
+        selected_targets = {}
+        for task_key, ids in explicitly_selected.items():
+            for identity in ids:
+                if identity in selected_targets and selected_targets[identity] != task_key:
+                    raise ValueError("one direction cannot be assigned to multiple tasks")
+                selected_targets[identity] = task_key
+        for key in reopened:
+            selected = set(explicitly_selected.get(key, []))
+            for record in records.values():
+                if record.get("assigned_task_key") == key and record["state"] == "assigned" and record["id"] not in selected:
+                    record.update(state="pending", assigned_task_key=None)
+            spec = _load(tasks[key]["context_spec"], {}) or {}
+            spec["direction_ids"] = sorted(selected)
+            self._db.execute("UPDATE planner_tasks SET context_spec=? WHERE id=?", (_dump(spec), tasks[key]["id"]))
+        combined = list(updates)
+        for task_key, ids in explicitly_selected.items():
+            for direction_id in ids:
+                explicit = next((item for item in combined if item.get("direction_id") == direction_id), None)
+                if explicit is not None and (explicit.get("action") != "assign" or explicit.get("task_key") != task_key):
+                    raise ValueError("direction_updates must agree with task direction_ids")
+                if explicit is None:
+                    combined.append({"direction_id": direction_id, "action": "assign", "task_key": task_key,
+                                     "rationale_summary": "Planner 在当前任务定义中显式选择该未决方向。"})
+        ids = [item.get("direction_id") for item in combined]
+        if len(ids) != len(set(ids)):
+            raise ValueError("each direction can receive only one update per round")
+        for update in combined:
+            identity = update.get("direction_id")
+            record = records.get(identity)
+            if record is None:
+                raise ValueError("direction_id does not belong to this run")
+            if record["state"] not in OPEN_DIRECTION_STATES:
+                raise ValueError("settled direction cannot be reassigned or silently overwritten")
+            action, task_key = update.get("action"), update.get("task_key")
+            reason = _text(update.get("rationale_summary"))
+            if len(reason) < 8 or reason.casefold() in {"unknown", "待补充", "无", "不适用"}:
+                raise ValueError("direction settlement requires a concrete rationale of at least eight characters")
+            if action == "assign":
+                target = tasks.get(task_key)
+                if target is None or target["state"] not in {"pending", "ready", "deferred"}:
+                    raise ValueError("direction assignment requires a dispatchable task in this run")
+                current = tasks.get(record.get("assigned_task_key"))
+                if current is not None and current["state"] == "running":
+                    raise ValueError("cannot take a direction away from a running task")
+                record.update(state="assigned", assigned_task_key=task_key)
+                spec = _load(self._db.execute("SELECT context_spec FROM planner_tasks WHERE id=?", (target["id"],)).fetchone()[0], {}) or {}
+                spec["direction_ids"] = sorted(set(spec.get("direction_ids") or []) | {identity})
+                self._db.execute("UPDATE planner_tasks SET context_spec=? WHERE id=?", (_dump(spec), target["id"]))
+            elif action == "resolve":
+                self._validate_direction_resolution_tx(run_id, record, update, tasks)
+                record.update(state="resolved", resolution_task_key=task_key, finding_ids=list(update.get("finding_ids") or []), resolution_reason=reason)
+            elif action == "skip":
+                record.update(state="skipped", resolution_reason=reason, limitation="该方向未完成源码审查；此项是显式范围限制，不能作为漏洞不存在的证据。")
+            else:
+                raise ValueError("unsupported direction update action")
+        self._persist_audit_directions_tx(run_id, records)
+        if combined:
+            self.append_event(run_id, None, "audit_directions_updated", {"updates": combined, "summary": self.audit_direction_summary(run_id)})
+
+    def _validate_direction_resolution_tx(self, run_id, record, update, tasks):
+        finding_ids = update.get("finding_ids") or []
+        if finding_ids:
+            for finding_id in finding_ids:
+                row = self._db.execute("SELECT * FROM findings WHERE id=? AND run_id=?", (finding_id, run_id)).fetchone()
+                finding = dict(row) if row else {}
+                evidence = _load(finding.get("evidence"), []) or []
+                paths = {ref.get("path") for ref in evidence if isinstance(ref, dict)}
+                if (not finding or finding.get("validation_state") != "candidate" or not is_vulnerability_finding(finding)
+                        or finding.get("disposition") not in {None, "", "open"} or finding.get("verification_status") == "rejected"
+                        or not paths or (record.get("paths") and not paths.intersection(record["paths"]))):
+                    raise ValueError("direction resolution requires current validated findings from this run matching the direction paths")
+            return
+        task = tasks.get(update.get("task_key"))
+        result = _load(task.get("result"), {}) if task else {}
+        if not task or task["state"] != "completed" or result.get("outcome") not in {"achieved", "no_evidence"}:
+            raise ValueError("direction resolution requires a completed evidence-bearing task or current finding_ids")
+        read_paths = set()
+        for attempt in self._db.execute("SELECT seen FROM planner_task_attempts WHERE task_id=? AND attempt>0", (task["id"],)):
+            read_paths.update(_seen_spans(_load(attempt["seen"], []) or []))
+        if not read_paths or (record.get("paths") and not read_paths.intersection(record["paths"])):
+            raise ValueError("direction resolution task has not actually read the related source paths")

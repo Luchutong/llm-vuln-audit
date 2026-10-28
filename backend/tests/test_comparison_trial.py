@@ -82,6 +82,8 @@ def test_isolated_trial_uses_shared_creation_and_real_budget_context(tmp_path):
         assert run["worker_strategy"]["id"] == frozen["variants"][index]["id"]
         assert run["budgets"] == frozen["budgets"]
         assert run["run_limits"] == frozen["run_limits"]
+        assert run["task_spec"]["workflow_policy"] == "legacy"
+        assert not run["execution_summary"].get("workflow")
         assert run["status"] == "inconclusive"
         assert result["usage"]["requests"] == 1
         assert result["usage"]["total_tokens"] == 18

@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS run_execution_state (
  tools_used INTEGER NOT NULL DEFAULT 0, active_elapsed_ms INTEGER NOT NULL DEFAULT 0,
  claim_epoch INTEGER NOT NULL DEFAULT 0, state_revision INTEGER NOT NULL DEFAULT 0,
  phase TEXT NOT NULL DEFAULT 'queued', stop_reason TEXT, poc_state TEXT NOT NULL DEFAULT '{}',
- context TEXT NOT NULL DEFAULT '{}', final_summary TEXT, updated_at TEXT NOT NULL
+ context TEXT NOT NULL DEFAULT '{}', workflow TEXT NOT NULL DEFAULT '{}', final_summary TEXT, updated_at TEXT NOT NULL
 );
 """
 
@@ -82,6 +82,8 @@ class ExecutionStoreMixin:
         self._active_clocks = {}
         self._active_agents = {}
         self._db.executescript(EXECUTION_SCHEMA)
+        if "workflow" not in {row[1] for row in self._db.execute("PRAGMA table_info(run_execution_state)")}:
+            self._db.execute("ALTER TABLE run_execution_state ADD COLUMN workflow TEXT NOT NULL DEFAULT '{}'")
         # Business revisions invalidate dynamic model caches. Logs never change it.
         for table in ("planner_tasks", "findings", "verifications", "task_work_items"):
             for action in ("INSERT", "UPDATE", "DELETE"):
@@ -100,8 +102,41 @@ class ExecutionStoreMixin:
                 f"WHERE run_id IN (SELECT id FROM runs WHERE project_id={ref}.project_id AND status IN ('pending','running','paused')); END")
 
     def _create_execution_state_tx(self, run):
-        self._db.execute("INSERT INTO run_execution_state(run_id, limits, poc_state, updated_at) VALUES (?,?,?,?)",
-                         (run["id"], dump(run["run_limits"]) if run.get("run_limits") is not None else None, dump(run.get("poc_state") or {}), stamp()))
+        from .workflow import freeze_workflow
+        limits = run.get("run_limits")
+        if (run.get("task_spec") or {}).get("workflow_policy") == "discovery_first" and limits is None:
+            limits = dict(DEFAULT_RUN_LIMITS)
+        workflow = freeze_workflow(run, limits or DEFAULT_RUN_LIMITS)
+        self._db.execute("INSERT INTO run_execution_state(run_id, limits, poc_state, workflow, updated_at) VALUES (?,?,?,?,?)",
+                         (run["id"], dump(limits) if limits is not None else None, dump(run.get("poc_state") or {}), dump(workflow), stamp()))
+
+    def workflow_state(self, run_id):
+        summary = self.execution_summary(run_id)
+        return (summary.get("workflow") or {}) if summary else {}
+
+    def set_workflow_stage(self, run_id, stage, *, reason=None, transfer_unused=False):
+        """Persist phase ownership; neither resume nor role changes renew its allowance."""
+        from .workflow import STAGES
+        if stage not in STAGES:
+            raise ValueError("unknown workflow stage")
+        with self._lock:
+            self.assert_execution_write(run_id)
+            row = self._db.execute("SELECT workflow FROM run_execution_state WHERE run_id=?", (run_id,)).fetchone()
+            value = json.loads(row[0] or "{}") if row else {}
+            if not value:
+                return {}
+            if stage == "discovery" and value["stage"] != "discovery":
+                raise ValueError("the discovery stage has already ended")
+            if value["stage"] == "discovery" and stage != "discovery":
+                value["discovery_stop"] = reason or "settled"
+                if transfer_unused:
+                    unused = max(0, value["limits"]["discovery"] - value["used"]["discovery"])
+                    value["limits"]["discovery"] -= unused
+                    value["limits"]["poc"] += unused
+                    value["transferred"] += unused
+            value["stage"] = stage
+            self._db.execute("UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?", (dump(value), stamp(), run_id))
+        return self.workflow_state(run_id)
 
     def _claim_execution_tx(self, run_id):
         self._db.execute("INSERT OR IGNORE INTO run_execution_state(run_id, updated_at) VALUES (?,?)", (run_id, stamp()))
@@ -171,6 +206,7 @@ class ExecutionStoreMixin:
                 if previous_stop.get("code") == "run_budget_exhausted":
                     raise StopAudit("run_budget_exhausted", previous_stop["message"])
                 limits = json.loads(row["limits"]) if row["limits"] else None
+                workflow = json.loads(row["workflow"] or "{}")
                 exceeded = None
                 if limits:
                     if row["active_elapsed_ms"] >= limits["seconds"]*1000:
@@ -186,8 +222,23 @@ class ExecutionStoreMixin:
                     self._db.execute("UPDATE run_execution_state SET stop_reason=? WHERE run_id=?", (dump(reason), run_id))
                     self._db.execute("COMMIT")
                     raise StopAudit("run_budget_exhausted", reason["message"])
+                if workflow and dimension in ("responses", "tools", "work"):
+                    stage = workflow["stage"]
+                    remaining_time = (float(limits["seconds"]) - row["active_elapsed_ms"] / 1000) if limits else None
+                    reserved = float(workflow["review_reserved_seconds"]) if stage != "review" else 0.
+                    if ((dimension in ("responses", "work") and workflow["used"][stage] >= workflow["limits"][stage])
+                            or (remaining_time is not None and remaining_time <= reserved)):
+                        raise StopAudit("stage_budget_exhausted", f"{stage} 阶段额度已到，保留后续阶段预算")
+                    role = CURRENT_ROLE.get().get("role")
+                    if role == "poc" and stage != "poc":
+                        raise StopAudit("stage_budget_exhausted", "POC 不得占用源码挖掘或最终复核额度")
+                    if role in {"worker", "recon"} and stage != "discovery":
+                        raise StopAudit("stage_budget_exhausted", "源码挖掘阶段已结束，不启动新的取证调用")
                 if dimension in ("responses", "tools"):
                     self._db.execute(f"UPDATE run_execution_state SET {dimension}_used={dimension}_used+1 WHERE run_id=?", (run_id,))
+                    if workflow and dimension == "responses":
+                        workflow["used"][workflow["stage"]] += 1
+                        self._db.execute("UPDATE run_execution_state SET workflow=? WHERE run_id=?", (dump(workflow), run_id))
                 self._db.execute("COMMIT")
             except Exception:
                 if self._db.in_transaction:
@@ -274,11 +325,13 @@ class ExecutionStoreMixin:
             self._db.execute("UPDATE run_execution_state SET phase=CASE WHEN (SELECT status FROM runs WHERE id=?)='paused' THEN 'paused' ELSE phase END WHERE run_id=?", (run_id, run_id))
 
     def execution_summary(self, run_id):
+        from .workflow import workflow_view
         with self._lock:
             row = self._db.execute("SELECT * FROM run_execution_state WHERE run_id=?", (run_id,)).fetchone()
             if row is None:
                 return None
             value = dict(row)
+            workflow = json.loads(value.get("workflow") or "{}")
             limits = json.loads(value["limits"]) if value["limits"] else None
             elapsed = value["active_elapsed_ms"]/1000
             if run_id in self._active_clocks:
@@ -286,6 +339,8 @@ class ExecutionStoreMixin:
             usage = {"responses": value["responses_used"], "tools": value["tools_used"], "seconds": round(elapsed, 3)}
             blocked = self._db.execute("SELECT id FROM planner_tasks WHERE run_id=? AND state='blocked'", (run_id,)).fetchall()
             review = self.coverage_review(run_id) if hasattr(self, "coverage_review") else None
+            directions = self.audit_direction_summary(run_id) if workflow and hasattr(self, "audit_direction_summary") else None
+            verification = self._verification_progress(run_id)
             return {"policy_version": POLICY_VERSION, "phase": value["phase"], "claim_epoch": value["claim_epoch"], "state_revision": value["state_revision"],
                     "run_limits": limits, "run_usage": usage, "run_remaining": {k: max(0, limits[k]-usage[k]) for k in limits} if limits else None,
                     "active_executions": list(self._active_agents.get(run_id, {}).values()),
@@ -293,7 +348,37 @@ class ExecutionStoreMixin:
                     "context": json.loads(value.get("context") or "{}"),
                     "blocked_task_ids": [item["id"] for item in blocked], "poc": json.loads(value["poc_state"]),
                     "final_summary_available": bool(value["final_summary"]),
+                    **({"workflow": workflow_view(workflow,
+                         remaining_seconds=max(0., limits["seconds"]-elapsed) if limits else None)} if workflow else {}),
+                    "verification": verification,
+                    **({"directions": directions} if directions is not None else {}),
                     **({"coverage_review": review} if review is not None else {})}
+
+    def _verification_progress(self, run_id):
+        """Current run representatives, never a different run's mutable ledger body."""
+        from .db import WITHDRAWN_FINDING_DISPOSITIONS
+        from .finding_policy import is_vulnerability_finding
+        current = {}
+        # Counting does not need source rendering. Historical records may contain
+        # old evidence shapes and must remain deletable even if a viewer cannot
+        # enrich them as a current finding.
+        for row in self._rows("SELECT * FROM findings WHERE run_id=?", (run_id,)):
+            finding = dict(row)
+            if (finding.get("validation_state") != "candidate" or not is_vulnerability_finding(finding)
+                    or finding.get("disposition", "open") in WITHDRAWN_FINDING_DISPOSITIONS):
+                continue
+            key = finding.get("project_finding_id") or finding["id"]
+            version = (int(finding.get("project_revision") or finding.get("revision") or 1),
+                       int(finding.get("revision") or 1), str(finding["id"]))
+            if key not in current or version > current[key][0]:
+                current[key] = version, finding
+        findings = [entry[1] for entry in current.values()]
+        reviews = {(item["finding_id"], int(item.get("revision") or 1), str(item.get("verification_id") or ""))
+                   for item in self.list_verification_reviews(run_id)} if hasattr(self, "list_verification_reviews") else set()
+        pending_reviews = self.unreviewed_verified_findings(run_id) if hasattr(self, "unreviewed_verified_findings") else []
+        return {"total": len(findings), "pending": sum(item.get("verification_status") in {None, "", "unverified", "stale"} for item in findings),
+                "verified": sum(item.get("verification_status") == "verified" for item in findings),
+                "reviewed": len(reviews), "pending_review": len(pending_reviews)}
 
     def get_final_summary(self, run_id):
         row = self._row("SELECT final_summary FROM run_execution_state WHERE run_id=?", (run_id,))
@@ -315,6 +400,8 @@ class ExecutionStoreMixin:
                 "raw_finding_count": len(findings), "valid_finding_count": len(valid), "ledger_group_count": len(groups), "finding_groups": list(groups.values()),
                 "tasks": [{k: t.get(k) for k in ("id", "title", "state", "error", "result", "dependencies")} for t in tasks],
                 "coverage": self.planner_coverage(run_id), "execution": self.execution_summary(run_id), "verification_jobs": self.list_run_verification_jobs(run_id),
+                "directions": self.audit_direction_summary(run_id) if hasattr(self, "audit_direction_summary") else {},
+                "verification": self._verification_progress(run_id),
                 "limitations": ["受阻、未执行、未读取方向均不代表安全。"]}
 
     def _terminal_execution_tx(self, run_id, status, reason):
@@ -326,6 +413,9 @@ class ExecutionStoreMixin:
         self._db.execute("INSERT OR IGNORE INTO run_execution_state(run_id, updated_at) VALUES (?,?)", (run_id, stamp()))
         self._db.execute("UPDATE run_execution_state SET phase='ended',stop_reason=?,updated_at=? WHERE run_id=?", (dump(reason), stamp(), run_id))
         self._active_agents.pop(run_id, None)
+        if hasattr(self, "interrupt_poc_attempts"):
+            row = self._db.execute("SELECT claim_epoch FROM run_execution_state WHERE run_id=?", (run_id,)).fetchone()
+            self.interrupt_poc_attempts(run_id, epoch=int(row[0]) if row else None)
         summary = self._host_summary_tx(run_id, status, reason)
         self._db.execute("UPDATE run_execution_state SET final_summary=? WHERE run_id=?", (dump(summary), run_id))
         # A polling reader cannot observe the terminal state before its durable

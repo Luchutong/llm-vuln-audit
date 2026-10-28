@@ -438,6 +438,15 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
         output_format="json",
     ),
     spec(
+        "list_directions",
+        "List the current run's host-owned remaining directions with stable IDs. Counts cover the full run; follow next_cursor. Assign IDs to a narrow task, or explicitly resolve/skip them with direction_updates; an omitted page is not completion.",
+        state=Arg("string", "open（待分派与已分派）、all，或 pending/assigned/resolved/skipped。", "open"),
+        cursor=Arg("integer", "从 0 或上页 next_cursor 继续。", 0, minimum=0),
+        limit=Arg("integer", "本页方向数。", 20, minimum=1, maximum=40),
+        output_fields=('items', 'total', 'unsettled_total', 'next_cursor'),
+        output_format="json",
+    ),
+    spec(
         "list_verifications",
         "List this run's verification metadata only; pending reviews must be read in full with read_verification before attestation. Counts cover every record, not just this page; stale cursors must restart.",
         kind=Arg("string", "records（最新验证）、pending（待复核）或 reviews（历史复核）。", "pending"),

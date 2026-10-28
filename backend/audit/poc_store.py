@@ -54,6 +54,66 @@ def poc_target_key(run: dict, policy, settings) -> str:
 
 
 class PocStoreMixin:
+    def interrupt_poc_attempts(self, run_id: str, epoch: int | None = None) -> int:
+        """Administrative terminal cleanup, safe inside the caller's transaction.
+
+        This only closes claim ownership. Known job facts and IDs remain, and no
+        verdict is inferred or experiment resubmitted after an interruption.
+        """
+        with self._lock:
+            clause = " AND execution_epoch=?" if epoch is not None else ""
+            return self._db.execute(
+                "UPDATE poc_attempts SET state='interrupted',updated_at=? WHERE run_id=?"
+                " AND state IN ('claimed','running')" + clause,
+                (_now(), run_id, int(epoch)) if epoch is not None else (_now(), run_id),
+            ).rowcount
+
+    def _upsert_poc_job_fact(self, attempt: dict, job: dict, verification_id: str = "") -> bool:
+        job_id = str(job.get("job_id") or "")
+        if not job_id:
+            return False
+        result = job.get("result") or {}
+        if not isinstance(result, dict):
+            return False
+        ident = _key("job", attempt["run_id"], job_id)
+        existing = self._db.execute("SELECT result,verification_id FROM poc_verification_jobs WHERE id=?", (ident,)).fetchone()
+        if existing:
+            previous = json.loads(existing["result"] or "{}")
+            previous_status = previous.get("execution_status") or previous.get("status")
+            incoming_status = result.get("execution_status") or result.get("status")
+            if (previous_status in {"finished", "timeout", "precondition_failed", "rejected"}
+                    and incoming_status in {"submitting", "running", "queued", "unknown"}):
+                return False
+            verification_id = verification_id or existing["verification_id"]
+        self._db.execute(
+            "INSERT INTO poc_verification_jobs"
+            " (id,verification_id,finding_id,project_finding_id,run_id,job_id,kind,request,result,exit_code,duration_ms,created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+            " verification_id=excluded.verification_id,request=excluded.request,result=excluded.result,"
+            " exit_code=excluded.exit_code,duration_ms=excluded.duration_ms",
+            (ident, verification_id, attempt["finding_id"], attempt["ledger_id"], attempt["run_id"], job_id,
+             job.get("kind") or "script", _dump(job.get("request") or {}), _dump(result),
+             job.get("exit_code"), job.get("duration_ms"), _now()),
+        )
+        return True
+
+    def persist_poc_job_fact(self, attempt_key: str, job: dict, epoch: int | None = None) -> bool:
+        """Save execution facts immediately, independently of conclusion publication.
+
+        A late completed fact from the interrupted owner may be archived, but it
+        can never reopen its claim, update finding status or overwrite a new epoch.
+        """
+        with self._lock:
+            row = self._db.execute("SELECT * FROM poc_attempts WHERE key=?", (attempt_key,)).fetchone()
+            if row is None or row["state"] not in {"running", "interrupted"}:
+                return False
+            if epoch is not None and row["execution_epoch"] != int(epoch):
+                return False
+            current = self._db.execute("SELECT claim_epoch FROM run_execution_state WHERE run_id=?", (row["run_id"],)).fetchone()
+            if current is not None and current["claim_epoch"] != row["execution_epoch"]:
+                return False
+            return self._upsert_poc_job_fact(dict(row), job)
+
     def set_poc_state(self, run_id: str, state: dict, epoch: int | None = None) -> bool:
         with self._lock:
             if not self._poc_allowed(run_id, epoch):
@@ -200,15 +260,7 @@ class PocStoreMixin:
                 for job in jobs:
                     if not job.get("job_id"):
                         continue
-                    self._db.execute(
-                        "INSERT INTO poc_verification_jobs"
-                        " (id,verification_id,finding_id,project_finding_id,run_id,job_id,kind,request,result,exit_code,duration_ms,created_at)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (_key(record["id"], job["job_id"]), record["id"], record["finding_id"], ledger_id,
-                         attempt["run_id"], job["job_id"], job.get("kind") or "script",
-                         _dump(job.get("request") or {}), _dump(job.get("result") or {}),
-                         job.get("exit_code"), job.get("duration_ms"), _now()),
-                    )
+                    self._upsert_poc_job_fact(dict(attempt), job, record["id"])
                 self._db.execute(
                     "UPDATE poc_attempts SET state=?,verification_id=?,updated_at=? WHERE key=?",
                     ("completed" if own_current and current else "superseded", record["id"], _now(), attempt_key),

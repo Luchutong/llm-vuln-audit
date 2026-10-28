@@ -97,8 +97,13 @@
 
 ```text
 {objective,success_criteria,max_iterations:1..8,max_total_attempts:1..512,
- max_planner_rounds:1..128,max_workers:1..4,stop_on_achieved,require_poc}
+ max_planner_rounds:1..128,max_workers:1..4,stop_on_achieved,require_poc,
+ completion_policy:"goal"|"coverage_review",baseline_policy:"inherit"|"fresh",
+ workflow_policy:"legacy"|"discovery_first"}
 ```
+
+三种政策的模型缺省值依次为 `goal`、`inherit`、`legacy`；创建接口对未显式指定工作流的新覆盖复核运行采用 `discovery_first`。
+新工作流中的 `max_iterations` 限制无进展或失败重试；有效新增取证或结论的成功批次仍消耗 `max_total_attempts`、请求和时间。
 
 `max_total_attempts` 默认 64、`max_planner_rounds` 默认 24。`budgets` 保留单次 Planner/worker 执行含义，默认 `{responses:24,tools:96,seconds:1800}`，上限 `{responses:256,tools:2048,seconds:14400}`。探索与判定共用单次额度，预留最终提交和最多两次纠正，不突破硬上限。
 
@@ -121,6 +126,17 @@
 `GET /config` 保留 `budget_limits.defaults`，新增 `run_budget_limits:{defaults,min,max}`；`poc` 提供服务端能力、支持类型及 runner 是否已配置，不包含内部地址或凭据。
 
 `Run.execution_summary` 包含 `policy_version,phase,run_limits,run_usage,run_remaining,active_executions,stop_reason,blocked_task_ids,poc,final_summary_available`。额度对象为 `{responses,tools,seconds}`，剩余不小于零；`active_executions` 每项含 invocation、角色、任务、阶段、实际单次额度和消耗。停止原因至少区分 `goal_met/run_budget_exhausted/planner_round_limit/worker_attempt_limit/unresolved_blockers/invalid_output_limit/environment_unavailable/worker_exit_without_terminal/user_cancelled/interrupted`；预算耗尽附 `dimension`。历史没有总限额时 `run_limits/run_remaining=null`。
+
+新全量审计默认冻结 `task.workflow_policy="discovery_first"`，明确提供 `legacy` 或旧运行缺字段时沿用原流程。
+`execution_summary.workflow` 返回 `version,stage,limits,used,remaining,transferred,review_reserved_seconds,review_reserved_rounds,stage_remaining_seconds,discovery_stop`；
+阶段为 `discovery/poc/review`，额度对象按这三个键计请求。POC 开启的默认分配为 180/64/12，关闭为 244/0/12。
+`directions` 返回宿主待办全量计数和有界摘要；`verification` 返回 `total,pending,verified,reviewed,pending_review`。
+同一对象同时用于前端和最终宿主报告。阶段停止区分 `stage_budget_exhausted`、`discovery_round_limit`，不扩张整次硬预算。
+完整兼容及分派协议见 [先挖掘后验证修复说明](discovery-first-repair.md)。
+
+POC 证据引用的 `channel` 在原有 `stdout/stderr/body_text/dialogs/evaluated` 上增加 `body/headers`。
+HTTP 响应头按字段名排序并格式化为逐行 `name: value` 原文；执行完成不要求 2xx，也不直接代表漏洞成立。
+尚未形成验证结论的已知作业也保存在 `verification_jobs`，其 `verification_id=""`，不得据此推断 verified。
 
 终结事务同时保存 run、goal、Planner、剩余任务、终结事件及 `Run.final_summary`。宿主摘要包含状态/完成性、停止原因、原始与有效发现数、按台账 ID 分组数、逐发现修订/证据/验证、任务状态、覆盖、预算和限制；没有模型叙述也可下载完整阶段报告。新 Markdown 报告以该事实快照渲染；旧模型内容保留在原始事件及 JSON 追溯记录中。模型报告引用采用 `finding_refs:[{finding_id,revision}]` 和 `no_evidence_task_ids`，遗漏、外部 ID、过期修订及受阻“安全”引用会被拒绝，任务图仍可提交。
 
@@ -270,13 +286,13 @@ Planner 事件带 `plan_id`、`session_id`、`role=planner`；侦察事件带 `r
 
 ### 代码动作与解释器边界
 
-每次模型请求产出的是**一段 Python 代码**（`<code>…</code>` 栅栏，或在代码块里调用 `final_answer(...)` 结束本阶段），而不是一串工具参数 JSON：一段代码可以在循环里连调多次只读工具、把中间结果留在变量里、只 `print` 出它真正要看的那几行。因此**一次请求换一串动作**——一条 `agent_code` 之后跟着多条共用同一 `call_id` / `span_id` 配对的 `tool_call` / `tool_result`，是这套机制的常态而不是异常。宿主的闸门没有移动：预算、墙钟、暂停/取消与历史体积仍然在**每次模型请求之前的同一个点上**检查，阶段名、`responses` / `tool_calls` / `model_attempts` / `corrections` 的语义与默认值一字未改。
+探索及有工具的确认阶段使用 Python 动作（兼容 `<code>…</code>` 和 Markdown 代码块）：一段代码可以连续调用多个只读工具、保留变量并打印所需结果。一条 `agent_code` 可对应多条以 `call_id` / `span_id` 配对的 `tool_call` / `tool_result`。`planner_publish`、`task_publish`、`poc_conclude` 使用结构化 JSON 发布，不执行结果组装代码。预算、墙钟、暂停/取消与历史体积仍在每次模型请求之前检查；JSON 发布也消耗模型请求额度。
 
 `agent_code` 带 `phase`、`step`、`code`、`code_bytes`、`truncated`、`logs`、`is_final`、`error` 和 `usage`。`code` 是被执行的代码本身（按 `policy.code_bytes` 截断，默认 4 KiB；`truncated` 标记是否截断，`code_bytes` 是截断前的 UTF-8 字节数）。`logs` 是这一步 `print` 出来的内容，由解释器按 `policy.code_output_bytes` 截断（默认 24 KiB）——事件里存的就是模型当时读到的那一份，不再二次裁剪，避免留下一个与模型所见不同的版本。`is_final` 标记这一步是否以终局结束本阶段。`error` 是这一步失败的**原因**（截断到 400 字符），而不是解释器报错原文：解释器会把整段代码抄进自己的消息里（`Code execution failed at line '<整段代码>' due to: …`），照抄进事件的话，400 字符的预算会留下代码的回声、扔掉后面的原因——一次真实运行交了一份 5.9 KB 的决策、被拒，40 条 `agent_code` 里没有一条看得出为什么。所以事件取那句话**底下**的真正异常并保留类名（`OutputRejected: …` 是宿主拒绝终局、`NameError: …` 是模型自己的代码、`ExecutionTimeoutError: …` 是解释器的超时），两种情况仍然分得清。**代码是动作，不是隐藏推理**，所以它照 `tool_call` 的先例持久化并展示；代码块之外的散文只留在内存里，不进事件、不进库——「模型的内部思维链不会被保存或展示」继续成立。
 
-**阶段边界不继承记忆**：一个阶段是有界的一段上下文，不是上一阶段的续篇。进入决策阶段与收尾阶段（`planner_decision` / `planner_publish`）前，宿主会清空循环的记忆，因为这些阶段的 prompt 已经带着它们需要的全部态势（项目概览、情境块、覆盖统计，以及把探索阶段问过的内容原样回放的固定调查）——继承上一阶段的观察只会让请求白白顶到 `policy.history_bytes`（默认 192 KiB）上限。一次真实运行正是这样死的：第一次收尾请求已经 ~170 KB，而被拒绝的决策唯一允许的那次纠正，在发出之前就被历史上限拒掉了。跨边界保留下来的是**解释器里的变量**（探索阶段建好的表正是决策阶段据以判断的东西），以及每个阶段照常重建的阶段名、工具表与闸门。
+阶段上下文按需重建：进入 `planner_decision` / `planner_publish` 前清空循环历史，以宿主态势、覆盖统计及固定调查提供事实，避免重复历史触及 `policy.history_bytes`。同一个 Python 执行器中的变量可供后续有代码动作的阶段使用；JSON 发布以提供的事实为准，不能访问或执行这些变量。
 
-执行器的边界（进程内 `LocalPythonExecutor`，`additional_authorized_imports=["json"]`）：在库自带的基础模块（`re`、`math`、`collections`、`itertools`、`datetime`、`statistics`、`time`、`random`、`queue`、`stat`、`unicodedata`）之外，仅增加 JSON 数据解析；CodeAgent 和解释器使用同一授权列表。`os`、`sys`、`subprocess`、`socket`、`pathlib`、`io`、`shutil`、`multiprocessing`、`pty`、`builtins` 仍在解释器自己的危险清单里，连名字都取不到；`eval` / `exec` / `compile` / `globals` / `locals` / `__import__` 同样被禁，dunder 属性被拒。另有操作数上限（`1e7`）、`while` 迭代上限（`1e6`）与打印上限兜住跑飞的一步。
+执行器使用进程内 `LocalPythonExecutor`，在库基础模块之外授权 `json` 与纯内存 `base64` 编解码；`json` 初始化时预载，也可显式导入。`base64` 的文件和 CLI 入口不可用。CodeAgent 与解释器使用同一授权列表，提示从实际能力生成。`os`、`sys`、`subprocess`、`socket`、`pathlib`、`io`、`shutil`、`multiprocessing`、`pty`、`builtins` 仍被禁止；`eval` / `exec` / `compile` / `globals` / `locals` / `__import__` 和 dunder 属性同样被拒。另有操作数上限（`1e7`）、`while` 迭代上限（`1e6`）与打印上限。
 
 **官方定性照抄在这里**：smolagents 自己写着 `LocalPythonExecutor`「is not a security sandbox: for isolated execution of untrusted code, use a remote executor」。本工具接受这一定性，因为它执行的是**模型写出的、只被授权调用宿主只读工具**的代码，而不是上传快照里的任何代码：沙箱里没有任何能读文件、发网络请求或起进程的能力，所有实际读取都必须经由宿主工具，并照旧受范围校验、pin、去重、读账本与 `budgets["tools"]` 约束。上传快照里的代码从不执行；POC 也不在应用进程内运行，而是由隔离的 `poc-runner` 容器对着本地 Lab30 执行（见 `poc_runner/README.md`）。另一条诚实的边界：解释器的墙钟上限由线程池实现，**杀不掉已经跑飞的线程**，它限制的是宿主愿意等多久（`policy.code_seconds`，默认 30s），所以取消时的等待上限是「一次请求 + 最多一个代码块的等待」，而不是「一次请求」。
 

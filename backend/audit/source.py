@@ -1271,6 +1271,8 @@ class SourceRepository:
         task: dict,
         allowed_paths: set[str] | None = None,
         max_bytes: int = 64 * 1024,
+        *,
+        workflow_policy: str = "legacy",
     ) -> dict:
         """Prepare a bounded, multi-file source bundle for one planner task.
 
@@ -1290,9 +1292,11 @@ class SourceRepository:
         requested_symbols = {str(item).casefold() for item in context.get("target_symbols") or [] if str(item).strip()}
         requested_paths = [str(item) for item in context.get("scope_paths") or [] if str(item) in scope]
         query_hints = [str(item).strip()[:240] for item in context.get("query_hints") or [] if str(item).strip()]
+        discovery_first = workflow_policy == "discovery_first"
         requests: list[tuple[str, int, int, str]] = []
         unresolved: list[dict] = []
         resolved_hints: list[dict] = []
+        navigation: list[dict] = []
 
         for ref in source_refs:
             if not isinstance(ref, dict):
@@ -1331,7 +1335,10 @@ class SourceRepository:
             for entry in project_map.get("entrypoints") or []:
                 path = str(entry.get("path") or "")
                 if path in scope and hint in path.casefold():
-                    requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 160), "planner_query_hint_entrypoint"))
+                    if not discovery_first:
+                        requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 160), "planner_query_hint_entrypoint"))
+                    else:
+                        navigation.append({"path": path, "reason": "query_hint_entrypoint", "source_loaded": False})
                     hint_matches += 1
                     if hint_matches >= 4:
                         break
@@ -1343,7 +1350,10 @@ class SourceRepository:
                         continue
                     start = max(1, int(symbol.get("start_line") or 1))
                     end = min(int(symbol.get("end_line") or start), start + MAX_READ_LINES - 1)
-                    requests.append((path, start, end, "planner_query_hint_symbol"))
+                    if not discovery_first:
+                        requests.append((path, start, end, "planner_query_hint_symbol"))
+                    else:
+                        navigation.append({"path": path, "start_line": start, "end_line": end, "reason": "query_hint_symbol", "source_loaded": False})
                     hint_matches += 1
                     if hint_matches >= 8:
                         break
@@ -1354,7 +1364,10 @@ class SourceRepository:
                     if path not in scope or (hint not in path.casefold() and hint not in name.casefold()):
                         continue
                     start = max(1, int(call.get("line") or 1) - 8)
-                    requests.append((path, start, min(int(all_files[path].get("line_count") or start), start + 120), "planner_query_hint_call"))
+                    if not discovery_first:
+                        requests.append((path, start, min(int(all_files[path].get("line_count") or start), start + 120), "planner_query_hint_call"))
+                    else:
+                        navigation.append({"path": path, "start_line": start, "reason": "query_hint_call", "source_loaded": False})
                     hint_matches += 1
                     if hint_matches >= 12:
                         break
@@ -1363,7 +1376,11 @@ class SourceRepository:
         # A planner can intentionally leave source refs empty for reconnaissance.
         # Seed it from ranked high-confidence entries and bootstraps, never from a
         # parser top-level unit, an unresolved root, or alphabetically first symbols.
-        if not requests:
+        if not requests and discovery_first:
+            unresolved.append({
+                "reason": "discovery_first requires an explicitly selected source file or symbol; navigation hints do not preload source.",
+            })
+        if not requests and not discovery_first:
             for entry in project_map["entrypoints"][:4]:
                 path = entry["path"]
                 requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 120), "project_entrypoint"))
@@ -1396,9 +1413,9 @@ class SourceRepository:
                         "reason": "The snapshot has no PHP entry or bootstrap candidate; orientation uses deterministic generic leads (manifests, configuration, application code, web roots).",
                     })
 
-        # For every selected path, put its static include targets and callers in the
-        # candidate set. This creates genuinely multi-file context without pretending
-        # the static graph is complete.
+        # New discovery tasks preload only direct dependencies of explicit selections.
+        # Reverse callers of a shared bootstrap can fan out to the entire application;
+        # keep them navigable without silently broadening the evidence bundle.
         selected_paths = {path for path, _, _, _ in requests}
         for edge in project_map["includes"]:
             if edge.get("from_path") in selected_paths and edge.get("to_path") in scope:
@@ -1406,18 +1423,26 @@ class SourceRepository:
                 requests.append((target, 1, min(int(all_files[target].get("line_count") or 1), 120), "static_include"))
             if edge.get("to_path") in selected_paths and edge.get("from_path") in scope:
                 source = str(edge["from_path"])
-                requests.append((source, 1, min(int(all_files[source].get("line_count") or 1), 120), "static_includer"))
-            if edge.get("resolved_outside_scope"):
+                if discovery_first:
+                    navigation.append({"path": source, "related_path": edge.get("to_path"), "reason": "reverse_include_navigation_only", "source_loaded": source in selected_paths})
+                else:
+                    requests.append((source, 1, min(int(all_files[source].get("line_count") or 1), 120), "static_includer"))
+            if edge.get("resolved_outside_scope") and (not discovery_first or edge.get("from_path") in selected_paths):
                 unresolved.append({"path": edge.get("from_path"), "line": edge.get("line"), "reason": "Static include resolves outside the frozen scope"})
 
         excerpts: list[dict] = []
         used = 0
         seen: set[tuple[str, int, int]] = set()
+        omitted: list[dict] = []
         for path, start, end, reason in requests:
             key = (path, start, end)
-            if key in seen or path not in scope or len(excerpts) >= 16 or used >= max_bytes:
+            if key in seen or path not in scope:
                 continue
             seen.add(key)
+            if len(excerpts) >= 16 or used >= max_bytes:
+                omitted.append({"path": path, "start_line": start, "end_line": end, "reason": reason,
+                                "omitted_reason": "excerpt_limit" if len(excerpts) >= 16 else "byte_budget"})
+                continue
             try:
                 value = self.read_source(snapshot_id, path, start, end)
             except ValueError as exc:
@@ -1450,6 +1475,12 @@ class SourceRepository:
             "query_hints": resolved_hints,
             "included_excerpts": len(excerpts),
             "map_stats": project_map["stats"],
+            "workflow_policy": workflow_policy,
+            "explicit_paths": sorted(selected_paths),
+            "navigation_only": navigation[:40],
+            "navigation_total": len(navigation),
+            "navigation_omitted": max(0, len(navigation) - 40),
+            "omitted_excerpts": omitted,
         }
         unique_unresolved: list[dict] = []
         unresolved_seen: set[str] = set()

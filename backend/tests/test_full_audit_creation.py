@@ -55,6 +55,15 @@ def test_explicit_full_coverage_freezes_consistent_criteria_and_goal(state):
     goal = state.store.get_task_goal(created["id"])
     assert goal["success_criteria"] == spec["success_criteria"]
     assert goal["status"] == "open"
+    assert spec["workflow_policy"] == "discovery_first"
+    assert created["execution_summary"]["workflow"]["limits"] == {"discovery": 244, "poc": 0, "review": 12}
+
+
+def test_an_explicit_frozen_legacy_workflow_is_not_upgraded(state):
+    created = create(state, completion_policy="coverage_review", workflow_policy="legacy")
+    assert created["task_spec"]["workflow_policy"] == "legacy"
+    assert not created["execution_summary"].get("workflow")
+    assert "directions" not in created["execution_summary"]
 
 
 def test_legacy_api_keeps_goal_policy_without_interpreting_objective_words(state):

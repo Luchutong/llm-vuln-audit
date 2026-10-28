@@ -345,6 +345,9 @@ class Execution:
             remaining = summary.get("run_remaining") if summary else None
             if remaining is not None:
                 ceiling = min(ceiling, max(0.001, remaining["seconds"]))
+            workflow = summary.get("workflow") if summary else None
+            if workflow and "stage_remaining_seconds" in workflow:
+                ceiling = min(ceiling, max(0.001, workflow["stage_remaining_seconds"]))
         comparison_remaining = comparison_deadline_remaining()
         if comparison_remaining is not None:
             if comparison_remaining <= 0:

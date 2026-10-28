@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError, api } from '../src/api.ts';
-import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, draftRunLimits, executionPhase, executionSummary, formatBytes, pocReason, stopReason } from '../src/execution.ts';
+import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, draftRunLimits, draftWorkflowAllocation, executionPhase, executionSummary, formatBytes, pocReason, stopReason, workflowFacts, workflowStopLabel, WORKFLOW_STAGE_LABELS } from '../src/execution.ts';
 import { projectActivity } from '../src/activity.ts';
 
 test('drafts copy only the frozen limits and never previous consumption', () => {
@@ -56,4 +56,35 @@ test('contextLine reports the peak against the byte ceiling, never as a token co
   assert.match(line, /摘要请求 3 次/);
   assert.doesNotMatch(line, /达到上限/);
   assert.match(contextLine({ history_bytes: 65536, limit_hits: 1 }), /达到上限 1 次/);
+});
+
+test('discovery-first previews match frozen allocation ratios and preserve the final review', () => {
+  assert.deepEqual(draftWorkflowAllocation(256, 'auto'), { discovery: 180, poc: 64, review: 12 });
+  assert.deepEqual(draftWorkflowAllocation(256, 'required'), { discovery: 180, poc: 64, review: 12 });
+  assert.deepEqual(draftWorkflowAllocation(256, 'off'), { discovery: 244, poc: 0, review: 12 });
+  for (const total of [1, 2, 3, 24, 63, 128, 255, 4096]) {
+    for (const mode of ['off', 'auto']) {
+      const allocation = draftWorkflowAllocation(total, mode);
+      assert.equal(Object.values(allocation).reduce((a, b) => a + b, 0), total);
+      assert.ok(allocation.discovery >= 1);
+      assert.ok(allocation.review >= 0);
+    }
+  }
+});
+
+test('workflow facts preserve actual host counters and tolerate legacy absence', () => {
+  const facts = { workflow: { stage: 'poc', limits: { discovery: 150, poc: 94, review: 12 }, transferred: 30 },
+    directions: { unsettled_total: 4 }, verification: { pending: 2, reviewed: 1 } };
+  assert.equal(workflowFacts({ run: { final_summary: { execution: facts } } }), facts);
+  const live = { ...facts, verification: { pending: 1, reviewed: 2 } };
+  assert.equal(workflowFacts({ execution_summary: live, run: { final_summary: { execution: facts } } }), live);
+  assert.equal(workflowFacts({ run: {} }), null);
+  assert.equal(WORKFLOW_STAGE_LABELS.review, '验证复核与收束');
+});
+
+test('workflow stop reasons support persisted structured administrative facts and older strings', () => {
+  assert.equal(workflowStopLabel(), '');
+  assert.equal(workflowStopLabel({ state: 'inconclusive', basis: '源码阶段额度已到，未决方向已保留。', code: 'stage_budget_exhausted' }), '源码阶段额度已到，未决方向已保留。');
+  assert.equal(workflowStopLabel({ code: 'stage_budget_exhausted' }), '源码阶段额度已耗尽');
+  assert.equal(workflowStopLabel('settled'), '源码阶段已结算');
 });

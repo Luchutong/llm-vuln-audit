@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUp, Braces, Check, ChevronDown, Database, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, X, type LucideIcon } from 'lucide-react';
 import { api, ApiError, errorText, post } from '../api';
 import type { Budget, Config, PocMode, PocReadiness, Project, Run, Snapshot, SnapshotSummary, TaskSpec } from '../types';
-import { draftRunLimits, FALLBACK_RUN_BOUNDS, POC_MODE_LABELS, pocReason } from '../execution';
+import { draftRunLimits, draftWorkflowAllocation, FALLBACK_RUN_BOUNDS, POC_MODE_LABELS, pocReason } from '../execution';
 import '../execution.css';
 import { localDate } from '../status';
 import { sourceHref } from '../routes';
@@ -238,6 +238,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const inheritedCount = snapshot?.project?.finding_counts?.total ?? project?.finding_counts?.total;
   const busy = uploading || loading || starting;
   const runBounds = config?.run_budget_limits ?? FALLBACK_RUN_BOUNDS;
+  const phaseAllocation = draftWorkflowAllocation(runLimits.responses, pocMode);
   return <section className={`draft-workspace${project ? ' source-draft' : ''}${dragging ? ' is-dragging' : ''}`}
     onDragEnter={(event) => { if (!project && event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current += 1; setDragging(true); } }}
     onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
@@ -271,7 +272,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
         {attachmentError && <div className="composer-error" role="alert"><FileArchive size={16} /><span>{attachmentError}</span><button type="button" className="text-button" onClick={() => fileInput.current?.click()}>重新选择</button></div>}
         <div className="composer-fields">
           <label className="composer-field"><span>审计模式</span><select aria-label="审计模式" disabled={starting} value={task.completion_policy ?? 'goal'} onChange={(event) => setTask((value) => taskWithPolicy(value, event.target.value as CompletionPolicy))}><option value="coverage_review">全量覆盖复核 · 检查完整源码范围</option><option value="goal">快速目标审计 · 按目标达成收束</option></select></label>
-          <p className="field-hint">{task.completion_policy === 'coverage_review' ? '全量模式会复核尚未覆盖的源码方向；发现漏洞后继续处理可执行任务。达到预算仍会停止并保留已落库结果，不代表读完每行。' : '快速模式允许在目标达成后停止后续任务，适合检查一个明确风险或入口。'}</p>
+          <p className="field-hint">{task.completion_policy === 'coverage_review' ? '全量模式会复核尚未覆盖的源码方向；发现漏洞后继续处理可执行任务。先源码挖掘，再分批验证并正式复核。达到预算仍会停止并保留已落库结果，不代表读完每行。' : '快速模式允许在目标达成后停止后续任务，适合检查一个明确风险或入口。'}</p>
           <label className="checkbox"><input type="checkbox" aria-label="使用已有漏洞作为审计线索" disabled={starting} checked={task.baseline_policy !== 'fresh'} onChange={(event) => setTask((value) => ({ ...value, baseline_policy: event.target.checked ? 'inherit' : 'fresh' }))} /><span>使用已有漏洞作为审计线索{inheritedCount !== undefined ? `（项目台账 ${inheritedCount} 条）` : ''}</span></label>
           <p className="field-hint">{task.baseline_policy === 'fresh' ? '本次从空白漏洞基线独立审计，不向 Agent 继承历史结论；项目台账与旧记录仍保留，新发现继续关联该源码项目。' : '本次会冻结项目已有漏洞作为线索，适合继续排查或复核既有结论。'}{sourceProject && <> <a href={sourceHref(sourceProject.id, 'findings')}>查看项目漏洞台账及清理入口</a></>}</p>
           <label className="composer-field"><span>审计任务 <span className="faint">/ 你想查清什么</span></span><textarea ref={objectiveRef} aria-label="审计任务" rows={2} maxLength={4000} disabled={starting} value={task.objective} onChange={(event) => setTask((value) => ({ ...value, objective: event.target.value, scenario: null }))} placeholder="例如：追踪文件上传入口，检查是否存在任意文件写入路径…" /></label>
@@ -305,6 +306,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
           <button type="button" className="icon-button" disabled={busy} aria-label="高级执行设置" title="高级执行设置" onClick={() => setDialog('options')}><SlidersHorizontal size={17} /></button>
         </div><button type="submit" className={`send-button${project ? ' source-start-button' : ''}`} disabled={busy || !config?.configured || !snapshot || snapshot.id !== selected || (pocMode === 'required' && (!readiness?.available || readinessLoading))} aria-label="开始审计">{starting ? <LoaderCircle size={19} className="spin" /> : <ArrowUp size={21} />}{project && <span>{starting ? '创建中…' : '开始审计'}</span>}</button></div>
         <p className="field-hint">整次上限：模型 {runLimits.responses} 次 · 工具 {runLimits.tools} 次 · 活跃 {runLimits.seconds} 秒；POC：{POC_MODE_LABELS[pocMode]}。可在高级执行设置调整。</p>
+        {task.workflow_policy === 'discovery_first' && <p className="field-hint" aria-label="阶段请求配额预览">阶段请求配额预览：源码挖掘 {phaseAllocation.discovery} · POC 验证 {phaseAllocation.poc} · 最终复核 {phaseAllocation.review}。源码阶段提前完成的余额可转给验证，最终复核额度保留；实际配额以创建时的环境检查和冻结结果为准。</p>}
         {pocMode === 'required' && !readiness?.available && <p className="field-hint" role="status">{readinessLoading ? '正在检查必须验证所需环境…' : readinessError ? '自动验证环境检查失败，请重新检查或切换模式。' : pocReason(readiness?.reason, readiness?.message)}</p>}
       </form>
       <div className="composer-footnote"><span><ShieldCheck size={12} /> 源码只读审计 · 执行过程持久保存</span><span>Ctrl / ⌘ + Enter 发送</span></div>
@@ -323,10 +325,10 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     </div></Overlay>}
     {dialog === 'options' && <Overlay title="高级执行设置" onClose={() => setDialog(null)}><div className="overlay-body">
       <div className="settings-section-label"><Sparkles size={16} />Planner 与 worker</div><div className="form-grid">
-        {([{ key: 'max_iterations', label: '每个动态任务最大尝试', min: 1, max: 8 }, { key: 'max_total_attempts', label: '共享总尝试上限', min: 1, max: 512 }, { key: 'max_planner_rounds', label: 'Planner 最大回合', min: 1, max: 128 }, { key: 'max_workers', label: '并发 worker', min: 1, max: 4 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={task[field.key]} onChange={(event) => setTask((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
+        {([{ key: 'max_iterations', label: task.workflow_policy === 'discovery_first' ? '每任务无进展／失败重试上限' : '每个动态任务最大尝试', min: 1, max: 8 }, { key: 'max_total_attempts', label: '共享总尝试上限', min: 1, max: 512 }, { key: 'max_planner_rounds', label: 'Planner 最大回合', min: 1, max: 128 }, { key: 'max_workers', label: '并发 worker', min: 1, max: 4 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={task[field.key]} onChange={(event) => setTask((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
       </div><div className="settings-section-label"><SlidersHorizontal size={16} />整次审计硬预算</div><div className="form-grid">
         {([{ key: 'responses', label: '整次模型请求上限' }, { key: 'tools', label: '整次工具调用上限' }, { key: 'seconds', label: '整次活跃时间（秒）' }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={runBounds.min[field.key]} max={runBounds.max[field.key]} value={runLimits[field.key]} onChange={(event) => setRunLimits((value) => ({ ...value, [field.key]: clamp(event.target.value, runBounds.min[field.key], runBounds.max[field.key]) }))} /><span className="field-hint">{runBounds.min[field.key]}–{runBounds.max[field.key]}</span></label>)}
-      </div><p className="field-hint">Planner、侦察、worker 与 POC 共享整次额度。失败请求也计入消耗；暂停不重置预算，暂停后的静止时间不计入活跃时间。达到上限将自动结束为未完成，并保存阶段报告。</p>
+      </div><p className="field-hint">Planner、侦察、worker 与 POC 共享整次额度。{task.workflow_policy === 'discovery_first' && '先完成源码挖掘，再每批最多验证两条并交给 Planner 正式复核；成功小批推进仍消耗共享总尝试，不占无进展重试。'}失败请求也计入消耗；暂停不重置预算，暂停后的静止时间不计入活跃时间。达到上限将自动结束为未完成，并保存阶段报告。</p>
       <div className="settings-section-label"><SlidersHorizontal size={16} />单次 Planner / worker 执行预算</div><div className="form-grid">
         {([{ key: 'responses', label: '模型响应次数', min: 1, max: 256 }, { key: 'tools', label: '工具调用次数', min: 0, max: 2048 }, { key: 'seconds', label: '墙钟时间（秒）', min: 30, max: 14400 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={budgets[field.key]} onChange={(event) => setBudgets((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
       </div><p className="field-hint">单次执行和整次审计均受限，先到达的上限生效。所有 worker 还共享总尝试上限，暂停继续保留全部消耗。</p>

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="930" viewBox="0 0 1060 930" role="img" aria-label="基于 LLM 辅助的漏洞挖掘与验证系统总体架构">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4B5563"/></marker><marker id="ah-fb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9AA1AC"/></marker></defs>
+<rect x="0" y="0" width="1060" height="930" fill="#FFFFFF"/>
+<text x="140" y="62" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="16" font-weight="bold" fill="#1F2937" text-anchor="start">固定五模块链路（自上而下）</text>
+<text x="606" y="62" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="16" font-weight="bold" fill="#1F2937" text-anchor="start">存储 / 外部交互对象</text>
+<line x1="186" y1="220" x2="186" y2="256" stroke="#4B5563" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="186" y1="378" x2="186" y2="414" stroke="#4B5563" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="186" y1="536" x2="186" y2="572" stroke="#4B5563" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="186" y1="694" x2="186" y2="730" stroke="#4B5563" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="440" y1="162" x2="600" y2="162" stroke="#4B5563" stroke-width="1.6" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="440" y1="320" x2="600" y2="320" stroke="#4B5563" stroke-width="1.6" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="440" y1="478" x2="600" y2="478" stroke="#4B5563" stroke-width="1.6" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="440" y1="636" x2="600" y2="636" stroke="#4B5563" stroke-width="1.6" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="440" y1="794" x2="600" y2="794" stroke="#4B5563" stroke-width="1.6" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<path d="M 140 794 C 100 794, 94 320, 136 320" fill="none" stroke="#9AA1AC" stroke-width="1.6" stroke-dasharray="8 6" marker-end="url(#ah-fb)"/>
+<path d="M 140 812 C 78 812, 78 162, 136 162" fill="none" stroke="#9AA1AC" stroke-width="1.6" stroke-dasharray="8 6" marker-end="url(#ah-fb)"/>
+<rect x="6" y="458" width="126" height="44" rx="8" ry="8" fill="#FFFFFF" stroke="#9AA1AC" stroke-width="1.2" stroke-dasharray="6 4"/>
+<text x="69" y="476" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="13" font-weight="normal" fill="#5B6472" text-anchor="middle">优化结论反哺</text>
+<text x="69" y="493" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12" font-weight="normal" fill="#5B6472" text-anchor="middle">切片 · Prompt</text>
+<rect x="140" y="104" width="300" height="116" rx="10" ry="10" fill="#EDF3FB" stroke="#3C6FA8" stroke-width="1.6"/>
+<text x="160" y="138" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="18" font-weight="bold" fill="#1F2937" text-anchor="start">① 代码预处理</text>
+<text x="160" y="166" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="14" font-weight="normal" fill="#5B6472" text-anchor="start">ZIP → 不可变快照</text>
+<text x="160" y="192" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">tree-sitter 索引 · 切片 · omissions</text>
+<rect x="140" y="262" width="300" height="116" rx="10" ry="10" fill="#EDF3FB" stroke="#3C6FA8" stroke-width="1.6"/>
+<text x="160" y="296" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="18" font-weight="bold" fill="#1F2937" text-anchor="start">② Prompt 提示词工程</text>
+<text x="160" y="324" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="14" font-weight="normal" fill="#5B6472" text-anchor="start">四段式 + 场景子模板</text>
+<text x="160" y="350" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">P0/P1/P2 演进 · 不可信输入约束</text>
+<rect x="140" y="420" width="300" height="116" rx="10" ry="10" fill="#EDF3FB" stroke="#3C6FA8" stroke-width="1.6"/>
+<text x="160" y="454" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="18" font-weight="bold" fill="#1F2937" text-anchor="start">③ LLM 推理挖掘</text>
+<text x="160" y="482" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="14" font-weight="normal" fill="#5B6472" text-anchor="start">Agent + 只读工具</text>
+<text x="160" y="508" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">三段链证据 · 预算控制 · 两段式收尾</text>
+<rect x="140" y="578" width="300" height="116" rx="10" ry="10" fill="#EDF3FB" stroke="#3C6FA8" stroke-width="1.6"/>
+<text x="160" y="612" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="18" font-weight="bold" fill="#1F2937" text-anchor="start">④ POC 实操验证</text>
+<text x="160" y="640" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="14" font-weight="normal" fill="#5B6472" text-anchor="start">人工运行 / 隔离执行器</text>
+<text x="160" y="666" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">正常·攻击对照 · 执行状态与结论分离</text>
+<rect x="140" y="736" width="300" height="116" rx="10" ry="10" fill="#EDF3FB" stroke="#3C6FA8" stroke-width="1.6"/>
+<text x="160" y="770" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="18" font-weight="bold" fill="#1F2937" text-anchor="start">⑤ 校验降噪与复盘</text>
+<text x="160" y="798" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="14" font-weight="normal" fill="#5B6472" text-anchor="start">证据校验 + 真值对照</text>
+<text x="160" y="824" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">混淆矩阵 · 归因 · 下一轮优化项</text>
+<rect x="606" y="104" width="372" height="116" rx="10" ry="10" fill="#FBF4E6" stroke="#B98A34" stroke-width="1.6"/>
+<text x="626" y="146" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="16" font-weight="bold" fill="#1F2937" text-anchor="start">不可变快照</text>
+<text x="626" y="176" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">文件清单 · SHA-256 · 原始行号</text>
+<rect x="606" y="262" width="372" height="116" rx="10" ry="10" fill="#FBF4E6" stroke="#B98A34" stroke-width="1.6"/>
+<text x="626" y="304" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="16" font-weight="bold" fill="#1F2937" text-anchor="start">提示词版本库</text>
+<text x="626" y="334" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">冻结 Prompt 全文 · 场景版本</text>
+<rect x="606" y="420" width="372" height="116" rx="10" ry="10" fill="#FBF4E6" stroke="#B98A34" stroke-width="1.6"/>
+<text x="626" y="462" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="16" font-weight="bold" fill="#1F2937" text-anchor="start">运行事件库</text>
+<text x="626" y="492" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">SQLite(WAL) 事件先落库再 SSE 推送</text>
+<rect x="606" y="578" width="372" height="116" rx="10" ry="10" fill="#FBF4E6" stroke="#B98A34" stroke-width="1.6"/>
+<text x="626" y="620" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="16" font-weight="bold" fill="#1F2937" text-anchor="start">靶场与 POC 执行器</text>
+<text x="626" y="650" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">lab30 商城 · poc-runner 隔离容器</text>
+<rect x="606" y="736" width="372" height="116" rx="10" ry="10" fill="#FBF4E6" stroke="#B98A34" stroke-width="1.6"/>
+<text x="626" y="778" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="16" font-weight="bold" fill="#1F2937" text-anchor="start">真值集与指标</text>
+<text x="626" y="808" font-family="'Segoe UI','Microsoft YaHei','Hiragino Sans GB',sans-serif" font-size="12.5" font-weight="normal" fill="#5B6472" text-anchor="start">CVSS 3.1 锚点 · 证据 zip 导出</text>
+</svg>

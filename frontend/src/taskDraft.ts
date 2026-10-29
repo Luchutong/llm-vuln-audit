@@ -10,7 +10,7 @@ export function frozenTaskPolicy(task?: Partial<TaskSpec> | null) {
     baselineDescription: task?.baseline_policy === 'fresh'
       ? '本轮未继承历史漏洞结论；共享项目台账与旧运行仍保留，本轮发现继续归入该源码项目。'
       : '本轮允许使用冻结的项目既有漏洞作为审计线索。',
-    workflow: task?.workflow_policy === 'discovery_first' ? '先源码挖掘，再分批验证与正式复核' : '共享预算调度（旧政策）',
+    workflow: task?.orchestration_policy === 'host-queue-v1' ? '宿主按需调度 · 先挖掘后验证 · 统一终审' : task?.workflow_policy === 'discovery_first' ? '先源码挖掘，再分批验证与正式复核' : '共享预算调度（旧政策）',
   };
 }
 
@@ -21,16 +21,20 @@ export function draftTask(seed?: Partial<TaskSpec>): TaskSpec {
     objective: '', success_criteria: '', max_iterations: 3, max_total_attempts: 64,
     max_planner_rounds: 24, max_workers: 2, stop_on_achieved: false,
     completion_policy: 'coverage_review', workflow_policy: 'discovery_first', baseline_policy: 'fresh', require_poc: false, scenario: null,
+    orchestration_policy: 'host-queue-v1', review_policy: 'batch-v1',
     ...seed,
     ...(seed && !seed.completion_policy ? { completion_policy: 'goal' as CompletionPolicy } : {}),
     ...(seed && !seed.baseline_policy ? { baseline_policy: 'inherit' as const } : {}),
     ...(seed && !seed.workflow_policy ? { workflow_policy: 'legacy' as const } : {}),
+    ...(seed && !seed.orchestration_policy ? { orchestration_policy: 'rounds-v1' as const } : {}),
   };
 }
 
 export function taskWithPolicy(task: TaskSpec, policy: CompletionPolicy): TaskSpec {
   return { ...task, completion_policy: policy, stop_on_achieved: policy === 'coverage_review' ? false : true,
     workflow_policy: policy === 'coverage_review' ? 'discovery_first' : 'legacy',
+    orchestration_policy: policy === 'coverage_review' ? 'host-queue-v1' : 'rounds-v1',
+    review_policy: policy === 'coverage_review' ? 'batch-v1' : task.review_policy,
     baseline_policy: policy === 'coverage_review' ? 'fresh' : 'inherit' };
 }
 

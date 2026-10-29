@@ -5,6 +5,7 @@ import { draftTask, frozenTaskPolicy, taskForStart, taskWithPolicy } from '../sr
 test('new interactive audits default to explicit full coverage review', () => {
   const task = draftTask();
   assert.equal(task.completion_policy, 'coverage_review');
+  assert.equal(task.orchestration_policy, 'host-queue-v1');
   assert.equal(task.stop_on_achieved, false);
   assert.equal(task.baseline_policy, 'fresh');
   assert.equal(task.workflow_policy, 'discovery_first');
@@ -82,4 +83,15 @@ test('a cloned run never carries its frozen stage quotas into the next request',
   assert.equal('workflow_limits' in payload, false);
   // The settings panel decides the new split, including for a legacy-mode clone.
   assert.equal('workflow_limits' in taskForStart(taskWithPolicy(clone, 'goal'), '快速复核入口'), false);
+});
+
+
+test('historical copies preserve orchestration and current defaults are an explicit choice', () => {
+  const old = draftTask({ completion_policy: 'coverage_review', workflow_policy: 'discovery_first', max_planner_rounds: 8 });
+  assert.equal(old.orchestration_policy, 'rounds-v1');
+  assert.equal(taskForStart(old, '复核旧配置').orchestration_policy, 'rounds-v1');
+  assert.equal(old.max_planner_rounds, 8);
+  assert.equal(taskWithPolicy(old, 'coverage_review').orchestration_policy, 'host-queue-v1');
+  assert.equal(taskWithPolicy(old, 'goal').orchestration_policy, 'rounds-v1');
+  assert.match(frozenTaskPolicy(draftTask()).workflow, /统一终审/);
 });

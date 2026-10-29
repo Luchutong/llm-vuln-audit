@@ -14,6 +14,8 @@ export interface TaskSpec {
   completion_policy?: 'goal' | 'coverage_review';
   /** Absent on historical records: preserve the original shared-budget scheduler. */
   workflow_policy?: 'legacy' | 'discovery_first';
+  orchestration_policy?: 'rounds-v1' | 'host-queue-v1';
+  review_policy?: 'legacy' | 'batch-v1';
   /** Explicit discovery/POC/review response quotas; omitted means the host's derived split. */
   workflow_limits?: WorkflowAllocation | null;
   /** Fresh audits keep the shared ledger but start with no inherited findings. */
@@ -75,6 +77,8 @@ export interface PlannerState {
   status: PlannerStatus | string;
   current_round: number;
   max_rounds: number;
+  round_limit_applies?: boolean;
+  effective_round_limit?: number | null;
   current_plan_id?: string | null;
   current_revision: number;
   terminal_state?: PlannerTerminalState;
@@ -257,7 +261,8 @@ export interface ExecutionSummary {
 export type WorkflowStage = 'discovery' | 'poc' | 'review';
 export type WorkflowAllocation = Record<WorkflowStage, number>;
 export interface WorkflowExecution {
-  version: 'discovery-first-v1';
+  version: 'discovery-first-v1' | 'host-queue-v1';
+  review_reserve?: { pending_items: number; estimated_batches: number; workers: number; responses: number; seconds: number; funded: boolean; upstream_allowed: boolean; reason: string };
   stage: WorkflowStage;
   /** Where the frozen split came from; historical records predate the field. */
   source?: 'explicit' | 'derived';
@@ -274,6 +279,8 @@ export interface DirectionSummary {
   unsettled_total: number;
   pending_total: number;
   assigned_total: number;
+  advisory_total?: number;
+  unsettled_required_total?: number;
   [key: string]: unknown;
 }
 export interface VerificationSummary {
@@ -931,7 +938,7 @@ export interface Config {
   budgets: Budget;
   /** The defaults the server applies when a caller names none; the ceiling is not sent. */
   budget_limits?: { defaults: Budget };
-  run_budget_limits?: { defaults: Budget; min: Budget; max: Budget };
+  run_budget_limits?: { defaults: Budget; profiles?: Partial<Record<'coverage_review' | 'goal', Budget>>; min: Budget; max: Budget };
   worker: Record<string, unknown>;
   model_health?: ModelHealthSnapshot;
   version: string;

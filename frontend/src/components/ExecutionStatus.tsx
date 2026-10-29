@@ -14,8 +14,8 @@ function WorkflowStatus({ facts }: { facts?: Partial<ExecutionSummary> | null })
   const { workflow, directions, verification } = facts;
   if (!workflow && !directions && !verification) return null;
   return <div className="execution-workflow" aria-label="阶段配额与未决事项">
-    {workflow?.version === 'discovery-first-v1' && <>
-      <div className="execution-status-heading"><strong>先挖掘后验证</strong><span className="chip">当前阶段：{WORKFLOW_STAGE_LABELS[workflow.stage] ?? workflow.stage}</span>{workflow.source && <span className="chip">{workflow.source === 'explicit' ? '创建时自定义配额' : '自动分配配额'}</span>}</div>
+    {workflow && ['discovery-first-v1', 'host-queue-v1'].includes(workflow.version) && <>
+      <div className="execution-status-heading"><strong>{workflow.version === 'host-queue-v1' ? '宿主调度 · 统一终审' : '先挖掘后验证'}</strong><span className="chip">当前阶段：{WORKFLOW_STAGE_LABELS[workflow.stage] ?? workflow.stage}</span>{workflow.source && <span className="chip">{workflow.source === 'explicit' ? '固定分配配额' : '自动分配配额'}</span>}</div>
       <div className="execution-stage-grid">{(['discovery', 'poc', 'review'] as WorkflowStage[]).map((stage) => <div key={stage} data-stage={stage} className={workflow.stage === stage ? 'is-current' : undefined}>
         <span className="small">{WORKFLOW_STAGE_LABELS[stage]}</span>
         <strong>已用 {count(workflow.used?.[stage])} / 配额 {count(workflow.limits?.[stage])}</strong>
@@ -25,9 +25,12 @@ function WorkflowStatus({ facts }: { facts?: Partial<ExecutionSummary> | null })
         {typeof workflow.stage_remaining_seconds === 'number' && <>当前阶段剩余最多 {count(workflow.stage_remaining_seconds)} 秒。</>}
         阶段配额表示成本额度，不代表源码覆盖率。</p>
       {workflow.discovery_stop && <p className="small muted">源码阶段停止原因：{workflowStopLabel(workflow.discovery_stop)}</p>}
+      {workflow.review_reserve && <p className="small muted">待终审 {count(workflow.review_reserve.pending_items)} 项 · 预计 {count(workflow.review_reserve.estimated_batches)} 批 · 当前预留 {count(workflow.review_reserve.responses)} 次请求。
+        按实际批次容量与运行中 Worker 调整；时间预留只控制新任务准入。
+        {!workflow.review_reserve.funded && '固定或剩余额度不足，未完成项将保留待审。'}</p>}
     </>}
     {(directions || verification) && <div className="execution-facts execution-workflow-facts">
-      {directions && <><span>未决方向 {count(directions.unsettled_total)}</span><span>待分配 {count(directions.pending_total)}</span><span>已分配未结算 {count(directions.assigned_total)}</span></>}
+      {directions && <><span>{workflow?.version === 'host-queue-v1' ? '必做未决方向' : '未决方向'} {count(directions.unsettled_total)}</span><span>待分配 {count(directions.pending_total)}</span><span>已分配未结算 {count(directions.assigned_total)}</span>{typeof directions.advisory_total === 'number' && <span>后续建议 {count(directions.advisory_total)}（不阻止收束）</span>}</>}
       {verification && <><span>待验证 {count(verification.pending)}</span><span>已验证 {count(verification.verified)}</span><span>正式复核 {count(verification.reviewed)}</span><span>待正式复核 {count(verification.pending_review)}</span></>}
     </div>}
   </div>;

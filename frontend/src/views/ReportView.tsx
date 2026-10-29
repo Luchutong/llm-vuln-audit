@@ -376,7 +376,7 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
           <div className="grid detail-fields">
             <div className="field"><LongContent value={task.objective} label="报告审计目标" /></div>
             <div className="field"><LongContent value={task.success_criteria} label="报告验收条件" /></div>
-            <div className="field"><span className="field-label">规划与执行预算</span><span className="small">Planner {planner?.current_round ?? 0}/{planner?.max_rounds ?? task.max_planner_rounds} 回合 · worker {usedAttempts}/{task.max_total_attempts} 次</span></div>
+            <div className="field"><span className="field-label">规划与执行预算</span><span className="small">{task.orchestration_policy === 'host-queue-v1' ? '宿主按需调度 · 统一终审 · 按整次预算' : `Planner ${planner?.current_round ?? 0}/${planner?.max_rounds ?? task.max_planner_rounds} 回合`} · worker {usedAttempts}/{task.max_total_attempts} 次</span></div>
             <div className="field"><LongContent value={goal?.terminal_reason ?? planner?.terminal_reason ?? '尚未收束'} label="报告运行结论" /></div>
           </div>
           <p className="small muted">报告覆盖本次冻结的 {scopeFileCount(run, projectMap)} 个可读文本文件。受阻或预算耗尽仍保留为未决结果。</p>
@@ -384,6 +384,7 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
         </div>
       </section>
 
+      <FinalReviewPanel runId={run.id} status={run.status} />
       <ExecutionStatus detail={detail} />
       <HostSummary detail={detail} />
       {detail.report_narrative && <section className="panel"><div className="panel-head"><span className="panel-title">Planner 历史叙述</span><span className="faint small">以宿主最终事实为准</span></div><div className="panel-body"><LongContent label="Planner 已提交叙述" value={detail.report_narrative} /></div></section>}
@@ -420,6 +421,115 @@ function TargetReportView({ detail }: Pick<ReportViewProps, 'detail'>) {
       <ReviewSummary detail={detail} />
     </div>
   );
+}
+
+const FINAL_REVIEW_PUBLISH_LABELS: Record<string, string> = {
+  releasable_final: '可发布完整报告',
+  releasable_partial: '可发布阶段报告',
+  review_required: '需修复交付错误',
+};
+
+interface FinalReviewFacts {
+  schema_version: string;
+  provenance?: { immutable?: boolean; input_hash?: string };
+  review_batch?: { item_refs: unknown[]; decisions: unknown[]; unresolved_items: string[] };
+  review_batches?: { batches: Array<{ id: string; phase: string; status: string; items: unknown[]; decisions: unknown[] }> };
+  counts: {
+    raw_records: number; valid_records: number; canonical: number;
+    withdrawn: number; accepted: number; pending: number; contested: number;
+  };
+  run_outcome: { status: string; audit_complete: boolean };
+  quality_result: {
+    report_kind: string; publishability: string; failed_checks: string[];
+  };
+  coverage: {
+    files: { total: number; read: number; reviewed: number; skipped: number; pending: number | null; complete: boolean | null };
+    directions: { total: number; required?: number; advisory?: number; resolved: number; skipped: number; unsettled: number; complete: boolean | null };
+    verification: { total: number; verified: number; rejected: number; uncertain: number; pending: number };
+  };
+  canonical_findings: Array<{
+    canonical_id: string;
+    final_disposition: string;
+    frozen_claim: {
+      title: string; category: string; file_path: string;
+      primary_location?: { path?: string; line?: number };
+      cvss?: { base_score?: number } | null;
+    };
+    conflicts?: Array<{ kind: string; detail: string }>;
+  }>;
+  advisory_directions?: Array<{ id: string; text: string }>;
+  action_items: Array<{ kind: string; object?: string; detail?: string; action?: string; title?: string }>;
+}
+
+/**
+ * The page, Markdown, JSON and evidence ZIP are four views of one frozen fact package.
+ * This panel reads ``/final-review`` itself so the numbers on screen are the host's
+ * canonical counts, not a second computation over the mutable finding list.
+ */
+function FinalReviewPanel({ runId, status }: { runId: string; status: string }) {
+  const [facts, setFacts] = useState<FinalReviewFacts | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const abort = new AbortController();
+    setFacts(null);
+    setUnavailable(false);
+    api<FinalReviewFacts>(`/runs/${runId}/final-review`, { signal: abort.signal, timeoutMs: 10000 })
+      .then((value) => { if (live) setFacts(value); })
+      .catch(() => { if (live) setUnavailable(true); });
+    return () => { live = false; abort.abort(); };
+  }, [runId, status]);
+  if (unavailable) return null;
+  if (!facts) {
+    return <section className="panel" aria-label="终审事实包"><div className="panel-head"><span className="panel-title">终审事实包</span></div><div className="panel-body small muted">正在读取宿主冻结事实…</div></section>;
+  }
+  const counts = facts.counts;
+  const quality = facts.quality_result;
+  const coverage = facts.coverage;
+  const accepted = facts.canonical_findings.filter((item) => item.final_disposition === 'accepted');
+  const conflicts = facts.canonical_findings.flatMap((item) => (item.conflicts ?? []).map((conflict) => ({ canonical_id: item.canonical_id, title: item.frozen_claim.title, ...conflict })));
+  return <section className="panel" aria-label="终审事实包">
+    <div className="panel-head"><span className="panel-title">终审事实包</span><span className="chip">{FINAL_REVIEW_PUBLISH_LABELS[quality.publishability] ?? quality.publishability}</span></div>
+    <div className="panel-body grid">
+      <div className="grid detail-fields">
+        <div className="field"><span className="field-label">原始记录：{counts.raw_records}</span></div>
+        <div className="field"><span className="field-label">有效记录：{counts.valid_records}</span></div>
+        <div className="field"><span className="field-label">规范结论：{counts.canonical}</span></div>
+        <div className="field"><span className="field-label">已接受漏洞：{counts.accepted}</span></div>
+        <div className="field"><span className="field-label">待终审：{counts.pending}</span></div>
+        <div className="field"><span className="field-label">存疑或排除：{counts.contested}</span></div>
+      </div>
+      <p className="small muted">
+        {quality.report_kind === 'final' ? '完整终审' : '阶段报告'} · 文件读取 {coverage.files.read}/{coverage.files.total}、复核 {coverage.files.reviewed}、跳过 {coverage.files.skipped} · 必做方向结算 {coverage.directions.resolved + coverage.directions.skipped}/{coverage.directions.required ?? coverage.directions.total} · 后续建议 {coverage.directions.advisory ?? 0} · 动态验证 {coverage.verification.verified}/{coverage.verification.total} · 撤回 {counts.withdrawn} 条历史记录。
+      </p>
+      {facts.review_batch && <p className="small muted">
+        逐项终审已处置 {facts.review_batch.decisions.length}/{facts.review_batch.item_refs.length}
+        {' · '}{facts.provenance?.immutable ? '正式报告已冻结，后续发现修改不会改变此版本' : '当前为未冻结视图'}
+      </p>}
+      {!!facts.review_batches?.batches.length && <Disclosure title="整合与终审批次历史">
+        {facts.review_batches.batches.map((batch) => <div key={batch.id} className="small">
+          {batch.phase === 'final' ? '终审' : '按需整合'} · {batch.id.slice(0, 8)} · 已处置 {batch.decisions.length}/{batch.items.length}
+          {' · '}{({ completed: '已完成', pending: '待审查', stale: '输入已更新', deferred: '本阶段未完成' } as Record<string, string>)[batch.status] ?? batch.status}
+        </div>)}
+      </Disclosure>}
+      {quality.failed_checks.length > 0 && <p className="small">发布门禁未通过：{quality.failed_checks.join('、')}</p>}
+      {conflicts.length > 0 && <Disclosure title={`冲突结论（${conflicts.length}）`}>
+        {conflicts.map((conflict) => <LongContent key={`${conflict.canonical_id}-${conflict.kind}`} label={`${conflict.title} · ${conflict.kind}`} value={conflict.detail} />)}
+      </Disclosure>}
+      {accepted.length > 0 && <Disclosure title={`已接受漏洞（${accepted.length}）`}>
+        {accepted.map((item) => <div key={item.canonical_id} className="small">
+          <strong>{item.frozen_claim.title}</strong>
+          <span className="faint"> · {item.frozen_claim.file_path}:{item.frozen_claim.primary_location?.line ?? '—'} · CVSS {item.frozen_claim.cvss?.base_score ?? '—'}</span>
+        </div>)}
+      </Disclosure>}
+      {facts.action_items.length > 0 && <Disclosure title={`补证与复核动作（${facts.action_items.length}）`}>
+        {facts.action_items.map((item, index) => <LongContent key={`${item.kind}-${item.object}-${index}`} label={item.title || item.kind} value={item.action || item.detail || item.object} />)}
+      </Disclosure>}
+      {!!facts.advisory_directions?.length && <Disclosure title={`后续建议（${facts.advisory_directions.length}，不阻止收束）`}>
+        {facts.advisory_directions.map((item) => <LongContent key={item.id} label={item.id} value={item.text} />)}
+      </Disclosure>}
+    </div>
+  </section>;
 }
 
 function ReviewSummary({ detail }: Pick<ReportViewProps, 'detail'>) {

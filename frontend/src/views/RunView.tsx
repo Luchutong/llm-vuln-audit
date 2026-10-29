@@ -18,7 +18,7 @@ import { sourceHref } from '../routes';
 import { activeVulnerabilityFindings, sourceObservations, vulnerabilityFindings } from '../results';
 import { ExecutionStatus, HostSummary } from '../components/ExecutionStatus';
 import { DefencePanel } from '../components/DefencePanel';
-import { executionSummary } from '../execution';
+import { executionSummary, WORKFLOW_STAGE_LABELS } from '../execution';
 import { SeverityBadge } from '../components/CvssPanel';
 import { frozenTaskPolicy } from '../taskDraft';
 
@@ -121,7 +121,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
         </div></article>
         <article className="assistant-message"><div className="assistant-avatar"><ShieldCheck size={20} /></div><div className="assistant-body"><div className="message-label"><BrandWordmark compact /> <span>源码审计助手</span></div>
           <p className="assistant-intro">{paused ? pauseSettling ? '正在等待在途执行静止，静止后可继续审计。' : '审计已暂停，任务前沿和回合号均已保存，可随时继续。' : run.status === 'pending' ? '审计任务已加入队列，等待 Planner 建立项目级任务图。' : live ? '正在围绕你的目标审计源码。下方展示已保存的规划、工具调用与证据过程。' : '审计执行记录已恢复。你可以展开工具调用，或打开详情复核源码证据。'}</p>
-          <div className="run-progress"><span><GitBranch size={15} />Planner {detail.planner?.current_round ?? 0} / {detail.planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'} 回合</span><span><Wrench size={15} />{run.usage.tool_calls} 次工具调用</span><span>{paused ? '已暂停 · 可原样继续' : live ? `${activeWorkers} 个 worker 活跃` : `${completed} / ${tasks.length} 个任务已结算`}</span></div>
+          <div className="run-progress"><span><GitBranch size={15} />{run.task_spec?.orchestration_policy === 'host-queue-v1' ? `阶段：${summary?.workflow ? WORKFLOW_STAGE_LABELS[summary.workflow.stage] : '等待宿主调度'}` : `Planner ${detail.planner?.current_round ?? 0} / ${detail.planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'} 回合`}</span><span><Wrench size={15} />{run.usage.tool_calls} 次工具调用</span><span>{paused ? '已暂停 · 可原样继续' : live ? `${activeWorkers} 个 worker 活跃` : `${completed} / ${tasks.length} 个任务已结算`}</span></div>
           <ExecutionStatus detail={detail} />
           <ActivityStream events={events} detail={detail} connected={connected} reconnects={reconnects} onOpenLogs={() => openDetails('logs')} onInspect={() => { follow.current = false; }} />
           {streamError && <div className="error-box" role="alert">轨迹读取失败：{streamError} <button className="text-button" onClick={retry}>重新读取</button></div>}

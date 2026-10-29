@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError, api } from '../src/api.ts';
-import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, draftRunLimits, draftWorkflowAllocation, executionPhase, executionSummary, formatBytes, pocReason, stopReason, workflowFacts, workflowLimitsIssue, workflowStopLabel, WORKFLOW_STAGE_LABELS } from '../src/execution.ts';
+import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, FULL_RUN_LIMITS, frozenPocMode, draftRunLimits, draftWorkflowAllocation, executionPhase, executionSummary, formatBytes, pocReason, stopReason, workflowFacts, workflowLimitsIssue, workflowStopLabel, WORKFLOW_STAGE_LABELS } from '../src/execution.ts';
 import { projectActivity } from '../src/activity.ts';
 
 test('drafts copy only the frozen limits and never previous consumption', () => {
@@ -11,7 +11,10 @@ test('drafts copy only the frozen limits and never previous consumption', () => 
   limits.responses = 1;
   assert.equal(seed.run_limits.responses, 111);
   assert.deepEqual(draftRunLimits({}), DEFAULT_RUN_LIMITS);
-  assert.deepEqual(draftRunLimits(undefined, { run_budget_limits: { defaults: seed.run_limits } }), seed.run_limits);
+  assert.deepEqual(draftRunLimits(undefined), FULL_RUN_LIMITS);
+  assert.deepEqual(draftRunLimits(undefined, { run_budget_limits: { defaults: seed.run_limits } }, 'goal'), seed.run_limits);
+  assert.deepEqual(draftRunLimits(undefined, null, 'goal'), DEFAULT_RUN_LIMITS);
+  assert.deepEqual(draftRunLimits(undefined, { run_budget_limits: { profiles: { coverage_review: seed.run_limits } } }), seed.run_limits);
 });
 
 test('execution summary handles current and legacy run projections and explains budget stops', () => {
@@ -99,4 +102,13 @@ test('stage quotas are validated client-side before the request reaches the host
   assert.match(workflowLimitsIssue({ discovery: 300, poc: 0, review: 0 }, 400, 'off'), /至少保留 1 次/);
   // A remainder below the ceiling is legal: the host adds it to discovery when frozen.
   assert.equal(workflowLimitsIssue({ discovery: 100, poc: 20, review: 10 }, 400, 'auto'), null);
+});
+
+
+test('clones preserve their frozen POC mode without accepting unknown policy values', () => {
+  assert.equal(frozenPocMode({ poc_mode: 'auto' }), 'auto');
+  assert.equal(frozenPocMode({ poc_policy: { mode: 'required' } }), 'required');
+  assert.equal(frozenPocMode({ poc_mode: 'off', poc_policy: { mode: 'required' } }), 'off');
+  assert.equal(frozenPocMode({ poc_policy: { mode: 'unknown' } }), 'off');
+  assert.equal(frozenPocMode(), 'off');
 });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUp, Braces, Check, ChevronDown, Database, FileArchive, FileCode2, FolderOpen, LoaderCircle, Paperclip, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, X, type LucideIcon } from 'lucide-react';
 import { api, ApiError, errorText, post } from '../api';
 import type { Budget, Config, PocMode, PocReadiness, Project, Run, Snapshot, SnapshotSummary, TaskSpec, WorkflowAllocation, WorkflowStage } from '../types';
-import { draftRunLimits, draftWorkflowAllocation, FALLBACK_RUN_BOUNDS, POC_MODE_LABELS, pocReason, workflowLimitsIssue } from '../execution';
+import { draftRunLimits, draftWorkflowAllocation, FALLBACK_RUN_BOUNDS, frozenPocMode, POC_MODE_LABELS, pocReason, workflowLimitsIssue } from '../execution';
 import '../execution.css';
 import { localDate } from '../status';
 import { sourceHref } from '../routes';
@@ -97,7 +97,6 @@ const QUOTA_FIELDS = [
   { key: 'poc', label: 'POC 验证', min: 0 },
   { key: 'review', label: '验证复核与收束', min: 1 },
 ] as const satisfies readonly { key: WorkflowStage; label: string; min: number }[];
-const sameQuota = (a: WorkflowAllocation, b: WorkflowAllocation) => a.discovery === b.discovery && a.poc === b.poc && a.review === b.review;
 /** The start screen freezes one decision: what to audit.
  *
  * Acceptance is frozen by the server for the user's explicit coverage or goal mode.
@@ -120,9 +119,10 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const [task, setTask] = useState<TaskSpec>(() => draftTask(seed?.task_spec ?? undefined));
   const [budgets, setBudgets] = useState<Budget>(seed?.budgets ?? config?.budget_limits?.defaults ?? config?.budgets ?? { responses: 24, tools: 96, seconds: 1800 });
   const [runLimits, setRunLimits] = useState<Budget>(() => draftRunLimits(seed, config));
-  const [pocMode, setPocMode] = useState<PocMode>('off');
-  const [quota, setQuota] = useState<WorkflowAllocation>(() => draftWorkflowAllocation(draftRunLimits(seed, config).responses, 'off'));
-  const quotaEdited = useRef(false);
+  const [pocMode, setPocMode] = useState<PocMode>(() => frozenPocMode(seed));
+  const [quota, setQuota] = useState<WorkflowAllocation>(() => seed?.task_spec?.workflow_limits ?? draftWorkflowAllocation(draftRunLimits(seed, config).responses, frozenPocMode(seed)));
+  const quotaEdited = useRef(Boolean(seed?.task_spec?.workflow_limits));
+  const limitsEdited = useRef(Boolean(seed));
   const [readiness, setReadiness] = useState<PocReadiness | null>(null);
   const [readinessError, setReadinessError] = useState<string | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
@@ -241,7 +241,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
     const sourceHash = window.location.hash;
     try {
       const payload = taskForStart(task, objective, scope ? scopeSuffix(scope) : '');
-      if (payload.workflow_policy === 'discovery_first' && !sameQuota(quota, draftWorkflowAllocation(runLimits.responses, pocMode))) payload.workflow_limits = quota;
+      if (payload.workflow_policy === 'discovery_first' && quotaEdited.current) payload.workflow_limits = quota;
       const run = await post<Run>('/runs', { snapshot_id: snapshot.id, budgets, run_limits: runLimits, poc_mode: pocMode, task: payload });
       if (active.current) {
         onChanged();
@@ -264,7 +264,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
   const busy = uploading || loading || starting;
   const runBounds = config?.run_budget_limits ?? FALLBACK_RUN_BOUNDS;
   const automaticQuota = draftWorkflowAllocation(runLimits.responses, pocMode);
-  const quotaAdjusted = !sameQuota(quota, automaticQuota);
+  const quotaAdjusted = quotaEdited.current;
   const quotaIssue = workflowLimitsIssue(quota, runLimits.responses, pocMode);
   const quotaTotal = quota.discovery + quota.poc + quota.review;
   return <section className={`draft-workspace${project ? ' source-draft' : ''}${dragging ? ' is-dragging' : ''}`}
@@ -299,7 +299,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
         </div>}
         {attachmentError && <div className="composer-error" role="alert"><FileArchive size={16} /><span>{attachmentError}</span><button type="button" className="text-button" onClick={() => fileInput.current?.click()}>重新选择</button></div>}
         <div className="composer-fields">
-          <label className="composer-field"><span>审计模式</span><select aria-label="审计模式" disabled={starting} value={task.completion_policy ?? 'goal'} onChange={(event) => setTask((value) => taskWithPolicy(value, event.target.value as CompletionPolicy))}><option value="coverage_review">全量覆盖复核 · 检查完整源码范围</option><option value="goal">快速目标审计 · 按目标达成收束</option></select></label>
+          <label className="composer-field"><span>审计模式</span><select aria-label="审计模式" disabled={starting} value={task.completion_policy ?? 'goal'} onChange={(event) => { const mode = event.target.value as CompletionPolicy; setTask((value) => taskWithPolicy(value, mode)); if (!limitsEdited.current) setRunLimits(draftRunLimits(undefined, config, mode)); }}><option value="coverage_review">全量覆盖复核 · 检查完整源码范围</option><option value="goal">快速目标审计 · 按目标达成收束</option></select></label>
           <p className="field-hint">{task.completion_policy === 'coverage_review' ? '全量模式会复核尚未覆盖的源码方向；发现漏洞后继续处理可执行任务。先源码挖掘，再分批验证并正式复核。达到预算仍会停止并保留已落库结果，不代表读完每行。' : '快速模式允许在目标达成后停止后续任务，适合检查一个明确风险或入口。'}</p>
           <label className="checkbox"><input type="checkbox" aria-label="使用已有漏洞作为审计线索" disabled={starting} checked={task.baseline_policy !== 'fresh'} onChange={(event) => setTask((value) => ({ ...value, baseline_policy: event.target.checked ? 'inherit' : 'fresh' }))} /><span>使用已有漏洞作为审计线索{inheritedCount !== undefined ? `（项目台账 ${inheritedCount} 条）` : ''}</span></label>
           <p className="field-hint">{task.baseline_policy === 'fresh' ? '本次从空白漏洞基线独立审计，不向 Agent 继承历史结论；项目台账与旧记录仍保留，新发现继续关联该源码项目。' : '本次会冻结项目已有漏洞作为线索，适合继续排查或复核既有结论。'}{sourceProject && <> <a href={sourceHref(sourceProject.id, 'findings')}>查看项目漏洞台账及清理入口</a></>}</p>
@@ -352,17 +352,18 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       <LongContent label="归档 SHA256" value={snapshot.archive_sha256} />
     </div></Overlay>}
     {dialog === 'options' && <Overlay title="高级执行设置" onClose={() => setDialog(null)}><div className="overlay-body">
+      {seed && <button type="button" className="btn" onClick={() => { setTask({ ...draftTask(), objective: task.objective }); setBudgets(config?.budget_limits?.defaults ?? config?.budgets ?? budgets); setRunLimits(draftRunLimits(undefined, config)); setPocMode('off'); limitsEdited.current = false; quotaEdited.current = false; setQuota(draftWorkflowAllocation(draftRunLimits(undefined, config).responses, 'off')); }}>使用当前默认配置</button>}
       <div className="settings-section-label"><Sparkles size={16} />Planner 与 worker</div><div className="form-grid">
-        {([{ key: 'max_iterations', label: task.workflow_policy === 'discovery_first' ? '每任务无进展／失败重试上限' : '每个动态任务最大尝试', min: 1, max: 8 }, { key: 'max_total_attempts', label: '共享总尝试上限', min: 1, max: 512 }, { key: 'max_planner_rounds', label: 'Planner 最大回合', min: 1, max: 128 }, { key: 'max_workers', label: '并发 worker', min: 1, max: 4 }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={task[field.key]} onChange={(event) => setTask((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
+        {([{ key: 'max_iterations', label: task.workflow_policy === 'discovery_first' ? '每任务无进展／失败重试上限' : '每个动态任务最大尝试', min: 1, max: 8 }, { key: 'max_total_attempts', label: '共享总尝试上限', min: 1, max: 512 }, { key: 'max_planner_rounds', label: 'Planner 最大回合', min: 1, max: 128 }, { key: 'max_workers', label: '并发 worker', min: 1, max: 4 }] as const).filter((field) => field.key !== 'max_planner_rounds' || task.orchestration_policy !== 'host-queue-v1').map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={task[field.key]} onChange={(event) => setTask((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
       </div><div className="settings-section-label"><SlidersHorizontal size={16} />整次审计硬预算</div><div className="form-grid">
-        {([{ key: 'responses', label: '整次模型请求上限' }, { key: 'tools', label: '整次工具调用上限' }, { key: 'seconds', label: '整次活跃时间（秒）' }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={runBounds.min[field.key]} max={runBounds.max[field.key]} value={runLimits[field.key]} onChange={(event) => setRunLimits((value) => ({ ...value, [field.key]: clamp(event.target.value, runBounds.min[field.key], runBounds.max[field.key]) }))} /><span className="field-hint">{runBounds.min[field.key]}–{runBounds.max[field.key]}</span></label>)}
-      </div><p className="field-hint">Planner、侦察、worker 与 POC 共享整次额度。{task.workflow_policy === 'discovery_first' && '先完成源码挖掘，再每批最多验证两条并交给 Planner 正式复核；成功小批推进仍消耗共享总尝试，不占无进展重试。'}失败请求也计入消耗；暂停不重置预算，暂停后的静止时间不计入活跃时间。达到上限将自动结束为未完成，并保存阶段报告。</p>
+        {([{ key: 'responses', label: '整次模型请求上限' }, { key: 'tools', label: '整次工具调用上限' }, { key: 'seconds', label: '整次活跃时间（秒）' }] as const).map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={runBounds.min[field.key]} max={runBounds.max[field.key]} value={runLimits[field.key]} onChange={(event) => { limitsEdited.current = true; setRunLimits((value) => ({ ...value, [field.key]: clamp(event.target.value, runBounds.min[field.key], runBounds.max[field.key]) })); }} /><span className="field-hint">{runBounds.min[field.key]}–{runBounds.max[field.key]}</span></label>)}
+      </div><p className="field-hint">Planner、侦察、worker 与 POC 共享整次额度。{task.workflow_policy === 'discovery_first' && (task.orchestration_policy === 'host-queue-v1' ? '宿主按需派工，验证后统一终审，按待审证据动态预留；回合序号不构成执行上限。' : '先完成源码挖掘，再分批验证并正式复核。')}失败请求也计入消耗；暂停不重置预算，暂停后的静止时间不计入活跃时间。达到上限将自动结束为未完成，并保存阶段报告。</p>
       {task.workflow_policy === 'discovery_first' && <>
         <div className="settings-section-label"><SlidersHorizontal size={16} />阶段请求配额</div>
         <div className="form-grid">
           {QUOTA_FIELDS.map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={runLimits.responses} value={quota[field.key]} disabled={field.key === 'poc' && pocMode === 'off'} aria-label={`${field.label}请求配额`} onChange={(event) => { editQuota(); setQuota((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, Math.max(field.min, runLimits.responses)) })); }} /><span className="field-hint">{field.min}–{runLimits.responses}</span></label>)}
         </div>
-        <p className="field-hint">三段共用整次模型请求上限，合计 {quotaTotal} / {runLimits.responses}。少于上限的部分在创建时归入源码挖掘；POC 关闭时 POC 配额固定为 0，关闭前已留出的余额会并入源码挖掘。{quotaAdjusted ? '当前为自定义配额，创建时按此冻结。' : '当前为自动分配，创建时不提交自定义配额，由服务端按默认规则冻结。'}</p>
+        <p className="field-hint">三段共用整次模型请求上限，合计 {quotaTotal} / {runLimits.responses}。少于上限的部分在创建时归入源码挖掘；POC 关闭时 POC 配额固定为 0，关闭前已留出的余额会并入源码挖掘。{quotaAdjusted ? '当前为自定义配额，创建时按此冻结。' : '当前为自动分配，服务端按实际待审批次数调整配额，整次上限与已用计数保持不变。'}</p>
         {quotaIssue && <p className="field-hint quota-warning" role="alert">{quotaIssue}</p>}
         <button type="button" className="text-button" disabled={!quotaAdjusted} onClick={resetQuota}>恢复自动分配（{automaticQuota.discovery} / {automaticQuota.poc} / {automaticQuota.review}）</button>
       </>}

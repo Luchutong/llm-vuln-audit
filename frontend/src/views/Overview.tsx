@@ -60,7 +60,7 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
   return (
     <div className="grid">
       <div className="grid stats-grid">
-        <Stat value={`${planner?.current_round ?? 0}/${planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'}`} label="Planner 回合" note={`版本 ${planner?.current_revision ?? 0}`} />
+        <Stat value={run.task_spec?.orchestration_policy === 'host-queue-v1' ? `${(detail.execution_summary ?? run.execution_summary)?.workflow?.review_reserve?.pending_items ?? '—'}` : `${planner?.current_round ?? 0}/${planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'}`} label={run.task_spec?.orchestration_policy === 'host-queue-v1' ? '待终审对象' : 'Planner 回合'} note={run.task_spec?.orchestration_policy === 'host-queue-v1' ? '调度与审查序号见执行历史' : `版本 ${planner?.current_revision ?? 0}`} />
         <Stat value={`${metrics.terminal_tasks ?? 0}/${metrics.total_tasks ?? tasks.length}`} label="已结算动态任务" note={`执行中 ${metrics.active_tasks ?? counts.running ?? 0}`} />
         <Stat value={candidateCount} label="有效漏洞候选" note={`待自动验证 ${awaitingReview} · 已验证 ${verified}${unavailable ? ` · 环境不可用 ${unavailable}` : ''} · 已撤回/取代/判重 ${withdrawnCount} · 排查记录 ${observationCount}`} />
         <Stat value={toolCalls || run.usage.tool_calls} label="只读工具调用" note={`模型响应 ${run.usage.requests}`} />
@@ -115,8 +115,8 @@ export function Overview({ detail, events }: { detail: RunDetail; events: AuditE
           </div>
         </section>
 
-        <section className="panel" aria-label="Planner 回合">
-          <div className="panel-head"><span className="panel-title">Planner 回合</span><span className="faint small">{plans.length} 个版本</span></div>
+        <section className="panel" aria-label={run.task_spec?.orchestration_policy === 'host-queue-v1' ? '调度与审查次数' : 'Planner 回合'}>
+          <div className="panel-head"><span className="panel-title">{run.task_spec?.orchestration_policy === 'host-queue-v1' ? '调度与审查历史' : 'Planner 回合'}</span><span className="faint small">{plans.length} 个版本</span></div>
           {plans.length === 0 ? <div className="empty">等待主 Planner 建立第一版任务图。</div> : (
             <div className="panel-body">
               <Disclosure title={`查看 Planner 版本（${plans.length}）`}>

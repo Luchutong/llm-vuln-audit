@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 
 from .finding_policy import is_vulnerability_finding
@@ -89,19 +90,28 @@ class DirectionStoreMixin:
             raise ValueError("direction state must be all/open/pending/assigned/resolved/skipped")
         with self._lock:
             records = sorted(self._audit_direction_records(run_id).values(), key=lambda item: item["id"]) if self.discovery_first(run_id) else []
-        open_count = sum(item["state"] in OPEN_DIRECTION_STATES for item in records)
+        required_open = sum(item["state"] in OPEN_DIRECTION_STATES and item.get("requirement", "required") == "required" for item in records)
+        advisory_count = sum(item.get("requirement", "required") == "advisory" for item in records)
+        open_count = required_open if self.host_queue_enabled(run_id) else sum(item["state"] in OPEN_DIRECTION_STATES for item in records)
         selected = [item for item in records if state == "all" or (state == "open" and item["state"] in OPEN_DIRECTION_STATES) or item["state"] == state]
         page = selected[cursor:cursor + limit]
         return {"items": page, "total": len(selected), "unsettled_total": open_count,
+                "unsettled_required_total": required_open, "advisory_total": advisory_count,
                 "offset": cursor, "limit": limit, "next_cursor": cursor + len(page) if cursor + len(page) < len(selected) else None}
 
     def audit_direction_summary(self, run_id: str) -> dict:
         with self._lock:
             records = list(self._audit_direction_records(run_id).values()) if self.discovery_first(run_id) else []
-        counts = {state: sum(item["state"] == state for item in records) for state in ("pending", "assigned", "resolved", "skipped")}
-        unresolved = sorted((item for item in records if item["state"] in OPEN_DIRECTION_STATES), key=lambda item: item["id"])
+        hosted = self.host_queue_enabled(run_id)
+        advisory = [item for item in records if item.get("requirement", "required") == "advisory"]
+        obligations = [item for item in records if item.get("requirement", "required") == "required"] if hosted else records
+        counts = {state: sum(item["state"] == state for item in obligations) for state in ("pending", "assigned", "resolved", "skipped")}
+        required_open = [item for item in records if item["state"] in OPEN_DIRECTION_STATES and item.get("requirement", "required") == "required"]
+        unresolved = sorted((required_open if hosted else [item for item in records if item["state"] in OPEN_DIRECTION_STATES]), key=lambda item: item["id"])
         return {"version": "audit-directions-v1", "total": len(records), **{key + "_total": value for key, value in counts.items()},
                 "unsettled_total": len(unresolved), "complete": not unresolved, "items": unresolved[:4],
+                "unsettled_required_total": len(required_open), "advisory_total": len(advisory),
+                "required_total": len(records) - len(advisory), "advisory_items": advisory[:4],
                 "omitted": max(0, len(unresolved) - 4), "next_cursor": 4 if len(unresolved) > 4 else None}
 
     def assigned_task_directions(self, run_id: str, task_key: str) -> list[dict]:
@@ -134,19 +144,31 @@ class DirectionStoreMixin:
         project_map = self.get_project_map(row["run_id"]) or {}
         known_paths = [item["path"] for item in project_map.get("files") or [] if isinstance(item, dict) and item.get("path")]
         selected = set(task_spec.get("direction_ids") or [])
+        batch_policy = self.batch_review_enabled(row["run_id"])
         for value in stored_result.get("remaining_work") or []:
             text = _text(value)
             if not text:
                 continue
+            if batch_policy:
+                referred = set(re.findall(r"dir_[a-f0-9]{32}", text)) & set(records)
+                repeated = [item for item in records.values() if item["id"] in selected and item["text"] == text]
+                if referred or repeated:
+                    # The assessment preserves the follow-up text. Explicit
+                    # references do not mint another obligation on an origin row.
+                    continue
             identity = "dir_" + hashlib.sha256((row["run_id"] + "\0" + text).encode()).hexdigest()[:32]
             if identity in records:
                 continue
             paths = sorted(path for path in known_paths if path in text)
             local = bool(paths) and all(any(path == target or path.startswith(target.rstrip("/") + "/") for target in declared if target) for path in paths)
-            auto_assign = not int(row["revisions"] or 0) and local
+            hosted = self.host_queue_enabled(row["run_id"])
+            auto_assign = not hosted and not int(row["revisions"] or 0) and local
+            names = re.findall(r"[\w./-]+\.(?:php|py|js|ts|sh|yaml|yml|ini|conf)\b", text)
+            unknown = [name for name in names if not any(path == name or path.endswith('/' + name) for path in known_paths)]
             records[identity] = {"id": identity, "origin_task_id": row["id"], "origin_task_key": row["task_key"],
                                  "text": text, "paths": paths, "state": "assigned" if auto_assign or identity in selected else "pending",
                                  "assigned_task_key": row["task_key"] if auto_assign or identity in selected else None,
+                                 **({"requirement": "advisory", "unknown_paths": unknown} if hosted else {}),
                                  "created_at": datetime.now(timezone.utc).isoformat()}
         stored_result["host_directions"] = [item for item in records.values() if item["origin_task_id"] == row["id"]]
         # Origin rows other than this task are unchanged by capture. Preserve the
@@ -224,6 +246,10 @@ class DirectionStoreMixin:
                 current = tasks.get(record.get("assigned_task_key"))
                 if current is not None and current["state"] == "running":
                     raise ValueError("cannot take a direction away from a running task")
+                if self.host_queue_enabled(run_id):
+                    if record.get("unknown_paths"):
+                        raise ValueError("未知源码路径不能直接升级为必做方向，请明确修正范围后再采纳")
+                    record["requirement"] = "required"
                 record.update(state="assigned", assigned_task_key=task_key)
                 spec = _load(self._db.execute("SELECT context_spec FROM planner_tasks WHERE id=?", (target["id"],)).fetchone()[0], {}) or {}
                 spec["direction_ids"] = sorted(set(spec.get("direction_ids") or []) | {identity})
@@ -240,6 +266,14 @@ class DirectionStoreMixin:
             self.append_event(run_id, None, "audit_directions_updated", {"updates": combined, "summary": self.audit_direction_summary(run_id)})
 
     def _validate_direction_resolution_tx(self, run_id, record, update, tasks):
+        if self.host_queue_enabled(run_id):
+            task = tasks.get(update.get("task_key"))
+            result = _load(task.get("result"), {}) if task else {}
+            matching = [item for item in result.get("direction_results", []) if isinstance(item, dict)
+                        and item.get("direction_id") == record["id"] and item.get("outcome") in {"supported", "no_evidence"}
+                        and len(_text(item.get("rationale"))) >= 8]
+            if len(matching) != 1 or record.get("assigned_task_key") != update.get("task_key"):
+                raise ValueError("必做方向必须有同一 direction_id 的 supported/no_evidence 取证结果，completed 或路径相交不能替代")
         finding_ids = update.get("finding_ids") or []
         if finding_ids:
             for finding_id in finding_ids:

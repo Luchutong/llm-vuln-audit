@@ -272,6 +272,8 @@ class FullComparisonRunner:
                 "task_spec": {"objective": OBJECTIVE,
                     "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
                     "max_iterations": 3, "max_planner_rounds": 24, "max_total_attempts": 64,
+                    "orchestration_policy": "host-queue-v1", "review_policy": "batch-v1",
+                    "workflow_policy": "discovery_first",
                     "max_workers": 1, "stop_on_achieved": False, "require_poc": False,
                     "completion_policy": "coverage_review"},
                 "closure_policy": {"version": "coverage-review-v1"},

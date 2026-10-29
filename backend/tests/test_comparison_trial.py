@@ -83,6 +83,7 @@ def test_isolated_trial_uses_shared_creation_and_real_budget_context(tmp_path):
         assert run["budgets"] == frozen["budgets"]
         assert run["run_limits"] == frozen["run_limits"]
         assert run["task_spec"]["workflow_policy"] == "legacy"
+        assert run["task_spec"]["orchestration_policy"] == "rounds-v1"
         assert not run["execution_summary"].get("workflow")
         assert run["status"] == "inconclusive"
         assert result["usage"]["requests"] == 1
@@ -104,6 +105,18 @@ def test_isolated_trial_uses_shared_creation_and_real_budget_context(tmp_path):
     assert all(item["kind"] in {"run_created", "audit_started", "phase", "heartbeat"} for item in records)
     assert all(item.get("audit_started_at") for item in records if item["kind"] == "audit_started")
     assert CONFIG.api_key not in json.dumps([records, outcomes])
+
+
+def test_new_manifest_uses_host_queue_without_adopting_interactive_full_limits(tmp_path):
+    frozen = manifest(tmp_path)
+    frozen['task_spec'].update(completion_policy='coverage_review', orchestration_policy='host-queue-v1',
+                             workflow_policy='discovery_first', review_policy='batch-v1')
+    frozen['run_limits']['seconds'] = 720
+    result = asyncio.run(execute_trial(frozen, frozen['variants'][0], tmp_path / 'new-policy', CONFIG, lambda _: None, OfflineWorker))
+    assert result['infra_error'] is None, result
+    assert result['run']['task_spec']['orchestration_policy'] == 'host-queue-v1'
+    assert result['run']['run_limits'] == frozen['run_limits']
+    assert result['run']['execution_summary']['workflow']['version'] == 'host-queue-v1'
 
 
 def test_trial_refuses_existing_database_instead_of_reusing_findings(tmp_path):

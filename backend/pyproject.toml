@@ -27,6 +27,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
+poc-claude = ["claude-agent-sdk==0.2.174"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["audit"]

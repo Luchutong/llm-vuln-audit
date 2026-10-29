@@ -1425,6 +1425,13 @@ def _render_task_markdown(bundle: dict) -> str:
 
 
 def render_markdown(bundle: dict) -> str:
+    facts = bundle.get("final_review")
+    if facts:
+        # New runs deliver the versioned final-review facts: seven fixed sections rendered
+        # only from those facts, so page, Markdown, JSON and the evidence package cannot
+        # drift. Old runs keep their historical layout because no facts are attached.
+        from .report_final import render_final_report
+        return bundle.get("report_markdown") or render_final_report(facts)
     host = bundle.get("run", {}).get("final_summary")
     if host:
         from .report_facts import render_host_summary
@@ -2155,6 +2162,15 @@ def render_zip(bundle: dict, evidence_files: list[tuple[str, bytes]]) -> bytes:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("report.md", render_markdown(bundle))
         archive.writestr("result.json", render_json(bundle))
+        facts = bundle.get("final_review")
+        if facts:
+            # The machine-readable half of the same facts: a reviewer can recompute every
+            # number in report.md from these two files without the database.
+            archive.writestr("final-review.json",
+                             json.dumps(facts, ensure_ascii=False, indent=2, default=str))
+            archive.writestr("report-quality.json",
+                             json.dumps(facts.get("quality_result") or {}, ensure_ascii=False,
+                                        indent=2, default=str))
         for name, payload in evidence_files:
             archive.writestr(f"evidence/{name}", payload)
         archive.writestr(

@@ -24,6 +24,7 @@ from .poc_store import PocStoreMixin, POC_SCHEMA
 from .cvss_store import CvssStoreMixin, decode_rating
 from .cvss_assessment import normalise_record
 from .directions import DirectionStoreMixin
+from .review_store import ReviewStoreMixin
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -823,7 +824,7 @@ def build_verification_records(list_verifications, findings: list[dict]) -> list
         })
     return records
 
-class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
+class Store(ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def __init__(self, path: Path | str):
         self.path = str(path)
         self._lock = threading.RLock()
@@ -835,6 +836,7 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
             self._migrate()
             self._init_cvss()
             self._init_execution_state()
+            self._init_reviews()
 
     # Additive migrations so a database written by an earlier build keeps working.
     _ADDED_COLUMNS = {
@@ -2620,9 +2622,13 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
         return session
 
     def get_planner_session(self, run_id: str) -> dict | None:
-        return self._planner_session_dict(
+        session = self._planner_session_dict(
             self._row("SELECT * FROM planner_sessions WHERE run_id = ?", (run_id,))
         )
+        if session is not None:
+            session["round_limit_applies"] = not self.host_queue_enabled(run_id)
+            session["effective_round_limit"] = session["max_rounds"] if session["round_limit_applies"] else None
+        return session
 
     def get_project_map(self, run_id: str) -> dict | None:
         row = self._row("SELECT payload FROM planner_project_maps WHERE run_id = ?", (run_id,))
@@ -3149,6 +3155,11 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
             " AND COALESCE(f.verification_status, '') = 'verified' ORDER BY f.created_at, f.id",
             (run_id,),
         )
+        if self.host_queue_enabled(run_id):
+            from .final_review import canonical_groups
+            entries, _ = canonical_groups(self._review_records(run_id, self.list_findings(run_id)))
+            current_ids = {entry["frozen_claim"]["finding_id"] for entry in entries}
+            rows = [row for row in rows if row["id"] in current_ids]
         return [dict(row) for row in rows
                 if is_vulnerability_finding(dict(row)) and self._current_review(dict(row)) is None]
 
@@ -3320,6 +3331,7 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
             "workflow_policy": (run.get("task_spec") or {}).get("workflow_policy", "legacy"),
             "workflow": self.workflow_state(run_id),
             "directions": self.audit_direction_summary(run_id),
+            "review_batch": self.active_review_batch(run_id) if self.batch_review_enabled(run_id) else None,
             "coverage_review": self.coverage_review(run_id, project_map),
             "duplicate_candidates": [_loads(row["payload"], {}) for row in reversed(self._rows(
                 "SELECT payload FROM events WHERE run_id=? AND kind='finding_duplicate_candidate' ORDER BY id DESC LIMIT 20", (run_id,)))],
@@ -3557,7 +3569,7 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
                 if session["run_status"] != "running" or session["goal_status"] != "open":
                     self._db.execute("COMMIT")
                     return None
-                if int(session["current_round"]) >= int(session["max_rounds"]):
+                if not self.host_queue_enabled(run_id) and int(session["current_round"]) >= int(session["max_rounds"]):
                     self._db.execute(
                         "UPDATE planner_sessions SET status = 'reviewing', terminal_state = 'inconclusive', "
                         "terminal_reason = ?, updated_at = ? WHERE run_id = ?",
@@ -3632,6 +3644,9 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
         narrative: dict | None = None,
         coverage_review: list[dict] | None = None,
         direction_updates: list[dict] | None = None,
+        review_batch_id: str | None = None,
+        review_decisions: list[dict] | None = None,
+        verification_reviews: list[dict] | None = None,
     ) -> list[dict]:
         """Commit a Planner decision and its validated frontier mutation atomically."""
         tasks = list(tasks or [])
@@ -3643,6 +3658,18 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
                 session = self._db.execute("SELECT * FROM planner_sessions WHERE run_id = ?", (run_id,)).fetchone()
                 if plan is None or session is None or plan["status"] != "planning":
                     raise ValueError("Planner round is not an active draft")
+                active_batch = self.active_review_batch(run_id) if self.batch_review_enabled(run_id) else None
+                if active_batch and not error and (review_batch_id or not self.host_queue_enabled(run_id)):
+                    if tasks or updates or direction_updates or coverage_review:
+                        raise ValueError("当前必须先逐项整合批次，不得同时派发任务或绕过批次结算")
+                    if review_batch_id != active_batch["id"]:
+                        raise ValueError("请提交当前 review_batch_id")
+                    self._commit_review_batch_tx(run_id, review_batch_id, list(review_decisions or []), plan_id,
+                                                 verification_reviews=verification_reviews)
+                elif (review_batch_id or review_decisions) and not error:
+                    raise ValueError("没有当前可提交的批次")
+                elif verification_reviews and not error:
+                    raise ValueError("原子动态复核必须提交当前 final 批次")
                 workflow = self.workflow_state(run_id) if self.discovery_first(run_id) else {}
                 if workflow.get("stage") == "review" and (
                     tasks or any(item.get("action") == "reopen" for item in updates)
@@ -3980,9 +4007,12 @@ class Store(DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMi
                 remaining_for_task = bool(stored_result.get("remaining_work"))
                 if discovery_first:
                     returned = {" ".join(str(text).split()) for text in stored_result.get("remaining_work") or []}
+                    settled_ids = {item.get("direction_id") for item in stored_result.get("direction_results") or []
+                                   if isinstance(item, dict) and item.get("outcome") in {"supported", "no_evidence"}}
                     remaining_for_task = any(
                         item["state"] == "assigned" and item.get("assigned_task_key") == row["task_key"]
-                        and item["text"] in returned for item in direction_records.values()
+                        and item["text"] in returned and item["id"] not in settled_ids
+                        for item in direction_records.values()
                     )
                 if outcome == "continue" or (
                     outcome in {"achieved", "no_evidence"} and remaining_for_task

@@ -216,3 +216,68 @@ def test_freezing_strategy_rejects_legacy_or_empty_text():
         freeze_worker_strategy({"id": "old", "text": "legacy"})
     with pytest.raises(ValueError):
         freeze_worker_strategy({**builtin_worker_strategies()[0], "text": " "})
+
+
+def test_live_worker_binds_php_method_hints_and_records_each_resource(monkeypatch):
+    outcome, events, factory = drive(monkeypatch, [final_answer(assessment())])
+    assert outcome["outcome"] == "achieved", outcome
+    event = next(item for item in events if item["kind"] == "worker_knowledge_bound")
+    assert event["manifest_version"] == "autocve-knowledge/v1"
+    assert event["total_bytes"] <= 6 * 1024
+    assert event["refs"] and all(len(item["sha256"]) == 64 for item in event["refs"])
+    prompt = factory.prompts[0]
+    assert "审计知识提示" in prompt and "不是源码证据" in prompt
+    for ref in event["refs"]:
+        assert f"{ref['id']}@{ref['version']}" in prompt
+
+
+def test_legacy_instruction_override_keeps_its_frozen_comparison(monkeypatch):
+    factory = ModelFactory([final_answer(assessment())])
+    monkeypatch.setattr(agent, "build_code_model", factory)
+    events = []
+    asyncio.run(agent.pursue_task_work(
+        repository=Repository(), snapshot_id="snapshot", snapshot_name="sample.zip", unit=UNIT,
+        task={"objective": "检查源码中的可达漏洞", "success_criteria": "提供真实源码证据", "require_poc": False},
+        attempt=1, config=CONFIG, budgets={"responses": 5, "tools": 0, "seconds": 3},
+        policy=AgentPolicy(request_seconds=1), instructions="只使用给定的对照指令。",
+        on_event=events.append,
+    ))
+    assert "对照指令" in factory.prompts[0]
+    assert "审计知识提示" not in factory.prompts[0]
+    assert not any(item["kind"] == "worker_knowledge_bound" for item in events)
+
+
+def test_a_model_cannot_declare_its_own_verification_state():
+    worker = AuditWorker.__new__(AuditWorker)
+    worker.repository = Repository()
+    events = []
+
+    class Bus:
+        def emit(self, *args):
+            events.append(args)
+
+    worker.bus = Bus()
+    run = {"id": "run", "snapshot_id": "snapshot", "worker_strategy": builtin_worker_strategies()[0]}
+    payload = {**finding(), "confirmed": True, "is_verified": True,
+               "verification_status": "verified", "verdict": "confirmed"}
+    outcome = {"result": {**assessment(), "findings": [payload]},
+               "seen": [{"path": path, "start_line": start, "end_line": end} for path, start, end in SEEN],
+               "seen_exact": True}
+    prepared = worker._build_goal_findings(run, UNIT, outcome)[0]
+    assert prepared["candidate"]
+    assert prepared["record"]["verdict"] is None
+    assert prepared["event"]["contract_state"] == "static_candidate"
+    ignored = next(args for args in events if args[2] == "worker_contract_field_ignored")
+    assert ignored[3]["fields"] == ["confirmed", "is_verified", "verdict", "verification_status"]
+
+
+def test_candidate_without_an_explicit_sink_is_still_accepted_when_cited():
+    worker = AuditWorker.__new__(AuditWorker)
+    worker.repository = Repository()
+    run = {"id": "run", "snapshot_id": "snapshot", "worker_strategy": builtin_worker_strategies()[0]}
+    outcome = {"result": assessment(dangerous_operation="", input_source="", propagation=""),
+               "seen": [{"path": path, "start_line": start, "end_line": end} for path, start, end in SEEN],
+               "seen_exact": True}
+    prepared = worker._build_goal_findings(run, UNIT, outcome)[0]
+    assert prepared["candidate"]
+    assert prepared["event"]["contract_state"] == "static_candidate"

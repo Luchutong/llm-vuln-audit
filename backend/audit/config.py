@@ -34,6 +34,10 @@ _KEY_KEYS = ("LLM_API_KEY", "AUDIT_API_KEY", "OPENAI_API_KEY")
 _THINKING_KEYS = ("LLM_THINKING", "AUDIT_THINKING")
 
 _TRUTHY = {"1", "true", "yes", "on"}
+
+# POC model-loop implementations.  ``legacy`` is the built-in code-action loop and the
+# only one enabled by default: the SDK adapter must be verified on this host first.
+POC_RUNTIMES = ("legacy", "claude_sdk")
 _URL_USERINFO = re.compile(r"(?i)(https?://)[^/\s@]*@")
 _URL_QUERY_FRAGMENT = re.compile(r"(?i)(https?://[^\s?#]+)(?:\?[^\s#]*)?(?:#[^\s]*)?")
 
@@ -242,6 +246,10 @@ class PocSettings:
     reset_between_findings: bool = False
     reset_command: str = ""
     reset_timeout: int = 30
+    # Which model loop drives one POC attempt.  ``legacy`` is the hand-written code
+    # action loop; ``claude_sdk`` is the Claude Agent SDK adapter.  The server decides
+    # the default; a run request can only downgrade to ``legacy``.
+    runtime: str = "legacy"
 
     @classmethod
     def from_environ(cls, environ: dict[str, str] | None = None) -> "PocSettings":
@@ -265,6 +273,9 @@ class PocSettings:
             for value in (env.get("POC_RUNNER_ADDRS") or "").split(",")
             if value.strip()
         )
+        runtime = (env.get("POC_RUNTIME") or "").strip().casefold() or "legacy"
+        if runtime not in POC_RUNTIMES:
+            raise ValueError(f"POC_RUNTIME must be one of {', '.join(POC_RUNTIMES)}")
         return cls(
             enabled=flag("POC_ENABLED", True),
             required=flag("POC_REQUIRED", False),
@@ -285,6 +296,7 @@ class PocSettings:
             reset_between_findings=flag("POC_RESET_BETWEEN_FINDINGS", False),
             reset_command=(env.get("POC_LAB30_RESET_COMMAND") or "").strip(),
             reset_timeout=number("POC_RESET_TIMEOUT", 30, 5, 300),
+            runtime=runtime,
         )
 
     @property
@@ -306,6 +318,7 @@ class PocSettings:
             "max_script_bytes": self.max_script_bytes,
             "reset_between_findings": self.reset_between_findings,
             "reset_timeout": self.reset_timeout,
+            "runtime": self.runtime,
         }
 
     def public(self) -> dict:
@@ -318,6 +331,7 @@ class PocSettings:
             "max_script_bytes": self.max_script_bytes,
             "reset_between_findings": self.reset_between_findings,
             "reset_command_configured": bool(self.reset_command),
+            "runtime": self.runtime,
         }
 
 

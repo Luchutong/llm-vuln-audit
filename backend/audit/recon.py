@@ -29,8 +29,9 @@ from .codemodel import ModelCallFailed, PhaseGate
 from .config import ModelConfig
 from .executor import build_agent, drive_phase
 from .navigation import ProjectIndex, clean_path
+from .reuse.autocve.recon import normalize_brief
 from .runtime import AgentPolicy, Execution, SourceLedger, StopAudit
-from .schemas import ReconBrief, ReconRef, ReconReadStep
+from .schemas import ReconBrief
 from .source import SourceRepository
 from .toolkit import RECON_TOOLS, FinalAnswerTool, build_tools
 
@@ -254,7 +255,7 @@ async def run_recon(
             except Exception:  # noqa: BLE001 - a failed close must not replace the outcome
                 pass
 
-    payload = _sanitize_brief(brief, index.files_by_path) if brief is not None else None
+    payload, dropped = _sanitize_brief(brief, index.files_by_path) if brief is not None else (None, [])
     examined = deps.files_examined()
     if payload is not None:
         payload["files_examined"] = examined
@@ -267,6 +268,9 @@ async def run_recon(
             "question": question[:600],
             "brief": payload,
             "files_examined": examined,
+            # Dropped references stay visible: a brief that quietly lost three paths is
+            # different from one that never named them.
+            "dropped": dropped,
             "usage": execution.snapshot(),
         })
     emit({
@@ -304,38 +308,13 @@ def _recon_prompt(question: str, objective: str, success_criteria: str, project_
     )
 
 
-def _sanitize_brief(brief: ReconBrief, files_by_path: dict) -> dict:
+def _sanitize_brief(brief: ReconBrief, files_by_path: dict) -> tuple[dict, list[dict]]:
     """Drop every reference the host cannot confirm, instead of retrying the model.
 
     A path outside the frozen map, or a line range beyond the file, is a hallucination
     about this project; a brief that quietly lost that entry is still useful, while a
-    retry costs a request and teaches the model nothing about what really exists.
+    retry costs a request and teaches the model nothing about what really exists.  The
+    normalizer also stamps the brief as navigation, so its text can never be mistaken for
+    a finding or for source evidence.
     """
-
-    def clamp_lines(ref: ReconRef | ReconReadStep) -> dict:
-        line_count = int(files_by_path[ref.path].get("line_count") or 1)
-        start = max(1, min(int(ref.start_line), line_count))
-        end = max(start, min(int(ref.end_line), line_count))
-        return {"path": ref.path, "start_line": start, "end_line": end, "why": ref.why}
-
-    def keep_refs(refs: list[ReconRef]) -> list[dict]:
-        return [clamp_lines(ref) for ref in refs if ref.path in files_by_path]
-
-    layout = []
-    for area in brief.layout:
-        path = area.path.strip("/")
-        if path in files_by_path or any(candidate.startswith(f"{path}/") for candidate in files_by_path):
-            layout.append({"path": path, "role": area.role, "notes": area.notes})
-    return {
-        "summary": brief.summary,
-        "layout": layout,
-        "entry_candidates": keep_refs(brief.entry_candidates),
-        "data_stores": keep_refs(brief.data_stores),
-        "security_boundaries": keep_refs(brief.security_boundaries),
-        "reading_plan": keep_refs(brief.reading_plan),
-        "uncertainties": [text[:400] for text in brief.uncertainties],
-        "notice": (
-            "这是侦察子 agent 的导航线索，不是 finding 证据，也不是安全结论；"
-            "引用其中任何路径仍必须由 worker 读取原始行号后才会成为证据。files_examined 由宿主按真实读记录填写。"
-        ),
-    }
+    return normalize_brief(brief.model_dump(), files_by_path)

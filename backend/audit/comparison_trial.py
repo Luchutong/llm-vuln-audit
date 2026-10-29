@@ -171,6 +171,7 @@ async def execute_trial(
         # A manifest created before stage allocation keeps its actual historical
         # execution policy, rather than inheriting a new interactive API default.
         frozen_task.setdefault("workflow_policy", "legacy")
+        frozen_task.setdefault("orchestration_policy", "rounds-v1")
         request = CreateRunRequest(
             snapshot_id=snapshot["id"], task=frozen_task,
             budgets=manifest["budgets"], run_limits=manifest["run_limits"], poc_mode="off",

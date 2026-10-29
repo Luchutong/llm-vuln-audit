@@ -1,0 +1,87 @@
+{
+  "manifest_version": "autocve-knowledge/v1",
+  "entries": [
+    {
+      "id": "php-input-to-sink",
+      "version": "2026-10-28.1",
+      "title": "PHP 输入到危险操作",
+      "language": "php",
+      "frameworks": [],
+      "tags": [
+        "sqli",
+        "sql注入",
+        "注入",
+        "command_injection",
+        "命令执行",
+        "命令注入",
+        "file_inclusion",
+        "文件包含",
+        "deserialization",
+        "反序列化"
+      ],
+      "file": "php-input-to-sink.md",
+      "sha256": "7240145b73c9b0b7fe4e06e226113446d5aa5437c5bba8901bf0edaff82d5aee",
+      "bytes": 1091
+    },
+    {
+      "id": "php-output-xss",
+      "version": "2026-10-28.1",
+      "title": "PHP 输出编码与 XSS",
+      "language": "php",
+      "frameworks": [],
+      "tags": [
+        "xss",
+        "xss_r",
+        "xss_s",
+        "跨站",
+        "输出编码",
+        "回显"
+      ],
+      "file": "php-output-xss.md",
+      "sha256": "6cb730f6cd7b310fc393dee69cdbcf062c5830a8bee6443f7c6b54bd58b51121",
+      "bytes": 936
+    },
+    {
+      "id": "php-authorization",
+      "version": "2026-10-28.1",
+      "title": "PHP 认证、授权与对象归属",
+      "language": "php",
+      "frameworks": [],
+      "tags": [
+        "auth_bypass",
+        "broken_access_control",
+        "越权",
+        "未授权",
+        "鉴权",
+        "授权",
+        "访问控制",
+        "对象归属",
+        "idor"
+      ],
+      "file": "php-authorization.md",
+      "sha256": "9a9ae35ed177048bb5941a0b74a28fb9b9a7965103a22e272a0ff8b6315dc1ff",
+      "bytes": 1124
+    },
+    {
+      "id": "php-state-change",
+      "version": "2026-10-28.1",
+      "title": "PHP 状态变更与业务副作用",
+      "language": "php",
+      "frameworks": [],
+      "tags": [
+        "csrf",
+        "business_logic",
+        "mass_assignment",
+        "批量赋值",
+        "业务逻辑",
+        "弱比较",
+        "兑换",
+        "重放"
+      ],
+      "file": "php-state-change.md",
+      "sha256": "3768afb6a84c987a437227d19cf3b97fb84c79036b59efe56aac53883a4df0ef",
+      "bytes": 842
+    }
+  ],
+  "note": "合同按 AutoCVE 知识路由的字段形状自行实现；正文为本项目原创方法提示，不是源码证据。"
+}

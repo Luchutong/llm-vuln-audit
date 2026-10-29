@@ -49,8 +49,9 @@ from .cvss31 import BASE
 from .cvss_store import CvssConflict
 from .schemas import CvssEditRequest
 from .evidence import validate_evidence
-from .execution_state import DEFAULT_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
+from .execution_state import DEFAULT_RUN_LIMITS, FULL_RUN_LIMITS, MIN_RUN_LIMITS, MAX_RUN_LIMITS
 from .poc_readiness import PocReadinessService
+from .poc_model_gateway import PocModelGateway, router as poc_gateway_router
 from .poc_store import poc_target_key
 
 from . import prompt_experiments
@@ -81,6 +82,8 @@ class Services:
         # provides the common thinking policy for browser-saved profiles.
         self.environment_model = settings.model
         self.store = Store(settings.db_path)
+        self.poc_gateway = PocModelGateway.from_environ(self.store)
+        self.store._poc_model_gateway = self.poc_gateway
         self.vault = CredentialVault(settings.data_dir)
         selected_profile = self.store.ensure_environment_model_profile(
             self.environment_model.model,
@@ -204,6 +207,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="PHP White-box Audit Workbench", version=VERSION, lifespan=lifespan)
+app.include_router(poc_gateway_router, prefix="/api/internal/poc-gateway")
 
 
 def _client_in_networks(client: str, entries) -> bool:
@@ -487,7 +491,9 @@ def _config_payload(state: Services) -> dict:
         "model_profiles": profiles,
         "budgets": state.settings.budgets,
         "budget_limits": {"defaults": DEFAULT_BUDGETS},
-        "run_budget_limits": {"defaults": DEFAULT_RUN_LIMITS, "min": MIN_RUN_LIMITS, "max": MAX_RUN_LIMITS},
+        "run_budget_limits": {"defaults": DEFAULT_RUN_LIMITS, "profiles": {
+            "coverage_review": FULL_RUN_LIMITS, "goal": DEFAULT_RUN_LIMITS},
+            "min": MIN_RUN_LIMITS, "max": MAX_RUN_LIMITS},
         "agent_policy": AgentPolicy().snapshot(),
         "poc": {**state.settings.poc.public(), "supported_targets": ["lab30"]},
         "worker": state.worker.status,
@@ -1090,11 +1096,13 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     task_spec = payload.task.model_dump()
     # "auto" is best effort: when this server cannot run POC at all, its reserved quota
     # could never be spent, so release it to discovery instead of freezing an unusable
-    # stage. ("required" already returned 409 above when the environment is unavailable.)
+    # stage for legacy allocation. New explicitly fixed quotas stay frozen even when
+    # auto verification is unavailable; unspent POC is not silently added to discovery.
+    # ("required" already returned 409 above when the environment is unavailable.)
     stage_quota = task_spec.get("workflow_limits")
     if isinstance(stage_quota, dict) and stage_quota.get("poc") and not (
         poc_policy.get("enabled") and payload.poc_mode != "off"
-    ):
+    ) and task_spec.get("orchestration_policy") != "host-queue-v1":
         stage_quota["poc"] = 0
     if task_spec.get("completion_policy") == "coverage_review":
         if "workflow_policy" not in payload.task.model_fields_set:
@@ -1823,11 +1831,75 @@ async def experiments(request: Request, run_ids: str = Query(...)) -> dict:
     return {**comparable_runs(ordered), "runs": entries, "prompt_diffs": prompt_diffs(ordered)}
 
 
+@app.get("/api/runs/{run_id}/final-review")
+async def final_review_facts(request: Request, run_id: str) -> dict:
+    """The frozen delivery facts and publish gates, without the rendered prose."""
+    state = services(request)
+    run = state.store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run does not exist")
+    frozen = _saved_report(state, run_id)
+    if frozen is not None:
+        return frozen["facts"]
+    bundle = _run_bundle(state, run_id)
+    bundle["snapshot"] = state.store.get_snapshot(bundle["run"]["snapshot_id"])
+    bundle["generated_at"] = _iso()
+    facts = _attach_final_review(state, bundle)
+    if facts is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This run predates Planner v2; it keeps its historical report layout",
+        )
+    return facts
+
+
+def _saved_report(state: Services, run_id: str) -> dict | None:
+    if not hasattr(state.store, "frozen_report"):
+        return None
+    from .frozen_reports import materialize
+    return materialize(state.store, state.repository, run_id)
+
+
+def _attach_final_review(state: Services, bundle: dict) -> dict | None:
+    """Attach ``FinalReviewBundle/v1`` to a Planner v2 bundle (and cache the rendering).
+
+    Legacy runs have no facts package: their historical export layout is kept, so an old
+    report is never silently rewritten as if it had been through the new final review.
+    """
+    run = bundle.get("run") or {}
+    if not run.get("task_spec") or bundle.get("planner") is None:
+        return None
+    from .report_bundle import build_and_render
+
+    records = state.store.list_findings(run["id"])
+    if (run.get("task_spec") or {}).get("review_policy") == "batch-v1":
+        records = state.store.attach_final_decisions(run["id"], records)
+        bundle["review_snapshot"] = state.store.review_snapshot(run["id"])
+    facts, markdown = build_and_render(
+        bundle,
+        all_records=records,
+        repository=state.repository,
+        generated_at=bundle.get("generated_at") or "",
+    )
+    bundle["final_review"] = facts
+    bundle["report_quality"] = facts["quality_result"]
+    bundle["report_markdown"] = markdown
+    return facts
+
+
 @app.get("/api/runs/{run_id}/report")
 async def report(request: Request, run_id: str, format: str = Query("markdown")):
     state = services(request)
     if state.store.get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run does not exist")
+    frozen = _saved_report(state, run_id)
+    if frozen is not None:
+        content, media, suffix = (frozen["json_export"], "application/json", "json") if format == "json" else (
+            (frozen["zip_blob"], "application/zip", "zip") if format == "zip" else
+            (frozen["markdown"], "text/markdown; charset=utf-8", "md"))
+        return Response(content=content, media_type=media,
+                        headers={"Content-Disposition": f'attachment; filename="report-{run_id[:8]}.{suffix}"',
+                                 "ETag": '"' + frozen["output_hash"] + '"'})
     bundle = _run_bundle(state, run_id)
     bundle["snapshot"] = state.store.get_snapshot(bundle["run"]["snapshot_id"])
     bundle["snapshot_detail"] = state.repository.get_snapshot(bundle["run"]["snapshot_id"])
@@ -1836,6 +1908,7 @@ async def report(request: Request, run_id: str, format: str = Query("markdown"))
     bundle["rounds"] = _round_comparison(state, bundle["run"])
     bundle["generated_at"] = _iso()
     bundle["version"] = VERSION
+    _attach_final_review(state, bundle)
 
     if format == "json":
         return Response(

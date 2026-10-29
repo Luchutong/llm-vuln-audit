@@ -22,6 +22,23 @@ def request(*, poc_mode="auto", **task):
     return CreateRunRequest.model_validate(payload)
 
 
+def test_review_reservation_scales_with_rounds_not_with_review_responses():
+    # Regression: the previous formula divided the *response* quota by two and used it
+    # as a *round* count, so review=100 over 40 rounds reserved 39 rounds and closed
+    # discovery at its first idle round.
+    def reserved(review, rounds):
+        payload, limits = run(task={"workflow_limits": {"discovery": 100, "poc": 60, "review": review},
+                                    "max_planner_rounds": rounds}, responses=500)
+        return freeze_workflow(payload, limits)["review_reserved_rounds"]
+
+    assert reserved(100, 40) == 10
+    assert reserved(12, 40) == 10   # Same reservation: the response count cannot buy rounds.
+    assert reserved(1, 40) == 1     # One response pays for at most one review round.
+    assert reserved(12, 24) == 6
+    assert reserved(12, 2) == 1     # The last round is never reserved.
+    assert reserved(12, 1) == 0
+
+
 def test_explicit_quotas_are_frozen_and_the_remainder_goes_to_discovery():
     payload, limits = run(task={"workflow_limits": {"discovery": 300, "poc": 60, "review": 20}})
     workflow = freeze_workflow(payload, limits)
@@ -41,6 +58,15 @@ def test_explicit_poc_quota_requires_poc_enabled():
     payload, limits = run(task={"workflow_limits": {"discovery": 300, "poc": 10, "review": 20}}, poc="off")
     with pytest.raises(ValueError, match="workflow_limits"):
         freeze_workflow(payload, limits)
+
+
+def test_new_fixed_allocation_is_not_rewritten_by_unavailable_auto_runtime():
+    payload, limits = run(task={"orchestration_policy": "host-queue-v1",
+                               "workflow_limits": {"discovery": 320, "poc": 60, "review": 20}})
+    payload['poc_policy']['enabled'] = False
+    frozen = freeze_workflow(payload, limits)
+    assert frozen['source'] == 'explicit'
+    assert frozen['limits'] == {'discovery': 320, 'poc': 60, 'review': 20}
 
 
 def test_explicit_quotas_cannot_consume_the_whole_budget():

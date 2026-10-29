@@ -6,6 +6,7 @@ import json
 
 from audit import worker as worker_module
 from audit.execution_state import CURRENT_EXECUTION
+from audit.workflow import freeze_workflow
 from tests.test_discovery_workflow import create  # noqa: F401 - shared temporary-store fixture
 from tests.test_goal_tasks import _conclusion_finding, make_worker
 
@@ -131,6 +132,13 @@ def test_default_round_limit_reserves_six_rounds_for_dynamic_review(create, monk
     task = {**run["task_spec"], "max_planner_rounds": 24}
     store._write("UPDATE runs SET task_spec=? WHERE id=?", (json.dumps(task), run["id"]))
     store._write("UPDATE planner_sessions SET max_rounds=24,current_round=17 WHERE run_id=?", (run["id"],))
+    # This fixture freezes the workflow at 12 planner rounds at creation.  Re-freeze the
+    # same allocation for the widened session so the reservation is computed from 24
+    # rounds instead of being patched in by hand.
+    frozen = store.workflow_state(run["id"])
+    limits = {"responses": sum(frozen["limits"].values()), "tools": 2048, "seconds": 1800}
+    workflow = freeze_workflow({**store.get_run(run["id"]), "task_spec": task}, limits)
+    store._write("UPDATE run_execution_state SET workflow=? WHERE run_id=?", (json.dumps(workflow), run["id"]))
     run = store.get_run(run["id"])
     assert store.workflow_state(run["id"])["review_reserved_rounds"] == 6
     calls = []

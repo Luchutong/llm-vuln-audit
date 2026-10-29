@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 POLICY_VERSION = "audit-runtime-3"
 DEFAULT_RUN_LIMITS = {"responses": 256, "tools": 2048, "seconds": 1800}
+FULL_RUN_LIMITS = {"responses": 512, "tools": 4096, "seconds": 3600}
 MIN_RUN_LIMITS = {"responses": 1, "tools": 0, "seconds": 30}
 MAX_RUN_LIMITS = {"responses": 4096, "tools": 32768, "seconds": 14400}
 TERMINAL = frozenset({"completed", "inconclusive", "failed", "cancelled", "interrupted", "unreachable"})
@@ -114,6 +115,63 @@ class ExecutionStoreMixin:
         summary = self.execution_summary(run_id)
         return (summary.get("workflow") or {}) if summary else {}
 
+    def refresh_review_reserve(self, run_id, repository=None, *, additional_workers=0):
+        """Repartition the existing ledger; this never admits or spends a request."""
+        if not self.host_queue_enabled(run_id):
+            return self.workflow_state(run_id)
+        repository = repository or getattr(self, "_report_repository", None)
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            clock_started = self._active_clocks.get(run_id)
+            try:
+                self.assert_execution_write(run_id)
+                batches = self.review_batches_pending(run_id, "final", repository)
+                workers = int(self._row("SELECT COUNT(*) FROM planner_tasks WHERE run_id=? AND state='running'", (run_id,))[0]) + additional_workers
+                needed = 3 * len(batches) + 6 * workers
+                seconds = 60 * (len(batches) + 2 * workers + 1)
+                self._tick_execution_tx(run_id)
+                row = self._row("SELECT * FROM run_execution_state WHERE run_id=?", (run_id,))
+                value = json.loads(row["workflow"] or "{}")
+                limits = json.loads(row["limits"] or "{}")
+                if not value:
+                    self._db.execute("COMMIT")
+                    return {}
+                previous = dict(value["limits"])
+                target = value["used"]["review"] + needed
+                if value["source"] != "explicit":
+                    if target < value["limits"]["review"] and value["stage"] != "review":
+                        released = value["limits"]["review"] - target
+                        value["limits"]["review"] -= released
+                        value["limits"][value["stage"]] += released
+                    short = max(0, target - value["limits"]["review"])
+                    for stage in ("discovery", "poc"):
+                        take = min(short, max(0, value["limits"][stage] - value["used"][stage]))
+                        value["limits"][stage] -= take
+                        value["limits"]["review"] += take
+                        short -= take
+                remaining_seconds = max(0., float(limits.get("seconds", 0)) - row["active_elapsed_ms"] / 1000)
+                funded = value["limits"]["review"] - value["used"]["review"] >= needed
+                value["review_reserved_seconds"] = seconds
+                value["review_reserve"] = {
+                    "pending_items": sum(len(batch) for batch in batches), "estimated_batches": len(batches),
+                    "workers": workers, "responses": needed, "seconds": seconds, "funded": funded,
+                    "upstream_allowed": funded and remaining_seconds > seconds,
+                    "reason": "actual_review_batches_and_inflight_workers",
+                }
+                self._db.execute("UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?", (dump(value), stamp(), run_id))
+                if previous != value["limits"]:
+                    self.append_event(run_id, None, "workflow_budget_reallocated", {
+                        "before": previous, "limits": value["limits"], "reserve": value["review_reserve"],
+                        "reason": "按实际待审事实调整预留，整次上限与累计用量不变。"})
+                self._db.execute("COMMIT")
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                if clock_started is not None:
+                    self._active_clocks[run_id] = clock_started
+                raise
+        return self.workflow_state(run_id)
+
     def set_workflow_stage(self, run_id, stage, *, reason=None, transfer_unused=False):
         """Persist phase ownership; neither resume nor role changes renew its allowance."""
         from .workflow import STAGES
@@ -190,6 +248,71 @@ class ExecutionStoreMixin:
                 self.terminate_execution(run_id, "interrupted", reason, epoch=epoch)
         raise StopAudit(reason["code"], reason["message"])
 
+    def _validate_execution_admission_tx(self, run_id, epoch, dimension, *, role=None,
+                                         require_running=False):
+        """Validate admission on the caller's transaction without spending a slot.
+
+        The HTTP gateway uses this same fence before atomically charging its own
+        request quota. A budget stop is persisted by the transaction owner; this
+        helper never commits another caller's provisional facts.
+        """
+        from .runtime import StopAudit
+        if dimension not in (None, "responses", "tools", "work"):
+            raise ValueError("unknown budget dimension")
+        # Acquiring SQLite's write lock may have waited past the scoped deadline.
+        self._reject_expired_comparison(run_id, epoch)
+        if not self.execution_write_allowed(run_id, epoch):
+            raise StopAudit("interrupted", "运行已停止或执行资格已交接")
+        if require_running:
+            run = self._db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+            if not run or run["status"] != "running":
+                raise StopAudit("interrupted", "运行已暂停或停止，不再准入新请求")
+        self._tick_execution_tx(run_id)
+        row = self._db.execute("SELECT * FROM run_execution_state WHERE run_id=?", (run_id,)).fetchone()
+        if row is None:
+            raise StopAudit("interrupted", "运行缺少持久执行状态")
+        previous_stop = json.loads(row["stop_reason"]) if row["stop_reason"] else {}
+        if previous_stop.get("code") == "run_budget_exhausted":
+            raise StopAudit("run_budget_exhausted", previous_stop["message"])
+        limits = json.loads(row["limits"]) if row["limits"] else None
+        workflow = json.loads(row["workflow"] or "{}")
+        exceeded = None
+        if limits:
+            if row["active_elapsed_ms"] >= limits["seconds"]*1000:
+                exceeded = "seconds"
+            elif dimension in ("responses", "tools") and row[dimension+"_used"] >= limits[dimension]:
+                exceeded = dimension
+            elif dimension == "work" and row["responses_used"] >= limits["responses"]:
+                exceeded = "responses"
+            elif dimension in ("responses", "work") and limits["tools"] > 0 and row["tools_used"] >= limits["tools"]:
+                exceeded = "tools"
+        if exceeded:
+            reason = {"code": "run_budget_exhausted", "dimension": exceeded, "message": f"整次审计 {exceeded} 预算已耗尽"}
+            self._db.execute("UPDATE run_execution_state SET stop_reason=? WHERE run_id=?", (dump(reason), run_id))
+            raise StopAudit("run_budget_exhausted", reason["message"])
+        if workflow and dimension in ("responses", "tools", "work"):
+            stage = workflow["stage"]
+            remaining_time = (float(limits["seconds"]) - row["active_elapsed_ms"] / 1000) if limits else None
+            reserved = (float(workflow["review_reserved_seconds"])
+                        if stage != "review" and workflow.get("version") != "host-queue-v1" else 0.)
+            if ((dimension in ("responses", "work") and workflow["used"][stage] >= workflow["limits"][stage])
+                    or (remaining_time is not None and remaining_time <= reserved)):
+                raise StopAudit("stage_budget_exhausted", f"{stage} 阶段额度已到，保留后续阶段预算")
+            role = CURRENT_ROLE.get().get("role") if role is None else role
+            if role == "poc" and stage != "poc":
+                raise StopAudit("stage_budget_exhausted", "POC 不得占用源码挖掘或最终复核额度")
+            if role in {"worker", "recon"} and stage != "discovery":
+                raise StopAudit("stage_budget_exhausted", "源码挖掘阶段已结束，不启动新的取证调用")
+        return row, workflow
+
+    def _consume_execution_admission_tx(self, run_id, dimension, workflow):
+        """Spend an already validated slot inside the caller's transaction."""
+        if dimension in ("responses", "tools"):
+            self._db.execute(f"UPDATE run_execution_state SET {dimension}_used={dimension}_used+1 WHERE run_id=?", (run_id,))
+            if workflow and dimension == "responses":
+                workflow["used"][workflow["stage"]] += 1
+                self._db.execute("UPDATE run_execution_state SET workflow=? WHERE run_id=?", (dump(workflow), run_id))
+
     def admit_execution(self, run_id, epoch, dimension):
         from .runtime import StopAudit
         if dimension not in (None, "responses", "tools", "work"):
@@ -197,52 +320,24 @@ class ExecutionStoreMixin:
         with self._lock:
             self._reject_expired_comparison(run_id, epoch)
             self._db.execute("BEGIN IMMEDIATE")
+            clock_started = self._active_clocks.get(run_id)
             try:
-                if not self.execution_write_allowed(run_id, epoch):
-                    raise StopAudit("interrupted", "运行已停止或执行资格已交接")
-                self._tick_execution_tx(run_id)
-                row = self._db.execute("SELECT * FROM run_execution_state WHERE run_id=?", (run_id,)).fetchone()
-                previous_stop = json.loads(row["stop_reason"]) if row["stop_reason"] else {}
-                if previous_stop.get("code") == "run_budget_exhausted":
-                    raise StopAudit("run_budget_exhausted", previous_stop["message"])
-                limits = json.loads(row["limits"]) if row["limits"] else None
-                workflow = json.loads(row["workflow"] or "{}")
-                exceeded = None
-                if limits:
-                    if row["active_elapsed_ms"] >= limits["seconds"]*1000:
-                        exceeded = "seconds"
-                    elif dimension in ("responses", "tools") and row[dimension+"_used"] >= limits[dimension]:
-                        exceeded = dimension
-                    elif dimension == "work" and row["responses_used"] >= limits["responses"]:
-                        exceeded = "responses"
-                    elif dimension in ("responses", "work") and limits["tools"] > 0 and row["tools_used"] >= limits["tools"]:
-                        exceeded = "tools"
-                if exceeded:
-                    reason = {"code": "run_budget_exhausted", "dimension": exceeded, "message": f"整次审计 {exceeded} 预算已耗尽"}
-                    self._db.execute("UPDATE run_execution_state SET stop_reason=? WHERE run_id=?", (dump(reason), run_id))
-                    self._db.execute("COMMIT")
-                    raise StopAudit("run_budget_exhausted", reason["message"])
-                if workflow and dimension in ("responses", "tools", "work"):
-                    stage = workflow["stage"]
-                    remaining_time = (float(limits["seconds"]) - row["active_elapsed_ms"] / 1000) if limits else None
-                    reserved = float(workflow["review_reserved_seconds"]) if stage != "review" else 0.
-                    if ((dimension in ("responses", "work") and workflow["used"][stage] >= workflow["limits"][stage])
-                            or (remaining_time is not None and remaining_time <= reserved)):
-                        raise StopAudit("stage_budget_exhausted", f"{stage} 阶段额度已到，保留后续阶段预算")
-                    role = CURRENT_ROLE.get().get("role")
-                    if role == "poc" and stage != "poc":
-                        raise StopAudit("stage_budget_exhausted", "POC 不得占用源码挖掘或最终复核额度")
-                    if role in {"worker", "recon"} and stage != "discovery":
-                        raise StopAudit("stage_budget_exhausted", "源码挖掘阶段已结束，不启动新的取证调用")
-                if dimension in ("responses", "tools"):
-                    self._db.execute(f"UPDATE run_execution_state SET {dimension}_used={dimension}_used+1 WHERE run_id=?", (run_id,))
-                    if workflow and dimension == "responses":
-                        workflow["used"][workflow["stage"]] += 1
-                        self._db.execute("UPDATE run_execution_state SET workflow=? WHERE run_id=?", (dump(workflow), run_id))
+                _, workflow = self._validate_execution_admission_tx(run_id, epoch, dimension)
+                self._consume_execution_admission_tx(run_id, dimension, workflow)
                 self._db.execute("COMMIT")
-            except Exception:
+            except StopAudit as exc:
+                if self._db.in_transaction:
+                    self._db.execute("COMMIT" if exc.reason == "run_budget_exhausted" else "ROLLBACK")
+                    if exc.reason != "run_budget_exhausted" and clock_started is not None:
+                        self._active_clocks[run_id] = clock_started
+                if exc.reason == "batch_deadline_exceeded":
+                    self._reject_expired_comparison(run_id, epoch)
+                raise
+            except BaseException:
                 if self._db.in_transaction:
                     self._db.execute("ROLLBACK")
+                    if clock_started is not None:
+                        self._active_clocks[run_id] = clock_started
                 raise
 
     # Counters a later phase's smaller Execution must not overwrite: a peak is a peak,
@@ -376,9 +471,11 @@ class ExecutionStoreMixin:
         reviews = {(item["finding_id"], int(item.get("revision") or 1), str(item.get("verification_id") or ""))
                    for item in self.list_verification_reviews(run_id)} if hasattr(self, "list_verification_reviews") else set()
         pending_reviews = self.unreviewed_verified_findings(run_id) if hasattr(self, "unreviewed_verified_findings") else []
+        reviewed_count = (sum(self._current_review(item) is not None for item in findings)
+                          if self.host_queue_enabled(run_id) else len(reviews))
         return {"total": len(findings), "pending": sum(item.get("verification_status") in {None, "", "unverified", "stale"} for item in findings),
                 "verified": sum(item.get("verification_status") == "verified" for item in findings),
-                "reviewed": len(reviews), "pending_review": len(pending_reviews)}
+                "reviewed": reviewed_count, "pending_review": len(pending_reviews)}
 
     def get_final_summary(self, run_id):
         row = self._row("SELECT final_summary FROM run_execution_state WHERE run_id=?", (run_id,))
@@ -413,11 +510,18 @@ class ExecutionStoreMixin:
         self._db.execute("INSERT OR IGNORE INTO run_execution_state(run_id, updated_at) VALUES (?,?)", (run_id, stamp()))
         self._db.execute("UPDATE run_execution_state SET phase='ended',stop_reason=?,updated_at=? WHERE run_id=?", (dump(reason), stamp(), run_id))
         self._active_agents.pop(run_id, None)
+        # No terminal run may leave a draft masquerading as active planning.
+        self._db.execute("UPDATE planner_plans SET status='failed',error=COALESCE(error,?),"
+                         "basis_summary=CASE WHEN basis_summary='' THEN ? ELSE basis_summary END,finished_at=?"
+                         " WHERE run_id=? AND status='planning'",
+                         (reason.get("message") or reason["code"], "执行已结束，本草稿未提交。", stamp(), run_id))
         if hasattr(self, "interrupt_poc_attempts"):
             row = self._db.execute("SELECT claim_epoch FROM run_execution_state WHERE run_id=?", (run_id,)).fetchone()
             self.interrupt_poc_attempts(run_id, epoch=int(row[0]) if row else None)
         summary = self._host_summary_tx(run_id, status, reason)
         self._db.execute("UPDATE run_execution_state SET final_summary=? WHERE run_id=?", (dump(summary), run_id))
+        if hasattr(self, "_freeze_report_input_tx"):
+            self._freeze_report_input_tx(run_id)
         # A polling reader cannot observe the terminal state before its durable
         # terminal event. Live fan-out is only an optimization over this log.
         self._db.execute("INSERT INTO events(run_id,unit_id,kind,payload,created_at) VALUES (?,NULL,?,?,?)",

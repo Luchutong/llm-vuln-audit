@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 
 
@@ -29,7 +30,25 @@ CREATE TABLE IF NOT EXISTS poc_attempts (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_poc_attempts_run ON poc_attempts(run_id, state);
+CREATE TABLE IF NOT EXISTS poc_request_quota (
+    run_id TEXT NOT NULL,
+    execution_epoch INTEGER NOT NULL DEFAULT 0,
+    stage TEXT NOT NULL,
+    request_limit INTEGER NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    refused_at TEXT,
+    PRIMARY KEY (run_id, execution_epoch, stage)
+);
 """
+
+# A stage's allowance is fixed when it is opened and may not be widened later in the
+# same epoch: a second attempt that asked for more requests would otherwise quietly
+# turn the host's hard quota into an SDK-side soft limit.
+POC_QUOTA_STAGES = ("execute", "conclude")
+
+
+def quota_stage(stage):
+    return bool(re.fullmatch(r"(?:execute|conclude)(?:@[0-9a-f]{64})?", stage))
 
 
 def _now() -> str:
@@ -67,6 +86,188 @@ class PocStoreMixin:
                 " AND state IN ('claimed','running')" + clause,
                 (_now(), run_id, int(epoch)) if epoch is not None else (_now(), run_id),
             ).rowcount
+
+    # --- hard request quota -------------------------------------------------------
+
+    def open_poc_request_stage(
+        self, run_id: str, stage: str, limit: int, epoch: int | None = None,
+    ) -> dict:
+        """Fix one stage's real-request allowance for this run and epoch.
+
+        The first opener wins: a later attempt in the same epoch is told the existing
+        limit instead of replacing it, so a crash/restart cannot raise the ceiling it
+        was given.  Stages are separate rows, which is how the conclusion's reserved
+        requests stay untouchable by the experiment stage.
+        """
+        if not quota_stage(stage):
+            raise ValueError("Unsupported POC request stage")
+        if type(limit) is not int or limit < 1:
+            raise ValueError("A POC request stage needs a positive integer limit")
+        epoch_value = int(epoch or 0)
+        with self._lock:
+            if not self._poc_allowed(run_id, epoch):
+                return {"ok": False, "reason": "stale_epoch", "stage": stage, "limit": 0, "used": 0}
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._db.execute(
+                    "SELECT request_limit,used,refused_at FROM poc_request_quota"
+                    " WHERE run_id=? AND execution_epoch=? AND stage=?",
+                    (run_id, epoch_value, stage),
+                ).fetchone()
+                if row is None:
+                    self._db.execute(
+                        "INSERT INTO poc_request_quota"
+                        " (run_id,execution_epoch,stage,request_limit,used) VALUES (?,?,?,?,0)",
+                        (run_id, epoch_value, stage, limit),
+                    )
+                    existing = limit
+                    used = 0
+                else:
+                    existing, used = int(row["request_limit"]), int(row["used"])
+                self._db.execute("COMMIT")
+            except BaseException:
+                self._db.execute("ROLLBACK")
+                raise
+        return {"ok": True, "stage": stage, "limit": existing, "used": used,
+                "requested": limit, "narrowed": existing < limit}
+
+    def reserve_poc_request(self, run_id: str, stage: str, epoch: int | None = None) -> dict:
+        """Atomically charge a real request against every durable allowance.
+
+        A refusal is final for the stage: the SDK must stop rather than retry, because
+        a hard quota that answers "try again" is not a quota.  The reservation counts
+        SDK retries, compaction and format corrections exactly like a first attempt.
+        The quota, run/workflow response counters and request event commit together;
+        a missing SDK result or an upstream error cannot erase an admitted request.
+        """
+        from .runtime import StopAudit
+        if not quota_stage(stage):
+            raise ValueError("Unsupported POC request stage")
+        epoch_value = int(epoch or 0)
+        limit = used = 0
+
+        def refused(reason):
+            return {"granted": False, "reason": reason, "stage": stage,
+                    "limit": limit, "used": used, "remaining": max(0, limit - used)}
+
+        with self._lock:
+            try:
+                self._reject_expired_comparison(run_id, epoch)
+            except StopAudit as exc:
+                return refused(exc.reason)
+            self._db.execute("BEGIN IMMEDIATE")
+            clock_started = self._active_clocks.get(run_id)
+            try:
+                owner = self._db.execute(
+                    "SELECT claim_epoch FROM run_execution_state WHERE run_id=?", (run_id,),
+                ).fetchone()
+                if owner is not None and epoch is not None and owner["claim_epoch"] != epoch_value:
+                    self._db.execute("ROLLBACK")
+                    return refused("stale_epoch")
+                row = self._db.execute(
+                    "SELECT request_limit,used,refused_at FROM poc_request_quota"
+                    " WHERE run_id=? AND execution_epoch=? AND stage=?",
+                    (run_id, epoch_value, stage),
+                ).fetchone()
+                if row is not None:
+                    limit, used = int(row["request_limit"]), int(row["used"])
+                state, workflow = self._validate_execution_admission_tx(
+                    run_id, epoch, "responses", role="poc", require_running=True,
+                )
+                if row is None:
+                    self._db.execute("COMMIT")
+                    return refused("stage_not_open")
+                if row["refused_at"]:
+                    self._db.execute("COMMIT")
+                    return refused("quota_refused")
+                if used >= limit:
+                    self._db.execute(
+                        "UPDATE poc_request_quota SET refused_at=? WHERE run_id=? AND execution_epoch=? AND stage=?",
+                        (_now(), run_id, epoch_value, stage),
+                    )
+                    self._db.execute("COMMIT")
+                    return refused("quota_exhausted")
+                if stage.split("@", 1)[0] == "execute":
+                    conclusion = self._db.execute(
+                        "SELECT request_limit,used FROM poc_request_quota"
+                        " WHERE run_id=? AND execution_epoch=? AND stage=?",
+                        (run_id, epoch_value, stage.replace("execute", "conclude", 1)),
+                    ).fetchone()
+                    reserved = max(0, int(conclusion["request_limit"]) - int(conclusion["used"])) if conclusion else 0
+                    # Opening a separate conclusion quota alone cannot protect the
+                    # shared run/workflow slots. Leave its unused responses intact
+                    # when admitting SDK experiment requests. Native admission keeps
+                    # its existing semantics and does not acquire this reservation.
+                    limits = json.loads(state["limits"]) if state["limits"] else None
+                    available = []
+                    if limits:
+                        available.append(int(limits["responses"]) - int(state["responses_used"]))
+                    if workflow:
+                        available.append(int(workflow["limits"]["poc"]) - int(workflow["used"]["poc"]))
+                    if reserved and any(remaining - 1 < reserved for remaining in available):
+                        self._db.execute(
+                            "UPDATE poc_request_quota SET refused_at=? WHERE run_id=? AND execution_epoch=? AND stage=?",
+                            (_now(), run_id, epoch_value, stage),
+                        )
+                        self._db.execute("COMMIT")
+                        return {**refused("quota_exhausted"), "conclusion_reserved": True,
+                                "conclude_remaining": reserved,
+                                "message": "保留结论阶段尚未使用的共享响应额度，实验阶段停止"}
+                self._consume_execution_admission_tx(run_id, "responses", workflow)
+                self._db.execute(
+                    "UPDATE poc_request_quota SET used=used+1 WHERE run_id=? AND execution_epoch=? AND stage=?",
+                    (run_id, epoch_value, stage),
+                )
+                run_used = int(state["responses_used"]) + 1
+                workflow_used = int(workflow["used"]["poc"]) if workflow else None
+                self._db.execute(
+                    "INSERT INTO events(run_id,unit_id,kind,payload,created_at) VALUES (?,NULL,?,?,?)",
+                    (run_id, "poc_gateway_request", json.dumps({
+                        "runtime": "claude_sdk", "role": "poc", "stage": stage,
+                        "phase": "poc_" + stage, "execution_epoch": int(state["claim_epoch"]),
+                        "request_index": run_used, "stage_request_index": used + 1,
+                        "run_responses_used": run_used, "workflow_responses_used": workflow_used,
+                    }, ensure_ascii=False), _now()),
+                )
+                self._db.execute("COMMIT")
+            except StopAudit as exc:
+                if self._db.in_transaction:
+                    self._db.execute("COMMIT" if exc.reason == "run_budget_exhausted" else "ROLLBACK")
+                    if exc.reason != "run_budget_exhausted" and clock_started is not None:
+                        self._active_clocks[run_id] = clock_started
+                if exc.reason == "batch_deadline_exceeded":
+                    try:
+                        self._reject_expired_comparison(run_id, epoch)
+                    except StopAudit:
+                        pass
+                return refused(exc.reason)
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                    if clock_started is not None:
+                        self._active_clocks[run_id] = clock_started
+                raise
+        return {"granted": True, "stage": stage, "limit": limit, "used": used + 1,
+                "remaining": max(0, limit - used - 1), "request_index": run_used,
+                "run_responses_used": run_used, "workflow_responses_used": workflow_used}
+
+    def poc_request_quota(self, run_id: str, epoch: int | None = None) -> dict:
+        """Public, credential-free view of this epoch's request quota."""
+        rows = self._rows(
+            "SELECT stage,request_limit,used,refused_at FROM poc_request_quota"
+            " WHERE run_id=? AND execution_epoch=? ORDER BY stage",
+            (run_id, int(epoch or 0)),
+        )
+        return {
+            row["stage"]: {
+                "limit": int(row["request_limit"]),
+                "used": int(row["used"]),
+                "remaining": max(0, int(row["request_limit"]) - int(row["used"])),
+                "refused": bool(row["refused_at"]),
+                "refused_at": row["refused_at"],
+            }
+            for row in rows
+        }
 
     def _upsert_poc_job_fact(self, attempt: dict, job: dict, verification_id: str = "") -> bool:
         job_id = str(job.get("job_id") or "")

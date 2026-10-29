@@ -268,6 +268,8 @@ class TaskSpec(BaseModel):
     workflow_policy: Literal["legacy", "discovery_first"] = Field(
         default="legacy", description="Frozen workflow semantics; discovery_first tracks unresolved directions and successful source batches independently of failure retries",
     )
+    review_policy: Literal["legacy", "batch-v1"] = "batch-v1"
+    orchestration_policy: Literal["rounds-v1", "host-queue-v1"] = "rounds-v1"
     workflow_limits: WorkflowLimits | None = Field(
         default=None,
         description="Optional explicit discovery/POC/review response quotas; omitted means the host's fixed allocation",
@@ -371,6 +373,13 @@ class TaskObservation(BaseModel):
         return _meaningful_text(value, info.field_name)
 
 
+class WorkerDirectionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    direction_id: str = Field(pattern=r"^dir_[a-f0-9]{32}$")
+    outcome: Literal["supported", "no_evidence", "needs_evidence"]
+    rationale: str = Field(min_length=8, max_length=1200)
+
+
 class GoalAssessment(BaseModel):
     """One bounded executor pass over a source work item.
 
@@ -391,6 +400,7 @@ class GoalAssessment(BaseModel):
         default_factory=list, max_length=8,
         description="Concrete remaining source paths or audit directions after this bounded finding batch; at most eight",
     )
+    direction_results: list[WorkerDirectionResult] = Field(default_factory=list, max_length=64)
     missing_context: list[str] = Field(default_factory=list)
     # ``finding`` was the original single-result field.  Keep it for existing
     # clients and normalise it into ``findings`` below.  One work item can now
@@ -699,6 +709,16 @@ class PlannerCoverageReview(BaseModel):
     reason: str = Field(min_length=8, max_length=1200)
 
 
+class PlannerBatchDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_id: str = Field(min_length=1, max_length=160)
+    revision: str = Field(min_length=1, max_length=64)
+    decision: Literal["retain", "accept", "needs_evidence", "contested", "duplicate", "withdraw", "resolve", "skip"]
+    rationale: str = Field(min_length=8, max_length=1600)
+    duplicate_of: str | None = Field(default=None, max_length=160,
+        description="Another current canonical item_id retained as the primary claim; not this item's finding_id")
+
+
 class PlannerDecision(BaseModel):
     """Structured output of the sole intent-generating agent.
 
@@ -717,6 +737,8 @@ class PlannerDecision(BaseModel):
     tasks: list[PlannerTaskProposal] = Field(default_factory=list, max_length=8)
     updates: list[PlannerTaskUpdate] = Field(default_factory=list, max_length=16)
     direction_updates: list[PlannerDirectionUpdate] = Field(default_factory=list, max_length=64)
+    review_batch_id: str | None = None
+    review_decisions: list[PlannerBatchDecision] = Field(default_factory=list, max_length=16)
     # Dispositions on the project ledger.  Kept separate from `updates` because those are
     # keyed by task, and a project row deliberately belongs to no single run's task.
     project_updates: list[PlannerProjectUpdate] = Field(default_factory=list, max_length=16)
@@ -831,6 +853,22 @@ class CreateRunRequest(BaseModel):
 
     @model_validator(mode="after")
     def _workflow_limits_fit(self) -> "CreateRunRequest":
+        if self.task.completion_policy == "coverage_review":
+            if "run_limits" not in self.model_fields_set:
+                self.run_limits = RunLimits(responses=512, tools=4096, seconds=3600)
+            else:
+                for key, value in {"responses": 512, "tools": 4096, "seconds": 3600}.items():
+                    if key not in self.run_limits.model_fields_set:
+                        setattr(self.run_limits, key, value)
+            if "orchestration_policy" not in self.task.model_fields_set and not (
+                "workflow_policy" in self.task.model_fields_set and self.task.workflow_policy == "legacy"
+            ):
+                self.task.orchestration_policy = "host-queue-v1"
+        if self.task.orchestration_policy == "host-queue-v1" and self.task.review_policy != "batch-v1":
+            raise ValueError("host-queue-v1 requires batch-v1 review")
+        if (self.task.orchestration_policy == "host-queue-v1" and self.task.workflow_policy == "legacy"
+                and ("workflow_policy" in self.task.model_fields_set or self.task.completion_policy != "coverage_review")):
+            raise ValueError("host-queue-v1 requires discovery_first workflow")
         limits = self.task.workflow_limits
         if limits is None:
             return self

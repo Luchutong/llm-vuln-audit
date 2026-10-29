@@ -110,6 +110,8 @@ def test_freezes_actual_prompts_assets_model_and_budgets_before_execution(runner
         assert final["manifest"]["model"]["model"] == "offline-test"
         assert final["manifest"]["budgets"]["responses"] == 12
         assert final["manifest"]["task_spec"]["completion_policy"] == "coverage_review"
+        assert final["manifest"]["task_spec"]["orchestration_policy"] == "host-queue-v1"
+        assert final["manifest"]["task_spec"]["workflow_policy"] == "discovery_first"
         assert final["manifest"]["closure_policy"] == {"version": "coverage-review-v1"}
         assert final["manifest"]["variants"][0]["text"] != "later edit"
         assert all(call["kwargs"]["env"]["LLM_MODEL"] == "offline-test" for call in calls)

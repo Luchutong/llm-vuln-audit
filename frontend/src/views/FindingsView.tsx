@@ -40,6 +40,7 @@ function verdictLabel(finding: Finding, verdict: string | null | undefined): str
 }
 
 const EXECUTION_LABELS: Record<string, string> = {
+  conclusion_error: '已有成功作业，验证结论阶段未完成',
   success: '执行成功，出现预期差异',
   syntax_error: '脚本语法错误',
   connection_failed: '无法连接目标',

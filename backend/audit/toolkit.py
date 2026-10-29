@@ -465,6 +465,16 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
         output_fields=('verification_id', 'revision', 'field', 'text', 'next_offset'),
         output_format="json",
     ),
+    spec(
+        "read_review_input",
+        "Read a paged field of the current review batch without losing evidence. Use item_id and field from paged_fields; concatenate JSON text until next_offset is null. Every paged field must be completely read before accept or verification attestation. No new investigation or execution is allowed.",
+        item_id=Arg("string", "当前批次完整 item_id。", max_length=200),
+        field=Arg("string", "paged_fields 清单中的完整 field。", max_length=200),
+        offset=Arg("integer", "Unicode 字符偏移，从 0 或 next_offset 继续。", 0, minimum=0),
+        limit=Arg("integer", "单页最多字符数。", 1024, minimum=1, maximum=1024),
+        output_fields=('item_id', 'revision', 'field', 'sha256', 'text', 'next_offset'),
+        output_format="json",
+    ),
 )
 
 

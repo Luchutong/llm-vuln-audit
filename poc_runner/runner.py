@@ -58,7 +58,7 @@ JOB_FILESIZE = 16 * 1024 * 1024
 
 ALLOWED_LANGUAGES = {"php": "poc.php", "python": "poc.py"}
 ALLOWED_PATHS = (
-    "/auth/", "/catalog/", "/orders/index.php", "/wallet/", "/account/", "/ops/",
+    "/auth/", "/catalog/", "/orders/", "/wallet/", "/account/", "/ops/",
     "/partner/", "/support/", "/content/", "/assets/",
 )
 ALLOWED_PAGES = {"/", "/index.php", "/health.php"}

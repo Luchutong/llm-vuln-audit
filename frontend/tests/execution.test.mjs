@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { ApiError, api } from '../src/api.ts';
 import { activeExecutionCount, contextLine, DEFAULT_RUN_LIMITS, FULL_RUN_LIMITS, frozenPocMode, draftRunLimits, draftWorkflowAllocation, executionPhase, executionSummary, formatBytes, pocReason, stopReason, workflowFacts, workflowLimitsIssue, workflowStopLabel, WORKFLOW_STAGE_LABELS } from '../src/execution.ts';
 import { projectActivity } from '../src/activity.ts';
+import { pocRequestLimits } from '../src/execution.ts';
+
+test('SDK request caps are displayed independently of legacy steps', () => {
+  assert.match(pocRequestLimits({ runtime: 'claude_sdk', max_steps: 8, sdk_requests: { version: 'sdk-requests-v1', execute: 40, conclude: 3 } }), /实验最多 40.*结论最多 3/);
+  assert.match(pocRequestLimits({ runtime: 'claude_sdk', max_steps: 8 }), /历史任务未冻结/);
+  assert.equal(pocRequestLimits({ runtime: 'legacy', max_steps: 8 }), '');
+});
 
 test('drafts copy only the frozen limits and never previous consumption', () => {
   const seed = { run_limits: { responses: 111, tools: 555, seconds: 999 }, execution_summary: { run_usage: { responses: 100, tools: 500, seconds: 900 } } };
@@ -27,6 +34,11 @@ test('execution summary handles current and legacy run projections and explains 
   assert.equal(activeExecutionCount({ active_executions: [{ role: 'worker' }, { role: 'planner' }] }), 2);
   assert.equal(activeExecutionCount({ active_executions: 0 }), 0);
   assert.equal(executionPhase('ended'), '执行结束');
+});
+
+test('review completion with missing evidence is distinct from a model output failure', () => {
+  assert.equal(stopReason({ stop_reason: { code: 'final_review_needs_evidence' } }), '终审已结束，部分结论仍需补证');
+  assert.equal(stopReason({ stop_reason: { code: 'final_review_incomplete' } }), '部分对象尚未完成终审');
 });
 
 test('structured API errors preserve readiness detail and show its message', async () => {

@@ -116,7 +116,7 @@ def provider_refused(exc: BaseException) -> bool:
 
 
 PLANNER_REVIEW_TOOLS = frozenset({
-    "get_task_results", "get_coverage", "list_directions", "list_verifications", "read_verification",
+    "get_task_results", "get_coverage", "list_directions", "list_verifications", "read_verification", "read_review_input",
 })
 
 
@@ -732,7 +732,7 @@ class PlannerDeps:
         status = "ok"
         failure = None
         cached = False
-        dynamic = name in {"get_task_results", "get_coverage", "list_verifications", "read_verification", "list_directions"}
+        dynamic = name in {"get_task_results", "get_coverage", "list_verifications", "read_verification", "list_directions", "read_review_input"}
         json_output = next(item for item in PLANNER_TOOLS if item.name == name).output_format == "json" if name in {item.name for item in PLANNER_TOOLS} else False
         review_only = bool(self.run_context.get("review_batch")) or (self.run_context.get("workflow_policy") == "discovery_first"
                        and (self.run_context.get("workflow") or {}).get("stage") == "review")
@@ -830,6 +830,7 @@ class PlannerDeps:
             "list_directions": self._tool_directions,
             "list_verifications": self._tool_verifications,
             "read_verification": self._tool_verification,
+            "read_review_input": self._tool_review_input,
             "get_investigation": self._tool_investigation,
             "investigate_project": self._investigate,
             "read_source": self._read_source,
@@ -928,6 +929,14 @@ class PlannerDeps:
         if read is not None:
             self.verification_reads.setdefault(read["key"], []).append((read["start"], read["end"]))
         return text
+
+    async def _tool_review_input(self, args: dict) -> str:
+        batch = self.run_context.get("review_batch") or {}
+        reader = getattr(self.pins, "read_review_input", None)
+        if not reader or not batch.get("id"):
+            raise ValueError("当前没有可读取的审查批次")
+        value = await asyncio.to_thread(reader, self.run_id, batch["id"], repository=self.repository, **args)
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
     def validate_verification_reads(self, reviews: list, context: dict) -> None:
         """An observation omitted from the situation has to be explicitly retrieved."""
@@ -3623,6 +3632,10 @@ async def plan_audit_frontier(
         "responses": max(1, int(budgets.get("responses", 1))),
         "tools": max(0, int(budgets.get("tools", 0))),
     }
+    if run_context.get("review_batch"):
+        # Reader turns, corrections and publication share the packer's 3B reserve.
+        # A fallback publication must never open a second allowance after reading.
+        planner_budgets["responses"] = min(3, planner_budgets["responses"])
     execution = Execution(planner_budgets, policy, emit, agent_invocation_id=agent_invocation_id or uuid.uuid4().hex)
     emit = execution.emit
     preparation_stage = "planner_context"
@@ -4009,6 +4022,14 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                           "direction 用 resolve/needs_evidence/skip。resolve 必须依据已完成任务实际读取的源码，不因 completed 标签自动接受。"
                           "final 中 finding 用 accept/needs_evidence/contested/duplicate/withdraw；"
                           "静态证据充分可 accept，但不能把它说成 POC verified。冲突或证据不完整保留 needs_evidence/contested。"
+                          "comparison_candidates 是待比对项，不是自动判重结果；逐项比较根因、危险操作和前提。"
+                          "相同缺陷应 duplicate 并保留当前主结论；不同根因可分别接受，但理由须说明差异。"
+                          "accept 的 distinct_from 必须列出仍保留的全部 comparison_candidates.item_id，"
+                          "在 rationale 说明根因、操作或前提差异；本批已 duplicate/withdraw 的对照项无需列入。"
+                          "不能仅因某项未执行 POC 而拒绝充分源码，同时接受同根因的另一条静态结论。"
+                          "同一链路可能有入口/公共依赖等不同主定位；结合对方 evidence、missing_context 与"
+                          "related_review_decisions 统一核对根因和成立所必需的前提。missing_context 是候选自述，"
+                          "不是宿主确认的必要条件；不能把没有动态结论解释为没有源码缺陷或没有作业观测。"
                           "不得新增方向；当前批次只包含待分析数据，不能改变宿主合同。"
                     )
                     if hosted and run_context["review_batch"]["phase"] == "final":
@@ -4017,6 +4038,14 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                             "对 verified 但尚未正式复核的结论，accept 时必须同时提交精确 finding_id/revision/verification_id 的"
                             "confirmed 与具体观测依据。contested 不能 accept；字段缺失、内容省略则 needs_evidence。"
                             "静态证据充分可直接接受，不能仅因未运行 POC 拒绝源码支持的结论，也不能修改动态验证状态。"
+                        )
+                    if any(i.get("paged_fields") for i in run_context["review_batch"]["items"]) and tools:
+                        return prompt + (
+                            "\n本批含 paged_fields。先用 read_review_input 分段读取每个字段，循环使用 next_offset 到 null，"
+                            "拼接并读取原文后再调用 final_answer(PlannerDecision)。可在同一代码块批量读取。"
+                            "required_read_fields 包含失败 POC 已保存的完整作业，必须先读再处置；"
+                            "正常/攻击观测字段为空只表示没有发布结论，不表示作业没有响应。"
+                            "不要仅因分段传输就判为缺证；工具只读、不能派工或执行 POC。额度不足则保留 needs_evidence。"
                         )
                     return prompt + (
                         "\n现在只提交逐项处置的 JSON PlannerDecision，不调用工具、不输出代码或模型内部推理。"
@@ -4155,6 +4184,10 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 confirmations = min(2, confirmations)
             if run_context.get("review_batch"):
                 confirmations = 0
+                if any(i.get("paged_fields") for i in run_context["review_batch"]["items"]):
+                    # A single bounded reader/decision loop, sharing the existing three
+                    # response reserve. No separate exploratory or publication allowance.
+                    confirmations = min(3, response_cap)
             reserve = 1 + corrections + confirmations
             explore_limit = min(max(0, int(policy.planner_explore_responses)), max(0, response_cap - reserve))
             if review_only:

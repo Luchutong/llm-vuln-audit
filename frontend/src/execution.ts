@@ -25,6 +25,8 @@ const STOP_LABELS: Record<string, string> = {
   final_review_reserved: '已为统一终审保留预算，停止新增取证', frontier_blocked: '审计方向仍有阻塞', no_progress: '未能继续取得证据',
   worker_exit_without_terminal: '执行未完成，已保存阶段报告', cancelled: '用户取消',
   user_cancelled: '用户取消', model_unavailable: '模型暂不可用',
+  final_review_incomplete: '部分对象尚未完成终审', final_review_needs_evidence: '终审已结束，部分结论仍需补证',
+  final_review_contested: '终审已结束，部分结论存疑或被排除', audit_partial: '审计已结束，已保存阶段报告',
 };
 const DIMENSIONS: Record<string, string> = { responses: '模型请求', tools: '工具调用', seconds: '活跃时间' };
 
@@ -110,4 +112,14 @@ export function pocReason(reason?: string | null, message?: string | null): stri
     browser_unavailable: '浏览器验证环境不可用，结论保留为未验证。',
   };
   return labels[reason ?? ''] ?? reason ?? '尚未检查自动验证环境。';
+}
+
+export function pocRequestLimits(policy?: Run['poc_policy']): string {
+  if (policy?.runtime !== 'claude_sdk') return '';
+  const value = policy.sdk_requests;
+  if (!value || typeof value !== 'object') return '历史任务未冻结 SDK 分项额度；实际额度见验证记录。';
+  const limits = value as Record<string, unknown>;
+  if (limits.version !== 'sdk-requests-v1' || !Number.isInteger(limits.execute) || !Number.isInteger(limits.conclude)
+      || Number(limits.execute) < 1 || Number(limits.conclude) < 3) return '自动验证请求额度配置无效。';
+  return `单条自动验证配置：实验最多 ${limits.execute} 次请求 · 结论最多 ${limits.conclude} 次请求；实际还受阶段、整次余额与时间上限约束。`;
 }

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-RENDERER_VERSION = "final-report/v1"
+RENDERER_VERSION = "final-report/v2"
 SECTION_TITLES = (
     "1. 执行与终审摘要",
     "2. 范围和方法",
@@ -34,6 +34,7 @@ EXECUTION_LABELS = {
     "environment_mismatch": "环境不符",
     "environment_unavailable": "环境不可用",
     "other_error": "执行失败",
+    "conclusion_error": "已有成功作业，验证结论阶段未完成",
     "timeout": "执行超时",
 }
 VERIFICATION_LABELS = {
@@ -61,7 +62,9 @@ def _safe_name(value: str) -> str:
 
 
 def _cell(value: object, limit: int = MAX_CELL) -> str:
-    text = "—" if value is None or value == "" else str(value)
+    import json
+    text = "—" if value is None or value == "" else (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")) if isinstance(value, (dict, list)) else str(value))
     text = text.replace("\r", " ").replace("\n", " ").replace("|", "&#124;")
     return text[:limit] + ("…" if len(text) > limit else "")
 
@@ -387,6 +390,19 @@ def _verification(facts: dict) -> list[str]:
                 f"  - 正常侧观测：{_cell(attempt.get('normal_evidence') or '未记录', 800)}",
                 f"  - 攻击侧观测：{_cell(attempt.get('attack_evidence') or '未记录', 800)}",
             ]
+            availability = attempt.get("fact_availability") or {}
+            if availability.get("jobs_total"):
+                lines.append(f"  - 已保存作业事实：{availability['jobs_total']} 个；"
+                             f"满足执行及前提检查的作业：{availability.get('successful_jobs', 0)} 个。"
+                             "作业完成不等同于漏洞成立。")
+                if availability.get("conclusion_missing"):
+                    lines.append("  - 结论未完整发布；缺少正常／攻击侧发布内容不代表没有执行观测。")
+                if attempt.get("observed_job_ids"):
+                    lines.append("  - 已观测作业 ID：" + "；".join(
+                        f"`{_cell(ident)}`" for ident in attempt["observed_job_ids"]))
+            if attempt.get("conclusion_reason") or attempt.get("execute_reason"):
+                lines.append(f"  - 结论结束原因：{_cell(attempt.get('conclusion_reason') or '未记录')}；"
+                             f"执行阶段结束原因：{_cell(attempt.get('execute_reason') or '未记录')}")
             jobs = attempt.get("job_refs") or []
             if jobs:
                 lines.append("  - 作业：" + "；".join(
@@ -487,6 +503,13 @@ def _appendix(facts: dict) -> list[str]:
                   f"——{_cell(item.get('title'), 120)}" for item in withdrawn[:80]]
         lines.append("")
     pairs = appendix.get("duplicate_pairs") or []
+    comparisons = appendix.get("comparison_pairs") or []
+    if comparisons:
+        lines += ["**关联链路对照（位置或引用关联不代表重复）**", ""]
+        lines += [f"- `{pair['canonical_ids'][0]}` ↔ `{pair['canonical_ids'][1]}`："
+                  f"{'已明确区分根因' if pair['status'] == 'distinct' else '仍需对照判读'}；{_cell(pair.get('rationale'), 400)}"
+                  for pair in comparisons]
+        lines.append("")
     if pairs:
         lines += ["**疑似跨台账重复（仅建议，未合并）**", ""]
         lines += [f"- `{pair['canonical_ids'][0]}` ↔ `{pair['canonical_ids'][1]}`：{_cell(pair.get('basis'), 300)}"

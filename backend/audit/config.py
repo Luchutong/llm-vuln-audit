@@ -250,6 +250,7 @@ class PocSettings:
     # action loop; ``claude_sdk`` is the Claude Agent SDK adapter.  The server decides
     # the default; a run request can only downgrade to ``legacy``.
     runtime: str = "legacy"
+    sdk_requests: dict | None = None
 
     @classmethod
     def from_environ(cls, environ: dict[str, str] | None = None) -> "PocSettings":
@@ -276,6 +277,13 @@ class PocSettings:
         runtime = (env.get("POC_RUNTIME") or "").strip().casefold() or "legacy"
         if runtime not in POC_RUNTIMES:
             raise ValueError(f"POC_RUNTIME must be one of {', '.join(POC_RUNTIMES)}")
+        sdk_requests = None
+        if runtime == "claude_sdk":
+            # Keep the static application available on malformed SDK deployment
+            # settings. Runtime readiness still diagnoses those strictly before POC.
+            sdk_requests = {"version": "sdk-requests-v1",
+                            "execute": number("POC_CLAUDE_EXECUTE_REQUESTS", 40, 1, 512),
+                            "conclude": number("POC_CLAUDE_CONCLUDE_REQUESTS", 3, 3, 16)}
         return cls(
             enabled=flag("POC_ENABLED", True),
             required=flag("POC_REQUIRED", False),
@@ -297,6 +305,7 @@ class PocSettings:
             reset_command=(env.get("POC_LAB30_RESET_COMMAND") or "").strip(),
             reset_timeout=number("POC_RESET_TIMEOUT", 30, 5, 300),
             runtime=runtime,
+            sdk_requests=sdk_requests,
         )
 
     @property
@@ -319,6 +328,8 @@ class PocSettings:
             "reset_between_findings": self.reset_between_findings,
             "reset_timeout": self.reset_timeout,
             "runtime": self.runtime,
+            **({"sdk_requests": dict(self.sdk_requests or {"version": "sdk-requests-v1", "execute": 40, "conclude": 3})}
+               if self.runtime == "claude_sdk" else {}),
         }
 
     def public(self) -> dict:

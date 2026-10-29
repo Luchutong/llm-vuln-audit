@@ -350,6 +350,8 @@ export function eventSummary(entry: TraceEntry): string {
   if (event.kind === 'agent_execution_error') return `动作执行错误 · ${shortText(payload.error_code, 40) || shortText(payload.error, 100) || '查看错误详情'}`;
   if (event.kind === 'poc_execution_finished') return `POC 执行阶段结束 · ${shortText(payload.reason, 40) || '未知原因'}`;
   if (event.kind === 'poc_conclusion_failed') return `结论生成失败 · ${shortText(payload.reason, 40) || '未知原因'}`;
+  if (event.kind === 'poc_runtime_conclusion_rejected') return '验证结论校验未通过 · 原作业保留';
+  if (event.kind === 'poc_runtime_cleanup_failed') return '验证进程清理未完成 · 结果保留未决';
   if (event.kind === 'agent_phase') return '进入新阶段';
   if (event.kind === 'recon_phase') return '侦察阶段更新';
   if (event.kind === 'agent_code') {

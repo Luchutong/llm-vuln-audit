@@ -151,6 +151,21 @@ test('an early POC execution stop and a failed conclusion are shown to the reade
   assert.match(text, /没有提交可校验的 final_answer/);
 });
 
+test('SDK evidence rejection and cleanup failures preserve actual diagnosis and unknown historical reasons', () => {
+  const items = messages(projectActivity([
+    event(1, 'poc_runtime_conclusion_rejected', { role: 'poc', phase: 'poc_conclude', proposed_status: 'verified',
+      status: 'inconclusive', errors: ['正常侧原文片段不在当前作业中'], job_ids: ['job-a'] }),
+    event(2, 'poc_runtime_cleanup_failed', { role: 'poc', phase: 'poc_execute', primary_reason: 'budget',
+      message: '读取任务未确认退出；已保存作业保留为未决。' }),
+    event(3, 'poc_runtime_conclusion_rejected', { role: 'poc', phase: 'poc_conclude', reason: 'host_check_rejected' }),
+  ], detail('completed')));
+  assert.match(textOf(items), /正常侧原文片段不在当前作业中/);
+  assert.match(textOf(items), /原始停止原因：budget/);
+  assert.match(textOf(items), /历史记录未保存具体拒绝原因/);
+  assert.match(textOf(items), /不能据此认定漏洞不成立/);
+  assert.ok(items.every((item) => item.tone === 'warning'));
+});
+
 test('POC job kinds, identities and shared quotas remain distinct from execution and verification', () => {
   const context = { role: 'poc', context_id: 'context-for-bob', identity: 'bob', jobs_used: 8, max_jobs: 8, jobs_remaining: 0 };
   const items = messages(projectActivity([

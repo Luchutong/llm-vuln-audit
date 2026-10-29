@@ -42,6 +42,56 @@ _DICT_REPR = re.compile(r"\{'[^'\n]*'\s*:")
 _NARRATIVE_COUNT = re.compile(r"(\d+)\s*(?:个|条)?\s*(?:已接受)?(?:漏洞|有效发现)")
 
 
+def _dict_repr_leaks(markdown: str, facts: dict) -> bool:
+    """Distinguish a rendered host object from a literal in attributed source text.
+
+    JWT/Python examples and source excerpts are valid audit data. Their presence is
+    not evidence that a renderer used str(dict). Unattributed object dumps still fail.
+    """
+    def strings(value):
+        if isinstance(value, str):
+            yield value.replace("\r", " ").replace("\n", " ").replace("|", "&#124;")
+        elif isinstance(value, dict):
+            for child in value.values():
+                yield from strings(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from strings(child)
+
+    roots = [e.get("frozen_claim") or {} for e in facts.get("canonical_findings", [])]
+    roots += [e.get("final_batch_review") or {} for e in facts.get("canonical_findings", [])]
+    roots += [facts.get(key) or [] for key in ("verification_attempts", "reviews", "source_evidence", "narrative")]
+    authored = [text for root in roots for text in strings(root) if _DICT_REPR.search(text)]
+    # Code blocks have their own source/job provenance; do not classify code syntax
+    # as an accidental prose dump. Counts and evidence gates are independent.
+    prose = re.sub(r"(?ms)^(`{3,}|~{3,})[^\n]*\n.*?^\1\s*$", "", markdown)
+    prose = re.sub(r"(`+)[^`\n]*?\1", "", prose)
+    for match in _DICT_REPR.finditer(prose):
+        quote, escaped, depth, end = "", False, 0, None
+        for i in range(match.start(), min(len(prose), match.start() + 8192)):
+            ch = prose[i]
+            if quote:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == quote:
+                    quote = ""
+            elif ch in {"'", '"'}:
+                quote = ch
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        literal = prose[match.start():end] if end else None
+        if not literal or not any(literal in text for text in authored):
+            return True
+    return False
+
+
 class _Gate:
     def __init__(self) -> None:
         self.layers = {"structure": [], "evidence": [], "interpretation": []}
@@ -306,6 +356,19 @@ def _interpretation(gate: _Gate, facts: dict, markdown: str | None) -> None:
     gate.check("interpretation", "duplicates_disclosed", not duplicate_gaps,
                "疑似重复未同时出现在附录与补证动作中", objects=sorted(set(duplicate_gaps)))
 
+    comparison_gaps = []
+    for entry in canonical:
+        policy = (entry.get("final_batch_review") or {}).get("input_policy")
+        if (policy not in {"paged-facts-v1", "paged-facts-v2"}
+                or entry["final_disposition"] != "accepted"):
+            continue
+        distinct = set((entry.get("final_batch_review") or {}).get("distinct_from") or [])
+        if any(peer["item_id"] not in distinct for peer in entry.get("comparison_candidates", [])
+               if policy == "paged-facts-v2" or peer.get("basis_kind", "same_anchor") == "same_anchor"):
+            comparison_gaps.append(entry["canonical_id"])
+    gate.check("interpretation", "comparison_candidates_adjudicated", not comparison_gaps,
+               "已接受结论尚缺关联候选的根因判读", objects=comparison_gaps)
+
     narrative = facts.get("narrative") or {}
     overclaims = []
     for key, value in narrative.items():
@@ -324,7 +387,7 @@ def _interpretation(gate: _Gate, facts: dict, markdown: str | None) -> None:
         mismatch = [key for key, value in rendered.items() if int(counts.get(key) or 0) != value]
         gate.check("interpretation", "rendered_counts_match_facts", not mismatch,
                    "正文数量与事实包不一致", objects=mismatch)
-        gate.check("interpretation", "no_dict_repr", not _DICT_REPR.search(markdown),
+        gate.check("interpretation", "no_dict_repr", not _dict_repr_leaks(markdown, facts),
                    "正文出现 Python 字典 repr")
         missing_sections = [title for title in SECTION_TITLES if f"## {title}" not in markdown]
         gate.check("interpretation", "required_sections_present", not missing_sections,

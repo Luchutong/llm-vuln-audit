@@ -592,7 +592,7 @@ export interface VerificationJob {
 export interface POC { filename: string; language: string; script: string; instructions: string; normal_input: string; attack_input: string; expected_result: string }
 export type Verdict = 'confirmed' | 'rejected' | 'uncertain';
 export type Conclusion = 'candidate' | 'no_candidate' | 'insufficient_context';
-export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'authentication_failed' | 'state_mismatch' | 'not_triggered' | 'not_run' | 'other_error' | 'timeout' | 'precondition_failed';
+export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'authentication_failed' | 'state_mismatch' | 'not_triggered' | 'conclusion_error' | 'not_run' | 'other_error' | 'timeout' | 'precondition_failed';
 export type VerificationStatus = 'verified' | 'rejected' | 'inconclusive' | 'not_applicable' | 'environment_unavailable' | 'unverified' | 'stale';
 /** Where a verification row came from: the isolated POC agent, or a pre-migration human record. */
 export type VerificationSource = 'poc_agent' | 'legacy_human';

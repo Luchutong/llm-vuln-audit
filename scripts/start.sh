@@ -326,7 +326,9 @@ if [[ "$SKIP_INSTALL" == false ]]; then
   require_command uv
   require_command npm
   printf '同步后端依赖…\n'
-  (cd "$BACKEND_DIR" && uv sync --locked)
+  # Keep the pinned SDK available across exact syncs. Installing this extra does
+  # not enable it: POC_RUNTIME remains legacy until explicitly configured.
+  (cd "$BACKEND_DIR" && uv sync --locked --extra poc-claude)
   printf '同步前端依赖…\n'
   (cd "$FRONTEND_DIR" && npm install --no-audit --no-fund)
 else

@@ -1,0 +1,111 @@
+{
+  "run_id": "db35a73a71c34f5f9ebd6462a6f0856e",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "invalid_output_limit",
+    "message": "收束条件未满足，仍存在受阻方向或缺少有效动态验证。"
+  },
+  "coverage": {
+    "complete": true,
+    "total": 61,
+    "pending_total": 0,
+    "read_paths": 60,
+    "reviewed_paths": 61
+  },
+  "poc": {
+    "jobs": 21,
+    "resets": 6,
+    "reset_failures": 0,
+    "recorded": 6,
+    "verdicts": {
+      "confirmed": 5,
+      "uncertain": 1
+    },
+    "execution_statuses": {
+      "success": 5,
+      "not_run": 1
+    },
+    "confirmed": 5,
+    "authentication_failed": 0,
+    "state_mismatch": 0,
+    "auth_events": 0,
+    "reset_between_findings": true,
+    "seed_verified": true,
+    "seed_accounts": 4,
+    "post_run_reset": true
+  },
+  "context": {
+    "history_bytes": 393216,
+    "peak_request_bytes": 131861,
+    "peak_ratio": 0.3353,
+    "summary_requests": 0,
+    "compactions": 0,
+    "history_limit_hits": 0,
+    "sources": {}
+  },
+  "usage": {
+    "responses": 394,
+    "tools": 522,
+    "seconds": 1640.372
+  },
+  "events": 3759,
+  "frozen": {
+    "budgets": {
+      "responses": 40,
+      "tools": 160,
+      "seconds": 3600
+    },
+    "run_limits": {
+      "responses": 1600,
+      "tools": 12000,
+      "seconds": 14400
+    },
+    "workflow": {
+      "version": "discovery-first-v1",
+      "stage": "discovery",
+      "source": "explicit",
+      "limits": {
+        "discovery": 1230,
+        "poc": 250,
+        "review": 120
+      },
+      "used": {
+        "discovery": 0,
+        "poc": 0,
+        "review": 0
+      },
+      "transferred": 0,
+      "review_reserved_seconds": 60.0,
+      "review_reserved_rounds": 60,
+      "discovery_stop": null,
+      "remaining": {
+        "discovery": 1230,
+        "poc": 250,
+        "review": 120
+      },
+      "stage_remaining_seconds": 14340.0
+    },
+    "task_limits": {
+      "max_iterations": 5,
+      "max_planner_rounds": 96,
+      "max_total_attempts": 192
+    }
+  },
+  "report": "datasets/lab30-shop/report_db35a73a.md",
+  "score_path": "datasets/lab30-shop/score_all_high_budget.json",
+  "score": {
+    "protocol": "lab30-v2",
+    "TP": 29,
+    "D": 31,
+    "U": 2,
+    "FN": 1,
+    "precision": 0.46774193548387094,
+    "recall": 0.9666666666666667,
+    "f1": 0.6304347826086957,
+    "truths": 30,
+    "findings": 62
+  },
+  "commit": "a4ccdcaa769e47b68bc3e348dab7671e1370db45",
+  "generated_at": "2026-10-28T11:01:45Z",
+  "failed_checks": []
+}

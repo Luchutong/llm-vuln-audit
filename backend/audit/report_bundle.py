@@ -24,7 +24,7 @@ MAX_SOURCE_EVIDENCE = 400
 
 
 def _template_hash() -> str:
-    return hashlib.sha256("\n".join(SECTION_TITLES).encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256("\n".join((RENDERER_VERSION, *SECTION_TITLES)).encode("utf-8")).hexdigest()[:16]
 
 
 def _counts(all_records: list[dict], canonical: list[dict], valid: list[dict]) -> dict:
@@ -197,6 +197,22 @@ def _appendix(bundle: dict, all_records: list[dict], canonical: list[dict], fact
             seen.add(pair)
             pairs.append({"canonical_ids": list(pair), "basis": suggestion["basis"],
                           "action": suggestion["action"]})
+    comparison_pairs, compared = [], set()
+    by_id = {entry["canonical_id"]: entry for entry in canonical}
+    for entry in canonical:
+        for peer in entry.get("comparison_candidates", []):
+            pair = tuple(sorted((entry["canonical_id"], peer["item_id"])))
+            if pair in compared:
+                continue
+            compared.add(pair)
+            left = entry.get("final_batch_review") or {}
+            right = by_id[peer["item_id"]].get("final_batch_review") or {}
+            distinct = (peer["item_id"] in (left.get("distinct_from") or [])
+                        or entry["canonical_id"] in (right.get("distinct_from") or []))
+            comparison_pairs.append({"canonical_ids": list(pair), "basis": peer["basis"],
+                                     "status": "distinct" if distinct else "pending",
+                                     "rationale": left.get("rationale") if distinct and peer["item_id"] in (left.get("distinct_from") or [])
+                                                  else right.get("rationale") if distinct else "尚未明确判读是否具有不同根因。"})
     execution = (bundle.get("run") or {}).get("execution_summary") or {}
     tasks = [
         {"id": task.get("id"), "title": task.get("title"), "state": task.get("state"),
@@ -206,6 +222,7 @@ def _appendix(bundle: dict, all_records: list[dict], canonical: list[dict], fact
     return {
         "records": records,
         "duplicate_pairs": pairs,
+        "comparison_pairs": comparison_pairs,
         "withdrawn": [item for item in records
                       if item["disposition"] in {"retracted", "duplicate", "superseded"}],
         "tasks": tasks,

@@ -717,6 +717,8 @@ class PlannerBatchDecision(BaseModel):
     rationale: str = Field(min_length=8, max_length=1600)
     duplicate_of: str | None = Field(default=None, max_length=160,
         description="Another current canonical item_id retained as the primary claim; not this item's finding_id")
+    distinct_from: list[str] = Field(default_factory=list, max_length=400,
+        description="Current comparison candidate item_ids explicitly judged to have distinct roots/operations/preconditions; explain the distinction in rationale. Never infer distinctness from CVSS or POC status alone.")
 
 
 class PlannerDecision(BaseModel):

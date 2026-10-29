@@ -19,12 +19,13 @@ def main():
     full = dict(responses=512, tools=4096, seconds=3600)
     quick = dict(responses=256, tools=2048, seconds=1800)
     item = api.runs[COMPLETED_ID]
-    item.update(run_limits=full, poc_mode='off')
+    item.update(run_limits=full, poc_mode='auto', poc_policy=dict(mode='auto', runtime='claude_sdk',
+                sdk_requests=dict(version='sdk-requests-v1', execute=40, conclude=3)))
     item['task_spec'].update(orchestration_policy='host-queue-v1', completion_policy='coverage_review',
                              workflow_policy='discovery_first', review_policy='batch-v1')
     item['execution_summary'] = dict(phase='review', run_limits=full,
         run_usage=dict(responses=194, tools=274, seconds=1016), run_remaining=dict(responses=318, tools=3822, seconds=2584),
-        active_executions=[], blocked_task_ids=[], poc=dict(mode='off', available=False),
+        active_executions=[], blocked_task_ids=[], poc=dict(mode='auto', available=True),
         workflow=dict(version='host-queue-v1', source='derived', stage='review',
             limits=dict(discovery=350, poc=130, review=32), used=dict(discovery=138, poc=46, review=10),
             remaining=dict(discovery=212, poc=84, review=22), transferred=20, review_reserved_seconds=240,
@@ -85,6 +86,8 @@ def main():
             expect(status).to_contain_text('待终审 23 项 · 预计 3 批 · 当前预留 9 次请求')
             expect(status).to_contain_text('必做未决方向 0')
             expect(status).to_contain_text('后续建议 9（不阻止收束）')
+            expect(status).to_contain_text('单条自动验证配置：实验最多 40 次请求 · 结论最多 3 次请求')
+            checks.passed('frozen SDK quotas are distinct from source agent limits')
             for theme in ('dark', 'light'):
                 page.set_viewport_size(dict(width=1440, height=1000))
                 if page.locator('html').get_attribute('data-theme') != theme:

@@ -34,6 +34,29 @@ def _int(raw: object, default: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
+def _pin_sdk_requests(limits, frozen):
+    if frozen is None:
+        return limits
+    if (not isinstance(frozen, dict) or frozen.get("version") != "sdk-requests-v1"
+            or type(frozen.get("execute")) is not int or not 1 <= frozen["execute"] <= 512
+            or type(frozen.get("conclude")) is not int or not 3 <= frozen["conclude"] <= 16):
+        raise ValueError("冻结的 SDK 请求额度无效")
+    return replace(limits, execute_requests=frozen["execute"], conclude_requests=frozen["conclude"])
+
+
+def _attempt_responses(policy, allowance=None):
+    # New SDK runs use their frozen SDK quota. Historical runs retain max_steps;
+    # resuming an old run cannot silently adopt a larger current default.
+    if policy.runtime == "claude_sdk" and policy.sdk_requests is not None:
+        from .runtimes.claude_poc import ClaudePocLimits
+        limits = _pin_sdk_requests(ClaudePocLimits(), policy.sdk_requests)
+        capacity = limits.execute_requests + limits.conclude_requests
+    else:
+        capacity = max(2, policy.max_steps) + 3
+    available = allowance if type(allowance) is int else policy.max_responses
+    return min(capacity, available) if type(available) is int else capacity
+
+
 @dataclass(frozen=True)
 class PocPolicy:
     mode: str = "off"
@@ -56,6 +79,7 @@ class PocPolicy:
     # Which model loop runs this attempt.  Frozen with the run so a verification record
     # can be read without guessing; a run may only downgrade to ``legacy``.
     runtime: str = "legacy"
+    sdk_requests: dict | None = None
 
     @classmethod
     def from_run(cls, run: dict, settings: Settings) -> "PocPolicy":
@@ -98,6 +122,8 @@ class PocPolicy:
             # A run may ask for the legacy loop, but it cannot promote itself to the SDK
             # adapter when the server has not enabled it.
             runtime=("legacy" if requested_runtime == "legacy" else server_runtime),
+            # Missing on historical runs: retain their legacy max_steps contract.
+            sdk_requests=dict(raw["sdk_requests"]) if isinstance(raw.get("sdk_requests"), dict) else None,
         )
 
     def snapshot(self) -> dict:
@@ -118,6 +144,7 @@ class PocPolicy:
             "reset_between_findings": self.reset_between_findings,
             "reset_timeout": self.reset_timeout,
             "runtime": self.runtime,
+            **({"sdk_requests": dict(self.sdk_requests)} if self.sdk_requests is not None else {}),
         }
 
 
@@ -564,7 +591,7 @@ class PocVerifier:
                 summary["attempted"] += 1
                 summary["processed"] += 1
                 finding_policy = policy if allowance is None else replace(
-                    policy, max_responses=min(max(2, policy.max_steps) + 3, allowance),
+                    policy, max_responses=_attempt_responses(policy, allowance),
                     max_seconds=min(policy.max_seconds, max(1, int(workflow.get("stage_remaining_seconds", policy.max_seconds)))),
                     job_seconds=min(policy.job_seconds, max(1, int(workflow.get("stage_remaining_seconds", policy.max_seconds)))),
                 )
@@ -787,9 +814,8 @@ class PocVerifier:
 
     def _sdk_quota_available(self, run, finding, policy, allowance=None):
         from .runtimes.claude_poc import ClaudePocLimits, StorePocRequestGateway
-        limits = ClaudePocLimits.from_environ()
-        count = allowance if type(allowance) is int else policy.max_responses
-        count = min(count, max(2, policy.max_steps) + 3) if type(count) is int else max(2, policy.max_steps) + 3
+        limits = _pin_sdk_requests(ClaudePocLimits.from_environ(), policy.sdk_requests)
+        count = _attempt_responses(policy, allowance)
         state = self.store.execution_summary(run["id"]) or {}
         if (state.get("run_remaining") or {}).get("responses", 4) < 4:
             return False
@@ -825,7 +851,7 @@ class PocVerifier:
         )
 
         try:
-            limits = ClaudePocLimits.from_environ()
+            limits = _pin_sdk_requests(ClaudePocLimits.from_environ(), deps.policy.get("sdk_requests"))
         except ValueError as exc:
             # A malformed deployment setting is reported, not "repaired" with defaults.
             self.bus.emit(run_id, deps.finding.get("id"), "poc_runtime_misconfigured", {
@@ -836,12 +862,14 @@ class PocVerifier:
         if type(seconds) is int:
             limits = replace(limits, max_seconds=min(limits.max_seconds, max(1, seconds)))
         allowance = deps.policy.get("max_responses")
-        if type(allowance) is int:
-            if allowance < 4:
-                return None, "quota_deferred", {"runtime": limits.snapshot()}
-            conclude = min(limits.conclude_requests, allowance - 1)
-            limits = replace(limits, conclude_requests=conclude,
-                             execute_requests=min(limits.execute_requests, allowance - conclude))
+        if type(allowance) is not int:
+            allowance = (limits.execute_requests + limits.conclude_requests if deps.policy.get("sdk_requests")
+                         else max(2, int(deps.policy.get("max_steps") or 8)) + 3)
+        if allowance < 4:
+            return None, "quota_deferred", {"runtime": limits.snapshot()}
+        conclude = min(limits.conclude_requests, allowance - 1)
+        limits = replace(limits, conclude_requests=conclude,
+                         execute_requests=min(limits.execute_requests, allowance - conclude))
         runtime = ClaudeCodePocRuntime(
             limits=limits, gateway=StorePocRequestGateway(self.store, scope=getattr(deps, "quota_scope", "")),
         )
@@ -896,11 +924,15 @@ class PocVerifier:
         )
         state_mismatch = bool(not succeeded and not authentication_failed
                               and "required_account_state_mismatch" in reasons)
+        # A successful job is an execution fact, not a completed negative experiment.
+        # SDK/transport/contract failure must not be presented as 'not triggered'.
+        conclusion_failed = reason not in {"completed", "", None} and result.status == "inconclusive"
         execution_status = (
             "success" if result.status in {"verified", "rejected"} else
             "authentication_failed" if authentication_failed else
             "state_mismatch" if state_mismatch else
             "environment_mismatch" if any(item.get("ok") is False for item in preconditions) and not succeeded else
+            "conclusion_error" if conclusion_failed and succeeded else
             "other_error" if jobs and not succeeded else
             "not_triggered" if succeeded else "not_run"
         )

@@ -54,6 +54,7 @@ const TOOL_LABELS: Record<string, string> = {
   inspect_project: '查看项目结构', investigate_project: '调查项目',
   read_investigation: '读取已有调查', search_worker_traces: '检索已有审计记录',
   search_project_map: '检索项目图', get_task_results: '读取任务结果', get_coverage: '查看读取覆盖',
+  list_verifications: '查看验证记录', read_verification: '读取验证原文', read_review_input: '读取终审证据',
   get_investigation: '读取已有调查', file_summary: '查看文件结构', get_context: '补充源码上下文',
   search_peer_traces: '检索协作记录', get_peer_trace: '读取协作记录',
   resolve_target: '解析靶场目标', target_status: '查看靶场状态', target_prepare: '准备靶场环境',
@@ -228,6 +229,22 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       message = text(payload.question); tone = 'progress';
     } else if (kind === 'poc_agent_phase') {
       message = `准备隔离靶场：${text(payload.target) || 'lab30'} · ${Number(payload.count ?? 0)} 条结论待验证`; tone = 'progress';
+    } else if (kind === 'poc_runtime_conclusion_rejected') {
+      title = '验证结论校验未通过';
+      const errors = Array.isArray(payload.errors) ? payload.errors.filter((value): value is string => typeof value === 'string') : [];
+      message = errors.join('；') || '已保存原作业；本次结论尚未通过宿主证据校验。';
+      secondary = text(payload.proposed_status) ? `提交状态：${VERIFICATION_STATUS_LABELS[text(payload.proposed_status)] || text(payload.proposed_status)}；当前保留为未能判定。`
+        : '历史记录未保存具体拒绝原因；不能据此认定漏洞不成立。';
+      tone = 'warning';
+    } else if (kind === 'poc_runtime_cleanup_failed') {
+      title = '验证进程清理未完成';
+      message = text(payload.message) || '已保存作业，进程尚未确认退出；验证结果保留未决。';
+      secondary = text(payload.primary_reason) ? `原始停止原因：${text(payload.primary_reason)}` : '';
+      tone = 'warning';
+    } else if (kind === 'poc_runtime_stage_stopped') {
+      title = text(payload.stage) === 'conclude' ? '验证结论阶段已停止' : '验证实验阶段已停止';
+      message = text(payload.message) || text(payload.reason) || '原作业与已执行事实保留。';
+      tone = 'warning';
     } else if (kind === 'poc_verification_started') {
       title = '开始自动验证'; message = text(payload.title) || '对一条审计结论执行 POC。';
       secondary = text(payload.target) ? `目标：${text(payload.target)}` : '';

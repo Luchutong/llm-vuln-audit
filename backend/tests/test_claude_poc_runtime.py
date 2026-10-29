@@ -706,6 +706,131 @@ def test_an_sdk_reported_error_ends_the_attempt_with_its_facts(tmp_path):
                for event in events)
 
 
+def test_an_api_error_after_jobs_can_use_only_the_reserved_conclusion(tmp_path):
+    deps = service(tmp_path, jobs=[http_job(body='normal role=member\nattack role=admin')])
+    refs = EvidenceRefTable.build(deps)
+    body = next(ref for ref in refs._refs.values() if ref.channel == 'body')
+    failed = ResultMessage(is_error=True, subtype='success')
+    failed.terminal_reason = 'api_error'
+    failed.stop_reason = 'stop_sequence'
+    payload = {'status': 'verified', 'verdict': 'confirmed', 'summary': '两侧原始观测支持角色修改风险',
+               'normal_observation': '正常身份为普通会员', 'attack_observation': '攻击后身份改变',
+               'jobs': ['job-1'], 'normal_refs': [body.ref_id], 'attack_refs': [body.ref_id]}
+    sdk = FakeSDK([execute(failed), conclude(payload)])
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=MemoryPocRequestGateway(),
+                                   sdk=sdk, cli_probe=lambda: ('2.1.310', ''))
+    events = []
+    outcome = asyncio.run(run(runtime, deps, events))
+    assert outcome.result and outcome.result.status == 'verified'
+    assert outcome.usage['execute_reason'] == 'sdk_api_error'
+    assert len(sdk.calls) == 2
+    stopped = next(e for e in events if e['kind'] == 'poc_runtime_stage_stopped')
+    assert 'api_error' in stopped['message'] and 'success' not in stopped['message']
+    assert len(deps.jobs) == 1  # No experiment or side effect was replayed.
+
+
+def test_an_api_error_without_job_facts_does_not_spend_the_conclusion(tmp_path):
+    failed = ResultMessage(is_error=True, subtype='success')
+    failed.terminal_reason = 'api_error'
+    sdk = FakeSDK([execute(failed)])
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=MemoryPocRequestGateway(),
+                                   sdk=sdk, cli_probe=lambda: ('2.1.310', ''))
+    outcome = asyncio.run(run(runtime, service(tmp_path), []))
+    assert outcome.reason == 'sdk_api_error' and outcome.result is None
+    assert len(sdk.calls) == 1
+
+
+def test_host_rejection_keeps_the_proposed_status_and_specific_errors(tmp_path):
+    deps = service(tmp_path, jobs=[http_job('good'), http_job('failed', ok=False)])
+    refs = EvidenceRefTable.build(deps)
+    ref = next(ref for ref in refs._refs.values() if ref.channel == 'body')
+    payload = {'status': 'verified', 'summary': '引用错了失败作业', 'jobs': ['failed'],
+               'normal_observation': 'normal', 'attack_observation': 'attack',
+               'normal_refs': [ref.ref_id], 'attack_refs': [ref.ref_id]}
+    sdk = FakeSDK([execute(), conclude(payload), conclude({'status': 'inconclusive', 'summary': '已保存作业，引用不足以作出确定判断'})])
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=MemoryPocRequestGateway(),
+                                   sdk=sdk, cli_probe=lambda: ('2.1.310', ''))
+    events = []
+    outcome = asyncio.run(run(runtime, deps, events))
+    rejected = next(e for e in events if e['kind'] == 'poc_runtime_conclusion_rejected')
+    assert rejected['proposed_status'] == 'verified' and rejected['status'] == 'inconclusive'
+    assert rejected['errors'] and 'failed' in ' '.join(rejected['errors'])
+    assert rejected['job_ids'] == ['failed'] and rejected['context_id'] == 'ctx-1'
+    assert outcome.result.status == 'inconclusive'
+
+
+def test_sdk_cleanup_can_finish_after_two_seconds_inside_the_original_deadline(tmp_path):
+    import time
+    class SlowSDK(FakeSDK):
+        def query(self, *, prompt, options):
+            if self.calls:
+                return super().query(prompt=prompt, options=options)
+            self.calls.append({'prompt': prompt, 'options': options})
+            async def stream():
+                try:
+                    await asyncio.sleep(100)
+                    yield ResultMessage()
+                finally:
+                    await asyncio.sleep(2.05)
+            return stream()
+    class ShortExecute(ClaudeCodePocRuntime):
+        async def _run_stage(self, **kwargs):
+            if kwargs['stage'] == EXECUTE_STAGE:
+                kwargs['deadline'] = time.monotonic() + .01
+            return await super()._run_stage(**kwargs)
+    sdk = SlowSDK([execute(), conclude({'status': 'inconclusive', 'summary': '正常清理后保留未确定结论'})])
+    runtime = ShortExecute(limits=limits(tmp_path, max_seconds=10), gateway=MemoryPocRequestGateway(),
+                           sdk=sdk, cli_probe=lambda: ('2.1.310', ''))
+    events = []
+    outcome = asyncio.run(run(runtime, service(tmp_path, jobs=[http_job()]), events))
+    assert outcome.reason == 'completed' and outcome.result.status == 'inconclusive'
+    assert len(sdk.calls) == 2
+    assert not any(e['kind'] == 'poc_runtime_cleanup_failed' for e in events)
+
+
+def test_unconfirmed_cleanup_never_opens_a_new_sdk_stage(tmp_path):
+    class BlockedSDK(FakeSDK):
+        def query(self, *, prompt, options):
+            self.calls.append({'prompt': prompt, 'options': options})
+            async def stream():
+                try:
+                    await asyncio.sleep(100)
+                    yield ResultMessage()
+                finally:
+                    await released.wait()
+            return stream()
+    async def scenario():
+        nonlocal released
+        released = asyncio.Event()
+        sdk = BlockedSDK([])
+        runtime = ClaudeCodePocRuntime(limits=limits(tmp_path, max_seconds=.08), gateway=MemoryPocRequestGateway(),
+                                       sdk=sdk, cli_probe=lambda: ('2.1.310', ''))
+        events = []
+        try:
+            outcome = await run(runtime, service(tmp_path, jobs=[http_job()]), events)
+        finally:
+            released.set()
+            await asyncio.sleep(.01)
+        assert outcome.reason == 'sdk_cleanup_timeout' and outcome.result is None
+        assert len(sdk.calls) == 1
+        assert any(e['kind'] == 'poc_runtime_cleanup_failed' and e['primary_reason'] == 'budget' for e in events)
+    released = None
+    asyncio.run(scenario())
+
+
+def test_api_error_recovery_cannot_turn_unknown_references_into_verified(tmp_path):
+    failed = ResultMessage(is_error=True, subtype='success')
+    failed.terminal_reason = 'api_error'
+    payload = {'status': 'verified', 'summary': '伪造引用应被拒绝', 'normal_observation': 'normal', 'attack_observation': 'attack',
+               'jobs': ['job-1'], 'normal_refs': ['ev-invented'], 'attack_refs': ['ev-invented']}
+    sdk = FakeSDK([execute(failed)] + [conclude(payload)] * 3)
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=MemoryPocRequestGateway(),
+                                   sdk=sdk, cli_probe=lambda: ('2.1.310', ''))
+    outcome = asyncio.run(run(runtime, service(tmp_path, jobs=[http_job()]), []))
+    assert outcome.result is None and outcome.status != 'completed'
+    assert len(sdk.calls) <= 4  # One execute plus the existing three conclusion attempts.
+
+
 def test_a_missing_mcp_builder_is_an_explicit_unavailable(tmp_path):
     class NoBuilder(FakeSDK):
         create_sdk_mcp_server = None

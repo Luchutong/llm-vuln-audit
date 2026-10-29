@@ -47,6 +47,7 @@ from ..poc_agent import (
     _finding_block,
     execute_instructions,
     host_check,
+    successful_job,
 )
 from ..poc_tool_service import PocToolService
 from ..runtime import StopAudit
@@ -931,8 +932,9 @@ class ClaudeCodePocRuntime:
             self._emit("poc_runtime_quota_refused", stage=EXECUTE_STAGE,
                        reason=exc.reason, reservation=exc.reservation)
         except PocRuntimeUnavailable as exc:
+            self._execute_reason = str(exc)
             self._emit("poc_runtime_unavailable", reason=str(exc), stage=EXECUTE_STAGE)
-            return PocRuntimeOutcome("unavailable", None, "runtime_unavailable",
+            return PocRuntimeOutcome("unavailable", None, "sdk_cleanup_timeout" if str(exc) == "sdk_cleanup_timeout" else "runtime_unavailable",
                                      self._usage_snapshot(stages))
         except StopAudit as exc:
             execute_reason = str(exc.reason or "interrupted")
@@ -942,7 +944,11 @@ class ClaudeCodePocRuntime:
             # Local execution-stage turn/time limits may leave a reserved conclusion
             # available. Run, workflow and cancellation refusals end the attempt;
             # opening a new SDK stage must never bypass their boundary.
-            if execute_reason not in {"budget", "turn_limit"}:
+            # A completed SDK stream may report an upstream API failure after its
+            # tools already returned useful facts. Only the reserved read-only
+            # conclusion may recover those facts; never replay the experiment.
+            recoverable_api_error = execute_reason == "sdk_api_error" and any(successful_job(job) for job in service.jobs)
+            if execute_reason not in {"budget", "turn_limit"} and not recoverable_api_error:
                 status = "cancelled" if execute_reason in {"interrupted", "cancelled"} else "failed"
                 return PocRuntimeOutcome(status, None, execute_reason, self._usage_snapshot(stages))
         except asyncio.CancelledError:
@@ -1033,6 +1039,7 @@ class ClaudeCodePocRuntime:
 
     async def _run_stage(self, *, stage: str, server: Any | None, prompt: str,
                          system_prompt: str, deadline: float) -> dict:
+        self._stage_capability_revoked = False
         try:
             return await self._run_stage_inner(
                 stage=stage, server=server, prompt=prompt,
@@ -1040,7 +1047,7 @@ class ClaudeCodePocRuntime:
             )
         finally:
             revoke = getattr(self, "_revoke_stage_capability", None)
-            if revoke is not None:
+            if revoke is not None and not self._stage_capability_revoked:
                 revoke(stage)
 
     async def _run_stage_inner(self, *, stage: str, server: Any | None, prompt: str,
@@ -1110,13 +1117,25 @@ class ClaudeCodePocRuntime:
             await reader
             self._raise_if_quota_refused(stage)
         except BaseException as exc:
+            self._stage = "closed"
+            self._revoke_stage_capability(stage)
+            self._stage_capability_revoked = True
             if not reader.done():
                 reader.cancel()
             # A broken transport must not hold a target lease forever. Cleanup
             # still belongs to the reader task; do not aclose its AnyIO scope here.
-            done, _ = await asyncio.wait({reader}, timeout=2)
+            # SDK 0.2.174 shields native CLI cleanup, which can take ~20 seconds.
+            # Give that cleanup a bounded grace within the ORIGINAL attempt deadline;
+            # cancellation/global stop still returns promptly. No new actions remain.
+            grace = 2.0 if self._stopped() or isinstance(exc, asyncio.CancelledError) else 25.0
+            grace = min(grace, max(0.0, getattr(self, "_attempt_deadline", deadline) - time.monotonic()))
+            done, _ = await asyncio.wait({reader}, timeout=grace)
             if not done:
                 self._stage = "closed"
+                self._emit("poc_runtime_cleanup_failed", stage=stage, reason="sdk_cleanup_timeout",
+                           primary_reason=str(exc.reason) if isinstance(exc, StopAudit) else type(exc).__name__,
+                           jobs=len(self._service.jobs) if getattr(self, "_service", None) else None,
+                           message="SDK 读取任务未确认退出；不启动新阶段，已保存作业保留为未决。")
                 reader.add_done_callback(lambda task: None if task.cancelled() else task.exception())
                 if isinstance(exc, asyncio.CancelledError):
                     raise
@@ -1155,7 +1174,9 @@ class ClaudeCodePocRuntime:
                 raise StopAudit("turn_limit", "SDK 阶段达到轮次上限")
             if subtype == "error_max_budget_usd":
                 raise StopAudit("budget", "SDK 阶段达到费用上限")
-            raise StopAudit("sdk_error", f"SDK 报告错误（{subtype or 'error'}）")
+            reason = "sdk_api_error" if terminal_reason == "api_error" else "sdk_error"
+            label = terminal_reason or (subtype if subtype != "success" else "error_result") or "error_result"
+            raise StopAudit(reason, f"SDK 阶段失败（{label[:64]}）；已完成作业事实保留")
         summary["subtype"] = subtype
         return summary
 
@@ -1242,6 +1263,8 @@ class ClaudeCodePocRuntime:
                 continue
             assert result is not None
             proposed = (result.status, result.verdict)
+            from ..poc_agent import evidence_errors
+            failures = evidence_errors(result, service)
             checked = host_check(result, service)
             if (checked.status, checked.verdict) == proposed:
                 return checked, "completed"
@@ -1250,7 +1273,10 @@ class ClaudeCodePocRuntime:
             semantic_retries += 1
             diagnostics = checked.evidence_notes[:2000]
             self._emit("poc_runtime_conclusion_rejected", attempt=attempt,
-                       reason="host_check_rejected", status=result.status)
+                       reason="host_check_rejected", status=checked.status,
+                       proposed_status=proposed[0], proposed_verdict=proposed[1],
+                       errors=failures[:32], job_ids=list(result.jobs),
+                       context_id=service.context_id)
             if semantic_retries > 1:
                 break
         # Exhausted the reserved requests without an acceptable conclusion.  Existing

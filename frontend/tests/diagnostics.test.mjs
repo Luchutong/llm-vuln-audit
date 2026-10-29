@@ -8,6 +8,10 @@ test('completed jobs with insufficient citations do not claim the vulnerability 
     assert.equal(verificationExecution({ execution_status: 'success', status }), '作业执行成功');
   }
 });
+
+test('successful jobs with an interrupted conclusion keep execution and verification separate', () => {
+  assert.equal(verificationExecution({ execution_status: 'conclusion_error', status: 'inconclusive' }), '已有成功作业，验证结论阶段未完成');
+});
 import { projectActivity, groupCompletedTools } from '../src/activity.ts';
 
 const event = (id, kind, payload = {}) => ({ id, kind, run_id: 'run-a', created_at: `2026-10-23T15:00:${String(id % 60).padStart(2, '0')}Z`,

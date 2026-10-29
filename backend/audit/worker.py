@@ -865,6 +865,13 @@ class AuditWorker:
                         code = terminal["code"]
                     elif workflow.get("remaining", {}).get("review") == 0:
                         code = "stage_budget_exhausted"
+                    if hosted and workflow_finishing:
+                        from .final_review import canonical_groups
+                        from .review_store import review_terminal_reason
+                        entries, _ = canonical_groups(self.store.attach_final_decisions(run_id, self.store.list_findings(run_id)))
+                        reason = review_terminal_reason(entries,
+                            self.store.review_batches_pending(run_id, "final", self.repository), terminal)
+                        code, basis = reason["code"], reason["message"]
                 if state == "met":
                     record_carried()
                 settled = self.store.finalize_goal(

@@ -120,7 +120,7 @@ def claim_snapshot(finding: dict) -> dict:
         "project_revision": int(finding.get("project_revision") or 0),
         "title": finding.get("title") or "",
         "category": finding.get("category") or "",
-        "vulnerability_type": canonical_vulnerability_type(finding.get("category")),
+        "vulnerability_type": finding_type(finding),
         "rating_text": rating_text(finding),
         "cvss": finding.get("cvss") or None,
         "assessment_revision": int(assessment.get("assessment_revision") or 0),
@@ -143,10 +143,16 @@ def claim_snapshot(finding: dict) -> dict:
     }
 
 
+def finding_type(finding: dict) -> str:
+    # An explicit unknown/other is still the Worker's classification. Category
+    # fallback is solely for historical records without the dedicated field.
+    return canonical_vulnerability_type(finding.get("vulnerability_type") or finding.get("category"))
+
+
 def conflicts(records: list[dict], current: dict) -> list[dict]:
     """Contradictions the report must show instead of resolving by precedence."""
     found: list[dict] = []
-    types = {canonical_vulnerability_type(item.get("category")) for item in records}
+    types = {finding_type(item) for item in records}
     known = {value for value in types if value not in {"", "unknown", "other"}}
     if len(known) > 1:
         found.append({
@@ -258,6 +264,46 @@ def canonical_groups(findings: list[dict]) -> tuple[list[dict], list[dict]]:
     return canonical, current_records
 
 
+def comparison_candidates(canonical: list[dict]) -> dict[str, list[dict]]:
+    """Same typed anchor or a cited peer anchor nominates a comparison, never a merge.
+
+    Shared utility citations alone do not match: a citation must cover the other
+    claim's actual primary coordinate. This links entry/helper views of one chain.
+    """
+    def coordinate(claim):
+        location = claim.get("primary_location") or {}
+        path, line = location.get("path") or claim.get("file_path"), location.get("line")
+        return (path, line) if path and type(line) is int and line > 0 else None
+
+    def covers(claim, coord):
+        return any(ref.get("path") == coord[0]
+                   and (ref.get("range") or {}).get("start", ref.get("start_line", 0)) <= coord[1]
+                   <= (ref.get("range") or {}).get("end", ref.get("end_line", 0))
+                   for ref in claim.get("evidence") or [])
+
+    peers = {}
+    for index, entry in enumerate(canonical):
+        a = entry["frozen_claim"]
+        coord = coordinate(a)
+        if not coord or a.get("vulnerability_type") in {None, "", "unknown", "other"}:
+            continue
+        for other in canonical[index + 1:]:
+            b = other["frozen_claim"]
+            target = coordinate(b)
+            if not target or a["vulnerability_type"] != b.get("vulnerability_type"):
+                continue
+            if coord != target and not covers(a, target) and not covers(b, coord):
+                continue
+            basis = ("同类型且主定位相同" if coord == target else "同类型且证据覆盖对方主定位，可能是跨文件同一链路")
+            for owner, peer in ((entry, other), (other, entry)):
+                peers.setdefault(owner["canonical_id"], []).append({"item_id": peer["canonical_id"], **{key: peer["frozen_claim"].get(key) for key in (
+                    "finding_id", "revision", "title", "vulnerability_type", "primary_location", "summary",
+                    "input_source", "dangerous_operation", "protection", "preconditions", "missing_context", "evidence", "cvss", "verification_status")},
+                 "basis": basis + "；须统一核对根因与必要前提，不自动归并。"})
+                peers[owner["canonical_id"]][-1]["basis_kind"] = "same_anchor" if coord == target else "cited_anchor"
+    return peers
+
+
 def merge_suggestions(canonical: list[dict]) -> None:
     """Cross-ledger near-duplicates are suggestions, never silent merges.
 
@@ -266,6 +312,9 @@ def merge_suggestions(canonical: list[dict]) -> None:
     on both entries and surfaces in the appendix and the action items.
     """
     by_finding = {entry["frozen_claim"]["finding_id"]: entry for entry in canonical}
+    comparisons = comparison_candidates(canonical)
+    for entry in canonical:
+        entry["comparison_candidates"] = comparisons.get(entry["canonical_id"], [])
     exact: dict[str, dict] = {}
     pairs: set[tuple[str, str]] = set()
     for entry in canonical:
@@ -280,6 +329,9 @@ def merge_suggestions(canonical: list[dict]) -> None:
                 exact.setdefault(identity, entry)
         if target is None or target is entry:
             continue
+        if (target["canonical_id"] in ((entry.get("final_batch_review") or {}).get("distinct_from") or [])
+                or entry["canonical_id"] in ((target.get("final_batch_review") or {}).get("distinct_from") or [])):
+            continue  # A current explicit distinction is a decision, not a pending merge.
         pair = tuple(sorted((entry["canonical_id"], target["canonical_id"])))
         if pair in pairs:
             continue
@@ -317,6 +369,8 @@ def observations(findings: list[dict]) -> list[dict]:
 
 
 def verification_attempts(findings: list[dict]) -> list[dict]:
+    from .review_input import verification_fact_availability
+
     attempts: list[dict] = []
     seen: set[str] = set()
     for finding in findings:
@@ -353,7 +407,7 @@ def verification_attempts(findings: list[dict]) -> list[dict]:
                     "revision": int(revision),
                 },
                 "ledger_revision": record.get("finding_revision"),
-                "context_id": (record.get("target") or {}).get("context_id") or "",
+                "context_id": (record.get("target") or {}).get("context_id") or agent.get("context_id") or "",
                 "target_version": record.get("target_version") or "",
                 "job_refs": [
                     {
@@ -366,6 +420,10 @@ def verification_attempts(findings: list[dict]) -> list[dict]:
                 ],
                 "normal_evidence": record.get("normal_observation") or "",
                 "attack_evidence": record.get("attack_observation") or "",
+                "fact_availability": verification_fact_availability(record),
+                "conclusion_reason": agent.get("reason") or "",
+                "execute_reason": (agent.get("usage") or {}).get("execute_reason") or "",
+                "observed_job_ids": list(job_results),
                 "final_script": record.get("modified_script") or "",
                 "artifacts": list(record.get("artifacts") or []),
                 "execution_status": record.get("execution_status") or "",

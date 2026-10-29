@@ -395,12 +395,23 @@ def test_confirmed_poc_verdict_satisfies_the_accepted_evidence_gate():
 
 
 def test_dict_repr_in_rendered_text_is_a_review_required_defect():
-    payload = bundle([finding("f1", summary="证据：{'path': 'x.php', 'line': 1}",
-                              verifications=[verification("v1")])])
+    payload = bundle([finding("f1", verifications=[verification("v1")])])
     facts, markdown = render(payload)
+    markdown += "\n宿主对象意外泄漏：" + str({'path': 'x.php', 'line': 1})
     quality = evaluate(facts, markdown=markdown)
     assert "no_dict_repr" in quality["failed_checks"]
     assert quality["publishability"] == "review_required"
+
+
+def test_attributed_payload_and_source_literals_do_not_fail_the_format_gate():
+    value = "攻击者可提交 x.<base64url({'sub':1,'role':'admin'})>.x 格式的 token"
+    payload = bundle([{**finding('f1', summary="示例：{'path': 'file.php'}", verifications=[verification('v1')]),
+                       'preconditions': [value]}])
+    facts, markdown = render(payload)
+    assert value in markdown
+    assert 'no_dict_repr' not in facts['quality_result']['failed_checks']
+    # A real unattributed dump remains a defect even if a legitimate literal exists.
+    assert 'no_dict_repr' in evaluate(facts, markdown + "\n" + str({'raw_records': 900, 'unread': 4}))['failed_checks']
 
 
 def test_rendered_counts_must_match_the_facts():

@@ -63,6 +63,21 @@ def stamp():
     return datetime.now(timezone.utc).isoformat()
 
 
+def review_terminal_reason(entries, pending_batches, discovery_stop=None):
+    """Final-state diagnosis is independent of an earlier phase-transition message."""
+    pending = sum(entry.get("final_disposition") == "pending" for entry in entries)
+    contested = sum(entry.get("final_disposition") == "contested" for entry in entries)
+    unreviewed = sum(len(group) for group in pending_batches)
+    if unreviewed:
+        return {"code": "final_review_incomplete", "message": f"审计已结束，仍有 {unreviewed} 项未完成终审；已保存事实和阶段报告。"}
+    if pending:
+        return {"code": "final_review_needs_evidence", "message": f"终审已结束，{pending} 条结论仍需补证；未将其计入已接受漏洞。"}
+    if contested:
+        return {"code": "final_review_contested", "message": f"终审已结束，{contested} 条结论存疑或被排除；详见逐项处置。"}
+    stop = discovery_stop or {}
+    return {"code": stop.get("code") or "audit_partial", "message": "审计与终审已结束，未完成的源码方向及运行限制保留在阶段报告中。"}
+
+
 def validate_batch(batch, decisions, *, current_items=None):
     """Exact input/decision set, exact content revisions, no graph expansion."""
     decisions = [dict(decision) for decision in decisions]
@@ -178,7 +193,8 @@ class ReviewStoreMixin:
             return failures >= 2
 
     def _review_candidates(self, run_id, phase):
-        from .final_review import canonical_groups
+        from .final_review import canonical_groups, comparison_candidates
+        from .review_input import compact_observations
         items = []
         tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
         hosted = self.host_queue_enabled(run_id)
@@ -204,6 +220,12 @@ class ReviewStoreMixin:
         records = self._review_records(run_id, self.list_findings(run_id))
         by_finding = {record["id"]: record for record in records}
         canonical, _ = canonical_groups(records)
+        peers = comparison_candidates(canonical)
+        revisions = {e["canonical_id"]: finding_fact_revision(e, by_finding[e["frozen_claim"]["finding_id"]])
+                     for e in canonical} if hosted else {}
+        prior_reviews = {r["item_id"]: json.loads(r["decision"]) for r in self._rows(
+            "SELECT item_id,revision,decision FROM audit_review_items WHERE run_id=? AND phase='final'", (run_id,))
+                         if revisions.get(r["item_id"]) == r["revision"]}
         conflict_ids = {ident for row in self._rows(
             "SELECT payload FROM events WHERE run_id=? AND kind='finding_duplicate_candidate'", (run_id,))
             for ident in ([json.loads(row[0]).get("finding_id")] + json.loads(row[0]).get("candidate_ids", []))}
@@ -213,22 +235,23 @@ class ReviewStoreMixin:
             if hosted and phase == "integration" and not entry["conflicts"] and claim["finding_id"] not in conflict_ids:
                 continue
             from .final_review import current_review, latest_verification
-            # Scripts are downloadable artifacts, not review context. Keep every
-            # source reference and status intact; bounded prose is visibly marked.
+            # Scripts are downloadable artifacts. Keep complete claim prose,
+            # references and statuses; oversized fields get an exact read manifest.
             payload = {k: claim.get(k) for k in (
                 "finding_id", "revision", "title", "category", "vulnerability_type", "rating_text", "cvss",
                 "assessment_revision", "file_path", "primary_location", "summary", "input_source", "propagation",
                 "dangerous_operation", "protection", "preconditions", "missing_context", "remediation", "evidence",
                 "verification_status", "verification_id")}
-            for key, value in tuple(payload.items()):
-                if isinstance(value, str) and len(value) > 1600:
-                    payload[key] = value[:1600] + " [节选，完整内容用 get_task_results/read_verification]"
             verification = latest_verification(raw) or {}
-            agent = verification.get("agent") or {}
-            payload["verification_observations"] = {key: verification.get(key) for key in (
-                "id", "status", "verdict", "execution_status", "normal_observation", "attack_observation", "browser_execution")}
-            payload["verification_observations"].update({key: agent.get(key) for key in (
-                "context_id", "identity", "preconditions", "normal_evidence", "attack_evidence", "summary", "reason", "jobs", "job_results")})
+            payload["verification_observations"] = compact_observations(verification)
+            availability = payload["verification_observations"]["fact_availability"]
+            required_reads = []
+            if phase == "final" and availability["conclusion_missing"] and availability["successful_jobs"]:
+                payload["verification_job_facts"] = (verification.get("agent") or {}).get("job_results") or []
+                required_reads = ["payload.verification_job_facts"]
+            payload["comparison_candidates"] = peers.get(entry["canonical_id"], [])
+            payload["related_review_decisions"] = {peer["item_id"]: prior_reviews[peer["item_id"]]
+                for peer in payload["comparison_candidates"] if peer["item_id"] in prior_reviews}
             payload["verification_review"] = current_review(raw)
             if phase == "final":
                 integration = self._row("SELECT decision,batch_id FROM audit_review_items"
@@ -242,6 +265,7 @@ class ReviewStoreMixin:
                           "finding_revision": claim["revision"], "verification_id": claim.get("verification_id"),
                           "verification_status": claim.get("verification_status"), "conflicts": entry["conflicts"],
                           "requires_verification_review": claim.get("verification_status") == "verified" and not current_review(raw),
+                          "required_read_fields": required_reads,
                           "payload": payload})
         return items
 
@@ -253,39 +277,72 @@ class ReviewStoreMixin:
             for batch in self.list_review_batches(run_id):
                 if batch["phase"] == phase and batch["status"] == "deferred":
                     reviewed.update((i["item_id"], i["revision"]) for i in batch["items"])
+        from .review_input import source_input, bounded_item, comparison_groups
         groups, selected = [], []
-        for original in self._review_candidates(run_id, phase):
-            if (original["item_id"], original["revision"]) in reviewed:
-                continue
-            item = dict(original)
-            if phase == "final" and item["kind"] == "finding":
-                item.update(source_excerpts=[], evidence_complete=True)
-                refs = item["payload"].get("evidence") or []
-                item["evidence_complete"] = bool(refs) and len(refs) <= 4 and repository is not None
-                for ref in refs[:4]:
-                    try:
-                        start, end = ref["range"]["start"], ref["range"]["end"]
-                        if end - start > 199:
-                            raise ValueError("source citation exceeds bounded final review")
-                        read = repository.read_source(ref["snapshot_id"], ref["path"], start, end)
-                        if read.get("truncated") or read.get("start_line") != start or read.get("end_line", 0) < end or len(dump(read).encode()) > 8192:
-                            raise ValueError("source citation was not returned in full within capacity")
-                        item["source_excerpts"].append(read)
-                    except Exception:
-                        item["evidence_complete"] = False
-            if len(dump(item).encode()) > 32768:
-                item = {key: item[key] for key in ("kind", "item_id", "revision", "finding_id", "finding_revision",
-                                                  "verification_id", "verification_status", "task_key") if key in item}
-                item.update(payload={"notice": "完整内容超过本批容量，保留需补证；不能按摘要接受结论。"},
-                            source_excerpts=[], review_input_omitted=True, evidence_complete=False)
-            soft_limit = 32768 if self.host_queue_enabled(run_id) else 24576
-            if selected and (len(selected) >= 8 or len(dump(selected + [item]).encode()) > soft_limit):
+        pending = [i for i in self._review_candidates(run_id, phase) if (i["item_id"], i["revision"]) not in reviewed]
+        soft_limit = 32768 if self.host_queue_enabled(run_id) else 24576
+        for related in comparison_groups(pending):
+            prepared = [bounded_item(source_input(i, repository) if phase == "final" and i["kind"] == "finding" else i)
+                        for i in related]
+            if selected and (len(selected + prepared) > 8 or len(dump(selected + prepared).encode()) > soft_limit):
                 groups.append(selected)
                 selected = []
-            selected.append(item)
+            for item in prepared:
+                if selected and (len(selected) >= 8 or len(dump(selected + [item]).encode()) > soft_limit):
+                    groups.append(selected)
+                    selected = []
+                selected.append(item)
         if selected:
             groups.append(selected)
         return groups
+
+    def read_review_input(self, run_id, batch_id, item_id, field, offset=0, limit=1024, *, repository=None):
+        """Read only leased facts; host receipts live in the existing batch JSON.
+
+        Reading changes no fact revision or input_hash. Publication rechecks the stored
+        receipts and the live revision, so a forged manifest or a stale page cannot pass.
+        """
+        from .review_input import digest, field_values, source_input, access_complete, same_input
+        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 1024:
+            raise ValueError("分页 offset/limit 必须是有效整数，limit 最大 1024")
+        with self._lock:
+            batch = self.active_review_batch(run_id)
+            run = self._row("SELECT status FROM runs WHERE id=?", (run_id,))
+            if (not run or run[0] != "running" or not batch or batch["id"] != batch_id
+                    or not self.execution_write_allowed(run_id, batch["epoch"])):
+                raise ValueError("审查批次已失效或不属于当前执行")
+            item = next((i for i in batch["items"] if i["item_id"] == item_id), None)
+            manifest = next((p for p in (item or {}).get("paged_fields", []) if p["field"] == field), None)
+            if not manifest:
+                raise ValueError("只能读取当前批次清单中的 item_id 与 paged_fields.field")
+            full = next((i for i in self._review_candidates(run_id, batch["phase"]) if i["item_id"] == item_id), None)
+            if not same_input(item, full):
+                raise ValueError("结论版本已变化，旧页不能作为审查依据")
+            if batch["phase"] == "final" and full["kind"] == "finding":
+                full = source_input(full, repository)
+            text = dump(field_values(full)[field])
+            if digest(text) != manifest["sha256"] or len(text) != manifest["characters"]:
+                raise ValueError("被审原文已变化，请重新领取批次")
+            if offset > len(text):
+                raise ValueError("分页偏移超过字段长度")
+            stop = min(len(text), offset + limit)
+            ranges = item.setdefault("read_ranges", {}).setdefault(field, [])
+            ranges.append([offset, stop])
+            # Coalesce receipts rather than letting repeated reads inflate batch size.
+            merged = []
+            for start, end in sorted(ranges):
+                if merged and start <= merged[-1][1]:
+                    merged[-1][1] = max(end, merged[-1][1])
+                else:
+                    merged.append([start, end])
+            item["read_ranges"][field] = merged
+            complete = access_complete(item)
+            item["review_input_omitted"] = not complete
+            self._db.execute("UPDATE audit_review_batches SET items=? WHERE id=?", (dump(batch["items"]), batch_id))
+            return {"batch_id": batch_id, "item_id": item_id, "revision": item["revision"], "field": field,
+                    "sha256": manifest["sha256"], "offset": offset, "text": text[offset:stop],
+                    "total_characters": len(text), "next_offset": stop if stop < len(text) else None,
+                    "all_paged_fields_read": complete}
 
     def defer_review_batch(self, run_id, batch_id, reason):
         with self._lock:
@@ -295,6 +352,7 @@ class ReviewStoreMixin:
             self.append_event(run_id, None, "review_batch_deferred", {"batch_id": batch_id, "reason": reason})
 
     def prepare_review_batch(self, run_id, phase, epoch, repository=None):
+        from .review_input import same_input
         if phase not in {"integration", "final"}:
             raise ValueError("unsupported review phase")
         if not self.batch_review_enabled(run_id):
@@ -308,9 +366,9 @@ class ReviewStoreMixin:
                     self._db.execute("UPDATE audit_review_batches SET status='deferred',finished_at=?"
                                      " WHERE run_id=? AND phase='integration' AND status='pending'", (stamp(), run_id))
                 candidates = self._review_candidates(run_id, phase)
-                current = {item["item_id"]: item["revision"] for item in candidates}
+                current = {item["item_id"]: item for item in candidates}
                 active = self.active_review_batch(run_id, phase)
-                if active and (active["epoch"] != epoch or any(current.get(i["item_id"]) != i["revision"] for i in active["items"])):
+                if active and (active["epoch"] != epoch or any(not same_input(i, current.get(i["item_id"])) for i in active["items"])):
                     self._db.execute("UPDATE audit_review_batches SET status='stale',finished_at=? WHERE id=?", (stamp(), active["id"]))
                     active = None
                 if active:
@@ -333,18 +391,27 @@ class ReviewStoreMixin:
 
     def validate_review_decisions(self, run_id, batch, decisions, *, current_items=None, verification_reviews=None):
         """The publication gate and transaction share the same semantic checks."""
+        from .review_input import access_complete, same_input
+        # Never trust read receipts supplied by the model or a caller's cached batch.
+        stored = self.active_review_batch(run_id, batch["phase"])
+        if not stored or stored["id"] != batch["id"] or not self.execution_write_allowed(run_id, stored["epoch"]):
+            raise ValueError("审查批次已经失效")
+        batch = {**stored, "items": [{**i, "review_input_omitted": not access_complete(i) if i.get("paged_fields") else bool(i.get("review_input_omitted"))}
+                                     for i in stored["items"]]}
         current = {item["item_id"]: item for item in (
             current_items if current_items is not None else self._review_candidates(run_id, batch["phase"]))}
         for item in batch["items"]:
-            if item["item_id"] not in current or current[item["item_id"]]["revision"] != item["revision"]:
+            if not same_input(item, current.get(item["item_id"])):
                 raise ValueError("批次输入已变化，旧版本处置不能提交")
+            if item.get("required_read_fields") and item.get("review_input_omitted"):
+                raise ValueError("POC 已保存成功作业但未发布结论；必须用 read_review_input 完整读取本项作业事实后再处置，不能把空观测字段认定为没有实验。")
         reviews = list(verification_reviews or [])
         if reviews and not (self.host_queue_enabled(run_id) and batch["phase"] == "final"):
             raise ValueError("本批次不能提交动态复核")
         reviewed = {}
         for review in reviews:
             item = next((i for i in batch["items"] if i.get("finding_id") == review.get("finding_id")), None)
-            observations = (item or {}).get("payload", {}).get("verification_observations") or {}
+            observations = current.get((item or {}).get("item_id"), {}).get("payload", {}).get("verification_observations") or {}
             if (not item or item.get("verification_status") != "verified" or item.get("review_input_omitted")
                     or item.get("finding_revision") != review.get("revision")
                     or item.get("verification_id") != review.get("verification_id")
@@ -361,6 +428,16 @@ class ReviewStoreMixin:
                 "requires_verification_review": False if decision == "confirmed" else item.get("requires_verification_review"),
                 "conflicts": item.get("conflicts", []) + ([{"kind": "review_contested"}] if decision == "contested" else [])})
         decisions = validate_batch({**batch, "items": validated_items}, decisions, current_items=current.values())
+        by_decision = {d["item_id"]: d for d in decisions}
+        for decision in decisions:
+            if decision["decision"] != "accept":
+                continue
+            item = current[decision["item_id"]]
+            peers = {peer["item_id"] for peer in item.get("payload", {}).get("comparison_candidates", [])}
+            retained = {peer for peer in peers if by_decision.get(peer, {}).get("decision") not in {"duplicate", "withdraw"}}
+            distinct = set(decision.get("distinct_from") or [])
+            if not retained.issubset(distinct) or not distinct.issubset(peers):
+                raise ValueError("accept 前须判读 comparison_candidates：同一根因用 duplicate；不同根因在 distinct_from 列出保留的对照 item_id，并在 rationale 说明操作或前提差异。POC 状态及评分不同不代表不同根因。")
         tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
         directions = self._audit_direction_records(run_id)
         for decision in decisions:
@@ -377,6 +454,10 @@ class ReviewStoreMixin:
         current = {i["item_id"]: i for i in self._review_candidates(run_id, batch["phase"])}
         decisions = self.validate_review_decisions(run_id, batch, decisions, current_items=current.values(),
                                                  verification_reviews=verification_reviews)
+        # Host provenance belongs to the persisted decision, never the model's
+        # extra-forbidden publication schema.
+        for decision in decisions:
+            decision["input_policy"] = "paged-facts-v2"
         if verification_reviews:
             stored = self.record_verification_reviews(run_id, verification_reviews, plan_id=plan_id)
             if len(stored) != len(verification_reviews):

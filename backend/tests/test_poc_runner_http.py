@@ -94,3 +94,14 @@ def test_lab30_target_is_allowed_and_unknown_targets_rejected():
             assert exc.status_code in (400, 404)
         else:
             raise AssertionError(f"{bad!r} must be rejected")
+
+
+@pytest.mark.parametrize('path', ['/orders/create.php', '/orders/detail.php?id=4', '/orders/index.php'])
+def test_lab30_order_flow_uses_the_same_http_path_contract(path):
+    assert runner._check_path(path) == path
+
+
+@pytest.mark.parametrize('path', ['//outside.invalid/orders/create.php', '/orders/../auth/login.php', '/unconfigured/orders/create.php'])
+def test_order_support_does_not_open_external_or_unconfigured_paths(path):
+    with pytest.raises(HTTPException):
+        runner._check_path(path)

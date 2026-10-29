@@ -145,6 +145,16 @@ def test_http_only_inconclusive_still_records_successful_execution(tmp_path):
     assert store.records[0]["execution_status"] == "not_triggered"
 
 
+def test_a_runtime_failure_after_http_success_is_not_a_negative_experiment(tmp_path):
+    from audit.poc import PocPolicy
+    store = FakeStore()
+    verifier = PocVerifier(store=store, bus=FakeBus(), settings=settings(tmp_path), client_factory=FakeClient)
+    verifier._record(store.run, FINDING, PocPolicy(), PocVerificationResult(status="inconclusive", summary="结论阶段中断"),
+        prepared={}, jobs=[job("http-1")], artifacts={}, usage={}, reason="sdk_api_error")
+    assert store.records[0]["execution_status"] == "conclusion_error"
+    assert store.records[0]['agent']['job_results'][0]['job_id'] == 'http-1'
+
+
 def test_a_second_finding_is_not_claimed_after_the_first_uses_the_stage_allowance(tmp_path, monkeypatch):
     class BudgetStore(FakeStore):
         allowance = 7

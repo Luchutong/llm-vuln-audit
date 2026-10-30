@@ -250,6 +250,8 @@ POC Agent 的结论是**一个** agent 对自己那一次执行的判读；如�
 
 本次实测问题、覆盖复核、POC runner 升级及策略派生见 [修复交付文档](docs/lab30-validation-repairs.md)。
 
+2026-10-30 第七轮真实 LLM 全流程首次以 `completed` 收束（覆盖 61/61、终审 D=0、TP 22 / F1 0.830）。逐轮壁垒、修复与验收数据见 [闭环运行记录](docs/lab30-closure-run.md)，交付材料见 [deliverable/lab30-closure-2026-10-30](deliverable/lab30-closure-2026-10-30/README.md)。
+
 详细协议、接口和验收见 [实施交付文档](docs/lab30-prompt-comparison-v2-plan.md)，评分锚点见 [核验说明](datasets/lab30-shop/SCORING_V2.md)。自动验收使用离线模拟，实际九次审计需在页面显式启动，模拟分数不能作为课程结果。
 
 #### 旧单元实验

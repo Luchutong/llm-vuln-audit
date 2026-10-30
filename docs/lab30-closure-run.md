@@ -341,3 +341,376 @@ POC 明细（`poc_verification_recorded`）：confirmed 21、uncertain 25、reje
 FN）、二档去重的中文表述归一（第 1 条，直接压低 D）、以及 4 条读到未主张的分类
 复核（第 4 条）。这些都不需要改 lab30 源码、真值或评分锚点。
 
+
+## 闭环运行（第三轮：POC 直跑与调度振荡修复后）
+
+本轮验证三处修复：
+1. **POC 直跑**：审计产出的 POC 脚本由宿主在模型规划前直接执行（`poc_stored_poc_executed`），
+   单条 finding 的 POC 墙钟时间从 60–166s 降到 16–37s；
+2. **worker 起跑闸门自锁**：`execute_slot` 不再把自己当作 `additional_workers=1` 传入
+   `refresh_review_reserve`，消除了 1311 条 `workflow_budget_reallocated` 与 244 条
+   `host_retry` 的振荡；
+3. **checkpoint 续跑不重跑 POC**：同一 finding 的已存 POC 在一个 runtime 内只执行一次。
+
+lab30 业务源码、ground truth、评分锚点、模型与预算均未改动。
+
+| 项 | 值 |
+|---|---|
+| commit | `524c9ee118fd73c295b5a7ab45b1cbd619cdff85` |
+| run id | `17fc2e83ab1342a089583b548e45daa0` |
+| 时间 | 2026-10-30 11:08:09Z – 11:43:10Z（脚本计量 1987.5s，上限 10800s） |
+| 状态 | `inconclusive`，stop code `final_review_incomplete`（22 项未完成终审） |
+| 用量 | responses 266 / 2048，tools 299 / 16384 |
+| 事件 | 3597 条 |
+| 复位 | 开跑前与结束后各一次，4 个账号偏差 0；每条 finding 前复位 28 次，失败 0 |
+
+产物：`datasets/lab30-shop/closure_17fc2e83.json`、`score_all_v2.json`（另存
+`score_17fc2e83.json`）、`report_17fc2e83.md`。
+
+### 验收判据（第三轮）
+
+| 判据 | 要求 | 实际 | 结论 |
+|---|---|---|---|
+| run 状态 | 非 `failed`，`inconclusive` 须有明确 stop_reason | `inconclusive` / `final_review_incomplete` | 通过 |
+| 覆盖收束 | `pending_total == 0` | **0**（total 61，read 61，reviewed 61） | 通过 |
+| POC 作业 | `jobs > 0` 且至少 1 条 confirmed | **50 / 28 条记录**（confirmed 27，uncertain 1） | 通过 |
+| POC 认证 | `authentication_failed == 0` | 0（`state_mismatch` 0） | 通过 |
+| 复位 | `reset_between_findings`、`seed_verified` | 均为 true，`reset_failures` 0，`post_run_reset` true | 通过 |
+| 上下文 | `history_limit_hits == 0`，峰值有记录 | 0；峰值 131,980 / 393,216 字节（33.56%）；摘要 0 | 通过 |
+| 检出 | TP ≥ 26、F1 ≥ 0.9286、D ≤ 2 | **TP 23、F1 0.7302、D 8** | **未通过** |
+| 报告 | 非空 Markdown | 已写入 `report_17fc2e83.md` | 通过 |
+
+v2 评分：TP 23、D 8、U 2、FN 7，precision 0.697、recall 0.767、F1 0.7302；
+33 条 finding 对应 30 条真值，CVSS 基础分平均绝对误差 1.3261。
+
+### 为什么终审没走完（事实，不是推测）
+
+最终审查阶段只处理了 6 条结论就被中断。事件 `55035`–`55078` 显示：
+
+- 第 17、18 轮都领取同一批次 `7f49062d…`（2 条会话固定类结论）；
+- 第 17 轮三次尝试依次被拒：先因“动态已验证结论尚缺同版本正式观测复核”，
+  再两次因 `verification_reviews.N.rationale_summary: Field required`；
+- 第 18 轮补上了 `rationale_summary`，随后两次被
+  `accept 前须判读 comparison_candidates` 拒绝；
+- 第 18 轮失败后 `run_final_batches` 的 `final_stalls >= 2` 直接结束整个终审，
+  留下 22 项未处置，尽管终审额度还剩 30 个 responses（40 中已用 10）。
+
+也就是说，模型在逐轮逼近批次契约（每轮都在修上一个错误），而宿主的“连续 2 轮
+失败即放弃”把这种进展也当成了停滞。这是一个框架侧的不合理旧约束，而不是证据
+不足或预算不足。
+
+### 对应修复
+
+- `backend/audit/worker.py`：新增 `final_review_stall()`，终审停滞按
+  **拒绝原因** 计数——同一冻结批次被同一理由连续拒绝 3 次（`planner_decision_retries+1`）
+  才停止；拒绝理由变化视为进展，允许下一轮。批次完成即以 0 重置。
+- `backend/audit/review_store.py`：`accept` 未判读 `comparison_candidates` 的拒绝
+  现在直接列出仍保留的对照 `item_id`，并指明写进哪一项的 `distinct_from`；
+  原报错只复述规则，模型连续两次以空 `distinct_from` 重新提交。
+- 回归：`backend/tests/test_final_review_stall.py`（停滞计数）、
+  `backend/tests/test_review_closure.py::test_a_changed_final_rejection_earns_another_round`
+  （同一批次先两次不同理由被拒、第三次发布成功，批次必须结清）、
+  `backend/tests/test_review_input_repair.py`（拒绝信息必须点名对照项）。
+
+## 闭环运行（第四轮：终审停滞修复验证与覆盖复核暴露的新墙）
+
+第四轮在第三轮三处修复之上，只新增了终审停滞计数的改动，用来验证终审能否走完。
+结果：**终审确实走完了**（13、14 轮结清全部 final 批次，`review_batches_pending` 为空），
+但源码挖掘阶段在覆盖复核处撞上了另一面墙，覆盖停在 46/61。
+
+| 项 | 值 |
+|---|---|
+| commit | `524c9ee118fd73c295b5a7ab45b1cbd619cdff85`（与本轮修复前的代码一致） |
+| run id | `a93ba654480d4520a805959e28cf4332` |
+| 时间 | 2026-10-30 11:52:54Z – 12:16:53Z（脚本计量 1433.9s，上限 10800s） |
+| 状态 | `inconclusive`，stop code `audit_partial` |
+| 用量 | responses 154 / 2048，tools 152 / 16384 |
+| 事件 | 2234 条 |
+| 复位 | 开跑前与结束后各一次，每条 finding 前复位 20 次，失败 0，种子验证通过 |
+
+产物：`datasets/lab30-shop/closure_a93ba654.json`、`report_a93ba654.md`。
+（`score_all_v2.json` 已被本轮覆盖。）
+
+### 验收判据（第四轮）
+
+| 判据 | 要求 | 实际 | 结论 |
+|---|---|---|---|
+| run 状态 | 非 `failed` | `inconclusive` | 通过 |
+| 覆盖收束 | `pending_total == 0` | **15**（total 61，read 46） | **未通过** |
+| POC 作业 | `jobs > 0` 且至少 1 条 confirmed | 34 / 20 条记录（confirmed 18，uncertain 2） | 通过 |
+| POC 认证 | `authentication_failed == 0` | 0（`state_mismatch` 0） | 通过 |
+| 复位 | `reset_between_findings`、`seed_verified` | 均为 true，`post_run_reset` true | 通过 |
+| 上下文 | `history_limit_hits == 0` | 0；峰值 150,232 / 393,216 字节（38.21%）；摘要 0 | 通过 |
+| 终审 | 全部 final 批次结清 | 13、14 轮完成，`review_batches_pending` 空 | 通过 |
+| 检出 | TP ≥ 26、F1 ≥ 0.9286、D ≤ 2 | TP 18、F1 0.72、D 1 | 未通过 |
+| 报告 | 非空 Markdown | 已写入 `report_a93ba654.md` | 通过 |
+
+v2 评分：TP 18、D 1、U 1、FN 12，precision 0.90、recall 0.60、F1 0.72；
+20 条 finding，CVSS 基础分平均绝对误差 1.2000。检出下降与覆盖下降同向：
+少读了 15 个第一方入口，finding 数从 33 降到 20，precision 上升而 recall 下降。
+
+### 覆盖复核为什么停在 15（事件链，不是推测）
+
+第 4、5、6 轮各自以同一条提交拒绝结束：
+
+```
+planner_commit_rejected
+  未知源码路径不能直接升级为必做方向，请明确修正范围后再采纳
+```
+
+随后宿主按“覆盖缺口签名连续不变”结束 discovery，留下 15 个未读路径。
+被拒的方向是 `dir_06bfef369c97d661810937dc739658b7`，文本为：
+
+> lab30-shop/app/public/ops/users.php Cookie 授权绕过、report.php/member_lookup.php SQLi、support/download.php 路径穿越待成条
+
+它的 `unknown_paths` 是 `["report.php/member_lookup.php"]`。冻结源码里两个文件其实都存在
+（`ops/report.php`、`src/member_lookup.php`）——那是模型在散文里用斜杠把**两个文件名**
+连成了一个 token，而宿主的路径识别正则把整个 token 当成一条路径。于是：
+
+1. 一个真实、可执行的方向被标成 `requirement: advisory` + `unknown_paths`；
+2. `direction_updates.assign` 对这类方向一律拒绝，而 `direction_updates` 没有“修正路径”的动作，
+   模型无论如何都走不通；
+3. 拒绝信息只重复规则，不说是哪个方向、哪些名字、接下来能做什么；
+4. 覆盖缺口停滞计数只看 `pending_paths`，模型换了错误也照样算停滞。
+
+这是框架侧缺陷：识别错误 + 不可能被满足的门禁 + 不可执行的拒绝信息 + 不区分进展的停滞计数。
+
+### 对应修复（第五轮验证用）
+
+- `backend/audit/directions.py`：新增 `unknown_source_names()`，把匹配到的 token 按 `/`
+  拆段后再对冻结路径求解，只有所有段都解不出才算未知。`report.php/member_lookup.php`
+  因此不再被当作未知路径。
+- `backend/audit/directions.py`：未知路径拒绝现在点名方向 ID 与具体文件名，并给出两条
+  可执行出路（`skip` 说明该路径不在冻结源码内，或 `resolve` 引用同一 `direction_id` 的取证）；
+  同一方向被多个任务领取的拒绝也点名两个任务键。
+- `backend/audit/worker.py`：覆盖复核停滞签名改为 `(pending_paths, 本轮失败原因)`，
+  与终审停滞同一语义——同一缺口背后换了拒绝理由视为进展，允许一轮；`last_planner_failure`
+  改为每轮开头重置，只表示本轮失败。
+- `backend/audit/worker.py` / `review_store.py`：`finish_goal` 支持 `code`，
+  覆盖复核结束、阻塞未解除、尝试耗尽分别落 `coverage_incomplete` / `blocker_unresolved` /
+  `attempts_exhausted`；`review_terminal_reason` 为这些代码给出具体诊断，不再一律
+  `audit_partial`（第四轮的 `audit_partial` 就是这样丢掉了真实原因）。
+- 回归：`tests/test_host_queue.py::test_a_worker_naming_two_files_in_prose_does_not_make_a_direction_unassignable`、
+  `::test_an_unknown_path_refusal_names_the_names_and_the_allowed_actions`、
+  `tests/test_coverage_review_policy.py::test_changed_coverage_round_errors_earn_another_review_round`、
+  `tests/test_review_input_repair.py::test_a_coverage_stop_keeps_its_own_diagnosis`。
+
+## 闭环运行（第五轮：覆盖复核修复验证与一次网络瞬断）
+
+第五轮验证第四轮末尾的四项修复。覆盖复核这条链**第一次真正走通**：缺口从 61 降到 1，
+`coverage_review_recorded` 在第 3、5、6 轮各落一次，第四轮无论如何都分派不出去的方向
+`dir_e8afb3c2ccfa2fc9ba76c97f35c9da1e` 在 12:29:43Z 被正常 `assign` 给
+`ops-report-secondorder`，12:31:42Z 以二阶 SQLi 证据 `resolve`。但运行在 592s 时因
+模型连接错误收束，POC 阶段没有开始。
+
+| 项 | 值 |
+|---|---|
+| run id | `64bd9c5074334ab687a01e18229b7b5e` |
+| 代码版本 | 工作树的 `directions/worker/review_store` 修复（未提交），commit 记 `524c9ee1` |
+| 时间 | 2026-10-30 12:25:41Z – 12:35:33Z（脚本计量 592.9s，上限 10800s） |
+| 状态 | `inconclusive`，stop code `model_unavailable` |
+| 用量 | responses 95 / 2048，tools 147 / 16384 |
+| 事件 | 1079 条 |
+| 复位 | 开跑前与结束后各一次，种子 4 个账号偏差 0；POC 阶段未开始，逐条复位 0 次 |
+
+产物：`datasets/lab30-shop/closure_64bd9c50.json`、`report_64bd9c50.md`。
+
+### 验收判据（第五轮）
+
+| 判据 | 要求 | 实际 | 结论 |
+|---|---|---|---|
+| run 状态 | 非 `failed` | `inconclusive`（`model_unavailable`） | 通过但非目标态 |
+| 覆盖收束 | `pending_total == 0` | **1**（total 61，read 55，reviewed 60） | **未通过** |
+| POC 作业 | `jobs > 0` 且至少 1 条 confirmed | 0（discovery 未收束，POC 阶段未进入） | **未通过** |
+| 上下文 | `history_limit_hits == 0` | 0；峰值 136,634 / 393,216 字节（34.75%）；摘要 0 | 通过 |
+| 检出 | TP ≥ 26、F1 ≥ 0.9286、D ≤ 2 | TP 22、F1 0.7586、D 5 | 未通过 |
+| 报告 | 非空 Markdown | 已写入 `report_64bd9c50.md` | 通过 |
+
+v2 评分：TP 22、D 5、U 1、FN 8，precision 0.7857、recall 0.7333、F1 0.7586，
+finding 28 条。相对第四轮（TP 18、F1 0.72）召回上升、精度下降，重复项从 1 升到 5。
+
+### 覆盖复核修复有效（事件链）
+
+```
+12:25:41  coverage_review_requested  pending_total 61
+12:29:27  coverage_review_requested  pending_total 10
+12:29:43  coverage_review_recorded   skip: assets/products.svg（静态资源）
+12:29:43  audit_directions_updated   assign dir_e8af… → ops-report-secondorder
+12:31:42  audit_directions_updated   resolve dir_e8af…（update.php 写入 → report.php 拼接的二阶注入）
+12:31:42  coverage_review_requested  pending_total 5
+12:32:05  coverage_review_recorded   skip: app.js / package.py / compose.yaml / docker/php.ini
+12:34:00  coverage_review_requested  pending_total 1（fixtures/server.py）
+```
+
+第四轮被路径识别误判挡住的 `dir_06bfef…` 类方向在本轮没有再出现拒绝；
+`planner_round_failed` 全程 0 次。剩下的 1 个缺口是 `lab30-shop/fixtures/server.py`
+（靶场自带的测试夹具），第 6 轮已把它送进复核，但该轮尚未结束运行就终止了。
+
+### 终止原因：连接错误没有被当成瞬时故障
+
+```
+12:34:55  planner_task_host_retry  content-page-traversal  host_failures 1
+12:35:00  planner_task_host_retry  fixtures-server-coverage  host_failures 1
+12:35:33  planner_task_host_retry  content-page-traversal  host_failures 2
+12:35:34  run_inconclusive  model_unavailable
+          "模型连续失败 3 次（worker）：ModelCallFailed: APIConnectionError: Connection error."
+```
+
+三次失败都是 `APIConnectionError`（走本机代理访问 `api.deepseek.com` 时的连接层错误），
+彼此间隔 38 秒，期间 12:34:51 还有一次任务成功结算。事件里没有任何 `provider_retry`：
+`AuditCodeModel._retry_wait()` 只把带状态码的 408/409/425/429/5xx 与 `request_timeout`
+视为可重试，而连接错误没有状态码，于是**第一次尝试失败就直接进入熔断计数**。计数按设计
+在成功结算时归零，三次连续耗尽就把运行按 `model_unavailable` 收束——这条规则本身没错，
+错的是连接错误从未获得重试机会。
+
+### 对应修复
+
+- `backend/audit/codemodel.py`：新增 `_CONNECTION_ERRORS`（`APIConnectionError`、httpx 的
+  `ConnectError/ReadError/RemoteProtocolError/…`、内建的 `ConnectionResetError` 等）。
+  `failure()` 把其中没有状态码的错误也标注为 `ModelCallFailed("model_error")`（此前会作为
+  “非预期异常”逃逸），`_retry_wait()` 则对“无状态码且 cause 是连接错误”返回退避时长，
+  与 429 走同一条有界重试路径（`transient_retries=3`、指数退避、计入预算、发 `provider_retry`）。
+- 回归：`tests/test_code_model.py::test_a_connection_error_without_a_status_is_retried`、
+  `::test_an_unreachable_endpoint_still_exhausts_its_retries`。
+- 定向回归：`test_code_model.py`、`test_structured_output.py`、`test_worker_runtime.py`、
+  `test_worker_publication_recovery.py`、`test_execution_stability.py`、
+  `test_coverage_review_policy.py` 共 129 项全部通过。
+
+## 闭环运行（第六轮：首次完整流程闭环与终审配额/拒绝信息修复）
+
+第六轮是第一次把整条链走到评分：覆盖复核 61/61 收束、POC 阶段实际执行并产出 32 条
+confirmed、终审批处理建好并跑了 21/22 个批次、v2 评分落盘。停留在终审最后一批：
+9 项结论未完成处置，运行以 `final_review_incomplete` 收束。本轮暴露的两个宿主缺陷
+（配额困在已结束阶段、拒绝信息逐项披露）已在第七轮前修复。
+
+| 项 | 值 |
+|---|---|
+| run id | `68240a4b547f4839ac18520429177c5a` |
+| 代码版本 | commit `524c9ee1`（第五轮网络错误重试修复） |
+| 时间 | 2026-10-30 12:46:44Z – 13:44:35Z（脚本计量 3469.2s，上限 10800s） |
+| 模型 | deepseek-flash |
+| 整次上限 / 阶段配额 | 2048 / 16384 / 10800；derived `1440 / 512 / 96` |
+| 状态 | `inconclusive`，stop code `final_review_incomplete`（9 项） |
+| 用量 | responses 368 / 2048，tools 374 / 16384 |
+| 事件 | 4623 条 |
+| 复位 | 开跑前与结束后各一次，种子 4 个账号偏差 0；POC 逐条复位 33 次 |
+
+产物：`datasets/lab30-shop/closure_68240a4b.json`、`report_68240a4b.md`、
+`score_all_v2.json`。
+
+### 验收判据（第六轮）
+
+| 判据 | 要求 | 实际 | 结论 |
+|---|---|---|---|
+| run 状态 | 非 `failed` | `inconclusive`（`final_review_incomplete`） | 通过但非目标态 |
+| 覆盖收束 | `pending_total == 0` | **0**（total 61，read 58，reviewed 61） | 通过 |
+| POC 作业 | `jobs > 0` 且至少 1 条 confirmed | 52 / **32 confirmed**，1 uncertain，复位 33 次，认证失败 0 | 通过 |
+| 上下文 | `history_limit_hits == 0` | 0；峰值 147,212 / 393,216 字节（37.44%）；摘要 0 | 通过 |
+| 检出 | TP ≥ 26、F1 ≥ 0.9286、D ≤ 2 | TP 27、D 10、U 0、FN 3、F1 0.8060 | TP 通过，F1/D 未通过 |
+| 报告 | 非空 Markdown | 已写入 `report_68240a4b.md`（262 KB） | 通过 |
+| `failed_checks` | 为空 | `[]` | 通过 |
+
+### 终审为什么停在最后一批
+
+13:34:07 进入 review 阶段时 review 配额只剩 51 条，13:44:00 最后一次重新分配后也只有
+75 条；同一时刻 POC 阶段已花 138 / 1809，仍握着 1809 条未用配额。终审每轮消耗 3 条
+（1 次发布 + 2 次纠正），75 条只够 25 轮，而 22 个批次中最后一个 2 项批次连续 27 轮
+失败。失败文本在四类拒绝之间来回跳：
+
+```
+13:39:58 planner_round_failed ... accept 前须判读 comparison_candidates：… 须把 X 写入 item_id=A 的 distinct_from
+13:40:19 planner_round_failed ... accept 前须判读 comparison_candidates：… 须把 Y 写入 item_id=B 的 distinct_from
+13:41:27 planner_round_failed ... verification_reviews.0.rationale_summary: Field required；…verification_reviews.1…
+13:41:55 planner_round_failed ... accept 前须判读 comparison_candidates：…
+```
+
+模型每轮修好被点名的一项，下一次拒绝才点名另一项，两个 item 交替消耗纠正额度，
+直到整轮失败；插件在 failure 变化时允许继续，于是一个 2 项批次被反复重试了 27 轮。
+配额侧同理：`refresh_review_reserve` 只能按当前 review 配额重新切分，
+`set_workflow_stage("review")` 从不回收已结束 POC 阶段的剩余配额。
+
+### 对应修复（第七轮前）
+
+- `backend/audit/review_store.py::validate_review_decisions`：先收集**全部** item 的
+  对照要求（`problems`），一次性抛出以“本批次逐项要求：…”结尾的拒绝，不再逐项披露。
+- `backend/audit/execution_state.py`：新增 `Store.release_poc_quota(run_id)`，
+  把 POC 阶段未花的 responses 转给 review，并累加 `transferred`；显式配额
+  （`source == "explicit"`）不参与。`worker.py::run_final_batches` 进入终审批处理前调用。
+  刻意**不**放在 POC→review 的每次切换上：discovery 之后 POC/review 会交替多轮，
+  提前回收会让 POC 阶段在 `remaining.poc >= 4` 的判定处饿死（`test_each_two_nonverified_results_still_receive_a_planner_review` 回归）。
+- 历史/缺失字段：`transferred` 用 `value.get("transferred", 0)` 读取，旧运行状态不因新字段失败。
+- 回归：`test_finished_poc_quota_moves_to_the_final_review`、
+  `test_same_anchor_acceptance_requires_an_explicit_comparison`（断言一次拒绝列出两项）。
+- 定向回归：`test_discovery_workflow / test_review_closure / test_workflow_review_boundaries /
+  test_host_queue / test_review_input_repair / test_coverage_review_policy` 共 79 项通过。
+
+## 闭环运行（第七轮：终审完整收束，首次 `completed`）
+
+第七轮验证第六轮末尾的两项修复（终审配对拒绝一次列全、POC→review 配额回收）。
+运行以 `goal_met` 正常完成：覆盖 61/61、POC 24 条 confirmed 且认证失败 0、
+终审 22 个批次全部处置（D=0）、`failed_checks` 为空。检出 TP 22 / FN 8 / F1 0.830，
+低于归档基准（TP 26 / F1 0.9286），差距来自漏检而非流程。
+
+| 项 | 值 |
+|---|---|
+| run id | `2969bcf204cd43b5baf2683cbb0e841d` |
+| 代码版本 | 工作树（第五/六轮修复，commit 记 `524c9ee1`） |
+| 时间 | 2026-10-30 13:58:07Z – 14:45:26Z（脚本计量 2832.1s，上限 10800s） |
+| 模型 | deepseek-flash |
+| 整次上限 / 阶段配额 | 2048 / 16384 / 10800；derived `1440 / 512 / 96` |
+| 状态 | **`completed`**，stop `goal_met` |
+| 用量 | responses 254 / 2048，tools 270 / 16384 |
+| 事件 | 3212 条 |
+| 复位 | 开跑前与结束后各一次，种子 4 个账号偏差 0；POC 逐条复位 25 次 |
+
+产物：`datasets/lab30-shop/closure_2969bcf2.json`、`report_2969bcf2.md`（207 KB）、
+`score_all_v2.json`。
+
+### 验收判据（第七轮）
+
+| 判据 | 要求 | 实际 | 结论 |
+|---|---|---|---|
+| run 状态 | 非 `failed`，首选 `completed` | `completed`（`goal_met`） | **通过** |
+| 覆盖收束 | `pending_total == 0` | **0**（total 61，read 59，reviewed 61） | **通过** |
+| POC 作业 | `jobs > 0` 且至少 1 条 confirmed | 47 / **24 confirmed**（1 uncertain），复位 25 次，认证失败 0 | **通过** |
+| 上下文 | `history_limit_hits == 0` | 0；峰值 150,895 / 393,216 字节（38.37%）；摘要 0 | **通过** |
+| 终审 | 全部批次处置，无 pending | D=0，U=1，`failed_checks == []` | **通过** |
+| 检出 | TP ≥ 26、F1 ≥ 0.9286 | TP 22、FN 8、precision 0.9565、F1 0.8302 | 未通过 |
+| 报告 | 非空 Markdown | `report_2969bcf2.md` | **通过** |
+
+### 配额回收在真实运行中生效
+
+第六轮结束时 POC 阶段握着 1809 条未用配额、终审只有 75 条；第七轮在终审批处理入口
+回收后，运行末尾的冻结状态为：
+
+```
+stage=review source=derived
+limits   discovery 105 / poc 120 / review 1823
+used     discovery 105 / poc 120 / review  29
+transferred 3209
+```
+
+即 POC 阶段的 120 条全部花完，未花完的配额（含 discovery→poc 转移的 1416 条）在
+终审前一次性转入 review，终审只用了 29 条就完成全部批次。终审期间仍有 4 次
+`planner_round_failed`（`rationale_summary` 缺字段、观测版本不符等），但失败文本每次
+都在变化，按“changed rejection earns another round”继续，最终全部结算。
+`run_final_batches` 之后 `status == completed`，不再出现 `final_review_incomplete`。
+
+### 检出差距（相对归档 26 TP / F1 0.9286）
+
+| truth | 类型 | 漏检原因 | 第六轮是否覆盖到该路径 |
+|---|---|---|---|
+| 07 | 动态函数调用代码执行（`ops/formula.php`） | 未读/未报 | 是 |
+| 09 | 异常与堆栈信息泄露（`ops/database.php`） | 未读/未报 | 否 |
+| 10 | MD5 存储密码（`auth/register.php`、`src/setup.php`） | 未读/未报 | 是 |
+| 14 | CSRF（`account/settings.php`） | 未读/未报 | 否 |
+| 17 | 信任角色 Cookie 越权（`ops/users.php`） | 有相关 finding，但判为 no_related_candidate | 是 |
+| 18 | 信任请求头认证绕过（`ops/maintenance.php`） | 未读/未报 | 是 |
+| 23 | 跨文件 SQLi（`ops/members.php`、`src/member_lookup.php`） | 未读/未报 | 是 |
+| 24 | 跨文件命令注入（`ops/batch-check.php`、`src/host_check.php`） | 报在 `ops/ping.php:2`，锚点与 truth 不符 | 是 |
+
+第七轮 discovery 在 14:09 就收束（105 responses、33 个路径），第六轮同模型在同一策略下
+跑了 164 responses、41 个路径并命中 TP 27。两次差异不是预算（都有 1400+ 未用）而是
+Planner 探索深度：`coverage_review` 只要求“每条 first-party 路径被读过或被理由跳过”，
+不要求按漏洞类逐一取证，因此同一模型会出现 22–27 TP 的波动。这条判定属于既有完成策略，
+不在本轮擅自改动；是否切换深一些的模型或调整发现粒度，留给后续决策。

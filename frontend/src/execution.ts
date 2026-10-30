@@ -19,6 +19,7 @@ const PHASE_LABELS: Record<string, string> = {
   prepare: '准备源码证据', explore: '源码取证', verdict: '整理源码结论',
 };
 const STOP_LABELS: Record<string, string> = {
+  poc_unresolved: '所选或新增 POC 仍有未决，已保留阶段报告',
   run_budget_exhausted: '整次审计预算已耗尽', budget_exhausted: '整次审计预算已耗尽',
   run_responses_exhausted: '整次模型请求额度已耗尽', run_tools_exhausted: '整次工具额度已耗尽',
   run_seconds_exhausted: '整次活跃时间已耗尽', deadline_exceeded: '整次活跃时间已耗尽',
@@ -27,6 +28,8 @@ const STOP_LABELS: Record<string, string> = {
   user_cancelled: '用户取消', model_unavailable: '模型暂不可用',
   final_review_incomplete: '部分对象尚未完成终审', final_review_needs_evidence: '终审已结束，部分结论仍需补证',
   final_review_contested: '终审已结束，部分结论存疑或被排除', audit_partial: '审计已结束，已保存阶段报告',
+  coverage_incomplete: '覆盖复核未完成，未读源码方向保留在阶段报告', blocker_unresolved: '仍有受阻方向未解除',
+  attempts_exhausted: 'worker 共享尝试上限已耗尽',
 };
 const DIMENSIONS: Record<string, string> = { responses: '模型请求', tools: '工具调用', seconds: '活跃时间' };
 
@@ -116,6 +119,7 @@ export function pocReason(reason?: string | null, message?: string | null): stri
 
 export function pocRequestLimits(policy?: Run['poc_policy']): string {
   if (policy?.runtime !== 'claude_sdk') return '';
+  if (policy.session_policy === 'session-queue-v1') return '持续会话队列：按顺序验证并逐项保存；单项耗时仅提醒，不设逐漏洞请求／时间切分。整次与 POC 阶段预算、单项作业上限及网络超时仍生效。';
   const value = policy.sdk_requests;
   if (!value || typeof value !== 'object') return '历史任务未冻结 SDK 分项额度；实际额度见验证记录。';
   const limits = value as Record<string, unknown>;

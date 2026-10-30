@@ -16,6 +16,7 @@ export interface TaskSpec {
   workflow_policy?: 'legacy' | 'discovery_first';
   orchestration_policy?: 'rounds-v1' | 'host-queue-v1';
   review_policy?: 'legacy' | 'batch-v1';
+  continuation?: { version: string; parent_run_id: string; root_run_id: string; mode: 'poc_review' | 'review' | 'audit'; parent_usage?: Budget };
   /** Explicit discovery/POC/review response quotas; omitted means the host's derived split. */
   workflow_limits?: WorkflowAllocation | null;
   /** Fresh audits keep the shared ledger but start with no inherited findings. */
@@ -256,7 +257,25 @@ export interface ExecutionSummary {
   workflow?: WorkflowExecution | null;
   directions?: DirectionSummary | null;
   verification?: VerificationSummary | null;
+  poc_queue?: { policy: 'session-queue-v1'; total: number; counts: Record<string, number>; omitted: number;
+    items: { finding_id: string; title: string; revision: number; state: string; status: string; verification_id?: string | null; job_id?: string | null }[];
+    heartbeat?: { at: string; finding_id?: string; elapsed_seconds?: number; soft_limit_exceeded?: boolean; published?: boolean; jobs?: number } | null };
+  poc_statistics?: PocStatistics | null;
   final_summary_available: boolean;
+}
+/** Server-side POC accounting: categories never substitute for one another. */
+export interface PocStatistics {
+  version: 'poc-statistics-v1';
+  run_status: string;
+  host: { last_heartbeat_at?: string | null; heartbeat_age_seconds?: number | null; current_item_seconds?: number | null; soft_limit_exceeded?: boolean | null; note?: string };
+  model: { streams: number; aborted: number; last_abort_code?: string | null; event_types?: Record<string, number>; content_events?: number; received_bytes?: number; last_elapsed_seconds?: number | null; first_event_seconds?: number | null; usage?: Record<string, number>; waiting_seconds?: number | null; note?: string };
+  generation: { text_chars?: number; thinking_chars?: number; tool_arg_chars?: number; note?: string };
+  experiments: { jobs: number; duration_ms?: number; observations?: number | null; last_at?: string | null; since_last_seconds?: number | null; checkpoints?: number; duplicates?: number; supplements?: number };
+  conclusion: { published: number; verdicts?: Record<string, number>; unpublished_reason?: string | null };
+  recovery: { started?: number; published?: number; failed?: number; skipped?: number; requests?: number };
+  continuation: { inherited?: number; retested?: number; inherited_status?: Record<string, number>; current_status?: Record<string, number>; parent_run_id?: string | null; root_run_id?: string | null; note?: string };
+  unfinished?: { finding_id?: string; title?: string; state?: string; status?: string; reason?: string | null }[];
+  unfinished_total?: number;
 }
 export type WorkflowStage = 'discovery' | 'poc' | 'review';
 export type WorkflowAllocation = Record<WorkflowStage, number>;
@@ -592,7 +611,7 @@ export interface VerificationJob {
 export interface POC { filename: string; language: string; script: string; instructions: string; normal_input: string; attack_input: string; expected_result: string }
 export type Verdict = 'confirmed' | 'rejected' | 'uncertain';
 export type Conclusion = 'candidate' | 'no_candidate' | 'insufficient_context';
-export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'authentication_failed' | 'state_mismatch' | 'not_triggered' | 'conclusion_error' | 'not_run' | 'other_error' | 'timeout' | 'precondition_failed';
+export type ExecutionStatus = 'success' | 'syntax_error' | 'connection_failed' | 'environment_mismatch' | 'authentication_failed' | 'state_mismatch' | 'not_triggered' | 'execution_error' | 'conclusion_error' | 'not_run' | 'other_error' | 'timeout' | 'precondition_failed';
 export type VerificationStatus = 'verified' | 'rejected' | 'inconclusive' | 'not_applicable' | 'environment_unavailable' | 'unverified' | 'stale';
 /** Where a verification row came from: the isolated POC agent, or a pre-migration human record. */
 export type VerificationSource = 'poc_agent' | 'legacy_human';
@@ -925,6 +944,7 @@ export interface ModelProfile {
   created_at?: string;
   updated_at?: string;
   selected?: boolean;
+  unavailable_reason?: string;
 }
 
 export interface Config {

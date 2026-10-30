@@ -96,7 +96,7 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorMode>(null);
   const [draft, setDraft] = useState<ProfileDraft>(EMPTY_DRAFT);
-  const [busy, setBusy] = useState<'save' | 'select' | 'delete' | 'check' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'select' | 'delete' | 'check' | 'sync' | null>(null);
   const [result, setResult] = useState<CheckResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -228,6 +228,15 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
     }
   };
 
+  const syncEnv = async () => {
+    setBusy('sync'); setError(null); setNotice(null);
+    try {
+      const result = await post<{ message: string }>('/config/sync-env', {});
+      setNotice(result.message);
+    } catch (exc) { setError(errorText(exc)); }
+    finally { setBusy(null); }
+  };
+
   const removeProfile = async (profile: ModelProfile) => {
     if (profile.id === selectedId || isEnvironmentProfile(profile)) return;
     if (!window.confirm(`删除模型档案「${profile.label}」？此操作不会影响既有审计记录。`)) return;
@@ -283,11 +292,13 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
             <button type="button" className="btn btn-primary" onClick={beginCreate} disabled={disabled}>新建档案</button>
           </div>
           <div style={{ padding: '12px 16px' }}>
+            <p className="small muted">切换档案会保存在本地，供新建审计及复测使用；既有任务沿用冻结配置。</p>
             {profiles.length === 0 ? (
               <div className="empty" style={{ padding: '14px 0' }}>还没有模型档案，请新建一个连接配置。</div>
             ) : profiles.map((profile, index) => {
               const selected = profile.id === selectedId;
               const environment = isEnvironmentProfile(profile);
+              const unavailable = profile.unavailable_reason || (profile.model.trim().toLowerCase() === 'ark-code-latest' ? 'ark-code-latest 已停用，请选择其他档案。' : '');
               return (
                 <div
                   key={profile.id}
@@ -301,6 +312,7 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
                       <div className="row" style={{ flexWrap: 'wrap' }}>
                         <strong style={{ overflowWrap: 'anywhere' }}>{profile.label}</strong>
                         {selected && <span className="chip chip-confirmed">当前</span>}
+                        {unavailable && <span className="chip chip-uncertain">已停用</span>}
                         <span className={`chip ${profile.api_key_configured ? 'chip-confirmed' : 'chip-uncertain'}`}>
                           {profileCredentialLabel(profile)}
                         </span>
@@ -312,7 +324,7 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
                       <button
                         type="button"
                         className="btn"
-                        disabled={disabled || selected}
+                        disabled={disabled || selected || !!unavailable}
                         onClick={() => selectProfile(profile)}
                       >
                         {selected ? '正在使用' : '使用此档案'}
@@ -329,9 +341,14 @@ export function SettingsView({ config, onChanged }: { config: Config | null; onC
                     </div>
                   </div>
                   {environment && <div className="field-hint" style={{ marginTop: 5 }}>此档案来自服务端环境变量；如需其他服务商，请新建独立档案。</div>}
+                  {unavailable && <p className="small muted">{unavailable}</p>}
                 </div>
               );
             })}
+            <div className="grid" style={{ marginTop: 12 }}>
+              <button type="button" className="btn" disabled={disabled || !selectedProfile} onClick={() => void syncEnv()}>{busy === 'sync' ? '正在同步…' : '同步当前档案至 .env'}</button>
+              <p className="small muted">显式写入当前模型、服务地址及 API Key，供下次启动和命令行使用。POC 独立模型配置保持不变。</p>
+            </div>
           </div>
         </div>
 

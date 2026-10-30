@@ -21,6 +21,7 @@ import { DefencePanel } from '../components/DefencePanel';
 import { executionSummary, WORKFLOW_STAGE_LABELS } from '../execution';
 import { SeverityBadge } from '../components/CvssPanel';
 import { frozenTaskPolicy } from '../taskDraft';
+import { ContinueAuditButton } from '../components/ContinueAudit';
 
 const SCENARIO_LABELS: Record<string, string> = { sqli: 'SQL 注入', xss_r: '反射型 XSS', command_injection: '命令注入' };
 
@@ -123,6 +124,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
           <p className="assistant-intro">{paused ? pauseSettling ? '正在等待在途执行静止，静止后可继续审计。' : '审计已暂停，任务前沿和回合号均已保存，可随时继续。' : run.status === 'pending' ? '审计任务已加入队列，等待 Planner 建立项目级任务图。' : live ? '正在围绕你的目标审计源码。下方展示已保存的规划、工具调用与证据过程。' : '审计执行记录已恢复。你可以展开工具调用，或打开详情复核源码证据。'}</p>
           <div className="run-progress"><span><GitBranch size={15} />{run.task_spec?.orchestration_policy === 'host-queue-v1' ? `阶段：${summary?.workflow ? WORKFLOW_STAGE_LABELS[summary.workflow.stage] : '等待宿主调度'}` : `Planner ${detail.planner?.current_round ?? 0} / ${detail.planner?.max_rounds ?? run.task_spec?.max_planner_rounds ?? '—'} 回合`}</span><span><Wrench size={15} />{run.usage.tool_calls} 次工具调用</span><span>{paused ? '已暂停 · 可原样继续' : live ? `${activeWorkers} 个 worker 活跃` : `${completed} / ${tasks.length} 个任务已结算`}</span></div>
           <ExecutionStatus detail={detail} />
+          {run.task_spec?.continuation && <p className="small muted">本次为关联继续任务，新增预算独立统计；源码取证及既有验证继承自 <a href={`#run/${run.task_spec.continuation.parent_run_id}`}>原审计 {run.task_spec.continuation.parent_run_id.slice(0, 8)}</a>，原报告保留。</p>}
           <ActivityStream events={events} detail={detail} connected={connected} reconnects={reconnects} onOpenLogs={() => openDetails('logs')} onInspect={() => { follow.current = false; }} />
           {streamError && <div className="error-box" role="alert">轨迹读取失败：{streamError} <button className="text-button" onClick={retry}>重新读取</button></div>}
           {error && <div className="error-box" role="alert">{error}</div>}
@@ -131,6 +133,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
             <div className="result-heading">{achieved ? <ShieldCheck size={22} /> : <CircleHelp size={22} />}<div><span className="eyebrow">AUDIT RESULT</span><h2>{statusLabel}</h2></div></div>
             {reason && <LongContent label="结论依据" value={reason} />}
             <HostSummary detail={detail} />
+            <div className="result-actions"><ContinueAuditButton run={run} onChanged={changed} /></div>
             <p className="muted small">共保存 {findings.length} 项漏洞候选，其中 {evidenceFindings.length} 项仍被本次运行主张且通过源码证据校验。另有 {observations.length} 条排查记录，不计为漏洞。处置、历史版本及自动验证记录见详情。</p>
             {reviews.length > 0 && <p className="small muted">Planner 比对核实了 {reviews.length} 条自动验证结论，其中 {contested} 条被判为观测不支持。未复核的已验证结论不会被当作收束依据。</p>}
             {detail.defence?.score !== null && detail.defence?.score !== undefined && <div className="panel panel-body grid">

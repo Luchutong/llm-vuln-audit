@@ -12,10 +12,57 @@ test('completed jobs with insufficient citations do not claim the vulnerability 
 test('successful jobs with an interrupted conclusion keep execution and verification separate', () => {
   assert.equal(verificationExecution({ execution_status: 'conclusion_error', status: 'inconclusive' }), '已有成功作业，验证结论阶段未完成');
 });
+
+test('SDK execution failures stay distinct from valid negative experiments, including old records', () => {
+  const label = '验证实验因模型或运行时异常中断，已保存作业，结论仍未决';
+  assert.equal(verificationExecution({ execution_status: 'execution_error', status: 'inconclusive' }), label);
+  assert.equal(verificationExecution({ execution_status: 'not_triggered', status: 'inconclusive',
+    agent: { usage: { execute_reason: 'sdk_api_error' } } }), label);
+  assert.equal(verificationExecution({ execution_status: 'success', status: 'verified',
+    agent: { usage: { execute_reason: 'sdk_api_error' } } }), '作业执行成功');
+});
 import { projectActivity, groupCompletedTools } from '../src/activity.ts';
 
 const event = (id, kind, payload = {}) => ({ id, kind, run_id: 'run-a', created_at: `2026-10-23T15:00:${String(id % 60).padStart(2, '0')}Z`,
   payload: { role: 'worker', task_id: 'task-a', attempt: 1, agent_invocation_id: 'worker-a', request_index: 1, phase: 'task_execute', ...payload } });
+
+test('queue heartbeats collapse per finding while individual publications remain visible', () => {
+  const items = projectActivity([
+    event(1, 'poc_queue_item_started', { role: 'poc', finding_id: 'f1', remaining: 2 }),
+    event(2, 'poc_queue_heartbeat', { role: 'poc', finding_id: 'f1', elapsed_seconds: 20 }),
+    event(3, 'poc_queue_heartbeat', { role: 'poc', finding_id: 'f1', elapsed_seconds: 700, soft_limit_exceeded: true }),
+    event(4, 'poc_queue_item_published', { role: 'poc', finding_id: 'f1', status: 'verified' }),
+    event(5, 'poc_queue_item_started', { role: 'poc', finding_id: 'f2', remaining: 1 }),
+    event(6, 'poc_queue_heartbeat', { role: 'poc', finding_id: 'f2', elapsed_seconds: 3 }),
+  ], null).filter(item => item.type === 'message');
+  assert.equal(items.filter(item => item.kind === 'poc_queue_heartbeat').length, 2);
+  assert.match(items.find(item => item.entry.event.id === 3).secondary, /验证继续.*不代表漏洞不成立/);
+  assert.match(items.find(item => item.kind === 'poc_queue_item_published').text, /已验证.*已入库/);
+});
+
+test('POC gateway errors show their HTTP status and failure category in the public activity', () => {
+  const items = projectActivity([event(1, 'poc_gateway_error', { role: 'poc', http_status: 429,
+    code: 'upstream_rejected', provider_error_code: 'AccountQuotaExceeded' })], null);
+  const warning = items.find(item => item.type === 'message' && item.title === 'POC 模型请求异常');
+  assert.ok(warning);
+  assert.match(warning.text, /HTTP 429/);
+  assert.match(warning.text, /AccountQuotaExceeded/);
+});
+
+test('POC stream failures explain timeout versus interrupted generation without unknown placeholders', () => {
+  for (const [code, label] of [['stream_request_timeout', '单请求时限'], ['stream_idle_timeout', '没有新数据'],
+    ['stream_incomplete', '提前断开'], ['stream_timeout', '旧记录']]) {
+    const items = projectActivity([event(1, 'poc_gateway_error', { role: 'poc', http_status: 200,
+      code, provider_error_code: 'unknown', elapsed_seconds: 180, received_bytes: 234 })], null);
+    const warning = items.find(item => item.type === 'message' && item.title === 'POC 模型请求异常');
+    assert.ok(warning);
+    assert.ok(warning.text.includes(label));
+    assert.doesNotMatch(warning.text, /unknown/);
+    assert.match(warning.secondary, /180\.0 秒/);
+    assert.match(warning.secondary, /234 字节/);
+    assert.match(warning.secondary, /HTTP 200 仅表示/);
+  }
+});
 
 test('JSON validation rejection and its retry count once and recover after a committed planner decision', () => {
   const planner = (id, kind, payload = {}) => event(id, kind, { role: 'planner', phase: 'planner_publish',

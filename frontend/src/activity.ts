@@ -59,6 +59,7 @@ const TOOL_LABELS: Record<string, string> = {
   search_peer_traces: '检索协作记录', get_peer_trace: '读取协作记录',
   resolve_target: '解析靶场目标', target_status: '查看靶场状态', target_prepare: '准备靶场环境',
   run_poc: '执行 POC', http_observe: 'HTTP 观测', browser_check: '浏览器验证',
+  get_verification_tasks: '查看验证队列', get_verification_evidence: '读取验证证据', publish_verification: '发布验证结论',
   save_artifact: '保存证据',
 };
 const VERIFICATION_STATUS_LABELS: Record<string, string> = {
@@ -161,6 +162,13 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
   const explicitExecutionErrors = new Set(entries.filter((entry) => entry.event.kind === 'agent_execution_error').map(requestKey));
   const latestRequests = new Map<string, { invocation: string; request: string }>();
   const pending = new Map<string, TraceEntry>();
+  const latestQueuePulse = new Map<string, number>();
+  const latestModelPulse = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.event.kind === 'poc_queue_heartbeat') latestQueuePulse.set(text(entry.payload.finding_id), entry.event.id);
+    // Heartbeats are host liveness only; they never replace model progress.
+    else if (entry.event.kind === 'poc_queue_progress') latestModelPulse.set(text(entry.payload.finding_id), entry.event.id);
+  }
   for (const entry of entries) {
     const { event, payload, context } = entry;
     const kind = event.kind;
@@ -229,6 +237,32 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       message = text(payload.question); tone = 'progress';
     } else if (kind === 'poc_agent_phase') {
       message = `准备隔离靶场：${text(payload.target) || 'lab30'} · ${Number(payload.count ?? 0)} 条结论待验证`; tone = 'progress';
+    } else if (kind === 'poc_queue_item_started') {
+      title = '验证队列 · 开始本项';
+      message = `同一 SDK 会话继续处理 · 队列剩余 ${Number(payload.remaining ?? 0)} 项`;
+      secondary = `当前漏洞 ${text(payload.finding_id)} · 版本 ${Number(payload.revision ?? 1)}；本项 Cookie 与证据独立。`;
+      tone = 'progress';
+    } else if (kind === 'poc_queue_heartbeat') {
+      if (latestQueuePulse.get(text(payload.finding_id)) !== event.id) continue;
+      title = payload.published === true ? '本项已保存 · 等待 SDK 结束响应' : '验证队列 · 宿主仍在运行';
+      message = typeof payload.elapsed_seconds === 'number' ? `本项已运行 ${Math.round(payload.elapsed_seconds)} 秒 · ${Number(payload.jobs ?? 0)} 个作业` : '宿主心跳；不代表模型有新进展。';
+      secondary = payload.soft_limit_exceeded === true ? '已超过耗时提醒，验证继续；耗时本身不代表漏洞不成立。' : '心跳只说明宿主存活；单项耗时仅提醒，仍受整次与阶段预算约束。';
+      tone = 'progress';
+    } else if (kind === 'poc_queue_progress') {
+      if (latestModelPulse.get(text(payload.finding_id)) !== event.id) continue;
+      const wait = typeof payload.model_wait_seconds === 'number' ? `等待本次模型响应 ${Math.round(payload.model_wait_seconds)} 秒` : '模型正在生成';
+      const since = typeof payload.since_last_experiment_seconds === 'number' ? `距上次实验 ${Math.round(payload.since_last_experiment_seconds)} 秒` : '';
+      const observations = typeof payload.observations === 'number' ? `已有 ${payload.observations} 个观测` : '';
+      title = payload.published === true ? '本项已保存 · 模型仍在生成' : '验证队列 · 模型正在生成';
+      message = [wait, since].filter(Boolean).join(' · ');
+      const generation = typeof payload.text_chars === 'number'
+        ? `文本 ${payload.text_chars} 字符 · 思考 ${Number(payload.thinking_chars ?? 0)} 字符 · 工具参数 ${Number(payload.tool_arg_chars ?? 0)} 字符（仅计数）` : '';
+      secondary = [observations, text(payload.unpublished_reason), generation].filter(Boolean).join(' · ');
+      tone = 'progress';
+    } else if (kind === 'poc_queue_item_published') {
+      title = '验证队列 · 本项已保存';
+      message = `${VERIFICATION_STATUS_LABELS[text(payload.status)] || text(payload.status)} · 逐项结果已入库，无需等待全部验证结束。`;
+      secondary = text(payload.message); tone = 'neutral';
     } else if (kind === 'poc_runtime_conclusion_rejected') {
       title = '验证结论校验未通过';
       const errors = Array.isArray(payload.errors) ? payload.errors.filter((value): value is string => typeof value === 'string') : [];
@@ -240,6 +274,27 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       title = '验证进程清理未完成';
       message = text(payload.message) || '已保存作业，进程尚未确认退出；验证结果保留未决。';
       secondary = text(payload.primary_reason) ? `原始停止原因：${text(payload.primary_reason)}` : '';
+      tone = 'warning';
+    } else if (kind === 'poc_gateway_error' || kind === 'poc_runtime_error') {
+      title = 'POC 模型请求异常';
+      const code = text(payload.code);
+      const labels: Record<string, string> = {
+        stream_timeout: '响应流超时（旧记录未区分具体原因）',
+        stream_request_timeout: '响应流达到单请求时限',
+        stream_run_deadline: '响应流达到整次或 POC 阶段截止时间',
+        stream_idle_timeout: '上游响应流长时间没有新数据',
+        stream_incomplete: '上游响应流提前断开，未收到结束事件',
+        stream_response_too_large: '响应流超过输出大小限制',
+        stream_context_stopped: '验证上下文已停止',
+        stream_connection_error: '上游响应流连接中断', upstream_timeout: '等待上游响应超时',
+      };
+      const providerCode = text(payload.provider_error_code || payload.sdk_error_type);
+      message = [typeof payload.http_status === 'number' ? `HTTP ${payload.http_status}` : '',
+        labels[code] || code, providerCode !== 'unknown' ? providerCode : ''].filter(Boolean).join(' · ');
+      const timing = [typeof payload.elapsed_seconds === 'number' ? `本请求已等待 ${payload.elapsed_seconds.toFixed(1)} 秒` : '',
+        typeof payload.received_bytes === 'number' ? `已接收 ${payload.received_bytes} 字节` : ''].filter(Boolean).join(' · ');
+      secondary = [timing, payload.http_status === 200 ? 'HTTP 200 仅表示模型接口已返回响应头，生成过程可能尚未完成。' : '',
+        '已保存原作业；异常中断不能视为执行后未触发，也不会自动重放实验。'].filter(Boolean).join(' ');
       tone = 'warning';
     } else if (kind === 'poc_runtime_stage_stopped') {
       title = text(payload.stage) === 'conclude' ? '验证结论阶段已停止' : '验证实验阶段已停止';

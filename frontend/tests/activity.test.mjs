@@ -275,3 +275,26 @@ test('default-ended source reads never display zero or invalid line ranges', () 
     assert.match(item.subject, /upload\.php:12$/);
   }
 });
+
+test('host heartbeats and model progress stay separate rows and never replace each other', () => {
+  const items = projectActivity([
+    event(1, 'poc_queue_progress', { role: 'poc', finding_id: 'f1', model_wait_seconds: 42,
+      since_last_experiment_seconds: 15, observations: 2, text_chars: 120, thinking_chars: 0,
+      tool_arg_chars: 30, published: false,
+      unpublished_reason: '已完成 2 个实验，尚未调用 publish_verification。' }),
+    event(2, 'poc_queue_heartbeat', { role: 'poc', finding_id: 'f1', elapsed_seconds: 60, jobs: 2, published: false }),
+  ], detail());
+  const rows = messages(items);
+  assert.equal(rows.length, 2);
+  const progress = rows.find((row) => row.kind === 'poc_queue_progress');
+  const heartbeat = rows.find((row) => row.kind === 'poc_queue_heartbeat');
+  assert.ok(progress && heartbeat);
+  assert.match(progress.text, /等待本次模型响应 42 秒/);
+  assert.match(progress.text, /距上次实验 15 秒/);
+  assert.match(progress.secondary, /已有 2 个观测/);
+  assert.match(progress.secondary, /尚未调用 publish_verification/);
+  assert.match(progress.secondary, /文本 120 字符/);
+  assert.match(heartbeat.text, /已运行 60 秒/);
+  assert.match(heartbeat.secondary, /心跳只说明宿主存活/);
+  assert.doesNotMatch(heartbeat.text, /模型响应/);
+});

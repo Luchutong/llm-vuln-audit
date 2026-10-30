@@ -11,6 +11,13 @@ test('SDK request caps are displayed independently of legacy steps', () => {
   assert.equal(pocRequestLimits({ runtime: 'legacy', max_steps: 8 }), '');
 });
 
+test('persistent queue explains shared budgets and soft per-item time without claiming old caps', () => {
+  const label = pocRequestLimits({ runtime: 'claude_sdk', session_policy: 'session-queue-v1',
+    sdk_requests: { version: 'sdk-requests-v1', execute: 40, conclude: 3 } });
+  assert.match(label, /持续会话队列.*逐项保存.*单项耗时仅提醒/);
+  assert.doesNotMatch(label, /最多 40|最多 3/);
+});
+
 test('drafts copy only the frozen limits and never previous consumption', () => {
   const seed = { run_limits: { responses: 111, tools: 555, seconds: 999 }, execution_summary: { run_usage: { responses: 100, tools: 500, seconds: 900 } } };
   const limits = draftRunLimits(seed);

@@ -120,6 +120,12 @@ export function diagnosticGroups(incidents: DiagnosticIncident[]) {
 }
 
 export function verificationExecution(record: Verification): string {
+  // Old SDK records also retained the experiment error under usage, even when the
+  // successful conclusion publication incorrectly classified them as not_triggered.
+  const executeReason = scalar(object(record.agent?.usage).execute_reason);
+  if (record.status === 'inconclusive' && (record.execution_status === 'execution_error'
+      || ['not_triggered', 'not_run'].includes(record.execution_status ?? '') && /^(sdk_|runtime_)/.test(executeReason)))
+    return '验证实验因模型或运行时异常中断，已保存作业，结论仍未决';
   const labels: Record<string, string> = { success: '作业执行成功', syntax_error: '脚本语法错误', connection_failed: '无法连接目标',
     environment_mismatch: '实验前提不符', precondition_failed: '实验前提不符', timeout: '作业执行超时',
     authentication_failed: '身份认证失败', state_mismatch: '账号状态不符',

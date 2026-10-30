@@ -513,6 +513,7 @@ export function AutomaticVerificationPanel({ finding, jobs: runJobs = [] }: { fi
         <div className="grid detail-fields">
           <Chain label="验证结论" value={verdictLabels(record.status, record.verdict)} />
           <Chain label="作业执行结果" value={verificationExecution(record)} />
+          {!!record.agent?.usage?.diagnostics && <LongContent value={record.agent.usage.diagnostics} label="模型与网关错误诊断" />}
           <Chain label="目标环境" value={targetText} />
           <Chain label="runner 作业" value={jobs.join('、')} />
           <Chain label="执行命令" value={record.command || ''} />

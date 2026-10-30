@@ -126,8 +126,16 @@ def test_same_anchor_acceptance_requires_an_explicit_comparison(hosted):
                      (json.dumps({'path': 'public/index.php', 'line': 4}), finding['id']))
     batch = store.prepare_review_batch(run['id'], 'final', run['execution_epoch'], repo)
     values = decisions(batch)
-    with pytest.raises(ValueError, match='comparison_candidates'):
+    with pytest.raises(ValueError, match='comparison_candidates') as refused:
         store.validate_review_decisions(run['id'], batch, values)
+    # The refusal must say which item_ids the accept still has to adjudicate: a run
+    # submitted the same empty-distinct_from accept twice until the round failed.
+    for item in batch['items']:
+        assert item['item_id'] in str(refused.value)
+    assert 'distinct_from' in str(refused.value)
+    # Both items' requirements belong in one refusal.  Naming one per correction made
+    # a two-item batch alternate between them until the publish allowance ran out.
+    assert str(refused.value).count('写入 item_id=') == 2
     for value in values:
         value['distinct_from'] = [i['item_id'] for i in batch['items'] if i['item_id'] != value['item_id']]
         value['rationale'] = '两处危险操作的调用目标和攻击前身份不同，分别保留；评分或验证状态不作为判重依据。'
@@ -179,6 +187,13 @@ def test_terminal_diagnosis_is_not_an_earlier_transition_message():
     reason = review_terminal_reason([{'final_disposition': 'pending'}] * 5, [], {'basis': '进入终审'})
     assert reason['code'] == 'final_review_needs_evidence' and '5' in reason['message'] and '进入终审' not in reason['message']
     assert review_terminal_reason([], [[{}, {}]])['code'] == 'final_review_incomplete'
+
+
+def test_a_coverage_stop_keeps_its_own_diagnosis():
+    """A run stopped on unread source must not report a generic partial audit."""
+    reason = review_terminal_reason([], [], {'code': 'coverage_incomplete', 'basis': '覆盖复核未完成：预算或无进展上限已到'})
+    assert reason['code'] == 'coverage_incomplete' and '覆盖复核' in reason['message']
+    assert review_terminal_reason([], [], None)['code'] == 'audit_partial'
 
 
 def test_planner_can_retrieve_paged_input_and_publish_in_one_loop(hosted, monkeypatch):

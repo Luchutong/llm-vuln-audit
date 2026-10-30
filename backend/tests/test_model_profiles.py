@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -16,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
 from audit import app as app_module
-from audit.config import ModelConfig, Settings
+from audit.config import ModelConfig, Settings, load_env_file
 from audit.schemas import ModelProfileCreateRequest, ModelProfileUpdateRequest
 
 
@@ -68,6 +69,36 @@ def profile_context(tmp_path):
     finally:
         if not context.closed:
             state.store.close()
+
+
+def test_explicit_sync_exports_selected_profile_without_leaking_key(profile_context, tmp_path, monkeypatch):
+    monkeypatch.setattr(os, 'environ', {})
+    context = profile_context
+    context.state.env_file = tmp_path / '.env'
+    context.state.env_file.write_text('POC_CLAUDE_MODEL=independent\nLLM_MODEL=old\n')
+    profile = context.state.store.create_model_profile(label='导出档案', model='selected-export-model',
+        base_url='https://export.invalid/v1', api_key_secret=context.state.vault.encrypt('offline-export-secret'))
+    app_module._activate_profile(context.state, profile)
+    response = asyncio.run(app_module.sync_selected_model_env(context.request))
+    assert '导出档案' in response['message']
+    assert 'offline-export-secret' not in json.dumps(response)
+    for name in ('LLM_MODEL', 'LLM_BASE_URL', 'LLM_API_KEY', 'LLM_THINKING'):
+        monkeypatch.delenv(name, raising=False)
+    load_env_file(context.state.env_file)
+    assert ModelConfig.from_environ().model == 'selected-export-model'
+    assert ModelConfig.from_environ().api_key == 'offline-export-secret'
+    assert 'POC_CLAUDE_MODEL=independent' in context.state.env_file.read_text()
+
+
+def test_env_export_is_blocked_during_an_active_audit(profile_context, tmp_path):
+    context = profile_context
+    context.state.env_file = tmp_path / '.env'
+    context.state.env_file.write_text('LLM_MODEL=unchanged\n')
+    _create_pending_run(context.state)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(app_module.sync_selected_model_env(context.request))
+    assert error.value.status_code == 409
+    assert context.state.env_file.read_text() == 'LLM_MODEL=unchanged\n'
 
 
 def test_profile_endpoints_keep_each_provider_connection_and_key_private(profile_context):

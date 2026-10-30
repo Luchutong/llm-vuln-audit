@@ -51,6 +51,53 @@ def test_new_default_allocation_and_old_run_compatibility(create, poc, expected)
     assert freeze_workflow({"task_spec": TASK}, DEFAULT_RUN_LIMITS) == {}
 
 
+def test_discovery_leaves_a_poc_window_the_poc_stage_can_use(create):
+    """The two gates must not be mutually exclusive.
+
+    Discovery used to stop exactly when ``remaining <= review reserve`` while the
+    POC stage required ``remaining > review reserve``, so a run that spent its
+    clock on discovery could never start POC.  Discovery now leaves the POC
+    window; once the stage switches, the same seconds admit POC work.
+    """
+    store, _, run = create(poc=True, total=256, seconds=1800)
+    task = {**run["task_spec"], "orchestration_policy": "host-queue-v1"}
+    store._write("UPDATE runs SET task_spec=? WHERE id=?", (json.dumps(task), run["id"]))
+    run = store.get_run(run["id"])
+    value = store.workflow_state(run["id"])
+    window = value["poc_reserved_seconds"]
+    assert window > 0
+    review = float(value["review_reserved_seconds"])
+    store._active_clocks.pop(run["id"], None)
+    # One second inside the POC window: discovery is over, POC still has room.
+    store._write("UPDATE run_execution_state SET active_elapsed_ms=? WHERE run_id=?",
+                 (int((1800 - review - window + 1) * 1000), run["id"]))
+    summary = store.execution_summary(run["id"])
+    assert summary["workflow"]["stage_remaining_seconds"] == pytest.approx(1, abs=1)
+    reserve = store.refresh_review_reserve(run["id"])
+    assert not reserve["review_reserve"]["upstream_allowed"]
+    assert reserve["review_reserve"]["poc_window_blocks"]
+    with pytest.raises(StopAudit):
+        store.admit_execution(run["id"], run["execution_epoch"], "responses")
+    store.set_workflow_stage(run["id"], "poc")
+    workflow = store.workflow_state(run["id"])
+    assert workflow["stage_remaining_seconds"] > 0
+    store.admit_execution(run["id"], run["execution_epoch"], "responses")
+
+
+def test_poc_window_does_not_shrink_the_review_window(create):
+    store, _, run = create(poc=True, total=256, seconds=1800)
+    value = store.workflow_state(run["id"])
+    assert value["review_reserved_seconds"] > 0
+    assert value["poc_reserved_seconds"] + 180 <= 1800
+    # A historical row without the frozen field keeps the old behaviour.
+    legacy = dict(value)
+    legacy.pop("poc_reserved_seconds")
+    from audit.workflow import workflow_view
+    view = workflow_view(legacy, remaining_seconds=1800)
+    assert view["poc_reserved_seconds"] == 0
+    assert view["stage_remaining_seconds"] == pytest.approx(1800 - value["review_reserved_seconds"])
+
+
 def test_last_stage_response_is_admitted_atomically_and_tools_can_complete_it(create):
     store, _, run = create(total=8)
     limit = store.workflow_state(run["id"])["limits"]["discovery"]
@@ -95,6 +142,35 @@ def test_transfer_preserves_total_and_protected_review_and_phase_ownership(creat
         with pytest.raises(ValueError, match="already ended"):
             store.set_workflow_stage(run["id"], "discovery")
     assert sum(value["limits"].values()) == 256
+
+
+def test_finished_poc_quota_moves_to_the_final_review(create):
+    """A finished stage's unspent responses are the last stage's to use.
+
+    A real closure run reviewed 21 of 22 batches and then closed "final review
+    incomplete" with 75 responses in the review stage while the finished POC stage
+    still held more than a thousand.  The POC stage had spent 138 of its 1809.
+    """
+    store, _, run = create()
+    epoch = run["execution_epoch"]
+    store.admit_execution(run["id"], epoch, "responses")
+    store.set_workflow_stage(run["id"], "poc", reason={"state": "met"}, transfer_unused=True)
+    store.set_workflow_stage(run["id"], "review")
+    before = store.workflow_state(run["id"])
+    assert before["limits"]["poc"] > before["limits"]["review"]
+    after = store.release_poc_quota(run["id"])
+    assert after["limits"]["poc"] == before["used"]["poc"]
+    assert after["limits"]["review"] == before["limits"]["review"] + (before["limits"]["poc"] - before["used"]["poc"])
+    assert sum(after["limits"].values()) == sum(before["limits"].values())
+    assert store.release_poc_quota(run["id"])["limits"] == after["limits"]
+    # An explicit allocation is the operator's and is never rewritten.
+    store2, _, run2 = create()
+    store2.set_workflow_stage(run2["id"], "poc", reason={"state": "met"})
+    explicit_before = store2.workflow_state(run2["id"])
+    explicit_before["source"] = "explicit"
+    store2._write("UPDATE run_execution_state SET workflow=? WHERE run_id=?",
+                  (json.dumps(explicit_before), run2["id"]))
+    assert store2.release_poc_quota(run2["id"])["limits"] == explicit_before["limits"]
 
 
 def test_pause_resume_and_reopen_connection_do_not_renew_stage_consumption(create):

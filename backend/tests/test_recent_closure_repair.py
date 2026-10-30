@@ -199,3 +199,61 @@ def test_report_preserves_failed_poc_job_facts_without_inventing_a_conclusion():
     assert '已保存作业事实：1 个' in markdown
     assert '结论未完整发布' in markdown and 'sdk_cleanup_timeout' in markdown
     assert 'job-1' in markdown
+
+
+def test_sdk_generation_policy_is_frozen_and_verified_not_merely_claimed(monkeypatch, tmp_path):
+    cfg = PocSettings.from_environ({'POC_RUNTIME': 'claude_sdk'})
+    frozen = cfg.snapshot()['sdk_generation']
+    assert frozen == {'version': 'sdk-generation-v1', 'output_policy': 'bounded-v1',
+                      'execute_output_tokens': 4096, 'publish_output_tokens': 1024,
+                      'thinking': 'disabled'}
+    assert cfg.public()['sdk_generation'] == frozen
+    assert PocSettings.from_environ({}).snapshot().get('sdk_generation') is None
+
+    settings = SimpleNamespace(poc=cfg)
+    new = PocPolicy.from_run({'poc_policy': cfg.snapshot()}, settings)
+    old = PocPolicy.from_run({'poc_policy': {'runtime': 'claude_sdk'}}, settings)
+    assert new.sdk_generation == frozen and new.snapshot()['sdk_generation'] == frozen
+    # A run that predates the block keeps provider defaults; no server default is injected.
+    assert old.sdk_generation is None and 'sdk_generation' not in old.snapshot()
+
+    captured = []
+    async def verify(runtime, **kwargs):
+        captured.append(runtime.limits)
+        return PocRuntimeOutcome('completed', None, 'completed', {})
+    monkeypatch.setattr(ClaudeCodePocRuntime, 'verify', verify)
+    monkeypatch.setenv('POC_SDK_EXECUTE_OUTPUT_TOKENS', '9000')
+    deps = service(tmp_path)
+    deps.policy.update(new.snapshot(), max_responses=21)
+    verifier = PocVerifier.__new__(PocVerifier)
+    verifier.store = SimpleNamespace()
+    asyncio.run(verifier._verify_with_sdk({'execution_epoch': 1}, deps, lambda _: None, 'run'))
+    assert captured[0].execute_output_tokens == 4096 and captured[0].thinking == 'disabled'
+    assert captured[0].generation().snapshot()['output_policy'] == 'bounded-v1'
+
+
+def test_invalid_sdk_generation_settings_fail_fast_and_are_reported(monkeypatch, tmp_path):
+    for env, value in (('POC_SDK_OUTPUT_POLICY', 'unlimited'), ('POC_SDK_THINKING', 'on'),
+                       ('POC_SDK_EXECUTE_OUTPUT_TOKENS', '0'),
+                       ('POC_SDK_PUBLISH_OUTPUT_TOKENS', 'many')):
+        with pytest.raises(ValueError, match=env):
+            PocSettings.from_environ({'POC_RUNTIME': 'claude_sdk', env: value})
+
+    emitted = []
+    async def verify(runtime, **kwargs):  # must never run for a malformed frozen block
+        raise AssertionError('runtime must not start')
+    monkeypatch.setattr(ClaudeCodePocRuntime, 'verify', verify)
+    deps = service(tmp_path)
+    deps.policy.update(PocPolicy.from_run({'poc_policy': {
+        'runtime': 'claude_sdk',
+        'sdk_generation': {'version': 'sdk-generation-v1', 'output_policy': 'bounded-v1',
+                           'execute_output_tokens': 4096, 'publish_output_tokens': 1024,
+                           'thinking': 'enabled'}}}, SimpleNamespace(poc=PocSettings.from_environ(
+                               {'POC_RUNTIME': 'claude_sdk'}))).snapshot())
+    verifier = PocVerifier.__new__(PocVerifier)
+    verifier.store = SimpleNamespace()
+    verifier.bus = SimpleNamespace(emit=lambda *args: emitted.append(args))
+    _, status, _ = asyncio.run(verifier._verify_with_sdk({'execution_epoch': 1}, deps, lambda _: None, 'run'))
+    assert status == 'runtime_misconfigured'
+    assert any(args[2] == 'poc_runtime_misconfigured' for args in emitted)
+    assert 'thinking' in emitted[0][3]['error']

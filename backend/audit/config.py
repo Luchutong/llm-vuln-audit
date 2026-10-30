@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -35,9 +37,21 @@ _THINKING_KEYS = ("LLM_THINKING", "AUDIT_THINKING")
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
+
+def model_unavailable_reason(model: str) -> str:
+    if str(model).strip().casefold() == 'ark-code-latest':
+        return 'ark-code-latest 已停用，请选择当前有效的模型档案后创建新的继续任务。'
+    return ''
+
 # POC model-loop implementations.  ``legacy`` is the built-in code-action loop and the
 # only one enabled by default: the SDK adapter must be verified on this host first.
 POC_RUNTIMES = ("legacy", "claude_sdk")
+# The frozen SDK generation policy block.  The version string lives here because both
+# the server settings and the runtime adapter freeze the same document.
+SDK_GENERATION_VERSION = "sdk-generation-v1"
+SDK_OUTPUT_POLICIES = ("bounded-v1", "provider_default")
+SDK_THINKING_POLICIES = ("disabled", "provider_default")
+
 _URL_USERINFO = re.compile(r"(?i)(https?://)[^/\s@]*@")
 _URL_QUERY_FRAGMENT = re.compile(r"(?i)(https?://[^\s?#]+)(?:\?[^\s#]*)?(?:#[^\s]*)?")
 
@@ -65,9 +79,49 @@ def load_env_file(path: Path) -> None:
         if not name or name in os.environ:
             continue
         value = raw.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
+        if value[:1] in {"'", '"'}:
+            try:
+                parts = shlex.split(value, comments=False)
+            except ValueError:
+                continue
+            if len(parts) != 1:
+                continue
+            value = parts[0]
         os.environ[name] = value
+
+
+def sync_model_env(path: Path, model: "ModelConfig") -> None:
+    """Explicitly export one selected connection, preserving unrelated configuration."""
+    if reason := model_unavailable_reason(model.model):
+        raise ValueError(reason)
+    values = dict(LLM_MODEL=model.model, LLM_BASE_URL=model.base_url,
+                  LLM_API_KEY=model.api_key, LLM_THINKING='true' if model.thinking == 'enabled' else 'false')
+    if not model.configured or any(any(ch in value for ch in '\r\n\x00') for value in values.values()):
+        raise ValueError('档案未完整配置，或包含不支持的换行字符')
+    original = path.read_text(encoding='utf-8') if path.exists() else ''
+    lines, written = [], set()
+    for line in original.splitlines(keepends=True):
+        match = re.match(r'^\s*(?:export\s+)?(LLM_MODEL|LLM_BASE_URL|LLM_API_KEY|LLM_THINKING)\s*=', line)
+        if not match:
+            lines.append(line)
+        elif match[1] not in written:
+            lines.append(f'{match[1]}={shlex.quote(values[match[1]])}\n')
+            written.add(match[1])
+    if lines and not lines[-1].endswith(('\n', '\r')):
+        lines[-1] += '\n'
+    lines.extend(f'{key}={shlex.quote(value)}\n' for key, value in values.items() if key not in written)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(''.join(lines))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def find_env_file(start: Path) -> Path | None:
@@ -251,6 +305,9 @@ class PocSettings:
     # the default; a run request can only downgrade to ``legacy``.
     runtime: str = "legacy"
     sdk_requests: dict | None = None
+    # Frozen generation policy for the SDK subprocess, mirroring ``PocPolicy``.  None
+    # means the run predates it (or the runtime is legacy) and keeps provider defaults.
+    sdk_generation: dict | None = None
 
     @classmethod
     def from_environ(cls, environ: dict[str, str] | None = None) -> "PocSettings":
@@ -269,6 +326,27 @@ class PocSettings:
                 return default
             return max(low, min(high, value))
 
+        def strict_number(name: str, default: int, low: int, high: int) -> int:
+            # Generation limits are enforced by the gateway on every request, so a
+            # malformed deployment value fails at startup instead of being clamped
+            # into a limit the operator never asked for.
+            raw = (env.get(name) or "").strip()
+            if not raw:
+                return default
+            try:
+                value = int(raw)
+            except ValueError as exc:
+                raise ValueError(f"{name} must be an integer") from exc
+            if not low <= value <= high:
+                raise ValueError(f"{name} must be between {low} and {high}")
+            return value
+
+        def choice(name: str, default: str, allowed: tuple[str, ...]) -> str:
+            value = (env.get(name) or "").strip().casefold() or default
+            if value not in allowed:
+                raise ValueError(f"{name} must be one of {', '.join(allowed)}")
+            return value
+
         addrs = tuple(
             value.strip()
             for value in (env.get("POC_RUNNER_ADDRS") or "").split(",")
@@ -278,12 +356,20 @@ class PocSettings:
         if runtime not in POC_RUNTIMES:
             raise ValueError(f"POC_RUNTIME must be one of {', '.join(POC_RUNTIMES)}")
         sdk_requests = None
+        sdk_generation = None
         if runtime == "claude_sdk":
             # Keep the static application available on malformed SDK deployment
             # settings. Runtime readiness still diagnoses those strictly before POC.
             sdk_requests = {"version": "sdk-requests-v1",
                             "execute": number("POC_CLAUDE_EXECUTE_REQUESTS", 40, 1, 512),
                             "conclude": number("POC_CLAUDE_CONCLUDE_REQUESTS", 3, 3, 16)}
+            sdk_generation = {
+                "version": SDK_GENERATION_VERSION,
+                "output_policy": choice("POC_SDK_OUTPUT_POLICY", "bounded-v1", SDK_OUTPUT_POLICIES),
+                "execute_output_tokens": strict_number("POC_SDK_EXECUTE_OUTPUT_TOKENS", 4096, 256, 65536),
+                "publish_output_tokens": strict_number("POC_SDK_PUBLISH_OUTPUT_TOKENS", 1024, 128, 65536),
+                "thinking": choice("POC_SDK_THINKING", "disabled", SDK_THINKING_POLICIES),
+            }
         return cls(
             enabled=flag("POC_ENABLED", True),
             required=flag("POC_REQUIRED", False),
@@ -306,6 +392,7 @@ class PocSettings:
             reset_timeout=number("POC_RESET_TIMEOUT", 30, 5, 300),
             runtime=runtime,
             sdk_requests=sdk_requests,
+            sdk_generation=sdk_generation,
         )
 
     @property
@@ -330,6 +417,11 @@ class PocSettings:
             "runtime": self.runtime,
             **({"sdk_requests": dict(self.sdk_requests or {"version": "sdk-requests-v1", "execute": 40, "conclude": 3})}
                if self.runtime == "claude_sdk" else {}),
+            **({"sdk_generation": dict(self.sdk_generation or {
+                "version": SDK_GENERATION_VERSION, "output_policy": "provider_default",
+                "execute_output_tokens": 4096, "publish_output_tokens": 1024,
+                "thinking": "provider_default"})}
+               if self.runtime == "claude_sdk" else {}),
         }
 
     def public(self) -> dict:
@@ -343,6 +435,9 @@ class PocSettings:
             "reset_between_findings": self.reset_between_findings,
             "reset_command_configured": bool(self.reset_command),
             "runtime": self.runtime,
+            # What the gateway will verify on every SDK request. Provider defaults are
+            # reported as such rather than as an enforced numeric cap.
+            **({"sdk_generation": dict(self.sdk_generation)} if self.sdk_generation else {}),
         }
 
 

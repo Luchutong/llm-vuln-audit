@@ -19,7 +19,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import CredentialVault, DEFAULT_BUDGETS, VERSION, Settings, clamp_budgets, find_env_file, load_env_file
+from .config import CredentialVault, DEFAULT_BUDGETS, VERSION, Settings, clamp_budgets, find_env_file, load_env_file, sync_model_env, model_unavailable_reason
 from .db import Store, build_verification_records, now
 from . import defence
 from .events import EventBus
@@ -34,6 +34,7 @@ from .report import collect_evidence, render_json, render_markdown, render_zip
 from .schemas import (
     AttributionRequest,
     CreateRunRequest,
+    ContinueRunRequest,
     ModelProfileCreateRequest,
     ModelProfileUpdateRequest,
     PromptCreateRequest,
@@ -77,6 +78,7 @@ class Services:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.env_file = BACKEND_DIR.parent / '.env'
         # Keep the environment connection separate from the currently selected
         # profile.  It remains available as a non-secret fallback profile and
         # provides the common thinking policy for browser-saved profiles.
@@ -192,6 +194,7 @@ async def lifespan(app: FastAPI):
         load_env_file(env_file)
     settings = Settings.load()
     services = Services(settings)
+    services.env_file = env_file or BACKEND_DIR.parent / '.env'
     app.state.services = services
     await services.worker.start()
     try:
@@ -483,6 +486,7 @@ def _config_payload(state: Services) -> dict:
     profiles = state.store.list_model_profiles()
     for profile in profiles:
         profile["selected"] = profile["id"] == selected_id
+        profile['unavailable_reason'] = model_unavailable_reason(profile['model'])
         if profile.get("credential_source") == "environment":
             profile["api_key_configured"] = bool(state.environment_model.api_key)
     return {
@@ -529,6 +533,8 @@ def _require_no_active_run(state: Services) -> None:
 
 
 def _activate_profile(state: Services, profile: dict) -> None:
+    if reason := model_unavailable_reason(profile['model']):
+        raise HTTPException(status_code=409, detail=reason)
     state.store.select_model_profile(profile["id"])
     state.settings.model = state.model_config_for_profile(profile)
     # A breaker state belongs to a concrete model/endpoint/credential history.
@@ -540,6 +546,8 @@ def _activate_profile(state: Services, profile: dict) -> None:
 async def create_model_profile(request: Request, payload: ModelProfileCreateRequest) -> dict:
     state = services(request)
     _require_no_active_run(state)
+    if reason := model_unavailable_reason(payload.model):
+        raise HTTPException(status_code=422, detail=reason)
     profile = state.store.create_model_profile(
         label=payload.label,
         model=payload.model,
@@ -556,6 +564,8 @@ async def create_model_profile(request: Request, payload: ModelProfileCreateRequ
 async def update_model_profile(request: Request, profile_id: str, payload: ModelProfileUpdateRequest) -> dict:
     state = services(request)
     _require_no_active_run(state)
+    if reason := model_unavailable_reason(payload.model):
+        raise HTTPException(status_code=422, detail=reason)
     current = state.store.get_model_profile(profile_id, include_secret=True)
     if current is None:
         raise HTTPException(status_code=404, detail="模型配置档案不存在")
@@ -590,6 +600,23 @@ async def select_model_profile(request: Request, profile_id: str) -> dict:
     return _config_payload(state)
 
 
+@app.post('/api/config/sync-env')
+async def sync_selected_model_env(request: Request) -> dict:
+    state = services(request)
+    _require_no_active_run(state)
+    profile = state.store.selected_model_profile(include_secret=True)
+    if profile is None:
+        raise HTTPException(status_code=409, detail='请先选择模型档案')
+    config = state.model_config_for_profile(profile)
+    try:
+        sync_model_env(state.env_file, config)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except OSError:
+        raise HTTPException(status_code=500, detail='.env 写入失败，请检查服务端文件权限；原文件保留。') from None
+    return {'message': f'已将「{profile["label"]}」同步至 .env，供下次启动及命令行使用。既有任务仍使用冻结档案。'}
+
+
 @app.delete("/api/config/profiles/{profile_id}")
 async def delete_model_profile(request: Request, profile_id: str) -> Response:
     state = services(request)
@@ -611,6 +638,8 @@ async def check_config(request: Request) -> dict:
     """Send one real minimal request. A silent-but-connected model still fails."""
     state = services(request)
     config = state.settings.model
+    if reason := model_unavailable_reason(config.model):
+        return {'ok': False, 'error': reason}
     if not config.configured:
         return {"ok": False, "error": f"缺少配置：{', '.join(config.missing())}"}
 
@@ -1048,6 +1077,8 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     is frozen instead, then the run's main Planner creates and revises cross-file worker
     tasks as evidence arrives.
     """
+    if reason := model_unavailable_reason(getattr(state.settings.model, 'model', '')):
+        raise HTTPException(status_code=409, detail=reason)
     if worker_strategy is not None:
         from .worker_strategies import freeze_worker_strategy
         worker_strategy = freeze_worker_strategy(worker_strategy)
@@ -1093,6 +1124,16 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     poc_policy = state.settings.poc.snapshot()
     poc_policy["mode"] = payload.poc_mode
     poc_policy["required"] = payload.poc_mode == "required"
+    if poc_policy.get("runtime") == "claude_sdk" and payload.poc_mode != "off":
+        poc_policy.update(session_policy="session-queue-v1",
+                          item_warning_seconds=poc_policy.get("max_seconds", 300))
+    # New runs freeze the bounded-evidence policy and its actual parameters.  Historical
+    # runs have no such field and keep their original prompt and tools; the verifier
+    # reads the frozen values, never the current server defaults.
+    if poc_policy.get("enabled") and payload.poc_mode != "off":
+        from .poc_source import PROGRESS_POLICY, progress_policy_snapshot
+        poc_policy["progress_policy"] = PROGRESS_POLICY
+        poc_policy["progress_params"] = progress_policy_snapshot()
     task_spec = payload.task.model_dump()
     # "auto" is best effort: when this server cannot run POC at all, its reserved quota
     # could never be spent, so release it to discovery instead of freezing an unusable
@@ -1225,6 +1266,49 @@ async def get_run_project_map(request: Request, run_id: str) -> dict:
     if project_map is None:
         raise HTTPException(status_code=404, detail="Run has no frozen project map")
     return project_map
+
+
+@app.get("/api/runs/{run_id}/continuation")
+async def continuation_options(request: Request, run_id: str) -> dict:
+    try:
+        state = services(request)
+        options = state.store.continuation_options(run_id)
+        selected = state.store.selected_model_profile()
+        options.update(model_profiles=state.store.list_model_profiles(),
+                       selected_profile_id=selected['id'] if selected else None)
+        for profile in options['model_profiles']:
+            profile['unavailable_reason'] = model_unavailable_reason(profile['model'])
+        return options
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Run does not exist") from None
+
+
+@app.post("/api/runs/{run_id}/continuation", status_code=201)
+async def continue_run(request: Request, run_id: str, payload: ContinueRunRequest) -> dict:
+    state = services(request)
+    try:
+        if state.store.get_run(run_id) is None:
+            raise KeyError(run_id)
+        snapshot = None
+        if payload.model_profile_id != 'original':
+            profile = (state.store.selected_model_profile(include_secret=True) if payload.model_profile_id == 'current'
+                       else state.store.get_model_profile(payload.model_profile_id, include_secret=True))
+            if profile is None and payload.model_profile_id != 'current':
+                raise ValueError('所选模型档案不存在，请重新加载配置')
+            config = state.model_config_for_profile(profile) if profile else state.settings.model
+            if reason := model_unavailable_reason(config.model):
+                raise ValueError(reason)
+            if not config.configured:
+                raise ValueError('所选模型档案未完整配置，请先检查模型、服务地址和 API Key')
+            snapshot = dict(profile_id=profile['id'] if profile else '', model=config.model,
+                            base_url=config.public_base_url(), thinking=config.thinking)
+        run = state.store.create_continuation(run_id, payload.model_dump(), model_profile=snapshot)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Run does not exist") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    state.worker.notify()
+    return run
 
 
 @app.get("/api/runs/{run_id}/project-overview")

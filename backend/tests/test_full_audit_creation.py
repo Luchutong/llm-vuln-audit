@@ -58,7 +58,9 @@ def test_explicit_full_coverage_freezes_consistent_criteria_and_goal(state):
     assert goal["status"] == "open"
     assert spec["workflow_policy"] == "discovery_first"
     assert created["execution_summary"]["workflow"]["source"] == "derived"
-    assert created["execution_summary"]["workflow"]["limits"] == {"discovery": 244, "poc": 0, "review": 12}
+    # A coverage-review run without explicit limits freezes the widened 512-response
+    # default (``CreateRunRequest._workflow_limits_fit``); the review quota is 3/64 of it.
+    assert created["execution_summary"]["workflow"]["limits"] == {"discovery": 488, "poc": 0, "review": 24}
 
 
 def test_an_explicit_frozen_legacy_workflow_is_not_upgraded(state):
@@ -198,7 +200,14 @@ def test_explicit_stage_quotas_are_frozen_and_reported(state):
     assert state.store.workflow_state(body["id"])["limits"] == workflow["limits"]
 
 
-def test_a_poc_quota_is_released_when_this_server_cannot_run_poc(state):
+def test_a_frozen_poc_quota_is_not_released_to_discovery_by_an_unavailable_runner(state):
+    """Explicit quotas are the caller's decision, not a hint the host may reinterpret.
+
+    A coverage-review run is always host-queue, and the host queue freezes the
+    allocation the caller passed: an unavailable POC runner must not silently widen
+    discovery to 380, or the reported stage limits stop matching what was requested
+    (``test_new_fixed_allocation_is_not_rewritten_by_unavailable_auto_runtime``).
+    """
     state.settings.poc = replace(state.settings.poc, enabled=False)
     response = state.client.post("/api/runs", json={
         "snapshot_id": state.snapshot["id"], "poc_mode": "auto",
@@ -208,5 +217,5 @@ def test_a_poc_quota_is_released_when_this_server_cannot_run_poc(state):
     })
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["task_spec"]["workflow_limits"]["poc"] == 0
-    assert body["execution_summary"]["workflow"]["limits"] == {"discovery": 380, "poc": 0, "review": 20}
+    assert body["task_spec"]["workflow_limits"]["poc"] == 60
+    assert body["execution_summary"]["workflow"]["limits"] == {"discovery": 320, "poc": 60, "review": 20}

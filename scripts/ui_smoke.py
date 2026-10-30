@@ -157,7 +157,10 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     options.click()
     dialog = page.get_by_role("dialog", name="高级执行设置")
     expect(dialog.get_by_role("spinbutton", name="并发 worker", exact=False)).to_have_value("2")
-    for label, value in (("共享总尝试上限", "64"), ("Planner 最大回合", "24"), ("模型响应次数", "24"), ("工具调用次数", "96"), ("墙钟时间（秒）", "1800")):
+    # The default host-queue orchestration has no Planner round budget to tune; the
+    # field must be absent rather than silently keep a stale value.
+    expect(dialog.get_by_role("spinbutton", name="Planner 最大回合", exact=False)).to_have_count(0)
+    for label, value in (("共享总尝试上限", "64"), ("模型响应次数", "24"), ("工具调用次数", "96"), ("墙钟时间（秒）", "1800")):
         expect(dialog.get_by_role("spinbutton", name=label, exact=False)).to_have_value(value)
     dialog.get_by_role("button", name="关闭高级执行设置").focus()
     page.keyboard.press("Shift+Tab")

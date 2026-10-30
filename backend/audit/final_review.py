@@ -430,6 +430,7 @@ def verification_attempts(findings: list[dict]) -> list[dict]:
                 "verdict": record.get("verdict") or "",
                 "status": record.get("status") or "",
                 "source": record.get("source") or "",
+                "inherited_from": agent.get("continuation_source") or None,
                 "browser_execution": bool(record.get("browser_execution")),
                 "notes": record.get("notes") or "",
             })

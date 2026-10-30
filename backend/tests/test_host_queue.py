@@ -8,7 +8,7 @@ from audit import agent, worker as worker_module
 from audit.execution_state import CURRENT_EXECUTION, FULL_RUN_LIMITS, execution_context, execution_role
 from audit.final_review import canonical_groups
 from audit.frozen_reports import materialize
-from audit.runtime import AgentPolicy
+from audit.runtime import AgentPolicy, StopAudit
 from audit.schemas import CreateRunRequest
 from audit.workflow import freeze_workflow
 from tests.code_model import ModelFactory
@@ -121,10 +121,22 @@ def test_fixed_quotas_are_not_expanded_and_reserve_only_gates_new_work(hosted):
     state = store.refresh_review_reserve(run['id'], repo)
     assert state['limits'] == initial['limits'] and not state['review_reserve']['funded']
     assert not state['review_reserve']['upstream_allowed']
-    # The threshold must not behave like a second hard deadline for admitted work.
-    store._write('UPDATE run_execution_state SET active_elapsed_ms=? WHERE run_id=?', (3550 * 1000, run['id']))
+    # With the frozen review reserve still available, a new admission is allowed; the
+    # reserve gates new work, it is not a second hard deadline for the current stage.
+    reserved = state['review_reserved_seconds']
+    assert reserved > 0
+    store._write('UPDATE run_execution_state SET active_elapsed_ms=? WHERE run_id=?',
+                 (int((FULL_RUN_LIMITS['seconds'] - reserved - 50) * 1000), run['id']))
     with execution_context(store, run['id'], run['execution_epoch']), execution_role('worker'):
         CURRENT_EXECUTION.get().admit('responses')
+    assert store.execution_summary(run['id'])['run_usage']['responses'] == 1
+    # The host queue gets no exemption: once less than the review reserve remains, no
+    # new side effect may start, so the reserved final-review window survives.
+    store._write('UPDATE run_execution_state SET active_elapsed_ms=? WHERE run_id=?',
+                 (int((FULL_RUN_LIMITS['seconds'] - reserved + 10) * 1000), run['id']))
+    with execution_context(store, run['id'], run['execution_epoch']), execution_role('worker'):
+        with pytest.raises(StopAudit):
+            CURRENT_EXECUTION.get().admit('responses')
     assert store.execution_summary(run['id'])['run_usage']['responses'] == 1
 
 
@@ -291,6 +303,52 @@ def test_concurrent_reserve_updates_and_admissions_share_one_budget(hosted):
     assert summary['run_usage']['responses'] == 12
     assert sum(summary['workflow']['used'].values()) == 12
     assert sum(summary['workflow']['limits'].values()) == 512
+
+
+def test_a_worker_naming_two_files_in_prose_does_not_make_a_direction_unassignable(hosted):
+    """`files.php/auth.php` names two frozen files, not one missing path.
+
+    A real run's worker wrote `report.php/member_lookup.php`; the host read the
+    joined token as one unknown path, kept the direction advisory-only and then
+    refused every adoption attempt until the coverage review closed the run.
+    """
+    store, repo, run = hosted
+    plan = store.begin_planner_round(run['id'], store.get_planner_session(run['id'])['session_id'])
+    store.finish_planner_round(run['id'], plan['id'], goal_state='continue', basis_summary='审计单点入口', tasks=[proposal('entry')])
+    task = store.claim_ready_task(run['id'], 'offline')
+    store.resolve_task_attempt(task['id'], 'offline', outcome='no_evidence', result=dict(
+        outcome='no_evidence', summary='已核对入口源码，建议未来检查业务前提。', reasoning='读取源码核对了当前分配范围。',
+        remaining_work=['src/files.php 与 src/auth.php 的边界需补读，files.php/auth.php 的调用链一并核对'],
+    ), usage={}, seen=[{'path': 'public/index.php', 'start_line': 1, 'end_line': 4}], terminal_reason='completed')
+    direction = store.list_audit_directions(run['id'])['items'][0]
+    assert direction['requirement'] == 'advisory' and direction['unknown_paths'] == []
+    plan = store.begin_planner_round(run['id'], store.get_planner_session(run['id'])['session_id'])
+    store.finish_planner_round(run['id'], plan['id'], goal_state='continue', basis_summary='明确采纳后续方向并分配窄任务。',
+                               tasks=[{**proposal('adopt'), 'direction_ids': [direction['id']]}])
+    adopted = next(item for item in store.list_audit_directions(run['id'], state='all')['items']
+                   if item['id'] == direction['id'])
+    assert adopted['requirement'] == 'required' and adopted['assigned_task_key'] == 'adopt'
+
+
+def test_an_unknown_path_refusal_names_the_names_and_the_allowed_actions(hosted):
+    """A refusal the Planner cannot act on closed a real run's discovery stage."""
+    store, repo, run = hosted
+    plan = store.begin_planner_round(run['id'], store.get_planner_session(run['id'])['session_id'])
+    store.finish_planner_round(run['id'], plan['id'], goal_state='continue', basis_summary='审计单点入口', tasks=[proposal('entry')])
+    task = store.claim_ready_task(run['id'], 'offline')
+    store.resolve_task_attempt(task['id'], 'offline', outcome='no_evidence', result=dict(
+        outcome='no_evidence', summary='已核对入口源码，建议未来检查业务前提。', reasoning='读取源码核对了当前分配范围。',
+        remaining_work=['public/index.php 与 missing/helper.php 的调用关系需补读'],
+    ), usage={}, seen=[{'path': 'public/index.php', 'start_line': 1, 'end_line': 4}], terminal_reason='completed')
+    direction = store.list_audit_directions(run['id'])['items'][0]
+    assert direction['unknown_paths'] == ['missing/helper.php']
+    plan = store.begin_planner_round(run['id'], store.get_planner_session(run['id'])['session_id'])
+    with pytest.raises(ValueError) as refused:
+        store.finish_planner_round(run['id'], plan['id'], goal_state='continue', basis_summary='明确采纳后续方向并分配窄任务。',
+                                   tasks=[{**proposal('adopt'), 'direction_ids': [direction['id']]}])
+    message = str(refused.value)
+    assert direction['id'] in message and 'missing/helper.php' in message
+    assert 'skip' in message and 'resolve' in message
 
 
 def test_adoption_and_explicit_worker_evidence_resolve_required_direction(hosted):

@@ -29,7 +29,7 @@ from typing import Any, Awaitable, Callable
 from pydantic import BaseModel, ValidationError
 from smolagents.models import ChatMessage, OpenAIModel
 
-from .config import ModelConfig
+from .config import ModelConfig, model_unavailable_reason
 from .actions import ActionIssue, extract_action
 from .context_budget import MIN_SUMMARY_CHARS, HistoryCompactor, message_bytes, message_text
 from .context_config import env_float, env_int
@@ -116,6 +116,18 @@ _PROVIDER_ERRORS = frozenset({
     "APIError", "APIStatusError", "APIConnectionError", "AuthenticationError",
     "PermissionDeniedError", "RateLimitError", "BadRequestError", "NotFoundError",
     "ConflictError", "UnprocessableEntityError", "InternalServerError",
+})
+
+# A request that never reached the provider carries no status code, so the transient
+# status set cannot see it.  The SDK reports the proxy/network hop as
+# ``APIConnectionError`` (or passes the httpx error through); retrying is the only way
+# to tell a blip from an outage.  A real run ended after three of these in forty
+# seconds -- each one fatal because nothing retried it -- while the endpoint answered
+# everything else normally.
+_CONNECTION_ERRORS = frozenset({
+    "APIConnectionError", "ConnectError", "ConnectTimeout", "ConnectionError",
+    "ConnectionResetError", "ConnectionAbortedError", "BrokenPipeError",
+    "RemoteProtocolError", "ReadError", "ReadTimeout", "WriteError", "WriteTimeout",
 })
 
 FINAL_ANSWER_ACCEPTED = "最终答案已通过宿主校验。"
@@ -507,7 +519,8 @@ class PhaseGate:
         name = type(exc).__name__
         if name in _TIMEOUT_ERRORS or isinstance(exc, TimeoutError):
             return ModelCallFailed("request_timeout", exc)
-        if name in _PROVIDER_ERRORS or getattr(exc, "status_code", None) is not None:
+        if (name in _PROVIDER_ERRORS or name in _CONNECTION_ERRORS
+                or getattr(exc, "status_code", None) is not None):
             return ModelCallFailed("model_error", exc)
         return exc
 
@@ -841,6 +854,8 @@ class AuditCodeModel(OpenAIModel):
     """
 
     def __init__(self, config: ModelConfig, *, gate: PhaseGate, max_tokens: int):
+        if reason := model_unavailable_reason(config.model):
+            raise ValueError(reason)
         super().__init__(
             model_id=config.model,
             api_base=config.base_url or None,
@@ -944,13 +959,16 @@ class AuditCodeModel(OpenAIModel):
     def _retry_wait(self, failure: BaseException, attempt: int, policy) -> float | None:
         """How long to wait before retrying, or ``None`` when the failure is not transient.
 
-        Only statuses the provider calls temporary and request timeouts are retried.
-        Authentication, routing and malformed-request errors must reach the breaker so
-        a misconfigured endpoint stops being asked.
+        Only statuses the provider calls temporary, request timeouts, and requests that
+        never reached the provider are retried.  Authentication, routing and
+        malformed-request errors must reach the breaker so a misconfigured endpoint
+        stops being asked.
         """
         if not isinstance(failure, ModelCallFailed):
             return None
-        if failure.status_code not in TRANSIENT_STATUS and failure.reason != "request_timeout":
+        connection = failure.status_code is None and type(failure.cause).__name__ in _CONNECTION_ERRORS
+        if (failure.status_code not in TRANSIENT_STATUS and failure.reason != "request_timeout"
+                and not connection):
             return None
         retry_after = _retry_after_seconds(failure.cause)
         if retry_after is not None:

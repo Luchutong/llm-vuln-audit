@@ -1038,6 +1038,69 @@ _CONTEXT_PHASE_LABELS = {
 }
 
 
+def _seconds(value) -> str:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{seconds:.0f} 秒"
+
+
+def _poc_statistics_section(run: dict) -> list[str]:
+    """The host's own POC accounting, in the same object the page and JSON use.
+
+    Kept separate from the model's narrative: host liveness, model waiting,
+    experiment execution, publication and carried-over results are different facts
+    and cannot be substituted for one another.
+    """
+    stats = ((run.get("execution_summary") or {}).get("poc_statistics")) or {}
+    if not stats:
+        return []
+    model = stats.get("model") or {}
+    host = stats.get("host") or {}
+    experiments = stats.get("experiments") or {}
+    conclusion = stats.get("conclusion") or {}
+    recovery = stats.get("recovery") or {}
+    continuation = stats.get("continuation") or {}
+    waiting = model.get("waiting_seconds")
+    lines = [
+        "### POC 统计",
+        "",
+        "| 项目 | 事实 |",
+        "|---|---|",
+        f"| 模型请求 | {int(model.get('streams') or 0)} 次结束"
+        f"{'，其中中断 ' + str(int(model.get('aborted') or 0)) + ' 次' if model.get('aborted') else ''}"
+        f"；已接收 {_report_bytes(model.get('received_bytes'))} |",
+        f"| 模型等待 | 最近一次响应已等待 {_seconds(waiting)}；首个事件 {_seconds(model.get('first_event_seconds'))} |",
+        f"| 实验作业 | {int(experiments.get('jobs') or 0)} 次，累计 {_seconds((experiments.get('duration_ms') or 0) / 1000)}"
+        f"；检查点 {int(experiments.get('checkpoints') or 0)} 次 |",
+        f"| 重复/补证 | 重复实验被拒 {int(experiments.get('duplicates') or 0)} 次；补证继续 {int(experiments.get('supplements') or 0)} 次 |",
+        f"| 恢复消耗 | 开始 {int(recovery.get('started') or 0)} 次、发布 {int(recovery.get('published') or 0)} 次，"
+        f"共 {int(recovery.get('requests') or 0)} 个请求 |",
+        f"| 发布 | 已发布 {int(conclusion.get('published') or 0)} 项；结论 "
+        + ("、".join(f"{name} {count}" for name, count in sorted((conclusion.get('verdicts') or {}).items())) or "—")
+        + " |",
+        f"| 宿主心跳 | 最近心跳 {_seconds(host.get('heartbeat_age_seconds'))}前；心跳不代表模型有进展 |",
+    ]
+    if conclusion.get("unpublished_reason"):
+        lines.append(f"| 尚未发布 | {_md_cell(str(conclusion['unpublished_reason']))} |")
+    if continuation.get("inherited") or continuation.get("retested"):
+        current_total = sum(int(count or 0) for count in (continuation.get("current_status") or {}).values())
+        lines.append(
+            f"| 沿用与本轮 | 沿用 {int(continuation.get('inherited') or 0)} 项（不构成本轮成果）；"
+            f"本轮新增 {current_total} 项，其中复测 {int(continuation.get('retested') or 0)} 项 |")
+    unfinished = stats.get("unfinished") or []
+    if unfinished:
+        lines += ["", f"未完成 {int(stats.get('unfinished_total') or 0)} 项，原因：", ""]
+        for item in unfinished[:8]:
+            lines.append(
+                f"- {_md_cell(str(item.get('title') or item.get('finding_id') or '—'))}"
+                f"（{_md_cell(str(item.get('state') or '—'))}）"
+                + (f"：{_md_cell(str(item.get('reason')))}" if item.get("reason") else ""))
+    lines += ["", f"{host.get('note') or ''} {model.get('note') or ''}".strip(), ""]
+    return lines
+
+
 def _report_bytes(value: object) -> str:
     try:
         size = int(value)
@@ -1340,6 +1403,7 @@ def _render_task_markdown(bundle: dict) -> str:
         "",
     ]
     doc += _context_section(run)
+    doc += _poc_statistics_section(run)
     doc += [
         "## 3. Planner 回合",
         "",

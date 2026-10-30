@@ -27,6 +27,7 @@ LONG_VALUE = "LONG_PAYLOAD_START\n" + "工具返回的长文本与无空格路�
 LONG_LOG = "PRINT_LOG_START\n" + "已读取的源码观察与批处理日志。\n" * 600 + "PRINT_LOG_END\n[日志已截断]"
 BUDGET = {"responses": 24, "tools": 96, "seconds": 1800}
 RUN_LIMITS = {"responses": 256, "tools": 2048, "seconds": 1800}
+FULL_RUN_LIMITS = {"responses": 512, "tools": 4096, "seconds": 3600}
 USAGE = {"requests": 4, "tool_calls": 2, "input_tokens": 2300, "output_tokens": 700}
 TASK = {"objective": OBJECTIVE, "success_criteria": CRITERIA, "max_iterations": 3,
         "max_total_attempts": 64, "max_planner_rounds": 24, "max_workers": 2,
@@ -398,7 +399,10 @@ class MockAPI:
                  "thinking": "disabled", "missing": [], "selected_profile_id": self.selected_profile_id, "model_profiles": public,
                  "version": "ui-codeagent-smoke", "worker": {"name": "fixture-worker", "busy": False, "alive": True},
                  "budgets": BUDGET, "budget_limits": {"defaults": BUDGET},
-                 "run_budget_limits": {"defaults": RUN_LIMITS, "min": {"responses": 1, "tools": 0, "seconds": 30}, "max": {"responses": 4096, "tools": 32768, "seconds": 14400}},
+                 "run_budget_limits": {"defaults": RUN_LIMITS,
+                                       "profiles": {"coverage_review": FULL_RUN_LIMITS, "goal": RUN_LIMITS},
+                                       "min": {"responses": 1, "tools": 0, "seconds": 30},
+                                       "max": {"responses": 4096, "tools": 32768, "seconds": 14400}},
                  "agent_policy": {"code_bytes": 4096, "code_output_bytes": 24576},
                  "model_health": {"status": "ok", "fails": 0, "trips": 0, "cooldown_seconds": 0}}
         self.config_responses.append(copy.deepcopy(value))
@@ -568,6 +572,10 @@ class MockAPI:
             self.json(route, detail(item, self.findings[parts[1]]) | {"project": project,
                 "project_findings": [value for value in self.ledger_records.values() if value["project_id"] == item.get("project_id")],
                 "carried_findings": [], "finding_relations": []} | copy.deepcopy(self.detail_overrides.get(parts[1], {})))
+        elif len(parts) == 3 and parts[0] == "runs" and parts[2] == "final-review" and method == "GET":
+            # These fixtures predate Planner v2.  The real endpoint answers 409 and the
+            # report page hides the fact package instead of inventing one.
+            self.json(route, {"detail": "This run predates Planner v2; it keeps its historical report layout"}, 409)
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] in {"project-map", "project-overview"}:
             self.json(route, project_map(self.runs[parts[1]]))
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] in {"events", "event-log"}:

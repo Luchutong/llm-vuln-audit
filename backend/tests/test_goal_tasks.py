@@ -1083,3 +1083,50 @@ def test_host_retries_are_bounded_before_the_task_settles_normally(store, reposi
                if event["kind"] == "planner_task_host_retry"]
     assert len(retries) == 1
     assert retries[0]["payload"]["max_host_retries"] == 1
+
+
+def test_an_exhausted_stage_hands_the_task_back_once(store, repository, monkeypatch):
+    """A refused stage admission must stop the direction instead of reclaiming it.
+
+    Live discovery runs wrote ~244 ``host_retry`` attempt rows in a few minutes while
+    the allowance was gone: the wave was restarted as fast as it ended, and every
+    restart claimed the task, prepared its context and was refused again.
+    """
+    import json
+
+    run, _ = create_planner_run(store, repository, task={
+        **TASK, "max_workers": 1, "workflow_policy": "discovery_first",
+        "workflow_limits": {"discovery": 12, "poc": 0, "review": 1},
+    })
+    workflow = store.workflow_state(run["id"])
+    assert workflow["stage"] == "discovery"
+    attempts: list[str] = []
+
+    async def fake_plan(**kwargs):
+        if kwargs["round_no"] > 1:
+            return _frontier_decision([], goal_state="unreachable")
+        return _frontier_decision([proposal("entry-flow")])
+
+    async def fake_pursue(**kwargs):
+        attempts.append(kwargs["planner_task"]["task_key"])
+        # The admission that the stage refused: the slot has now spent the allowance.
+        value = store.workflow_state(run["id"])
+        value["used"]["discovery"] = value["limits"]["discovery"]
+        store._write("UPDATE run_execution_state SET workflow=? WHERE run_id=?",
+                     (json.dumps(value), run["id"]))
+        raise worker_module.StopAudit("stage_budget_exhausted", "源码挖掘阶段额度已到，保留后续阶段预算")
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", fake_plan)
+    monkeypatch.setattr(worker_module, "pursue_planner_task", fake_pursue)
+
+    async def scenario():
+        return await asyncio.wait_for(worker._execute(run), timeout=20)
+
+    worker = make_worker(store, repository)
+    asyncio.run(scenario())
+
+    task = store.list_tasks(run["id"])[0]
+    assert [item["outcome"] for item in task["attempt_history"]] == ["host_retry"]
+    # Handed back uncharged, and the stage end settles whatever is still queued.
+    assert task["attempts"] == 0 and task["state"] in {"ready", "blocked", "cancelled"}
+    assert len(attempts) == 1

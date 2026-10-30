@@ -28,6 +28,27 @@ def _text(value):
     return " ".join(str(value or "").split())
 
 
+_SOURCE_NAME = re.compile(r"[\w./-]+\.(?:php|py|js|ts|sh|yaml|yml|ini|conf)\b")
+
+
+def unknown_source_names(text, known_paths):
+    """Names a direction text mentions that no frozen source path resolves.
+
+    A worker writes prose, not paths: ``report.php/member_lookup.php`` names two
+    files, so a token only counts as unknown when none of its slash-delimited
+    parts resolves.  Reading that joined token as one path marked a real
+    direction advisory-only and refused its assignment, which the Planner could
+    neither correct nor work around.
+    """
+    unknown = []
+    for name in _SOURCE_NAME.findall(text):
+        parts = [part for part in name.split("/") if part]
+        if any(any(path == part or path.endswith("/" + part) for path in known_paths) for part in parts):
+            continue
+        unknown.append(name)
+    return unknown
+
+
 def _seen_spans(rows):
     """Keep bounded intervals; expanding original line numbers is unnecessary."""
     grouped = {}
@@ -163,8 +184,7 @@ class DirectionStoreMixin:
             local = bool(paths) and all(any(path == target or path.startswith(target.rstrip("/") + "/") for target in declared if target) for path in paths)
             hosted = self.host_queue_enabled(row["run_id"])
             auto_assign = not hosted and not int(row["revisions"] or 0) and local
-            names = re.findall(r"[\w./-]+\.(?:php|py|js|ts|sh|yaml|yml|ini|conf)\b", text)
-            unknown = [name for name in names if not any(path == name or path.endswith('/' + name) for path in known_paths)]
+            unknown = unknown_source_names(text, known_paths)
             records[identity] = {"id": identity, "origin_task_id": row["id"], "origin_task_key": row["task_key"],
                                  "text": text, "paths": paths, "state": "assigned" if auto_assign or identity in selected else "pending",
                                  "assigned_task_key": row["task_key"] if auto_assign or identity in selected else None,
@@ -206,7 +226,8 @@ class DirectionStoreMixin:
         for task_key, ids in explicitly_selected.items():
             for identity in ids:
                 if identity in selected_targets and selected_targets[identity] != task_key:
-                    raise ValueError("one direction cannot be assigned to multiple tasks")
+                    raise ValueError(f"方向 {identity} 不能同时分派给多个工作项"
+                                     f"（{selected_targets[identity]}、{task_key}）；每个方向每轮只能由一个任务领取")
                 selected_targets[identity] = task_key
         for key in reopened:
             selected = set(explicitly_selected.get(key, []))
@@ -248,7 +269,16 @@ class DirectionStoreMixin:
                     raise ValueError("cannot take a direction away from a running task")
                 if self.host_queue_enabled(run_id):
                     if record.get("unknown_paths"):
-                        raise ValueError("未知源码路径不能直接升级为必做方向，请明确修正范围后再采纳")
+                        # The Planner cannot edit a direction's text, so an assignment
+                        # refusal that only says "fix the scope" is a dead end: the run
+                        # repeated it for three rounds until the coverage review closed.
+                        # Name what is unknown and the two actions that can settle it.
+                        raise ValueError(
+                            f"方向 {identity} 的文本点名了冻结源码中不存在的文件："
+                            f"{'、'.join(record['unknown_paths'])}；该方向不能升级为必做方向。"
+                            "对本轮同一方向改用 skip（rationale 说明该路径不在冻结源码内，"
+                            "仍可直接派发任务读其它已知路径）；该方向从未派发，不能 resolve。"
+                            "其余任务与方向更新可随下一轮重新提交。")
                     record["requirement"] = "required"
                 record.update(state="assigned", assigned_task_key=task_key)
                 spec = _load(self._db.execute("SELECT context_spec FROM planner_tasks WHERE id=?", (target["id"],)).fetchone()[0], {}) or {}

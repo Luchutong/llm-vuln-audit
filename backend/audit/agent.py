@@ -936,6 +936,10 @@ class PlannerDeps:
         if not reader or not batch.get("id"):
             raise ValueError("当前没有可读取的审查批次")
         value = await asyncio.to_thread(reader, self.run_id, batch["id"], repository=self.repository, **args)
+        pages = getattr(self, "review_pages", None)
+        if pages is None:
+            self.review_pages = pages = {}
+        pages[(value["item_id"], value["field"], value["offset"])] = value
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
     def validate_verification_reads(self, reviews: list, context: dict) -> None:
@@ -3272,7 +3276,7 @@ def _validate_direction_contract(decision: PlannerDecision, *, workflow_policy: 
     for task_key, identity in selected:
         previous = actions.get(identity)
         if previous and previous != ("assign", task_key):
-            raise ModelRetry(f"方向 {identity} 不能同时分派给多个工作项")
+            raise ModelRetry(f"方向 {identity} 不能同时分派给多个工作项（{previous[1]}、{task_key}）；每个方向每轮只能由一个任务领取")
         actions[identity] = ("assign", task_key)
     for update in updates:
         action = (update.action, update.task_key)
@@ -4038,14 +4042,21 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                             "对 verified 但尚未正式复核的结论，accept 时必须同时提交精确 finding_id/revision/verification_id 的"
                             "confirmed 与具体观测依据。contested 不能 accept；字段缺失、内容省略则 needs_evidence。"
                             "静态证据充分可直接接受，不能仅因未运行 POC 拒绝源码支持的结论，也不能修改动态验证状态。"
+                            "needs_evidence 只用于所引源码不完整或被省略、存在未裁定冲突或动态反证；"
+                            "所引证据完整而结论还依赖相邻配置或部署事实时，accept 并在 rationale 写明该适用限制。但若该限制"
+                            "决定漏洞是否成立（如并发可利用性依赖事务配置），仍应 needs_evidence。"
                         )
                     if any(i.get("paged_fields") for i in run_context["review_batch"]["items"]) and tools:
                         return prompt + (
                             "\n本批含 paged_fields。先用 read_review_input 分段读取每个字段，循环使用 next_offset 到 null，"
                             "拼接并读取原文后再调用 final_answer(PlannerDecision)。可在同一代码块批量读取。"
+                            "只遍历各 item 自己的 paged_fields；没有该字段的项不能读取。"
+                            "使用上面实际 items 清单中的 item_id 与 paged_fields.field；"
+                            "解释器没有预置 batch 变量。未列出分段字段的项已经内联提供，不需要补读。"
                             "required_read_fields 包含失败 POC 已保存的完整作业，必须先读再处置；"
                             "正常/攻击观测字段为空只表示没有发布结论，不表示作业没有响应。"
-                            "不要仅因分段传输就判为缺证；工具只读、不能派工或执行 POC。额度不足则保留 needs_evidence。"
+                            "不要仅因分段传输就判为缺证；工具只读、不能派工或执行 POC。"
+                            "必读原文尚未读完则不能发布，预算不足时由宿主保留待审。"
                         )
                     return prompt + (
                         "\n现在只提交逐项处置的 JSON PlannerDecision，不调用工具、不输出代码或模型内部推理。"
@@ -4135,6 +4146,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 )
                 return (
                     planner_prompt(deciding=True, tools=False)
+                    + ("\n# 本回合实际读取的审查原文（宿主保存，不是模型摘要）\n"
+                       + json.dumps(list(getattr(deps, "review_pages", {}).values()), ensure_ascii=False, separators=(",", ":"))
+                       if getattr(deps, "review_pages", None) else "")
                     + guidance
                     + "省略没有使用的默认字段、空数组和空 report，不复述历史，不复制源码。"
                     "已有前沿时可只提交更新或小批复核；需要复核的其余记录留待后续回合。"
@@ -4187,7 +4201,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 if any(i.get("paged_fields") for i in run_context["review_batch"]["items"]):
                     # A single bounded reader/decision loop, sharing the existing three
                     # response reserve. No separate exploratory or publication allowance.
-                    confirmations = min(3, response_cap)
+                    # Reading cannot consume the final publication request. The
+                    # structured fallback carries the host-captured pages as facts.
+                    confirmations = min(2, max(0, response_cap - 1))
             reserve = 1 + corrections + confirmations
             explore_limit = min(max(0, int(policy.planner_explore_responses)), max(0, response_cap - reserve))
             if review_only:

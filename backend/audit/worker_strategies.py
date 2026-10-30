@@ -152,6 +152,9 @@ _W2_V2 = _W1_V2 + """
 对每个候选写清攻击前身份、攻击者可控对象、完整传播链、对象属主检查及业务状态；引用真正读取的关键原始行。
 按冻结索引找到调用者和被调用者后再形成结论，不把跨文件本身视为更高风险。
 缺少运行环境不否定已有充分源码依据的风险；缺少关键源码或部署事实则明确限制，不用猜测补链。
+并发、事务、锁或幂等类结论必须同时引用数据库连接与事务配置的原始行（如 db() 的 PDO 构造、
+autocommit、隔离级别、是否 BEGIN/COMMIT）以及本次操作自身的读写顺序；这些配置不在快照内时，
+把“可利用性依赖未提供的数据库配置”写入 missing_context，限定为条件性结论，不能直接断言可重复出账。
 交回未覆盖方向时给出具体路径和待核实问题，让协调器能继续派发；不要用笼统“已全部审计”代替覆盖记录。
 """.strip()
 
@@ -207,6 +210,24 @@ WORKER_FINDING_CONTRACT = (
 )
 
 
+# The verification runner executes the stored script verbatim in an isolated container:
+# python 3 standard library only (no ``requests``), php, no interactive tooling.  A POC that
+# needs rewriting before it can run costs the verifying agent turns to re-derive, so the
+# audit side writes the runnable form up front.
+POC_SCRIPT_CONTRACT = (
+    "POC 脚本格式（验证宿主会直接执行，必须满足）："
+    "poc 为对象 {filename, language, script, instructions, normal_input, attack_input, expected_result}；"
+    "language 只能是 python 或 php。python 只能使用标准库"
+    "（urllib.request、urllib.parse、http.cookiejar、re、json、os），"
+    "不得使用 requests、bs4、selenium、httpx 等第三方库，靶场容器未安装。"
+    "目标与凭据只能从环境变量读取：os.environ[\"LAB30_URL\"]、os.environ[\"LAB30_USER\"]、"
+    "os.environ[\"LAB30_PASSWORD\"]（php 用 getenv）；"
+    "禁止出现 TARGET、USER、PASS、<sid>、<token> 等占位符，禁止硬编码地址、账号或密码。"
+    "脚本必须自行登录并断言会话生效，再分别打印正常输入与攻击输入的原始响应（状态码与正文）；"
+    "单个脚本不超过 32 KiB、默认 30 秒内结束，不依赖上一次运行的会话或数据状态。"
+)
+
+
 def worker_poc_requirement(*, require_poc: bool = False) -> str:
     return (
         "当前任务要求每条 achieved finding 的 poc 包含完整、可复现的 POC 与运行说明；"
@@ -214,7 +235,7 @@ def worker_poc_requirement(*, require_poc: bool = False) -> str:
         if require_poc
         else "当前任务不强制要求 POC；已证实的漏洞仍应在可行时提供可复现的 POC，"
         "是否执行由宿主的 poc_mode 与可用环境决定。不得因为无执行环境反复派发 POC 任务。"
-    )
+    ) + POC_SCRIPT_CONTRACT
 
 
 def worker_host_contract(*, require_poc: bool = False, include_cvss: bool = True) -> str:

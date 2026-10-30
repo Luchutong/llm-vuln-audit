@@ -18,7 +18,7 @@ Usage:
     # 全量审计（默认）：穷尽源码中全部漏洞类别，对全量数据集评分
     run_lab30_e2e.py --base http://127.0.0.1:8899 --zip /path/lab30-shop-1.0.0-source.zip
     # 只跑某个分场景（sqli / xss_r / command_injection）
-    run_lab30_e2e.py --base http://127.0.0.1:8899 --zip ... --scenario xss_r --max-wait 7200
+    run_lab30_e2e.py --base http://127.0.0.1:8899 --zip ... --scenario xss_r --max-wait 12000
     # 离线直接对已导出的 findings.json 评分（不起服务、不跑模型）
     run_lab30_e2e.py --offline findings.json --check-severity --check-cvss
 
@@ -83,13 +83,17 @@ SCENARIOS = ("all",) + SPECIFIC_SCENARIOS
 # The closure profile is the one configuration the project's acceptance run uses.  Its
 # budgets are ceilings, not targets: the previous full run spent 54 of 256 responses, so
 # raising the ceiling costs nothing unless the Planner actually needs the room.
-CLOSURE_BUDGETS = {"responses": 40, "tools": 160, "seconds": 3600}
-CLOSURE_LIMITS = {"responses": 1024, "tools": 8192, "seconds": 5400}
+CLOSURE_BUDGETS = {"responses": 60, "tools": 240, "seconds": 3600}
+# The closure profile must be able to afford every stage it freezes: full
+# discovery of a 61-path project, the reserved POC window (35% of the clock by
+# default) and the dynamic final-review reserve.  The previous 5400s ceiling
+# could not hold one 300s POC item per standing conclusion.
+CLOSURE_LIMITS = {"responses": 2048, "tools": 16384, "seconds": 10800}
 CLOSURE_TASK = {
-    "max_iterations": 5,
-    "max_planner_rounds": 32,
-    "max_total_attempts": 96,
-    "max_workers": 2,
+    "max_iterations": 6,
+    "max_planner_rounds": 40,
+    "max_total_attempts": 120,
+    "max_workers": 3,
     "baseline_policy": "fresh",
 }
 DEFAULT_HISTORY_BYTES = 384 * 1024
@@ -461,7 +465,7 @@ def main() -> int:
     parser.add_argument("--attempts", type=int, default=None,
                         help="单任务尝试上限（默认 64；--closure 档为 96）")
     parser.add_argument("--max-wait", type=int, default=None,
-                        help="最长等待秒数（默认 5400；--closure 为 7200）")
+                        help="最长等待秒数（默认 5400；--closure 为 12000）")
     parser.add_argument("--interval", type=int, default=5, help="轮询间隔秒数")
     parser.add_argument("--out", default=None, help="评分明细输出路径")
     parser.add_argument("--no-score", action="store_true", help="只跑审计不评分")
@@ -505,7 +509,7 @@ def main() -> int:
         parser.error("在线模式需要 --zip 源码包，或使用 --offline findings.json 离线评分")
     if args.closure and args.follow:
         parser.error("--closure 必须由本脚本发起 run：接受证据需要开跑前的复位与种子断言，不能用 --follow 补做")
-    max_wait = args.max_wait if args.max_wait is not None else (7200 if args.closure else 5400)
+    max_wait = args.max_wait if args.max_wait is not None else (12000 if args.closure else 5400)
 
     iterations = args.iterations if args.iterations is not None else 3
     rounds = args.max_rounds if args.max_rounds is not None else 24

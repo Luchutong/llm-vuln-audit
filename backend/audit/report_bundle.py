@@ -139,6 +139,9 @@ def _provenance(run: dict, snapshot: dict, facts: dict) -> dict:
         "input_hash": hashlib.sha256(frozen.encode("utf-8")).hexdigest(),
         "model": profile.get("model") or run.get("model") or "",
         "model_profile_id": profile.get("id") or "",
+        "continuation": {key: (run.get('task_spec') or {}).get('continuation', {}).get(key)
+                         for key in ('parent_run_id', 'root_run_id', 'mode', 'parent_usage')}
+                        if (run.get('task_spec') or {}).get('continuation') else None,
     }
 
 

@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
-from ui_fixtures import COMPLETED_ID, CREATED_ID, OBJECTIVE, PROJECT_ID, RUN_LIMITS, SNAPSHOT_ID, STAMP, MockAPI, event, finding, run
+from ui_fixtures import COMPLETED_ID, CREATED_ID, FULL_RUN_LIMITS, OBJECTIVE, PROJECT_ID, RUN_LIMITS, SNAPSHOT_ID, STAMP, MockAPI, event, finding, run
 from ui_smoke import Checks, close_dialog, goto, no_overflow, open_logs, save
 
 
@@ -94,7 +94,7 @@ def navigate(page, hash):
 def run_checks(page, base, api, checks, directory):
     draft(page, base)
     dialog = options(page)
-    for label, value in (("整次模型请求上限", "256"), ("整次工具调用上限", "2048"), ("整次活跃时间（秒）", "1800"), ("模型响应次数", "24")):
+    for label, value in (("整次模型请求上限", "512"), ("整次工具调用上限", "4096"), ("整次活跃时间（秒）", "3600"), ("模型响应次数", "24")):
         expect(dialog.get_by_role("spinbutton", name=label, exact=False)).to_have_value(value)
     expect(dialog.get_by_role("combobox", name="自动验证模式")).to_have_value("off")
     assert api.readiness_requests == 0
@@ -104,7 +104,7 @@ def run_checks(page, base, api, checks, directory):
     page.get_by_role("button", name="开始审计", exact=True).click()
     expect(page).to_have_url(base + f"/#run/{CREATED_ID}")
     assert api.create_bodies[-1]["poc_mode"] == "off" and api.create_bodies[-1]["task"]["require_poc"] is True
-    assert api.create_bodies[-1]["run_limits"] == RUN_LIMITS
+    assert api.create_bodies[-1]["run_limits"] == FULL_RUN_LIMITS
     checks.passed("requiring a POC script stays independent from starting the verification agent")
 
     draft(page, base)
@@ -155,13 +155,16 @@ def run_checks(page, base, api, checks, directory):
     page.get_by_role("button", name="基于此任务新建", exact=True).click()
     dialog = options(page)
     expect(dialog.get_by_role("spinbutton", name="整次模型请求上限", exact=False)).to_have_value("111")
-    expect(dialog.get_by_role("combobox", name="自动验证模式")).to_have_value("off")
+    # The clone keeps the frozen POC mode: a required run does not quietly reopen as
+    # "off", and a run that ran without verification does not become required.
+    expect(dialog.get_by_role("combobox", name="自动验证模式")).to_have_value("required")
     dialog.get_by_role("button", name="保存设置", exact=True).click()
     page.get_by_role("button", name="开始审计", exact=True).click()
     expect(page).to_have_url(base + f"/#run/{CREATED_ID}")
     assert api.create_bodies[-1]["run_limits"] == {"responses": 111, "tools": 555, "seconds": 999}
+    assert api.create_bodies[-1]["poc_mode"] == "required"
     assert not {"usage", "execution_summary", "final_summary"} & set(api.create_bodies[-1])
-    checks.passed("clone copies original allowances, starts POC off and never copies consumed usage")
+    checks.passed("clone copies original allowances and frozen POC mode, and never copies consumed usage")
 
     draft(page, base)
     dialog = options(page)

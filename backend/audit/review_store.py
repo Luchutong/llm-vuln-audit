@@ -63,6 +63,14 @@ def stamp():
     return datetime.now(timezone.utc).isoformat()
 
 
+STOP_DIAGNOSES = {
+    "coverage_incomplete": "审计与终审已结束，覆盖复核未完成：未读源码方向及运行限制保留在阶段报告中。",
+    "blocker_unresolved": "审计与终审已结束，仍有受阻方向未解除：未完成方向及运行限制保留在阶段报告中。",
+    "attempts_exhausted": "审计与终审已结束，worker 共享尝试上限已耗尽：未完成方向及运行限制保留在阶段报告中。",
+    "no_progress": "审计与终审已结束，同一业务输入未再取得新证据：未完成方向及运行限制保留在阶段报告中。",
+}
+
+
 def review_terminal_reason(entries, pending_batches, discovery_stop=None):
     """Final-state diagnosis is independent of an earlier phase-transition message."""
     pending = sum(entry.get("final_disposition") == "pending" for entry in entries)
@@ -75,7 +83,9 @@ def review_terminal_reason(entries, pending_batches, discovery_stop=None):
     if contested:
         return {"code": "final_review_contested", "message": f"终审已结束，{contested} 条结论存疑或被排除；详见逐项处置。"}
     stop = discovery_stop or {}
-    return {"code": stop.get("code") or "audit_partial", "message": "审计与终审已结束，未完成的源码方向及运行限制保留在阶段报告中。"}
+    code = stop.get("code") or "audit_partial"
+    return {"code": code, "message": STOP_DIAGNOSES.get(
+        code, "审计与终审已结束，未完成的源码方向及运行限制保留在阶段报告中。")}
 
 
 def validate_batch(batch, decisions, *, current_items=None):
@@ -429,6 +439,7 @@ class ReviewStoreMixin:
                 "conflicts": item.get("conflicts", []) + ([{"kind": "review_contested"}] if decision == "contested" else [])})
         decisions = validate_batch({**batch, "items": validated_items}, decisions, current_items=current.values())
         by_decision = {d["item_id"]: d for d in decisions}
+        problems = []
         for decision in decisions:
             if decision["decision"] != "accept":
                 continue
@@ -436,8 +447,24 @@ class ReviewStoreMixin:
             peers = {peer["item_id"] for peer in item.get("payload", {}).get("comparison_candidates", [])}
             retained = {peer for peer in peers if by_decision.get(peer, {}).get("decision") not in {"duplicate", "withdraw"}}
             distinct = set(decision.get("distinct_from") or [])
-            if not retained.issubset(distinct) or not distinct.issubset(peers):
-                raise ValueError("accept 前须判读 comparison_candidates：同一根因用 duplicate；不同根因在 distinct_from 列出保留的对照 item_id，并在 rationale 说明操作或前提差异。POC 状态及评分不同不代表不同根因。")
+            missing, invalid = retained - distinct, distinct - peers
+            if not missing and not invalid:
+                continue
+            # Name every item's requirement in one refusal. Reporting only the first
+            # item made a two-item batch unwinnable inside the correction allowance:
+            # the Planner satisfied the named item, the next rejection named the other,
+            # and the pair alternated until the round failed (27 rounds on one batch in
+            # a real run).
+            parts = []
+            if missing:
+                parts.append(f"须把 {'、'.join(sorted(missing))} 写入 item_id={decision['item_id']} 的 distinct_from")
+            if invalid:
+                parts.append(f"item_id={decision['item_id']} 的 distinct_from 只能引用本项 comparison_candidates 中的 item_id，"
+                             f"无效项：{','.join(sorted(invalid))}")
+            problems.append("；".join(parts))
+        if problems:
+            raise ValueError("accept 前须判读 comparison_candidates：同一根因用 duplicate；不同根因在 distinct_from 列出保留的对照 item_id，并在 rationale 说明操作或前提差异。POC 状态及评分不同不代表不同根因。 本批次逐项要求："
+                             + "；".join(problems) + "。")
         tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
         directions = self._audit_direction_records(run_id)
         for decision in decisions:

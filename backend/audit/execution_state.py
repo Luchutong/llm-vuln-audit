@@ -151,11 +151,20 @@ class ExecutionStoreMixin:
                         short -= take
                 remaining_seconds = max(0., float(limits.get("seconds", 0)) - row["active_elapsed_ms"] / 1000)
                 funded = value["limits"]["review"] - value["used"]["review"] >= needed
+                # Discovery must leave both the review window and the POC window on the
+                # clock.  Reserving only the review window made the two gates mutually
+                # exclusive: discovery stopped when ``remaining <= review`` while the POC
+                # gate required ``remaining > review``.
+                from .workflow import stage_poc_window
+                poc_window = stage_poc_window(value)
                 value["review_reserved_seconds"] = seconds
                 value["review_reserve"] = {
                     "pending_items": sum(len(batch) for batch in batches), "estimated_batches": len(batches),
                     "workers": workers, "responses": needed, "seconds": seconds, "funded": funded,
-                    "upstream_allowed": funded and remaining_seconds > seconds,
+                    "poc_window_seconds": poc_window,
+                    "upstream_allowed": funded and remaining_seconds > seconds + poc_window,
+                    "poc_window_blocks": (funded and remaining_seconds > seconds
+                                          and remaining_seconds <= seconds + poc_window),
                     "reason": "actual_review_batches_and_inflight_workers",
                 }
                 self._db.execute("UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?", (dump(value), stamp(), run_id))
@@ -191,8 +200,32 @@ class ExecutionStoreMixin:
                     unused = max(0, value["limits"]["discovery"] - value["used"]["discovery"])
                     value["limits"]["discovery"] -= unused
                     value["limits"]["poc"] += unused
-                    value["transferred"] += unused
+                    value["transferred"] = value.get("transferred", 0) + unused
             value["stage"] = stage
+            self._db.execute("UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?", (dump(value), stamp(), run_id))
+        return self.workflow_state(run_id)
+
+    def release_poc_quota(self, run_id):
+        """Move the finished POC stage's unspent responses into the final review.
+
+        A real closure run reviewed 21 of 22 batches and then ended
+        ``final_review_incomplete`` with 75 responses in the review stage while the
+        finished POC stage still held more than a thousand, having spent 138 of 1809.
+        Called only when the POC stage is over for good -- the alternating
+        POC/review loop during discovery still needs its own remaining quota.
+        """
+        with self._lock:
+            self.assert_execution_write(run_id)
+            row = self._db.execute("SELECT workflow FROM run_execution_state WHERE run_id=?", (run_id,)).fetchone()
+            value = json.loads(row[0] or "{}") if row else {}
+            if not value or value.get("source") == "explicit":
+                return self.workflow_state(run_id)
+            unused = max(0, value["limits"]["poc"] - value["used"]["poc"])
+            if not unused:
+                return self.workflow_state(run_id)
+            value["limits"]["poc"] -= unused
+            value["limits"]["review"] += unused
+            value["transferred"] = value.get("transferred", 0) + unused
             self._db.execute("UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?", (dump(value), stamp(), run_id))
         return self.workflow_state(run_id)
 
@@ -293,8 +326,14 @@ class ExecutionStoreMixin:
         if workflow and dimension in ("responses", "tools", "work"):
             stage = workflow["stage"]
             remaining_time = (float(limits["seconds"]) - row["active_elapsed_ms"] / 1000) if limits else None
+            # Same reservation as ``workflow_view``: the freeze reserves seconds for the
+            # review window regardless of the orchestration policy, and discovery also
+            # leaves the POC window.  Historical workflow rows without the field reserve
+            # nothing extra.
+            from .workflow import stage_poc_window
             reserved = (float(workflow["review_reserved_seconds"])
-                        if stage != "review" and workflow.get("version") != "host-queue-v1" else 0.)
+                        if stage != "review" else 0.)
+            reserved += stage_poc_window(workflow)
             if ((dimension in ("responses", "work") and workflow["used"][stage] >= workflow["limits"][stage])
                     or (remaining_time is not None and remaining_time <= reserved)):
                 raise StopAudit("stage_budget_exhausted", f"{stage} 阶段额度已到，保留后续阶段预算")
@@ -436,6 +475,9 @@ class ExecutionStoreMixin:
             review = self.coverage_review(run_id) if hasattr(self, "coverage_review") else None
             directions = self.audit_direction_summary(run_id) if workflow and hasattr(self, "audit_direction_summary") else None
             verification = self._verification_progress(run_id)
+            queue = self.poc_queue_view(run_id) if hasattr(self, "poc_queue_view") else None
+            stats = (self.poc_statistics(run_id, queue)
+                     if hasattr(self, "poc_statistics") else None)
             return {"policy_version": POLICY_VERSION, "phase": value["phase"], "claim_epoch": value["claim_epoch"], "state_revision": value["state_revision"],
                     "run_limits": limits, "run_usage": usage, "run_remaining": {k: max(0, limits[k]-usage[k]) for k in limits} if limits else None,
                     "active_executions": list(self._active_agents.get(run_id, {}).values()),
@@ -446,6 +488,8 @@ class ExecutionStoreMixin:
                     **({"workflow": workflow_view(workflow,
                          remaining_seconds=max(0., limits["seconds"]-elapsed) if limits else None)} if workflow else {}),
                     "verification": verification,
+                    **({"poc_queue": queue} if queue is not None else {}),
+                    **({"poc_statistics": stats} if stats is not None else {}),
                     **({"directions": directions} if directions is not None else {}),
                     **({"coverage_review": review} if review is not None else {})}
 

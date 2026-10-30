@@ -829,6 +829,32 @@ class RunLimits(BaseModel):
     seconds: int = Field(default=1800, ge=30, le=14400)
 
 
+class RetestPocLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    session_policy: Literal['session-queue-v1', 'staged-v1'] = 'session-queue-v1'
+    max_seconds: int = Field(default=600, ge=30, le=3600,
+        description='持续队列的单项耗时提醒；仅旧 staged-v1 模式用作单项硬时限。')
+    max_jobs: int = Field(default=12, ge=1, le=32)
+    execute_requests: int = Field(default=60, ge=1, le=512)
+    conclude_requests: int = Field(default=3, ge=3, le=16)
+
+
+class ContinueRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    request_id: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+    mode: Literal['poc_review', 'review', 'audit'] = 'poc_review'
+    model_profile_id: str = Field(default='current', min_length=1, max_length=100)
+    finding_ids: list[str] | None = Field(default=None, max_length=400)
+    run_limits: RunLimits = Field(default_factory=RunLimits)
+    poc: RetestPocLimits = Field(default_factory=RetestPocLimits)
+
+    @model_validator(mode='after')
+    def _room_to_finish(self):
+        if self.run_limits.responses < (3 if self.mode == 'review' else 8):
+            raise ValueError('新增请求预算不足以完成验证和终审')
+        return self
+
+
 class CreateRunRequest(BaseModel):
     # The public entrypoint has one execution model: a user-defined Planner task over
     # a whole uploaded project. Reject stale prompt-era and scope-era fields instead of
@@ -1107,7 +1133,8 @@ class PocEvidenceReference(BaseModel):
     """An exact excerpt from a successful runner job, never model-generated proof."""
 
     job_id: str = Field(min_length=1, max_length=64)
-    channel: Literal["stdout", "stderr", "body_text", "dialogs", "evaluated", "body", "headers"]
+    channel: Literal["stdout", "stderr", "body_text", "dialogs", "evaluated", "body", "headers",
+                     "server_diagnostics"]
     excerpt: str = Field(min_length=1, max_length=4000)
 
 

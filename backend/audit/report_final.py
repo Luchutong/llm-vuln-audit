@@ -35,6 +35,7 @@ EXECUTION_LABELS = {
     "environment_unavailable": "环境不可用",
     "other_error": "执行失败",
     "conclusion_error": "已有成功作业，验证结论阶段未完成",
+    "execution_error": "验证实验因模型或运行时异常中断，已保存作业，结论仍未决",
     "timeout": "执行超时",
 }
 VERIFICATION_LABELS = {
@@ -237,6 +238,11 @@ def _scope(facts: dict) -> list[str]:
                          f"{_cell((usage.get('run_remaining') or {}).get(key, '—'))} |")
     if not limits and not used:
         lines.append("| 运行预算 | — | — | — |")
+    continuation = provenance.get('continuation') or {}
+    if continuation:
+        lines += ["", f"- 继续来源：运行 `{continuation.get('parent_run_id')}`；范围 {_cell(continuation.get('mode'))}。"
+                  "本报告预算与用量仅属于本次继续任务，原运行和报告保持不变。",
+                  f"- 原运行用量（独立记录，不重复计入本次）：{_cell(continuation.get('parent_usage') or '未记录', 400)}"]
     if context:
         lines += [
             "",
@@ -391,6 +397,10 @@ def _verification(facts: dict) -> list[str]:
                 f"  - 攻击侧观测：{_cell(attempt.get('attack_evidence') or '未记录', 800)}",
             ]
             availability = attempt.get("fact_availability") or {}
+            inherited = attempt.get("inherited_from") or {}
+            if inherited:
+                lines.append(f"  - 继承验证：原运行 `{_cell(inherited.get('run_id'))}` / "
+                             f"verification `{_cell(inherited.get('verification_id'))}`；本次未重新执行该历史作业。")
             if availability.get("jobs_total"):
                 lines.append(f"  - 已保存作业事实：{availability['jobs_total']} 个；"
                              f"满足执行及前提检查的作业：{availability.get('successful_jobs', 0)} 个。"

@@ -73,7 +73,10 @@ def test_closure_create_widens_the_frozen_budget_and_policy():
     assert payload['run_limits']==script.CLOSURE_LIMITS
     assert payload['task']['completion_policy']=='coverage_review'
     assert payload['task']['baseline_policy']=='fresh'
-    assert payload['task']['max_total_attempts']==96
+    # The frozen limit comes from CLOSURE_TASK; it must stay at least the 96 the
+    # closure profile was designed around (it was widened to 120 for full coverage).
+    assert payload['task']['max_total_attempts']==script.CLOSURE_TASK['max_total_attempts']
+    assert payload['task']['max_total_attempts']>=96
 
 
 def test_reset_target_reads_the_seed_line_and_refuses_drift(monkeypatch):

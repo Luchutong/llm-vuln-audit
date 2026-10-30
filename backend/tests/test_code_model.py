@@ -237,6 +237,41 @@ def test_a_transient_429_is_retried_and_costs_another_response(monkeypatch):
     assert retry["remaining_attempts"] == outcome.gate.limit - 2
 
 
+def test_a_connection_error_without_a_status_is_retried(monkeypatch):
+    """A request that never reached the provider is a blip, not a refused endpoint.
+
+    A real run closed after three ``APIConnectionError`` failures in forty seconds: each
+    carried no status code, so the transient sets did not match and the client gave up
+    on the first try.  One retry is enough to absorb the same blip here.
+    """
+    monkeypatch.setattr("audit.codemodel.time.sleep", lambda seconds: None)
+    request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+    host = Host(policy=AgentPolicy(transient_backoff_seconds=1, transient_max_backoff_seconds=4))
+    outcome = Phase(host, output_model=Answer).play([
+        openai.APIConnectionError(request=request),
+        code('final_answer({"note": "n"})'),
+    ])
+
+    assert outcome.failure is None
+    assert outcome.gate.published == Answer(note="n")
+    assert host.execution.attempts == 2
+    retry = host.events_of("provider_retry")[0]
+    assert retry["status"] is None and retry["attempt"] == 1
+
+
+def test_an_unreachable_endpoint_still_exhausts_its_retries(monkeypatch):
+    monkeypatch.setattr("audit.codemodel.time.sleep", lambda seconds: None)
+    request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+    host = Host(policy=AgentPolicy(transient_retries=2, transient_backoff_seconds=1))
+    outcome = Phase(host, output_model=Answer).play(
+        Always([openai.APIConnectionError(request=request)]))
+
+    assert isinstance(outcome.failure, ModelCallFailed)
+    assert outcome.failure.reason == "model_error" and outcome.failure.status_code is None
+    assert len(outcome.model.requests) == 3
+    assert len(host.events_of("provider_retry")) == 2
+
+
 def test_retry_after_from_the_provider_decides_the_wait(monkeypatch):
     waits = []
     monkeypatch.setattr("audit.codemodel.time.sleep", lambda seconds: waits.append(seconds))

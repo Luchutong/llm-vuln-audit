@@ -25,6 +25,7 @@ from .cvss_store import CvssStoreMixin, decode_rating
 from .cvss_assessment import normalise_record
 from .directions import DirectionStoreMixin
 from .review_store import ReviewStoreMixin
+from .continuations import ContinuationStoreMixin
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -824,7 +825,7 @@ def build_verification_records(list_verifications, findings: list[dict]) -> list
         })
     return records
 
-class Store(ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
+class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def __init__(self, path: Path | str):
         self.path = str(path)
         self._lock = threading.RLock()
@@ -1613,6 +1614,7 @@ class Store(ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin
     def create_run(
         self, run: dict, units: list[dict] | None = None, *,
         freeze_project_baseline: bool = False,
+        _setup=None,
     ) -> None:
         """Persist a run and its durable goal.
 
@@ -1702,6 +1704,8 @@ class Store(ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin
                     # Planner v2 creates no file/slice work items here.  The first
                     # Planner round receives a project map and decides the initial
                     # frontier; subsequent rounds may add, defer or retire tasks.
+                if _setup is not None:
+                    _setup()
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -1802,6 +1806,16 @@ class Store(ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin
     def get_run(self, run_id: str) -> dict | None:
         row = self._row("SELECT * FROM runs WHERE id = ?", (run_id,))
         return self._run_dict(row) if row else None
+
+    def run_status(self, run_id: str) -> str | None:
+        """Cheap liveness probe for hot loops.
+
+        ``get_run`` rebuilds the execution summary, which costs a per-finding
+        query fan-out; a streaming relay that re-checks liveness per chunk must
+        read the status column only.
+        """
+        row = self._row("SELECT status FROM runs WHERE id = ?", (run_id,))
+        return row["status"] if row else None
 
     def update_run(self, run_id: str, **fields: Any) -> None:
         self.assert_execution_write(run_id)

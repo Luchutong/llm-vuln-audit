@@ -144,6 +144,35 @@ def test_worker_continues_after_early_met_then_records_explicit_exclusions(store
     assert store.has_event(run["id"], "planner_terminal_deferred")
 
 
+def test_changed_coverage_round_errors_earn_another_review_round(store, repository, monkeypatch):
+    """The same gaps behind a new refusal is progress, not a stall.
+
+    A real run closed discovery after its rounds ended with the same unpublished
+    decision three times, even though the Planner had already moved past an earlier
+    contract error.  The bounded no-progress allowance counts repeats, not rounds.
+    """
+    run = run_with_policy(store, repository)
+    store.add_finding(_conclusion_finding(run))
+    failures = iter(["第一次合同错误：方向字段缺失", "第二次合同错误：任务键重复", "第三次合同错误：结算理由过短"])
+
+    async def plan(**args):
+        reason = next(failures, None)
+        if reason:
+            return {"decision": None, "terminal_reason": "invalid_output", "error": reason,
+                    "usage": {"requests": 1, "tool_calls": 0}}
+        pending = args["run_context"]["coverage_review"]["pending_paths"]
+        return decision(goal_state="met", coverage_review=[
+            {"path": path, "action": "skip", "reason": "该剩余方向列为限制，留待独立审计，不声明已经检查。"}
+            for path in pending])
+
+    monkeypatch.setattr(worker_module, "plan_audit_frontier", plan)
+    asyncio.run(make_worker(store, repository)._execute(run))
+    rounds = [plan for plan in store.list_plans(run["id"])]
+    assert [plan["status"] for plan in rounds].count("failed") == 3
+    assert store.coverage_review(run["id"])["complete"]
+    assert store.has_event(run["id"], "coverage_review_recorded")
+
+
 def test_unaddressed_source_gaps_end_bounded_and_inconclusive(store, repository, monkeypatch):
     run = run_with_policy(store, repository)
     store.add_finding(_conclusion_finding(run))

@@ -740,6 +740,39 @@ def test_an_api_error_without_job_facts_does_not_spend_the_conclusion(tmp_path):
     assert len(sdk.calls) == 1
 
 
+def test_sdk_api_status_is_saved_without_error_body_or_hidden_content(tmp_path):
+    failed = ResultMessage(is_error=True, subtype='success')
+    failed.terminal_reason = 'api_error'
+    failed.api_error_status = 429
+    failed.errors = ['private prompt with credential-do-not-log']
+    sdk = FakeSDK([execute(failed)])
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=MemoryPocRequestGateway(),
+                                   sdk=sdk, cli_probe=lambda: ('2.1.310', ''))
+    events = []
+    outcome = asyncio.run(run(runtime, service(tmp_path), events))
+    assert outcome.result is None and outcome.reason == 'sdk_api_error'
+    assert outcome.usage['diagnostics'][0]['http_status'] == 429
+    assert any(e['kind'] == 'poc_runtime_error' and e['http_status'] == 429 for e in events)
+    assert 'credential-do-not-log' not in json.dumps([events, outcome.usage])
+
+
+def test_capability_lifetime_is_bounded_by_the_current_stage_not_only_the_attempt(tmp_path):
+    import time
+    class Gateway(MemoryPocRequestGateway):
+        def issue_capability(self, **binding):
+            self.binding = binding
+            return 'offline-capability'
+    gateway = Gateway()
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=gateway)
+    runtime._service = service(tmp_path)
+    runtime._run_id, runtime._epoch = 'run', 1
+    runtime._stage_tokens = {}
+    runtime._attempt_deadline = time.monotonic() + 60
+    runtime._stage_deadline = time.monotonic() + .25
+    runtime._environment(EXECUTE_STAGE)
+    assert 0 < gateway.binding['ttl_seconds'] <= .25
+
+
 def test_host_rejection_keeps_the_proposed_status_and_specific_errors(tmp_path):
     deps = service(tmp_path, jobs=[http_job('good'), http_job('failed', ok=False)])
     refs = EvidenceRefTable.build(deps)
@@ -948,3 +981,112 @@ class _WiringSettings:
                           max_script_bytes=32768, reset_between_findings=False,
                           reset_command="", reset_timeout=30)
     evidence_dir = None
+
+
+# --- frozen generation policy -------------------------------------------------------
+
+
+class RecordingGateway(MemoryPocRequestGateway):
+    """Records capability bindings; optionally reports what a real gateway observed."""
+
+    def __init__(self, observed=None):
+        super().__init__()
+        self.bindings = []
+        self.observed = observed
+
+    def issue_capability(self, **binding):
+        self.bindings.append(binding)
+        return "cap-" + binding["stage"]
+
+    def stage_generation(self, *, run_id, epoch, stage):
+        return dict(self.observed or {})
+
+
+def test_bounded_generation_sets_the_cli_cap_and_the_thinking_option(tmp_path):
+    gateway = RecordingGateway()
+    sdk = FakeSDK([execute(), conclude({"status": "inconclusive", "summary": "证据不足以判定"})])
+    runtime = ClaudeCodePocRuntime(
+        limits=limits(tmp_path, output_policy="bounded-v1", execute_output_tokens=4096,
+                      publish_output_tokens=1024, thinking="disabled"),
+        gateway=gateway, sdk=sdk, cli_probe=lambda: ("2.1.310", ""))
+    events = []
+    outcome = asyncio.run(run(runtime, service(tmp_path), events))
+
+    execute_options, conclude_options = sdk.stage_options()
+    assert execute_options.thinking == {"type": "disabled"}
+    assert conclude_options.thinking == {"type": "disabled"}
+    assert execute_options.env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "4096"
+    assert conclude_options.env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "1024"
+    by_stage = {binding["stage"]: binding for binding in gateway.bindings}
+    assert by_stage[EXECUTE_STAGE]["max_output_tokens"] == 4096
+    assert by_stage[CONCLUDE_STAGE]["max_output_tokens"] == 1024
+    assert {binding["thinking"] for binding in gateway.bindings} == {"disabled"}
+
+    reported = [event for event in events if event["kind"] == "poc_sdk_generation"]
+    assert {event["stage"] for event in reported} == {EXECUTE_STAGE, CONCLUDE_STAGE}
+    assert all(event["configured"]["output_policy"] == "bounded-v1" for event in reported)
+    assert all(event["observed"] == {} for event in reported)
+    configured = outcome.usage["generation"]["configured"]
+    assert configured["execute_output_tokens"] == 4096 and configured["thinking"] == "disabled"
+    assert outcome.usage["generation"]["observed"] == {}
+
+
+def test_provider_default_keeps_the_installed_sdk_and_gateway_behaviour(tmp_path):
+    gateway = RecordingGateway()
+    sdk = FakeSDK([execute(), conclude({"status": "inconclusive", "summary": "证据不足以判定"})])
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=gateway, sdk=sdk,
+                                   cli_probe=lambda: ("2.1.310", ""))
+    events = []
+    outcome = asyncio.run(run(runtime, service(tmp_path), events))
+
+    for options in sdk.stage_options():
+        assert not hasattr(options, "thinking")
+        assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in options.env
+    assert {binding["max_output_tokens"] for binding in gateway.bindings} == {0}
+    assert {binding["thinking"] for binding in gateway.bindings} == {""}
+    reported = next(event for event in events if event["kind"] == "poc_sdk_generation")
+    assert reported["configured"]["output_policy"] == "provider_default"
+    assert reported["configured"]["thinking"] == "provider_default"
+    assert reported["observed"] == {}
+    assert outcome.usage["generation"]["configured"]["output_policy"] == "provider_default"
+
+
+def test_gateway_observed_generation_reaches_the_event_and_usage(tmp_path):
+    observed = {"configured": {"max_output_tokens": 4096, "thinking": "disabled"},
+                "requests": 3, "max_tokens": [4096], "thinking_observed": ["absent"]}
+    gateway = RecordingGateway(observed)
+    sdk = FakeSDK([execute(), conclude({"status": "inconclusive", "summary": "证据不足以判定"})])
+    runtime = ClaudeCodePocRuntime(
+        limits=limits(tmp_path, output_policy="bounded-v1", thinking="disabled"),
+        gateway=gateway, sdk=sdk, cli_probe=lambda: ("2.1.310", ""))
+    events = []
+    outcome = asyncio.run(run(runtime, service(tmp_path), events))
+
+    reported = next(event for event in events if event["kind"] == "poc_sdk_generation")
+    assert reported["observed"] == observed
+    usage = outcome.usage["generation"]
+    assert usage["observed"][EXECUTE_STAGE]["max_tokens"] == [4096]
+    assert usage["observed"][CONCLUDE_STAGE]["requests"] == 3
+    # Metadata only: no prompt or model text is part of the report.
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in json.dumps(usage)
+
+
+def test_an_sdk_without_the_thinking_option_fails_readiness_explicitly(tmp_path):
+    class OldSDK(FakeSDK):
+        class ClaudeAgentOptions:  # no ``thinking`` field
+            __dataclass_fields__ = {"model": object(), "system_prompt": object()}
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+    runtime = ClaudeCodePocRuntime(
+        limits=limits(tmp_path, output_policy="bounded-v1", thinking="disabled"),
+        gateway=RecordingGateway(), sdk=OldSDK([]), cli_probe=lambda: ("2.1.310", ""))
+    readiness = runtime.readiness()
+    assert readiness.ready is False
+    assert readiness.reason == "sdk_thinking_unsupported"
+
+    # Provider defaults do not require the option, so the same old SDK still runs.
+    runtime = ClaudeCodePocRuntime(limits=limits(tmp_path), gateway=RecordingGateway(),
+                                   sdk=OldSDK([]), cli_probe=lambda: ("2.1.310", ""))
+    assert runtime.readiness().ready is True

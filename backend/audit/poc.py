@@ -21,6 +21,7 @@ from .events import EventBus
 from .poc_agent import PocDeps, run_poc_agent
 from .poc_runner import PocRunnerClient, PocRunnerError, PocRunnerUnavailable, PocRunnerBusy
 from .poc_readiness import PocReadinessService, normalize_poc_mode
+from .poc_source import PROGRESS_POLICY, PocSourceProvider, SourceLimits
 from .poc_store import poc_target_key
 from .runtime import AgentPolicy, StopAudit
 from .schemas import PocVerificationResult
@@ -41,7 +42,25 @@ def _pin_sdk_requests(limits, frozen):
             or type(frozen.get("execute")) is not int or not 1 <= frozen["execute"] <= 512
             or type(frozen.get("conclude")) is not int or not 3 <= frozen["conclude"] <= 16):
         raise ValueError("冻结的 SDK 请求额度无效")
-    return replace(limits, execute_requests=frozen["execute"], conclude_requests=frozen["conclude"])
+    seconds = frozen.get("max_seconds", limits.max_seconds)
+    if "max_seconds" in frozen and (type(seconds) is not int or not 30 <= seconds <= 3600):
+        raise ValueError("冻结的 SDK 时间额度无效")
+    return replace(limits, execute_requests=frozen["execute"], conclude_requests=frozen["conclude"], max_seconds=seconds)
+
+
+def _generation_limits(limits, frozen):
+    """Apply one frozen generation policy to deployment limits.
+
+    ``None`` keeps ``provider_default`` (a historical run), and an invalid block raises
+    so the attempt ends as ``runtime_misconfigured`` instead of quietly running with a
+    different generation policy than the one recorded for the run.
+    """
+    from .runtimes.claude_poc import SdkGeneration
+    generation = SdkGeneration.from_frozen(frozen)
+    return replace(limits, output_policy=generation.output_policy,
+                   execute_output_tokens=generation.execute_output_tokens,
+                   publish_output_tokens=generation.publish_output_tokens,
+                   thinking=generation.thinking)
 
 
 def _attempt_responses(policy, allowance=None):
@@ -80,6 +99,17 @@ class PocPolicy:
     # can be read without guessing; a run may only downgrade to ``legacy``.
     runtime: str = "legacy"
     sdk_requests: dict | None = None
+    # Frozen SDK generation policy (output caps + thinking).  None on historical runs:
+    # they keep the installed SDK/CLI defaults and the gateway verifies nothing.
+    sdk_generation: dict | None = None
+    # Missing on historical runs: never change a paused run's runtime contract.
+    session_policy: str = ""
+    item_warning_seconds: int | None = None
+    # Which verification loop the host drives.  Historical runs have no value and keep
+    # their original behaviour; only the exact frozen name enables the bounded-evidence
+    # source window, so an unknown future value can never silently change a live run.
+    progress_policy: str = ""
+    progress_params: dict | None = None
 
     @classmethod
     def from_run(cls, run: dict, settings: Settings) -> "PocPolicy":
@@ -124,6 +154,13 @@ class PocPolicy:
             runtime=("legacy" if requested_runtime == "legacy" else server_runtime),
             # Missing on historical runs: retain their legacy max_steps contract.
             sdk_requests=dict(raw["sdk_requests"]) if isinstance(raw.get("sdk_requests"), dict) else None,
+            # Missing on historical runs: provider defaults, exactly as before.  The
+            # current server default must never be injected into an existing run.
+            sdk_generation=dict(raw["sdk_generation"]) if isinstance(raw.get("sdk_generation"), dict) else None,
+            session_policy=str(raw.get("session_policy") or ""),
+            item_warning_seconds=_int(raw.get("item_warning_seconds", raw.get("max_seconds", 300)), 300, 10, 3600),
+            progress_policy=str(raw.get("progress_policy") or ""),
+            progress_params=dict(raw["progress_params"]) if isinstance(raw.get("progress_params"), dict) else None,
         )
 
     def snapshot(self) -> dict:
@@ -145,7 +182,22 @@ class PocPolicy:
             "reset_timeout": self.reset_timeout,
             "runtime": self.runtime,
             **({"sdk_requests": dict(self.sdk_requests)} if self.sdk_requests is not None else {}),
+            **({"sdk_generation": dict(self.sdk_generation)} if self.sdk_generation is not None else {}),
+            **({"session_policy": self.session_policy, "item_warning_seconds": self.item_warning_seconds}
+               if self.session_policy else {}),
+            **({"progress_policy": self.progress_policy,
+                "progress_params": dict(self.progress_params or {})}
+               if self.progress_policy else {}),
         }
+
+    @property
+    def queued(self) -> bool:
+        return self.runtime == "claude_sdk" and self.session_policy == "session-queue-v1"
+
+    @property
+    def source_context(self) -> bool:
+        """Only the frozen policy name enables the preloaded source window."""
+        return self.progress_policy == PROGRESS_POLICY
 
 
 def _finding_key(finding: dict) -> str:
@@ -172,11 +224,16 @@ class PocVerifier:
         settings: Settings,
         client_factory=None,
         readiness=None,
+        repository=None,
     ) -> None:
         self.store = store
         self.bus = bus
         self.settings = settings
         self.client_factory = client_factory
+        # Read-only access to published source snapshots.  Optional so embedding
+        # callers that never verify keep working; without it the bounded-evidence
+        # policy reports ``source_unavailable`` instead of guessing a path.
+        self.repository = repository
         self.readiness = readiness or PocReadinessService(settings, client_factory=client_factory)
         self._notices: set[tuple[str, str]] = set()
         # The most recent verification context per target.  A reset is only safe once
@@ -461,7 +518,7 @@ class PocVerifier:
         if not self._allowed(run_id, epoch) or (should_stop is not None and should_stop()):
             return finished_summary()
         if policy.runtime == "claude_sdk":
-            sdk_readiness = self._sdk_readiness()
+            sdk_readiness = self._sdk_readiness(policy)
             if not sdk_readiness.get("ready"):
                 self.bus.emit(run_id, None, "poc_runtime_unavailable", sdk_readiness)
                 # SDK configuration is checked before acquiring a target lease or
@@ -527,7 +584,10 @@ class PocVerifier:
             "phase": "poc_prepare", "target": policy.target,
             "count": len(selected), "policy": policy.snapshot(),
         })
+        queue_runtime = None
         try:
+            if policy.queued:
+                queue_runtime = self._make_queue_runtime(run, selected, policy)
             for finding, key, revision in selected:
                 if max_findings is not None and summary["processed"] >= max_findings:
                     break
@@ -550,17 +610,17 @@ class PocVerifier:
                 allowance = None
                 if workflow:
                     allowance = int((workflow.get("remaining") or {}).get("poc", 0))
-                    if (workflow.get("stage") != "poc" or allowance < 4
+                    if (workflow.get("stage") != "poc" or allowance < (2 if policy.queued else 4)
                             or workflow.get("stage_remaining_seconds", 1) <= 0):
                         self.bus.emit(run_id, finding.get("id"), "poc_verification_deferred", {
                             "reason": "stage_budget_reserved", "responses_remaining": allowance,
-                            "required_responses": 4,
+                            "required_responses": 2 if policy.queued else 4,
                             "message": "剩余额度不足以执行并发布结论，保留未验证状态及最终复核额度。",
                         })
                         break
                 if owner is not None:
                     owner.admit("work")
-                if policy.runtime == "claude_sdk" and not self._sdk_quota_available(run, finding, policy, allowance):
+                if policy.runtime == "claude_sdk" and not policy.queued and not self._sdk_quota_available(run, finding, policy, allowance):
                     summary["deferred"] += 1
                     summary["stop_reason"] = "sdk_quota_deferred"
                     self.bus.emit(run_id, finding.get("id"), "poc_verification_deferred", {
@@ -568,6 +628,8 @@ class PocVerifier:
                     break
                 claim = claim_method(run_id, finding, target_key, epoch) if claim_method else {"claimed": True}
                 if not claim.get("claimed"):
+                    if queue_runtime is not None:
+                        queue_runtime.mark_task(finding['id'], claim.get('state') or 'unavailable')
                     verified_for[key] = revision
                     if claim.get("state") in {"interrupted", "unavailable"}:
                         summary["inconclusive"] += 1
@@ -595,10 +657,24 @@ class PocVerifier:
                     max_seconds=min(policy.max_seconds, max(1, int(workflow.get("stage_remaining_seconds", policy.max_seconds)))),
                     job_seconds=min(policy.job_seconds, max(1, int(workflow.get("stage_remaining_seconds", policy.max_seconds)))),
                 )
+                if policy.queued:
+                    # Each item can use the remaining POC/run window. max_seconds
+                    # from its original policy is only an elapsed-time reminder.
+                    remaining = (self.store.execution_summary(run_id).get("run_remaining") or {}).get("seconds", 0)
+                    if workflow:
+                        remaining = min(remaining, workflow.get("stage_remaining_seconds", remaining))
+                    if remaining <= 0:
+                        finish = getattr(self.store, "finish_poc_attempt_without_result", None)
+                        if finish and attempt_key:
+                            finish(attempt_key, "interrupted", epoch)
+                        summary["stop_reason"] = "stage_budget_exhausted"
+                        break
+                    finding_policy = replace(policy, max_seconds=max(1, int(remaining)), max_responses=allowance)
                 try:
                     result, reason, record, artifacts, jobs = await self.verify_finding(
                         run, finding, finding_policy, prepared, client, model_config=model_config,
                         attempt_key=attempt_key, target_key=target_key,
+                        **({"queue_runtime": queue_runtime} if queue_runtime is not None else {}),
                     )
                     if reason == "quota_deferred":
                         summary["processed"] -= 1
@@ -622,6 +698,9 @@ class PocVerifier:
                 outcome_status = record.get("execution_status") if isinstance(record, dict) else ""
                 if outcome_status in {"authentication_failed", "state_mismatch"}:
                     summary[outcome_status] += 1
+                if queue_runtime is not None and queue_runtime._query_failed:
+                    summary["stop_reason"] = "sdk_session_stopped"
+                    break
                 if reason in {"environment_unavailable", "target_reset_failed", "target_reset_blocked"}:
                     reset_reason = reason if reason != "environment_unavailable" else "runner_unhealthy"
                     reset_message = ("靶场复位失败，已停止自动验证。" if reason == "target_reset_failed"
@@ -636,16 +715,30 @@ class PocVerifier:
                         raise StopAudit("environment_unavailable", reset_message)
                     break
         finally:
-            await self._close(client)
+            try:
+                if queue_runtime is not None:
+                    await queue_runtime.aclose()
+            finally:
+                await self._close(client)
         return finished_summary()
 
     async def verify_finding(
         self, run: dict, finding: dict, policy: PocPolicy, prepared: dict,
         client: PocRunnerClient, *, model_config: ModelConfig,
         attempt_key: str | None = None, target_key: str = "",
+        queue_runtime=None,
     ) -> tuple[PocVerificationResult, str, dict, dict[str, bytes], list[dict]]:
+        if policy.queued and queue_runtime is None:
+            runtime = self._make_queue_runtime(run, [(finding, _finding_key(finding), _revision(finding))], policy)
+            remaining = max(1, int(runtime.limits.max_seconds))
+            try:
+                return await self.verify_finding(run, finding, replace(policy, max_seconds=remaining),
+                    prepared, client, model_config=model_config, attempt_key=attempt_key,
+                    target_key=target_key, queue_runtime=runtime)
+            finally:
+                await runtime.aclose()
         if policy.runtime == "claude_sdk":
-            sdk_readiness = self._sdk_readiness()
+            sdk_readiness = self._sdk_readiness(policy)
             if not sdk_readiness.get("ready"):
                 self.bus.emit(str(run.get("id") or ""), finding.get("id"),
                               "poc_runtime_unavailable", sdk_readiness)
@@ -656,7 +749,7 @@ class PocVerifier:
                     attempt_key=attempt_key, target_key=target_key,
                 )
                 return result, "runtime_unavailable", record, {}, []
-            if not self._sdk_quota_available(run, finding, policy, policy.max_responses):
+            if not policy.queued and not self._sdk_quota_available(run, finding, policy, policy.max_responses):
                 return PocVerificationResult(status="inconclusive", summary="SDK 额度不足，未执行实验。"), "quota_deferred", {}, {}, []
         context_id = uuid.uuid4().hex
         deadline = time.monotonic() + policy.max_seconds
@@ -691,6 +784,7 @@ class PocVerifier:
             return await self._verify_with_context(
                 run, finding, remaining_policy, prepared, client, model_config=model_config,
                 attempt_key=attempt_key, target_key=target_key, context_id=context_id,
+                queue_runtime=queue_runtime,
             )
         except (PocRunnerUnavailable, PocRunnerError, TimeoutError) as exc:
             result = PocVerificationResult(
@@ -709,6 +803,36 @@ class PocVerifier:
             except (Exception, asyncio.CancelledError):
                 pass
 
+    @staticmethod
+    def _source_record(deps) -> dict:
+        """What this finding received and read from its frozen snapshot.
+
+        Host facts only: the initial window size, the exact read ranges and the remaining
+        call budget.  It never contains source text, so a verification record stays a
+        record of what was shown rather than a second copy of the archive.
+        """
+        source = getattr(deps, "source", None)
+        snapshot = getattr(source, "snapshot", None)
+        return snapshot() if callable(snapshot) else {}
+
+    def _source_provider(self, run: dict, finding: dict, policy: PocPolicy, prepared: dict) -> PocSourceProvider | None:
+        """Bind this finding to its own frozen snapshot, or report the gap.
+
+        A historical policy (no ``progress_policy``) gets no provider at all, which is
+        exactly its old prompt.  A new policy with no snapshot still gets a provider so
+        the tool can answer ``source_unavailable`` honestly instead of the model
+        inventing that it read the code.
+        """
+        if not policy.source_context or self.repository is None:
+            return None
+        return PocSourceProvider(
+            self.repository,
+            str(run.get("snapshot_id") or ""),
+            finding=finding,
+            target_version=str(prepared.get("version") or ""),
+            limits=SourceLimits.from_params(policy.progress_params),
+        )
+
     async def _verify_with_context(
         self,
         run: dict,
@@ -721,6 +845,7 @@ class PocVerifier:
         attempt_key: str | None = None,
         target_key: str = "",
         context_id: str = "",
+        queue_runtime=None,
     ) -> tuple[PocVerificationResult, str, dict, dict[str, bytes], list[dict]]:
         run_id = str(run.get("id") or "")
         finding_id = str(finding.get("id") or "")
@@ -743,6 +868,7 @@ class PocVerifier:
             if self._allowed(run_id, run.get("execution_epoch")):
                 self.bus.emit(run_id, finding_id, kind, payload)
 
+        source = self._source_provider(run, finding, policy, prepared)
         deps = PocDeps(
             client=client,
             policy=policy.snapshot(),
@@ -754,6 +880,7 @@ class PocVerifier:
             max_script_bytes=policy.max_script_bytes,
             should_stop=lambda: not self._allowed(run_id, run.get("execution_epoch")),
             context_id=context_id,
+            source=source,
             default_identity=str(prepared.get("identity") or MEMBER_IDENTITIES[0]),
             on_job=lambda job_id: self.store.note_poc_job(attempt_key, job_id, run.get("execution_epoch"))
                 if attempt_key and hasattr(self.store, "note_poc_job") else None,
@@ -762,7 +889,27 @@ class PocVerifier:
         )
         deps._remember_state(prepared)
         deps.quota_scope = self._sdk_scope(run, finding)
-        if policy.runtime == "claude_sdk":
+        published_record = {}
+        if queue_runtime is not None:
+            def publish(result, usage):
+                nonlocal published_record
+                published_record = self._record(run, finding, policy, result,
+                    prepared={**prepared, "context_id": context_id,
+                              "preconditions": deps.preconditions, "state_changes": deps.state_changes,
+                              "source": self._source_record(deps)},
+                    jobs=deps.jobs, artifacts=deps.artifacts, usage=usage,
+                    reason="completed", attempt_key=attempt_key, target_key=target_key)
+                return published_record
+            outcome = await queue_runtime.verify(service=deps, emit=emit, run_id=run_id,
+                epoch=int(run.get("execution_epoch") or 0), publisher=publish)
+            result, reason, usage = outcome.result, outcome.reason, outcome.usage
+            if published_record:
+                finalize = getattr(self.store, "finalize_poc_verification_usage", None)
+                if finalize is not None:
+                    finalize(run_id, published_record["id"], usage, run.get("execution_epoch"))
+                published_record["agent"]["usage"] = usage
+                return result, "completed", published_record, deps.artifacts, deps.jobs
+        elif policy.runtime == "claude_sdk":
             result, reason, usage = await self._verify_with_sdk(run, deps, emit, run_id)
         else:
             result, reason = await run_poc_agent(
@@ -786,16 +933,40 @@ class PocVerifier:
             )
         record = self._record(
             run, finding, policy, result,
-            prepared={**prepared, "context_id": context_id, "preconditions": deps.preconditions, "state_changes": deps.state_changes},
+            prepared={**prepared, "context_id": context_id, "preconditions": deps.preconditions,
+                      "state_changes": deps.state_changes, "source": self._source_record(deps)},
             jobs=deps.jobs, artifacts=deps.artifacts,
             usage=usage, reason=reason, attempt_key=attempt_key, target_key=target_key,
         )
         return result, reason, record, deps.artifacts, deps.jobs
 
-    def _sdk_readiness(self) -> dict:
+    def _make_queue_runtime(self, run, selected, policy=None):
+        from .runtimes.claude_poc import ClaudePocLimits, StorePocRequestGateway
+        from .runtimes.claude_queue import ClaudeQueuePocRuntime
+        state = self.store.execution_summary(run["id"]) or {}
+        remaining = (state.get("run_remaining") or {}).get("seconds", 0)
+        workflow = self.store.workflow_state(run["id"]) or {}
+        if workflow:
+            remaining = min(remaining, workflow.get("stage_remaining_seconds", remaining))
+        # This row is a shared gateway admission scope. Global/stage counters, not
+        # the former 40-request single-finding default, limit all actual requests.
+        capacity = int((state.get("run_limits") or run.get("run_limits") or {}).get("responses") or 512)
+        limits = replace(ClaudePocLimits.from_environ(), max_seconds=max(1, remaining),
+                         execute_requests=capacity)
+        # The queue session is one long-lived CLI process, so its generation policy
+        # comes from the run's frozen block, never the current server defaults.
+        limits = _generation_limits(limits, policy.sdk_generation if policy is not None else None)
+        scope = hashlib.sha256(f"{run['id']}:session-queue-v1".encode()).hexdigest()
+        return ClaudeQueuePocRuntime(limits=limits, gateway=StorePocRequestGateway(self.store, scope=scope),
+            tasks=[dict(finding_id=f["id"], revision=revision, title=str(f.get("title") or "")[:160],
+                        state="pending") for f, _, revision in selected])
+
+    def _sdk_readiness(self, policy=None) -> dict:
         from .runtimes.claude_poc import ClaudeCodePocRuntime, ClaudePocLimits, StorePocRequestGateway
+        frozen = (policy.sdk_generation if policy is not None
+                  else getattr(getattr(self.settings, "poc", None), "sdk_generation", None))
         try:
-            limits = ClaudePocLimits.from_environ()
+            limits = _generation_limits(ClaudePocLimits.from_environ(), frozen)
         except ValueError:
             return {"ready": False, "reason": "runtime_misconfigured",
                     "message": "POC SDK 配置格式无效。"}
@@ -852,6 +1023,7 @@ class PocVerifier:
 
         try:
             limits = _pin_sdk_requests(ClaudePocLimits.from_environ(), deps.policy.get("sdk_requests"))
+            limits = _generation_limits(limits, deps.policy.get("sdk_generation"))
         except ValueError as exc:
             # A malformed deployment setting is reported, not "repaired" with defaults.
             self.bus.emit(run_id, deps.finding.get("id"), "poc_runtime_misconfigured", {
@@ -927,11 +1099,14 @@ class PocVerifier:
         # A successful job is an execution fact, not a completed negative experiment.
         # SDK/transport/contract failure must not be presented as 'not triggered'.
         conclusion_failed = reason not in {"completed", "", None} and result.status == "inconclusive"
+        execute_reason = str(usage.get('execute_reason') or '')
+        execution_failed = result.status == 'inconclusive' and execute_reason.startswith(('sdk_', 'runtime_'))
         execution_status = (
             "success" if result.status in {"verified", "rejected"} else
             "authentication_failed" if authentication_failed else
             "state_mismatch" if state_mismatch else
             "environment_mismatch" if any(item.get("ok") is False for item in preconditions) and not succeeded else
+            "execution_error" if execution_failed else
             "conclusion_error" if conclusion_failed and succeeded else
             "other_error" if jobs and not succeeded else
             "not_triggered" if succeeded else "not_run"
@@ -970,6 +1145,7 @@ class PocVerifier:
                 "usage": usage,
                 "jobs": list(result.jobs)[:16],
                 "policy": policy.snapshot(),
+                "source": prepared.get("source") or {},
                 "target_key": target_key,
                 "source_content_key": run.get("project_content_key") or run.get("content_key") or "",
                 "run_finding_revision": int(finding.get("revision") or 1),

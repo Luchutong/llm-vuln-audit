@@ -51,6 +51,16 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
         form=Arg("boolean", "true 按表单规则将空格编码为+，false 编码为%20。", False),
     ),
     spec(
+        "read_verification_source",
+        "Read at most 200 lines (16 KiB) of this finding's frozen source snapshot, with original line numbers. "
+        "The host binds the snapshot; you cannot choose another version. Missing files report source_unavailable "
+        "rather than a guessed path. There is no host filesystem, archive or answer directory access.",
+        output_format="json",
+        path=Arg("string", "快照内的相对路径，通常与发现 evidence 中的 path 相同。"),
+        start_line=Arg("integer", "起始行号（从 1 开始，布尔值不接受）。默认 1。", 1, minimum=1),
+        end_line=Arg("integer", "结束行号，最多比 start_line 大 199。默认 120。", 120, minimum=1),
+    ),
+    spec(
         "resolve_target",
         "Return the executable mapping for this finding: the Lab30 base URL, credential environment variable names, "
         "and the HTTP path that corresponds to the finding's source file. "
@@ -105,6 +115,17 @@ POC_TOOLS: tuple[ToolSpec, ...] = (
         wait_ms=Arg("integer", "加载后等待毫秒数，0-10000。默认 1000。", 1000, minimum=0, maximum=10000),
         script=Arg("string", "可选：在页面中求值的 JavaScript，用于构造触发条件。默认空串。", ""),
         identity=Arg("string", "独立会话身份：guest、alice、bob、operator 或 admin。省略时使用宿主准备的身份。", ""),
+    ),
+    spec(
+        "read_verification_diagnostics",
+        "Read bounded server-side diagnostics correlated to one http_observe job (PHP errors the shop "
+        "logged for that exact request). available=false has a distinct reason (capability_unavailable, "
+        "logs_pending, window_expired, collector_unavailable, unknown_job): missing diagnostics never mean "
+        "the request produced no errors. Script and browser jobs are not correlated and report "
+        "capability_unavailable. PHP fatals do not by themselves prove the vulnerability.",
+        output_format="json",
+        job_id=Arg("string", "本次验证中已提交的 http_observe 作业 ID。"),
+        cursor=Arg("string", "上一页返回的 next_cursor；首页留空。", ""),
     ),
     spec(
         "save_artifact",
@@ -190,9 +211,19 @@ def _runner_text(job: dict) -> str:
     return "\n".join(pieces)
 
 
+def _diagnostics_items(job: dict) -> list[dict]:
+    """Host-fetched correlated server diagnostics, bounded and shape-checked."""
+    diagnostics = job.get("diagnostics") if isinstance(job.get("diagnostics"), dict) else {}
+    items = diagnostics.get("items") if diagnostics.get("available") is True else None
+    return [item for item in items or [] if isinstance(item, dict) and item.get("message")][:20]
+
+
 def _evidence_channels(job: dict) -> tuple[str, ...]:
     if job.get("kind") == "http":
-        return ("body", "headers", "body_text")
+        channels = ("body", "headers", "body_text")
+        # Only a retrieved page may be cited; an unavailable channel ("pending",
+        # "expired", "collector down") must not masquerade as "no server errors".
+        return channels + (("server_diagnostics",) if _diagnostics_items(job) else ())
     if job.get("kind") == "script":
         return ("stdout", "stderr")
     if job.get("kind") == "browser":
@@ -207,6 +238,13 @@ def _evidence_channel(job: dict, channel: str) -> str:
             return str(result.get("body") or "")
         if channel == "headers":
             return "\n".join(f"{key}: {value}" for key, value in sorted((result.get("headers") or {}).items()))
+        if channel == "server_diagnostics":
+            # Deterministic rendering of the stored page only; never the raw log.
+            return "\n".join(
+                f"{item.get('kind')}: {item.get('message')}"
+                + (f" ({item.get('source_path')}:{item.get('line')})" if item.get("source_path") else "")
+                for item in _diagnostics_items(job)
+            )
         return ""
     if channel not in _evidence_channels(job):
         return ""
@@ -298,7 +336,7 @@ EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent，只在隔离的 Lab30 
   请求超时由宿主查询原作业；状态未确认时停止实验，不自行重复提交相同副作用。
 - 工具是普通 Python 函数，返回 JSON 字符串；使用 json.loads(...) 再取字段。
 - URL参数使用 url_encode(value=...) 内存编码工具，不在宿主解释器导入 urllib；表单值使用 form=true。
-- 你的动作解释器只能做内存计算，不能联网、读写文件、启动进程；没有源码工具。
+- 你的动作解释器只能做内存计算，不能联网、读写文件、启动进程；源码只能通过 read_verification_source 有界读取。
 - run_poc 把脚本交给隔离 runner，只有脚本内部可用 urllib/curl 访问 LAB30_URL。
 - http_observe 恰好发送一个请求，不跟随重定向；首个 3xx 与 Location 本身就是观测。
 - browser_check 复用 runner 的会员会话；XSS 必须观察到弹窗或页面求值结果，HTTP 反射不算执行。
@@ -356,14 +394,58 @@ IDENTITY_RULES = """身份决策：
 """
 
 
+SOURCE_RULES = """
+源码与最小实验：
+- 提示中的“源码窗口”来自本条发现证据对应的冻结快照，行号是原始行号；它只覆盖证据附近，
+  不是整个项目。需要确认调用关系、包含顺序或危险操作的前提时，用 read_verification_source 补读。
+- 补读只能在同一快照内进行；source_unavailable 表示坐标无法解析，不要猜路径或改用其它版本。
+  单次最多 200 行；补读次数有限，读相关函数与包含关系即可，不要通读整站。
+- applicability 不是 match 时，源码可能与运行目标不一致：可以据此提出假设，但不能用未核对的源码
+  确认动态根因。
+- 出现空响应、相同截断位置或相同错误时，先结合源码调用关系（例如入口再次加载 bootstrap 造成重复定义）
+  解释它，再决定下一次实验；解释不清就不要追加同结构的 payload。
+- 响应长度、状态码或退出码的变化不是漏洞成立；历史 POC 只是待验证假设，不是成功事实。
+- 每个新实验都要说明它能区分哪种可能。重复同一请求或同一脚本、只改表面参数，都不是新进展。
+"""
+
+
+DIAGNOSTICS_RULES = """
+诊断读取：
+- http_observe 的作业可用 read_verification_diagnostics(job_id, cursor) 读取该请求关联的服务端 PHP 错误。
+- available=false 必须按 reason 区分：capability_unavailable（未启用）、logs_pending（尚未到达）、
+  window_expired（窗口过期）、collector_unavailable（采集器不可达）。缺省不等于没有错误。
+- 脚本与浏览器作业没有可信请求关联，只能报 capability_unavailable；不要用时间相近的日志冒充其诊断。
+- 服务端 fatal 本身不证明漏洞成立；只有正常/攻击对照、实际根因与引用一致时才能支撑确定性结论。
+"""
+
+
 def execute_instructions(deps: PocDeps) -> str:
-    return EXECUTE_INSTRUCTIONS + "\n" + IDENTITY_RULES.format(identity=deps.default_identity)
+    text = EXECUTE_INSTRUCTIONS + "\n" + IDENTITY_RULES.format(identity=deps.default_identity)
+    # Historical policies carry no provider and keep their old instructions verbatim.
+    if getattr(deps, "source", None) is not None:
+        text += SOURCE_RULES + DIAGNOSTICS_RULES
+    return text
+
+
+def source_block(deps: PocDeps) -> str:
+    """Render the host-preloaded window; empty for historical policies."""
+    source = getattr(deps, "source", None)
+    if source is None:
+        return ""
+    context = source.initial_context()
+    return (
+        "\n# 源码窗口（宿主预载，来自本条发现的冻结快照；行号为原始行号）\n"
+        + _context_json(context, 28 * 1024)
+        + "\n需要更多上下文时调用 read_verification_source(path, start_line, end_line)；"
+        "它只能读取同一快照。"
+    )
 
 CONCLUDE_INSTRUCTIONS = """你是 POC 自动验证 Agent 的结论阶段，所有工具都已收回。
 仅按宿主记录输出一个完整 JSON 对象，不写 Python/XML/final_answer，不生成推理正文。
 verified/rejected 必须提供 jobs、normal_observation、attack_observation、normal_evidence、attack_evidence。
 证据格式为 {"job_id":"真实作业ID","channel":"输出通道","excerpt":"原文片段"}。
 脚本可引用 stdout/stderr，HTTP 可引用 body/headers，浏览器可引用 body_text/dialogs/evaluated。
+HTTP 作业若已取得关联服务端诊断，还可引用 server_diagnostics（宿主按已存诊断固定序列化）。
 excerpt 必须复制该 job 的对应通道内一段短且连续的原文，保留原始字符与换行。
 不要添加 .../省略号，不要删去中间行后拼接，不要改写HTML、引号或转义；可用多个引用分别引用不同片段。
 state_changes/precondition/postcondition 是宿主状态元数据，不能写成 stdout/body_text 等通道中的原文。
@@ -468,6 +550,80 @@ def _finding_block(finding: dict) -> str:
     return _context_json(payload, 12 * 1024)
 
 
+# The worker contract asks for a script the runner can execute verbatim.  Findings from
+# older contracts still carry shells, ``requests`` snippets or placeholders; those are
+# skipped rather than rewritten by the host, which would be the host inventing evidence.
+_STORED_POC_PLACEHOLDER = re.compile(
+    r"\bTARGET\b|<\s*[a-z][a-z0-9_-]*\s*>|['\"]USER['\"]|['\"]PASS['\"]|['\"]PASSWORD['\"]")
+_STORED_POC_THIRD_PARTY = re.compile(
+    r"^\s*(?:import|from)\s+(requests|bs4|selenium|httpx|aiohttp|urllib3)\b", re.M | re.I)
+_STORED_POC_BYTES = 32 * 1024
+
+
+def stored_poc_script(finding: dict) -> tuple[dict | None, str]:
+    """The finding's recorded POC when the isolated runner can execute it unchanged."""
+    poc = finding.get("poc")
+    if not isinstance(poc, dict):
+        return None, "no_script"
+    script, language = poc.get("script"), str(poc.get("language") or "").strip().casefold()
+    if not isinstance(script, str) or not script.strip():
+        return None, "no_script"
+    if language not in {"python", "php"}:
+        return None, "unsupported_language"
+    if len(script.encode("utf-8")) > _STORED_POC_BYTES:
+        return None, "script_too_large"
+    if _STORED_POC_PLACEHOLDER.search(script):
+        return None, "unresolved_placeholder"
+    if language == "python" and _STORED_POC_THIRD_PARTY.search(script):
+        return None, "third_party_import"
+    if language == "php" and not script.lstrip().startswith("<?"):
+        return None, "invalid_php"
+    return {"language": language, "script": script,
+            "filename": str(poc.get("filename") or "")[:120]}, ""
+
+
+def stored_poc_preflight(policy: dict) -> bool:
+    """Only the queue runtime this host owns runs the recorded POC first.
+
+    Historical policies (legacy loop, no session policy) keep their old flow: the host
+    never executed a stored script for them, and resuming one must not change that.
+    """
+    return (str(policy.get("runtime") or "") == "claude_sdk"
+            and str(policy.get("session_policy") or "") == "session-queue-v1")
+
+
+async def run_stored_poc(finding: dict, deps: PocDeps, emit) -> str:
+    """Execute the audit's own POC once before the model plans anything.
+
+    The audit already produced a runnable check; making the verifying agent rewrite it
+    from scratch spent most of the item's wall clock on re-derivation.  The job goes
+    through the same tool, identity, job-limit and runner-precondition gates as any
+    model-submitted experiment, and its reply is only a hypothesis transcript.
+    """
+    payload, skip_reason = stored_poc_script(finding)
+    if payload is None:
+        emit({"kind": "poc_stored_poc_skipped", "finding_id": finding.get("id"),
+              "filename": str((finding.get("poc") or {}).get("filename") or "")[:120]
+              if isinstance(finding.get("poc"), dict) else "", "reason": skip_reason})
+        return ""
+    try:
+        reply = await deps.call("run_poc", {
+            "language": payload["language"], "script": payload["script"],
+            "timeout_seconds": max(1, min(120, int(deps.job_seconds or 30))),
+        })
+    except StopAudit:
+        raise
+    except (PocRunnerUnavailable, PocRunnerError) as exc:
+        emit({"kind": "poc_stored_poc_failed", "finding_id": finding.get("id"),
+              "reason": type(exc).__name__})
+        return ""
+    emit({"kind": "poc_stored_poc_executed", "finding_id": finding.get("id"),
+          "filename": payload["filename"], "language": payload["language"],
+          "script_bytes": len(payload["script"].encode("utf-8")),
+          "reply_bytes": len(reply.encode("utf-8"))})
+    return reply
+
+
 def execute_prompt(finding: dict, deps: PocDeps, policy: dict) -> str:
     return (
         "# 待验证的源码结论\n"
@@ -482,6 +638,7 @@ def execute_prompt(finding: dict, deps: PocDeps, policy: dict) -> str:
             "job_timeout_seconds": deps.job_seconds,
             "browser": bool(policy.get("browser", True)),
         }, ensure_ascii=False)
+        + source_block(deps)
         + "\n调用 resolve_target 取得源码路径到 HTTP 路径的映射。"
     )
 

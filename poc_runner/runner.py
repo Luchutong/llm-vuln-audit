@@ -37,7 +37,16 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
-VERSION = "3.1.1"
+from .diagnostics import (
+    CURSOR as DIAGNOSTICS_CURSOR,
+    DiagnosticsClient,
+    new_request_id,
+    sanitise_page,
+    valid_request_id,
+    WINDOW_SECONDS as DIAGNOSTICS_WINDOW_SECONDS,
+)
+
+VERSION = "3.2.0"
 TOKEN = (os.environ.get("POC_RUNNER_TOKEN") or "").strip()
 # Lab30 shop (拾光商城): PHP/Apache + MariaDB, member accounts required.
 LAB30_URL = (os.environ.get("LAB30_URL") or "http://lab30").rstrip("/")
@@ -64,6 +73,13 @@ ALLOWED_PATHS = (
 ALLOWED_PAGES = {"/", "/index.php", "/health.php"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SAFE_TARGET = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+TARGET_VERSION = "lab30-shop-1.0.0"
+# The diagnostics collector is optional: without a URL and token the runner answers
+# ``capability_unavailable`` instead of implying the request produced no PHP errors.
+DIAGNOSTICS = DiagnosticsClient(
+    os.environ.get("POC_DIAGNOSTICS_URL") or "",
+    os.environ.get("POC_DIAGNOSTICS_TOKEN") or "",
+)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -559,6 +575,15 @@ def healthz() -> dict:
             "idempotent_jobs": True,
             "idempotent_http_jobs": True,
             "idempotent_browser_jobs": True,
+            # Only the single request ``http_observe`` sends carries a runner-minted
+            # correlation id.  Scripts and browser sub-requests are not correlated, so
+            # they must be reported as unsupported rather than matched by time.
+            "diagnostics": {
+                "http": DIAGNOSTICS.enabled,
+                "script": False,
+                "browser": False,
+                "collector": DIAGNOSTICS.enabled,
+            },
         },
     }
 
@@ -957,6 +982,57 @@ async def get_job(job_id: str) -> dict:
     return _job_public(job)
 
 
+@app.get("/v1/jobs/{job_id}/diagnostics", dependencies=protected)
+async def job_diagnostics(job_id: str, cursor: str = "") -> dict:
+    """Correlated server-side diagnostics for one HTTP observation job.
+
+    Every unavailable case has its own reason: a missing capability, a request whose
+    log line has not arrived, an expired window and a collector failure are never
+    collapsed into "no errors".  A page with ``available: true`` and no items is the
+    only shape that means the request produced no PHP errors.
+    """
+    if not SAFE_NAME.fullmatch(job_id):
+        raise HTTPException(status_code=400, detail="invalid job id")
+    if not DIAGNOSTICS_CURSOR.fullmatch(cursor or ""):
+        raise HTTPException(status_code=400, detail="invalid cursor")
+    _cleanup()
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    reply = {
+        "context_id": str(job.get("context_id") or ""),
+        "job_id": job_id,
+        "job_kind": str(job.get("kind") or ""),
+        "target_version": TARGET_VERSION,
+        "cursor": cursor or "",
+    }
+    if job.get("kind") != "http":
+        return {**reply, "available": False, "reason": "capability_unavailable",
+                "message": "只有受控 HTTP 观测带有宿主关联 ID；脚本与浏览器子请求没有可信关联，不能按时间相近推断。"}
+    request_id = str(job.get("request_id") or "")
+    if not valid_request_id(request_id):
+        return {**reply, "available": False, "reason": "no_request",
+                "message": "该作业没有发出可关联的请求（提交失败或未执行）。"}
+    if not DIAGNOSTICS.enabled:
+        return {**reply, "available": False, "reason": "capability_unavailable",
+                "message": "本靶场未启用诊断采集；缺省不等于没有错误。", "request_id": request_id}
+    try:
+        page = sanitise_page(await DIAGNOSTICS.fetch(request_id, cursor or ""), request_id=request_id)
+    except (httpx.HTTPError, ValueError, asyncio.TimeoutError):
+        return {**reply, "available": False, "reason": "collector_unavailable",
+                "message": "诊断采集器不可达；缺省不等于没有错误。", "request_id": request_id}
+    if not page["seen"]:
+        finished = float(job.get("created_ts") or time.time())
+        expired = time.time() - finished > DIAGNOSTICS_WINDOW_SECONDS
+        return {**reply, "available": False, "reason": "window_expired" if expired else "logs_pending",
+                "message": "诊断窗口已过期，无法再关联到该请求。" if expired else "该请求的诊断尚未到达采集器。",
+                "request_id": request_id}
+    return {**reply, "available": True, "request_id": request_id, "items": page["items"],
+            "item_count": len(page["items"]), "next_cursor": page["next_cursor"],
+            "truncated": page["truncated"]}
+
+
 @app.get("/v1/jobs/{job_id}/artifacts/{name}", dependencies=protected)
 def get_artifact(job_id: str, name: str) -> Response:
     if not SAFE_NAME.fullmatch(job_id) or not SAFE_NAME.fullmatch(name):
@@ -997,6 +1073,10 @@ def _observe_sync(request: HttpRequest) -> dict:
     ctx = _context(request.context_id, request.target, allow_closing=True)
     session = _identity_state(ctx, request.identity)["client"]
     payload = (request.body or None) if method == "POST" else None
+    # The runner mints the correlation id; an externally supplied header of the same
+    # name was already dropped by the allowlist above, so the model cannot choose it.
+    request_id = new_request_id()
+    headers["x-verification-request-id"] = request_id
     try:
         response = session.request(method, path, content=payload, headers=headers)
         location = response.headers.get("location", "")
@@ -1010,6 +1090,7 @@ def _observe_sync(request: HttpRequest) -> dict:
             body = body[:-1]
         return {
             "status": response.status_code,
+            "request_id": request_id,
             "url": str(response.url),
             "headers": {
                 key: value

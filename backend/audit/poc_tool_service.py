@@ -85,6 +85,10 @@ class PocToolService:
     # customer, and a host that succeeded with bob must not hand the model a prompt
     # that pushes it back onto a mismatched account.
     default_identity: str = "alice"
+    # Host-bound frozen snapshot view (``poc_source.PocSourceProvider``).  ``None`` on
+    # historical policies, where the tool reports ``source_unavailable`` and the prompt
+    # carries no preloaded window.
+    source: Any = None
     preconditions: list[dict] = field(default_factory=list)
     state_changes: list[dict] = field(default_factory=list)
     job_scripts: dict[str, str] = field(default_factory=dict)
@@ -289,6 +293,88 @@ class PocToolService:
         if not isinstance(value, str) or len(value) > 8192 or type(form) is not bool:
             return self._reply({"error": "invalid_arguments", "message": "value必须是<=8192字符的字符串，form必须是布尔值。"})
         return self._reply({"encoded": quote_plus(value, safe="") if form else quote(value, safe="")})
+
+    async def _read_verification_diagnostics(self, args: dict) -> str:
+        """Read the server-side diagnostics the host can prove belong to one job.
+
+        Only jobs submitted in this context are addressable, and only an ``http`` job can
+        have a trustworthy correlation id.  An unavailable collector or a pending log
+        line is reported as such; it is never turned into "no errors".
+        """
+        job_id = args.get("job_id")
+        job = next((item for item in self.jobs
+                    if isinstance(job_id, str) and str(item.get("job_id") or "") == job_id), None)
+        if job is None:
+            return self._reply({
+                "available": False, "reason": "unknown_job",
+                "message": "只能查询本次验证中已提交的作业；未知作业不会重新执行。",
+            })
+        if job.get("kind") != "http":
+            return self._reply({
+                "available": False, "reason": "capability_unavailable", "job_id": job_id,
+                "job_kind": job.get("kind"),
+                "message": "只有受控 HTTP 观测带有宿主关联 ID；脚本与浏览器作业的诊断不受支持。",
+            })
+        cursor = args.get("cursor", "")
+        if not isinstance(cursor, str):
+            return self._reply({"available": False, "reason": "invalid_arguments", "message": "cursor 必须为字符串。"})
+        reply = await self._job_diagnostics(job_id, cursor)
+        stored = job.get("diagnostics")
+        if isinstance(stored, dict):
+            stored["last_read"] = {"available": reply.get("available"),
+                                   "reason": reply.get("reason", ""), "items": len(reply.get("items") or [])}
+        return self._reply(reply)
+
+    async def _job_diagnostics(self, job_id: str, cursor: str = "") -> dict:
+        """One bounded diagnostics page; runner failures become reasons, not verdicts."""
+        fetch = getattr(self.client, "diagnostics", None)
+        if fetch is None:
+            # A client without the capability is an old/injected runner: report the gap
+            # instead of assuming the request produced no PHP errors.
+            return {"available": False, "reason": "capability_unavailable", "job_id": job_id,
+                    "message": "本次验证的 runner 客户端不支持诊断读取。"}
+        try:
+            reply = await fetch(job_id, cursor)
+        except PocRunnerUnavailable:
+            return {"available": False, "reason": "collector_unavailable", "job_id": job_id,
+                    "message": "runner 不可达，无法读取该作业的诊断；缺省不等于没有错误。"}
+        except PocRunnerError as exc:
+            reason = "unknown_job" if exc.status_code == 404 else "capability_unavailable"
+            return {"available": False, "reason": reason, "job_id": job_id,
+                    "message": "runner 无法提供该作业的诊断。"}
+        items = []
+        for raw in (reply.get("items") or [])[:20]:
+            if not isinstance(raw, dict) or not raw.get("message"):
+                continue
+            items.append({
+                "diagnostic_id": str(raw.get("diagnostic_id") or "")[:64],
+                "kind": str(raw.get("kind") or "")[:24],
+                "message": str(raw.get("message"))[:500],
+                "source_path": str(raw.get("source_path") or "")[:200],
+                "line": raw.get("line") if type(raw.get("line")) is int else 0,
+            })
+        if reply.get("available") is not True:
+            return {"available": False, "reason": str(reply.get("reason") or "capability_unavailable"),
+                    "job_id": job_id, "message": str(reply.get("message") or "")[:300]}
+        return {"available": True, "job_id": job_id, "context_id": self.context_id,
+                "target_version": str(reply.get("target_version") or "")[:64],
+                "items": items, "next_cursor": str(reply.get("next_cursor") or "")[:16],
+                "truncated": bool(reply.get("truncated"))}
+
+    async def _read_verification_source(self, args: dict) -> str:
+        """Read a bounded window of this finding's frozen snapshot.
+
+        The snapshot is chosen by the host when the record is built; a ``path`` argument
+        can only name a file inside it.  There is no host filesystem, archive or answer
+        access behind this tool.
+        """
+        if self.source is None:
+            return self._reply({
+                "error": "source_unavailable", "reason": "policy_disabled",
+                "message": "本次验证策略未开放源码补读；按提示中的结论与已有观测继续。",
+            })
+        reply = self.source.read(args.get("path"), args.get("start_line", 1), args.get("end_line", 120))
+        return self._reply(reply)
 
     async def _resolve_target(self, args: dict) -> str:
         finding = self.finding
@@ -627,12 +713,17 @@ class PocToolService:
         if len(self.observations) > self.max_observations:
             del self.observations[:-self.max_observations]
         if result.get("job_id"):
+            # Host-fetched once, bounded, and stored with the job: the evidence table may
+            # cite it, and it must not depend on the model asking for it later.
+            diagnostics = await self._job_diagnostics(str(result["job_id"]))
+            record["diagnostics"] = diagnostics
             self.jobs[slot] = {
                 "job_id": result["job_id"], "kind": "http", "context_id": result.get("context_id") or "",
                 "identity": args.get("identity", "alice"), "precondition": result.get("precondition") or {},
                 "request": {"method": method, "path": path},
                 "result": {**record, "http_status": record["status"], "status": record["execution_status"]},
                 "exit_code": result.get("exit_code", 0), "duration_ms": result.get("duration_ms", 0),
+                "diagnostics": diagnostics,
             }
             self._persist_job(self.jobs[slot])
         self._emit({
@@ -640,7 +731,11 @@ class PocToolService:
             "path": path, "status": record["status"],
             "location": record["headers"].get("location", ""),
         })
-        return self._reply(record)
+        return self._reply(record | {"diagnostics": {
+            "available": record["diagnostics"].get("available"),
+            "reason": record["diagnostics"].get("reason", ""),
+            "item_count": len(record["diagnostics"].get("items") or []),
+        }})
 
     async def _browser_check(self, args: dict) -> str:
         if not bool(self.policy.get("browser", True)):

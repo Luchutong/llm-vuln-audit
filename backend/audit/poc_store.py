@@ -73,6 +73,222 @@ def poc_target_key(run: dict, policy, settings) -> str:
 
 
 class PocStoreMixin:
+    def poc_queue_view(self, run_id):
+        """Read the queue from current finding versions and durable attempts."""
+        row = self._row("SELECT poc_policy,task_spec,status FROM runs WHERE id=?", (run_id,))
+        policy = json.loads(row['poc_policy'] or '{}') if row else {}
+        if not row or policy.get('session_policy') != 'session-queue-v1' or policy.get('mode') == 'off':
+            return None
+        from .finding_policy import is_vulnerability_finding
+        current = {}
+        for source in self._rows("SELECT * FROM findings WHERE run_id=? ORDER BY created_at", (run_id,)):
+            finding = dict(source)
+            if (finding.get('validation_state') != 'candidate' or not is_vulnerability_finding(finding)
+                    or finding.get('disposition') in {'duplicate', 'retracted', 'superseded'}):
+                continue
+            key = finding.get('project_finding_id') or finding['id']
+            version = (int(finding.get('project_revision') or finding.get('revision') or 1),
+                       int(finding.get('revision') or 1), finding['id'])
+            if key not in current or version > current[key][0]:
+                current[key] = (version, finding)
+        attempts = [dict(a) for a in self._rows(
+            "SELECT * FROM poc_attempts WHERE run_id=? ORDER BY updated_at DESC", (run_id,))]
+        continuation = json.loads(row['task_spec'] or '{}').get('continuation') or {}
+        inherited = set(continuation.get('inherited_finding_ids') or [])
+        retest = set(continuation.get('retest_finding_ids') or [])
+        items, counts = [], {}
+        for version, finding in current.values():
+            attempt = next((a for a in attempts if a['finding_id'] == finding['id']
+                            and a['revision'] == version[0] and a['finding_revision'] == version[1]), None)
+            state = (attempt['state'] if attempt else 'reused' if finding['id'] in inherited - retest
+                     else 'pending' if row['status'] in {'pending', 'running', 'paused'} else 'deferred')
+            counts[state] = counts.get(state, 0) + 1
+            items.append(dict(finding_id=finding['id'], title=finding['title'], revision=version[0], state=state,
+                status=finding.get('verification_status') or 'unverified',
+                verification_id=attempt['verification_id'] if attempt else None,
+                job_id=attempt['runner_job_id'] if attempt else None))
+        pulse = self._row("SELECT created_at,payload FROM events WHERE run_id=?"
+            " AND kind='poc_queue_heartbeat' ORDER BY id DESC LIMIT 1", (run_id,))
+        heartbeat = {**json.loads(pulse['payload']), 'at': pulse['created_at']} if pulse else None
+        return dict(policy='session-queue-v1', total=len(items), counts=counts, items=items[:100],
+                    omitted=max(0, len(items) - 100), heartbeat=heartbeat)
+
+    def poc_statistics(self, run_id: str, view: dict | None = None) -> dict | None:
+        """One server-side statistics object shared by JSON, Markdown and the page.
+
+        The five categories never overwrite each other: host liveness says nothing
+        about model progress, model progress says nothing about experiments, and an
+        experiment says nothing about a published conclusion.  Carried-over results
+        from a continuation are reported separately from what this round produced.
+        """
+        run = self._row("SELECT id,poc_policy,task_spec,status FROM runs WHERE id=?", (run_id,))
+        if run is None:
+            return None
+        policy = json.loads(run["poc_policy"] or "{}") if run["poc_policy"] else {}
+        task = json.loads(run["task_spec"] or "{}") if run["task_spec"] else {}
+        if policy.get("mode") == "off" or not policy:
+            return None
+        continuation = task.get("continuation") or {}
+        if not isinstance(continuation, dict):
+            continuation = {}
+
+        def payload(value):
+            try:
+                parsed = json.loads(value or "{}")
+            except (TypeError, ValueError):
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+
+        events = [dict(row, payload=payload(row["payload"])) for row in self._rows(
+            "SELECT kind,payload,created_at FROM events WHERE run_id=? AND kind LIKE 'poc%'"
+            " ORDER BY id", (run_id,))]
+        counts: dict[str, int] = {}
+        for event in events:
+            counts[event["kind"]] = counts.get(event["kind"], 0) + 1
+
+        def latest(kind):
+            return next((event for event in reversed(events) if event["kind"] == kind), None)
+
+        def total(kind, field):
+            return sum(int(event["payload"].get(field) or 0) for event in events
+                       if event["kind"] == kind and type(event["payload"].get(field)) is int)
+
+        def age(iso):
+            if not iso:
+                return None
+            try:
+                when = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            return max(0, round((datetime.now(timezone.utc) - when).total_seconds(), 1))
+
+        heartbeat = latest("poc_queue_heartbeat")
+        progress = latest("poc_queue_progress")
+        streams = [event for event in events if event["kind"] == "poc_gateway_stream"]
+        ended = [event for event in streams if event["payload"].get("state") == "end"]
+        aborted = [event for event in ended if event["payload"].get("code")]
+        stream_types: dict[str, int] = {}
+        for event in ended:
+            types = event["payload"].get("event_types")
+            if isinstance(types, dict):
+                for name, count in types.items():
+                    if isinstance(name, str) and type(count) is int:
+                        stream_types[name] = stream_types.get(name, 0) + count
+
+        items = []
+        view = view if view is not None else self.poc_queue_view(run_id)
+        if view is not None:
+            items = list(view.get("items") or [])
+        inherited = set(continuation.get("inherited_finding_ids") or [])
+        retest = set(continuation.get("retest_finding_ids") or [])
+        carried = [item for item in items if item["finding_id"] in inherited - retest]
+        retested = [item for item in items if item["finding_id"] in retest]
+        current = [item for item in items if item["finding_id"] not in inherited]
+
+        def status_counts(selection):
+            values: dict[str, int] = {}
+            for item in selection:
+                state = str(item.get("status") or "unverified")
+                values[state] = values.get(state, 0) + 1
+            return values
+
+        unsettled = [item for item in items if item.get("state") in
+                     {"pending", "claimed", "running", "interrupted", "deferred", "reused"}]
+        stop_reason = {}
+        state_row = self._row("SELECT stop_reason FROM run_execution_state WHERE run_id=?", (run_id,))
+        if state_row and state_row["stop_reason"]:
+            try:
+                stop_reason = json.loads(state_row["stop_reason"])
+            except (TypeError, ValueError):
+                stop_reason = {}
+        recorded = [event for event in events if event["kind"] == "poc_verification_recorded"]
+        verdicts: dict[str, int] = {}
+        for event in recorded:
+            status = str(event["payload"].get("status") or "unknown")
+            verdicts[status] = verdicts.get(status, 0) + 1
+
+        return {
+            "version": "poc-statistics-v1",
+            "run_status": str(run["status"]),
+            "host": {
+                "last_heartbeat_at": heartbeat["created_at"] if heartbeat else None,
+                "heartbeat_age_seconds": age(heartbeat["created_at"]) if heartbeat else None,
+                "current_item_seconds": (heartbeat["payload"].get("elapsed_seconds")
+                                         if heartbeat else None),
+                "soft_limit_exceeded": bool(heartbeat["payload"].get("soft_limit_exceeded"))
+                if heartbeat else None,
+                "note": "心跳只说明宿主仍在运行，不代表模型有新进展。",
+            },
+            "model": {
+                "streams": len(ended),
+                "aborted": len(aborted),
+                "last_abort_code": aborted[-1]["payload"].get("code") if aborted else None,
+                "event_types": stream_types,
+                "content_events": sum(int(event["payload"].get("content_events") or 0) for event in ended),
+                "received_bytes": sum(int(event["payload"].get("received_bytes") or 0) for event in ended),
+                "last_elapsed_seconds": ended[-1]["payload"].get("elapsed_seconds") if ended else None,
+                "first_event_seconds": ended[-1]["payload"].get("first_event_seconds") if ended else None,
+                "usage": next((event["payload"].get("usage") or {} for event in reversed(ended)
+                               if event["payload"].get("usage")), {}),
+                "waiting_seconds": (progress["payload"].get("model_wait_seconds")
+                                    if progress else None),
+                "note": "HTTP 200 只代表响应头已到；keepalive/ping 不计入业务进展。",
+            },
+            "generation": {
+                "text_chars": max((int(event["payload"].get("text_chars") or 0) for event in events
+                                   if event["kind"] == "poc_queue_progress"), default=0),
+                "thinking_chars": max((int(event["payload"].get("thinking_chars") or 0) for event in events
+                                       if event["kind"] == "poc_queue_progress"), default=0),
+                "tool_arg_chars": max((int(event["payload"].get("tool_arg_chars") or 0) for event in events
+                                       if event["kind"] == "poc_queue_progress"), default=0),
+                "note": "只保存字符与事件计数，不保存生成正文或思考内容。",
+            },
+            "experiments": {
+                "jobs": counts.get("poc_job_finished", 0),
+                "duration_ms": sum(int(event["payload"].get("duration_ms") or 0) for event in events
+                                   if event["kind"] == "poc_job_finished"),
+                "observations": (progress["payload"].get("observations") if progress else None),
+                "last_at": latest("poc_job_finished")["created_at"] if latest("poc_job_finished") else None,
+                "since_last_seconds": age(latest("poc_job_finished")["created_at"])
+                if latest("poc_job_finished") else None,
+                "checkpoints": counts.get("poc_queue_checkpoint", 0),
+                "duplicates": sum(1 for event in events if event["kind"] == "poc_queue_experiment_refused"
+                                  and str(event["payload"].get("error") or "") == "duplicate_experiment"),
+                "supplements": counts.get("poc_queue_continued", 0),
+            },
+            "conclusion": {
+                # Both events describe the same publication; count items, not log lines.
+                "published": max(counts.get("poc_queue_item_published", 0), len(recorded)),
+                "verdicts": verdicts,
+                "unpublished_reason": (progress["payload"].get("unpublished_reason")
+                                       if progress and not progress["payload"].get("published") else None),
+            },
+            "recovery": {
+                "started": counts.get("poc_queue_recovery_started", 0),
+                "published": counts.get("poc_queue_recovery_published", 0),
+                "failed": counts.get("poc_queue_recovery_failed", 0),
+                "skipped": counts.get("poc_queue_recovery_skipped", 0),
+                "requests": total("poc_queue_recovery_started", "requests"),
+            },
+            "continuation": {
+                "inherited": len(carried),
+                "retested": len(retested),
+                "inherited_status": status_counts(carried),
+                "current_status": status_counts(current + retested),
+                "parent_run_id": continuation.get("parent_run_id"),
+                "root_run_id": continuation.get("root_run_id"),
+                "note": "沿用结果来自更早的运行，不构成本轮成果。",
+            },
+            "unfinished": [{
+                "finding_id": item.get("finding_id"), "title": item.get("title"),
+                "state": item.get("state"), "status": item.get("status"),
+                "reason": stop_reason.get("code") if stop_reason else None,
+            } for item in unsettled[:24]],
+            "unfinished_total": len(unsettled),
+        }
+
     def interrupt_poc_attempts(self, run_id: str, epoch: int | None = None) -> int:
         """Administrative terminal cleanup, safe inside the caller's transaction.
 
@@ -88,6 +304,24 @@ class PocStoreMixin:
             ).rowcount
 
     # --- hard request quota -------------------------------------------------------
+
+    def finalize_poc_verification_usage(self, run_id, verification_id, usage, epoch):
+        """Complete metadata after a tool publication; never alter the verdict.
+
+        The publication commits before the SDK returns its ResultMessage. A crash
+        in between leaves explicitly provisional usage, not a missing conclusion.
+        """
+        with self._lock:
+            if not self._poc_allowed(run_id, epoch):
+                return False
+            changed = self._db.execute(
+                "UPDATE verifications SET agent=json_set(agent,'$.usage',json(?)) WHERE id=?"
+                " AND EXISTS (SELECT 1 FROM poc_attempts a WHERE a.run_id=?"
+                " AND a.verification_id=verifications.id AND a.execution_epoch=?)"
+                " AND EXISTS (SELECT 1 FROM run_execution_state s WHERE s.run_id=? AND s.claim_epoch=?)",
+                (json.dumps(usage, ensure_ascii=False), verification_id, run_id, int(epoch or 0), run_id, int(epoch or 0)),
+            ).rowcount
+            return bool(changed)
 
     def open_poc_request_stage(
         self, run_id: str, stage: str, limit: int, epoch: int | None = None,

@@ -1,0 +1,58 @@
+# Optional correlated diagnostics for controlled HTTP observations.
+#
+# The default Lab30 deployment is unchanged: this file is never loaded by
+# ``docker compose up`` and the web image does not contain the observer.  Enable it
+# explicitly and give the collector a token:
+#
+#   SHOP_DIAGNOSTICS_TOKEN=$(openssl rand -hex 32) \
+#     docker compose -f compose.yaml -f compose.diagnostics.yaml --profile poc up -d
+#
+# The observer records only requests carrying the runner-generated
+# ``X-Verification-Request-Id`` header, and the collector answers only on the internal
+# ``poc-control`` network.  Script and browser jobs are not correlated: their health
+# capability is reported as unsupported rather than guessed from timing.
+services:
+  lab30:
+    environment:
+      SHOP_DIAGNOSTICS_DIR: /var/log/shop-diag
+    volumes:
+      - lab30-diagnostics:/var/log/shop-diag
+      - ./labs/lab30/docker/diagnostics/zz-shop-diagnostics.ini:/usr/local/etc/php/conf.d/zz-shop-diagnostics.ini:ro
+      - ./labs/lab30/docker/diagnostics/observer.php:/opt/shop-diagnostics/observer.php:ro
+
+  shop-diagnostics:
+    build:
+      context: ./poc_runner
+      dockerfile: collector.Dockerfile
+    image: vuln-audit-shop-diagnostics:1.0.0
+    environment:
+      DIAGNOSTICS_TOKEN: ${SHOP_DIAGNOSTICS_TOKEN:?set SHOP_DIAGNOSTICS_TOKEN to enable diagnostics}
+      DIAGNOSTICS_FILE: /var/log/shop-diag/diagnostics.jsonl
+    volumes:
+      - lab30-diagnostics:/var/log/shop-diag:ro
+    networks: [poc-control]
+    healthcheck:
+      test: ["CMD", "python", "-I", "-c", "import http.client; c = http.client.HTTPConnection('127.0.0.1', 8091, timeout=3); c.request('GET', '/healthz'); exit(0 if c.getresponse().status == 200 else 1)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    user: "10003:10003"
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 32
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+  poc-runner:
+    environment:
+      POC_DIAGNOSTICS_URL: http://shop-diagnostics:8091
+      POC_DIAGNOSTICS_TOKEN: ${SHOP_DIAGNOSTICS_TOKEN:?set SHOP_DIAGNOSTICS_TOKEN to enable diagnostics}
+
+volumes:
+  lab30-diagnostics:

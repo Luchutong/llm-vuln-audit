@@ -1,0 +1,94 @@
+{
+  "version": "lfi-replay-v1",
+  "endpoint": "/content/page.php",
+  "provenance": {
+    "run_id": "7c890bb7eca354dba6bb46e8f43f5e3b",
+    "finding_id": null
+  },
+  "observations": [
+    {
+      "kind": "http",
+      "path": "/content/page.php?page=home",
+      "status": 200,
+      "body_chars": 1381,
+      "has_footer": true,
+      "title": "内容中心 · 拾光商城",
+      "error_recorded": false,
+      "diagnostics": {
+        "status": "not_recorded"
+      }
+    },
+    {
+      "kind": "http",
+      "path": "/content/page.php?page=../../../account/index",
+      "status": 200,
+      "body_chars": 1242,
+      "has_footer": true,
+      "title": "内容中心 · 拾光商城",
+      "error_recorded": false,
+      "diagnostics": {
+        "status": "not_recorded"
+      }
+    },
+    {
+      "kind": "http",
+      "path": "/content/page.php?page=shipping",
+      "status": 200,
+      "body_chars": 1330,
+      "has_footer": true,
+      "title": "内容中心 · 拾光商城",
+      "error_recorded": false,
+      "diagnostics": {
+        "status": "not_recorded"
+      }
+    },
+    {
+      "kind": "http",
+      "path": "/content/page.php?page=../../public/auth/login.php",
+      "status": 200,
+      "body_chars": 1242,
+      "has_footer": true,
+      "title": "内容中心 · 拾光商城",
+      "error_recorded": false,
+      "diagnostics": {
+        "status": "not_recorded"
+      }
+    },
+    {
+      "kind": "http",
+      "path": "/content/page.php",
+      "status": 200,
+      "body_chars": 1381,
+      "has_footer": true,
+      "title": "内容中心 · 拾光商城",
+      "error_recorded": false,
+      "diagnostics": {
+        "status": "not_recorded"
+      }
+    },
+    {
+      "kind": "http",
+      "path": "/content/page.php?page=../../public/account/index",
+      "status": 200,
+      "body_chars": 1052,
+      "has_footer": false,
+      "title": "内容中心 · 拾光商城",
+      "error_recorded": false,
+      "diagnostics": {
+        "status": "not_recorded"
+      }
+    },
+    {
+      "kind": "http",
+      "path": "/content/page.php?page=../../public/account/index",
+      "status": 200,
+      "body_chars": 1070,
+      "has_footer": false,
+      "title": "内容中心 · 拾光商城",
+      "error_recorded": false,
+      "diagnostics": {
+        "status": "not_recorded"
+      }
+    }
+  ]
+}

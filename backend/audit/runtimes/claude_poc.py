@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
+from ..config import SDK_GENERATION_VERSION
 from ..poc_agent import (
     POC_TOOLS,
     _conclusion_jobs,
@@ -47,6 +48,7 @@ from ..poc_agent import (
     _finding_block,
     execute_instructions,
     host_check,
+    source_block,
     successful_job,
 )
 from ..poc_tool_service import PocToolService
@@ -63,6 +65,69 @@ RESERVED_CONCLUDE_REQUESTS = 3
 DEFAULT_EXECUTE_REQUESTS = 40
 TOOL_NAMES = tuple(spec.name for spec in POC_TOOLS)
 _EVIDENCE_REF = re.compile(r"^ev-[0-9a-f]{16}$")
+
+# --- frozen generation policy -------------------------------------------------------
+# ``max_tokens`` on the audit's own code model never reached the SDK subprocess, so the
+# host now freezes its own output caps and thinking policy.  ``provider_default`` is the
+# compatibility value: nothing is set and the gateway inspects nothing, which is exactly
+# what a historical run without this block gets.  Bounded values are applied through the
+# CLI's ``CLAUDE_CODE_MAX_OUTPUT_TOKENS`` and the SDK's ``thinking`` option, and the
+# gateway refuses a request that exceeds them instead of letting the UI merely claim it.
+OUTPUT_POLICIES = ("bounded-v1", "provider_default")
+THINKING_POLICIES = ("disabled", "provider_default")
+DEFAULT_EXECUTE_OUTPUT_TOKENS = 4096
+DEFAULT_PUBLISH_OUTPUT_TOKENS = 1024
+_OUTPUT_TOKEN_RANGE = {"execute": (256, 65536), "conclude": (128, 65536)}
+
+
+@dataclass(frozen=True)
+class SdkGeneration:
+    """The host-enforced generation limits frozen with a run.
+
+    ``provider_default`` keeps the installed SDK/CLI behaviour unchanged; only
+    ``bounded-v1`` sets an output env and a thinking option.  An invalid frozen block
+    raises instead of silently degrading, so a run cannot claim a limit it never sent.
+    """
+
+    output_policy: str = "provider_default"
+    execute_output_tokens: int = DEFAULT_EXECUTE_OUTPUT_TOKENS
+    publish_output_tokens: int = DEFAULT_PUBLISH_OUTPUT_TOKENS
+    thinking: str = "provider_default"
+
+    @classmethod
+    def from_frozen(cls, raw: object) -> "SdkGeneration":
+        if raw is None:
+            return cls()
+        if not isinstance(raw, dict) or raw.get("version") != SDK_GENERATION_VERSION:
+            raise ValueError("冻结的 SDK 生成配置版本无效")
+        output_policy = raw.get("output_policy", "provider_default")
+        thinking = raw.get("thinking", "provider_default")
+        if output_policy not in OUTPUT_POLICIES:
+            raise ValueError("冻结的 SDK 输出策略 output_policy 无效")
+        if thinking not in THINKING_POLICIES:
+            raise ValueError("冻结的 SDK thinking 策略无效")
+        execute = raw.get("execute_output_tokens", DEFAULT_EXECUTE_OUTPUT_TOKENS)
+        publish = raw.get("publish_output_tokens", DEFAULT_PUBLISH_OUTPUT_TOKENS)
+        low, high = _OUTPUT_TOKEN_RANGE["execute"]
+        if type(execute) is not int or not low <= execute <= high:
+            raise ValueError("冻结的 SDK 执行输出上限无效")
+        low, high = _OUTPUT_TOKEN_RANGE["conclude"]
+        if type(publish) is not int or not low <= publish <= high:
+            raise ValueError("冻结的 SDK 发布输出上限无效")
+        return cls(output_policy, execute, publish, thinking)
+
+    @property
+    def bounded(self) -> bool:
+        return self.output_policy == "bounded-v1"
+
+    def output_tokens(self, stage: str) -> int:
+        return self.execute_output_tokens if stage == EXECUTE_STAGE else self.publish_output_tokens
+
+    def snapshot(self) -> dict:
+        return {"version": SDK_GENERATION_VERSION, "output_policy": self.output_policy,
+                "execute_output_tokens": self.execute_output_tokens,
+                "publish_output_tokens": self.publish_output_tokens,
+                "thinking": self.thinking}
 
 # The structured conclusion is a host contract, not a rendering of Pydantic internals:
 # evidence is chosen by host id, so the model never has to copy raw output.
@@ -211,6 +276,8 @@ class StorePocRequestGateway:
     scope: str = ""
     _tokens: dict[tuple[str, int, str], str] = field(default_factory=dict, init=False, repr=False)
     _refusals: dict[tuple[str, int, str], dict] = field(default_factory=dict, init=False, repr=False)
+    _diagnostics: dict[tuple[str, int, str], list[dict]] = field(default_factory=dict, init=False, repr=False)
+    _generation: dict[tuple[str, int, str], dict] = field(default_factory=dict, init=False, repr=False)
 
     def open_stage(self, *, run_id: str, epoch: int, stage: str, limit: int) -> dict:
         return self.store.open_poc_request_stage(run_id, stage + ("@" + self.scope if self.scope else ""), limit, epoch=epoch)
@@ -250,10 +317,38 @@ class StorePocRequestGateway:
                 self._refusals[key] = refusal
         return self._refusals.get(key, {})
 
+    def stage_diagnostics(self, *, run_id: str, epoch: int, stage: str) -> list[dict]:
+        key = (run_id, int(epoch), stage)
+        service = getattr(self.store, '_poc_model_gateway', None)
+        token = self._tokens.get(key)
+        reader = getattr(service, 'diagnostics_for_capability', None)
+        current = reader(token) if token and reader is not None else []
+        return (self._diagnostics.get(key, []) + current)[-16:]
+
+    def stage_generation(self, *, run_id: str, epoch: int, stage: str) -> dict:
+        """Gateway-verified ``max_tokens``/``thinking`` metadata for this stage."""
+        key = (run_id, int(epoch), stage)
+        service = getattr(self.store, '_poc_model_gateway', None)
+        token = self._tokens.get(key)
+        reader = getattr(service, 'generation_for_capability', None)
+        current = reader(token) if token and reader is not None else {}
+        if current:
+            return dict(current)
+        return dict(self._generation.get(key) or {})
+
     def admit_tool(self, *, run_id: str, epoch: int) -> None:
         from ..execution_state import execution_role
         with execution_role("poc"):
             self.store.admit_execution(run_id, epoch, "tools")
+
+    def experiment_allowance(self, *, run_id: str) -> dict:
+        state = self.store.execution_summary(run_id) or {}
+        remaining = state.get('run_remaining') or {}
+        responses = remaining.get('responses', 0)
+        workflow = state.get('workflow') or {}
+        if workflow:
+            responses = min(responses, (workflow.get('remaining') or {}).get('poc', 0))
+        return dict(responses=responses, tools=remaining.get('tools', 0))
 
     def revoke_capability(self, token: str) -> None:
         service = getattr(self.store, "_poc_model_gateway", None)
@@ -265,6 +360,10 @@ class StorePocRequestGateway:
                     refusal = service.refusal_for_capability(token)
                     if refusal:
                         self._refusals[key] = refusal
+                    self._diagnostics[key] = self.stage_diagnostics(run_id=key[0], epoch=key[1], stage=key[2])
+                    generation = self.stage_generation(run_id=key[0], epoch=key[1], stage=key[2])
+                    if generation:
+                        self._generation[key] = generation
                     self._tokens.pop(key, None)
             service.revoke_capability(token)
 
@@ -465,7 +564,7 @@ def _tool_schema(spec) -> dict:
 
 @dataclass(frozen=True)
 class ClaudePocLimits:
-    """Frozen deployment input for the adapter; nothing here comes from a run request."""
+    """Deployment configuration and host-validated frozen attempt budgets."""
 
     model: str = ""
     gateway_url: str = ""
@@ -480,6 +579,12 @@ class ClaudePocLimits:
     max_seconds: int = 300
     execute_usd: float | None = None
     conclude_usd: float | None = None
+    # Frozen generation policy; the host applies a run's snapshot with ``replace``.
+    # The defaults leave the installed SDK/CLI behaviour untouched.
+    output_policy: str = "provider_default"
+    execute_output_tokens: int = DEFAULT_EXECUTE_OUTPUT_TOKENS
+    publish_output_tokens: int = DEFAULT_PUBLISH_OUTPUT_TOKENS
+    thinking: str = "provider_default"
 
     @classmethod
     def from_environ(cls, environ: dict[str, str] | None = None) -> "ClaudePocLimits":
@@ -535,7 +640,16 @@ class ClaudePocLimits:
             "max_seconds": self.max_seconds,
             "execute_usd": self.execute_usd, "conclude_usd": self.conclude_usd,
             "capability": bool(self.capability_token),
+            "generation": self.generation().snapshot(),
         }
+
+    def generation(self) -> SdkGeneration:
+        return SdkGeneration.from_frozen({
+            "version": SDK_GENERATION_VERSION, "output_policy": self.output_policy,
+            "execute_output_tokens": self.execute_output_tokens,
+            "publish_output_tokens": self.publish_output_tokens,
+            "thinking": self.thinking,
+        })
 
 
 def _public_url(value: str) -> str:
@@ -590,6 +704,7 @@ class ClaudeCodePocRuntime:
         self._run_id = ""
         self._epoch = 0
         self._execute_reason = ""
+        self._diagnostics: list[dict] = []
         self._readiness: PocRuntimeReadiness | None = None
         self._usage: dict[str, Any] = {"input_tokens": None, "output_tokens": None,
                                        "cache_read_tokens": None, "cache_write_tokens": None,
@@ -615,6 +730,17 @@ class ClaudeCodePocRuntime:
         if not self.limits.model:
             return PocRuntimeReadiness(False, "model_unconfigured", "POC_CLAUDE_MODEL 未配置",
                                        sdk_version=version)
+        generation = self.limits.generation()
+        if generation.thinking == "disabled":
+            options_type = getattr(sdk, "ClaudeAgentOptions", None)
+            fields = getattr(options_type, "__dataclass_fields__", None)
+            if isinstance(fields, dict) and "thinking" not in fields:
+                return PocRuntimeReadiness(
+                    False, "sdk_thinking_unsupported",
+                    "已安装的 SDK 不支持 thinking 配置，不能按冻结策略关闭思考；请升级 SDK 或改用 provider_default。",
+                    sdk_version=version, model=self.limits.model,
+                    gateway=_public_url(self.limits.gateway_url),
+                    capability=bool(self.limits.capability_token))
         if not self.limits.gateway_url.startswith(("http://", "https://")):
             return PocRuntimeReadiness(False, "gateway_unconfigured",
                                        "必须配置受控 Anthropic 协议网关（POC_CLAUDE_GATEWAY_URL）",
@@ -740,6 +866,27 @@ class ClaudeCodePocRuntime:
         payload.update(fields)
         self._emit_cb(payload)
 
+    def _generation_view(self, stage: str) -> dict:
+        """Configured policy plus what the gateway actually saw for this stage."""
+        observed: dict = {}
+        reader = getattr(self.gateway, "stage_generation", None)
+        if reader is not None and self._run_id:
+            try:
+                observed = reader(run_id=self._run_id, epoch=self._epoch, stage=stage)
+            except Exception:  # noqa: BLE001 - observation must never fail a stage
+                observed = {}
+        return {"configured": self.limits.generation().snapshot(), "observed": dict(observed or {})}
+
+    def _emit_generation_once(self, stage: str) -> None:
+        """Report gateway-verified metadata once per stage; never the model's text."""
+        emitted = getattr(self, "_generation_emitted", None)
+        if emitted is None:
+            emitted = self._generation_emitted = set()
+        if stage in emitted or not self._run_id:
+            return
+        emitted.add(stage)
+        self._emit("poc_sdk_generation", stage=stage, **self._generation_view(stage))
+
     # -- gateway -----------------------------------------------------------------
 
     def reserve_upstream_request(self, stage: str) -> int:
@@ -823,11 +970,20 @@ class ClaudeCodePocRuntime:
         budget = self.limits.execute_usd if stage == EXECUTE_STAGE else self.limits.conclude_usd
         if budget is not None:
             kwargs["max_budget_usd"] = budget
-        if stage == CONCLUDE_STAGE:
-            kwargs["output_format"] = {"type": "json_schema", "schema": CONCLUSION_SCHEMA}
         factory = getattr(self._sdk, "ClaudeAgentOptions", None)
         if factory is None:
             raise PocRuntimeUnavailable("sdk_options_missing")
+        generation = self.limits.generation()
+        if generation.thinking == "disabled":
+            # Disabling thinking is an explicit frozen choice, not a silent omission.
+            # An SDK that cannot express it must fail instead of running with a
+            # different generation policy than the one recorded for this run.
+            factory_fields = getattr(factory, "__dataclass_fields__", None)
+            if isinstance(factory_fields, dict) and "thinking" not in factory_fields:
+                raise PocRuntimeUnavailable("sdk_thinking_unsupported")
+            kwargs["thinking"] = {"type": "disabled"}
+        if stage == CONCLUDE_STAGE:
+            kwargs["output_format"] = {"type": "json_schema", "schema": CONCLUSION_SCHEMA}
         return factory(**kwargs)
 
     def _environment(self, stage: str | None = None) -> dict[str, str]:
@@ -846,18 +1002,36 @@ class ClaudeCodePocRuntime:
             "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
             "AUDIT_POC_CLAUDE_REAL_CLI": self._resolved_cli_path,
         }
+        generation = self.limits.generation()
+        if generation.bounded and stage is not None:
+            # The CLI is the only process that talks to the gateway, so the frozen
+            # output cap has to travel with it; the gateway then verifies the
+            # ``max_tokens`` it actually receives.
+            env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(generation.output_tokens(stage))
         issuer = getattr(self.gateway, "issue_capability", None)
         token = self.limits.capability_token
         if issuer is not None and stage is not None and self._service is not None:
             self._revoke_stage_capability(stage)
-            seconds = max(.1, getattr(self, "_attempt_deadline", time.monotonic() + self.limits.max_seconds) - time.monotonic())
+            deadline = min(getattr(self, '_stage_deadline', float('inf')),
+                           getattr(self, "_attempt_deadline", time.monotonic() + self.limits.max_seconds))
+            seconds = deadline - time.monotonic()
+            if seconds <= 0:
+                raise StopAudit('budget', '本阶段时间已耗尽，不能签发新的模型请求能力')
             token = issuer(run_id=self._run_id, epoch=self._epoch, stage=stage, model=self.limits.model,
                            context_id=self._service.context_id, finding_id=str(self._service.finding.get("id") or ""),
-                           ttl_seconds=seconds)
+                           ttl_seconds=seconds, **self._capability_generation(stage))
             self._stage_tokens[stage] = token
         if token:
             env["ANTHROPIC_AUTH_TOKEN"] = token
         return env
+
+    def _capability_generation(self, stage: str) -> dict:
+        """What the gateway must independently verify for this stage's requests."""
+        generation = self.limits.generation()
+        return {
+            "max_output_tokens": generation.output_tokens(stage) if generation.bounded else 0,
+            "thinking": generation.thinking if generation.thinking == "disabled" else "",
+        }
 
     def _revoke_stage_capability(self, stage: str) -> None:
         tokens = getattr(self, "_stage_tokens", {})
@@ -883,6 +1057,7 @@ class ClaudeCodePocRuntime:
         self._run_id = str(run_id)
         self._epoch = int(epoch or 0)
         self._stage_tokens: dict[str, str] = {}
+        self._generation_emitted: set[str] = set()
         # The service's tool trace needs an event owner in both runtimes; here the
         # adapter supplies a stage-aware one instead of the legacy loop's Execution.
         admit_tool = getattr(self.gateway, "admit_tool", None)
@@ -958,6 +1133,7 @@ class ClaudeCodePocRuntime:
             execute_reason = "sdk_error"
             self._emit("poc_runtime_stage_failed", stage=EXECUTE_STAGE,
                        error=type(exc).__name__, message="SDK 阶段执行失败，原始异常正文未保存。")
+        self._execute_reason = execute_reason
         if self._stopped():
             self._emit("poc_runtime_cancelled", stage=EXECUTE_STAGE, reason="interrupted")
             return PocRuntimeOutcome("cancelled", None, "interrupted", self._usage_snapshot(stages))
@@ -989,7 +1165,7 @@ class ClaudeCodePocRuntime:
             raise
         except PocRuntimeUnavailable as exc:
             self._emit("poc_runtime_unavailable", reason=str(exc), stage=CONCLUDE_STAGE)
-            return PocRuntimeOutcome("unavailable", None, "runtime_unavailable",
+            return PocRuntimeOutcome("unavailable", None, "sdk_cleanup_timeout" if str(exc) == "sdk_cleanup_timeout" else "runtime_unavailable",
                                      self._usage_snapshot(stages))
         except Exception as exc:  # noqa: BLE001
             self._emit("poc_runtime_stage_failed", stage=CONCLUDE_STAGE,
@@ -1046,6 +1222,9 @@ class ClaudeCodePocRuntime:
                 system_prompt=system_prompt, deadline=deadline,
             )
         finally:
+            # Read the gateway's record before the capability (and its observations)
+            # are revoked; the event then states what the upstream really received.
+            self._emit_generation_once(stage)
             revoke = getattr(self, "_revoke_stage_capability", None)
             if revoke is not None and not self._stage_capability_revoked:
                 revoke(stage)
@@ -1058,6 +1237,7 @@ class ClaudeCodePocRuntime:
         if remaining <= 0:
             raise StopAudit("budget", "阶段剩余时间不足")
         self._raise_if_quota_refused(stage)
+        self._stage_deadline = deadline
         options = self._options(stage, server, system_prompt)
         started = time.monotonic()
         self._emit("poc_runtime_stage", stage=stage, status="started",
@@ -1079,8 +1259,13 @@ class ClaudeCodePocRuntime:
                     summary["messages"] += 1
                     if _is_result_message(message):
                         summary["result"] = message
+                        if getattr(message, 'is_error', False) and (getattr(message, 'terminal_reason', '') == 'api_error'
+                                or getattr(message, 'api_error_status', None) is not None):
+                            self._sdk_diagnostic(stage, message)
                     elif _is_error_message(message):
                         summary["error"] = type(message).__name__
+                    elif getattr(message, 'error', None):
+                        self._sdk_diagnostic(stage, message)
             except Exception as exc:
                 # The official SDK yields its terminal error ResultMessage and
                 # then raises ResultError for the CLI's nonzero exit. Classify
@@ -1180,6 +1365,19 @@ class ClaudeCodePocRuntime:
         summary["subtype"] = subtype
         return summary
 
+    def _sdk_diagnostic(self, stage, message):
+        # SDK error/result bodies can contain prompts and credentials. Keep typed metadata only.
+        status = getattr(message, 'api_error_status', None)
+        error = getattr(message, 'error', None)
+        known = {'authentication_failed', 'billing_error', 'rate_limit', 'invalid_request',
+                 'server_error', 'max_output_tokens', 'unknown'}
+        diagnostic = dict(stage=stage, code='sdk_api_error',
+            http_status=status if type(status) is int and 100 <= status <= 599 else None,
+            sdk_error_type=error if isinstance(error, str) and error in known else 'unknown')
+        self._diagnostics = (self._diagnostics + [diagnostic])[-16:]
+        self._emit('poc_runtime_error', **diagnostic,
+                   message='SDK 模型请求异常；已保存作业，未持久化原始错误正文。')
+
     # -- conclusion --------------------------------------------------------------
 
     def _execute_prompt(self, service: PocToolService) -> str:
@@ -1195,6 +1393,7 @@ class ClaudeCodePocRuntime:
                 "max_jobs": service.max_jobs,
                 "job_timeout_seconds": service.job_seconds,
             }, ensure_ascii=False)
+            + source_block(service)
             + "\n调用 resolve_target 取得源码路径到 HTTP 路径的映射。"
         )
 
@@ -1222,7 +1421,10 @@ class ClaudeCodePocRuntime:
     async def _conclude(self, service: PocToolService, refs: EvidenceRefTable,
                         started: float) -> tuple[PocVerificationResult | None, str]:
         prompt = self._conclusion_prompt(service, refs)
-        deadline = started + self.limits.max_seconds
+        # Native CLI cleanup belongs to the same attempt budget. Stop waiting for
+        # model output before the hard deadline, leaving room to close its transport.
+        cleanup_reserve = min(25., self.limits.max_seconds * .1)
+        deadline = started + self.limits.max_seconds - cleanup_reserve
         diagnostics = ""
         format_retries = 0
         semantic_retries = 0
@@ -1275,7 +1477,7 @@ class ClaudeCodePocRuntime:
             self._emit("poc_runtime_conclusion_rejected", attempt=attempt,
                        reason="host_check_rejected", status=checked.status,
                        proposed_status=proposed[0], proposed_verdict=proposed[1],
-                       errors=failures[:32], job_ids=list(result.jobs),
+                       errors=failures[:32], job_ids=list(payload.get("jobs") or []), resolved_job_ids=list(result.jobs),
                        context_id=service.context_id)
             if semantic_retries > 1:
                 break
@@ -1311,6 +1513,12 @@ class ClaudeCodePocRuntime:
 
         normal = resolve("normal_refs")
         attack = resolve("attack_refs")
+        # Resolved refs already name exact, usable host jobs. Derive the redundant
+        # support list instead of rejecting a valid normal side omitted from jobs.
+        # Explicit unknown/failed jobs and unresolved refs are still rejected.
+        jobs = list(dict.fromkeys(jobs + [ref.job_id for ref in normal + attack]))
+        if len(jobs) > 16:
+            errors.append("两侧证据引用涉及超过 16 个作业，请提交必要的最小对照集合")
         if payload.get("normal_refs") and not normal:
             errors.append("normal_refs 全部不可解析")
         if payload.get("attack_refs") and not attack:
@@ -1357,6 +1565,11 @@ class ClaudeCodePocRuntime:
             runtime.update(sdk_version=self._readiness.sdk_version,
                            cli_version=self._readiness.cli_version,
                            capability=self._readiness.capability)
+        diagnostics = list(self._diagnostics)
+        reader = getattr(self.gateway, 'stage_diagnostics', None)
+        if reader is not None:
+            for stage in (EXECUTE_STAGE, CONCLUDE_STAGE):
+                diagnostics.extend(reader(run_id=self._run_id, epoch=self._epoch, stage=stage))
         return {
             "runtime": runtime,
             "usage": dict(self._usage),
@@ -1365,7 +1578,26 @@ class ClaudeCodePocRuntime:
             # may still be published from the jobs that did run; this records that the
             # experiment was cut short instead of letting it pass as complete.
             "execute_reason": self._execute_reason,
+            "diagnostics": diagnostics[-32:],
+            # Configured generation policy and the metadata the gateway actually
+            # verified.  ``observed`` stays empty under ``provider_default``.
+            "generation": {"configured": self.limits.generation().snapshot(),
+                           "observed": self._observed_generation()},
         }
+
+    def _observed_generation(self) -> dict:
+        observed: dict = {}
+        reader = getattr(self.gateway, "stage_generation", None)
+        if reader is None or not self._run_id:
+            return observed
+        for stage in (EXECUTE_STAGE, CONCLUDE_STAGE):
+            try:
+                value = reader(run_id=self._run_id, epoch=self._epoch, stage=stage)
+            except Exception:  # noqa: BLE001 - telemetry never fails an attempt
+                continue
+            if value:
+                observed[stage] = dict(value)
+        return observed
 
 
 def _known(value: Any) -> int | None:

@@ -4,6 +4,8 @@
 
 2026-10-28 已完成 SDK 安装和离线准备：锁定的 `claude-agent-sdk==0.2.174` 可导入，其 wheel 内 CLI 为 `2.1.310`。仓库已提供实际 HTTP 网关；网关默认关闭，上游地址/凭据、模型和隔离工作目录仍待部署方配置。本次准备 **真实模型调用为 0**。验收范围与未验证项见 [准备记录](claude-poc-preparation.md)。
 
+新运行冻结的 `sdk_generation` 输出上限、thinking 策略、网关核验与流进度元数据见 [poc-generation-policy.md](poc-generation-policy.md)。
+
 相关代码：
 
 | 文件 | 职责 |

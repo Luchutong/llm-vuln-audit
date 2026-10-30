@@ -32,10 +32,16 @@ RUN groupadd --gid 10002 runner \
     && mkdir -p /app /tmp/poc-runner \
     && chown -R runner:runner /app /tmp/poc-runner
 
-COPY runner.py /app/runner.py
+# The runner is installed as a package so ``-I`` stays meaningful: site-packages is
+# image content, while the working directory and PYTHON* variables remain ignored.
+COPY __init__.py runner.py diagnostics.py /app/poc_runner/
+RUN dir="$(python -c 'import site; print(site.getsitepackages()[0])')" \
+    && mkdir -p "$dir/poc_runner" \
+    && cp /app/poc_runner/*.py "$dir/poc_runner/" \
+    && chmod -R a+rX "$dir/poc_runner"
 
 USER 10002:10002
 EXPOSE 8080
 
 # -I keeps the interpreter from reading PYTHON* variables or the working directory.
-ENTRYPOINT ["python", "-I", "/app/runner.py"]
+ENTRYPOINT ["python", "-I", "-m", "poc_runner.runner"]

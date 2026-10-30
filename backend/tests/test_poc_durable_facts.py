@@ -155,6 +155,21 @@ def test_a_runtime_failure_after_http_success_is_not_a_negative_experiment(tmp_p
     assert store.records[0]['agent']['job_results'][0]['job_id'] == 'http-1'
 
 
+@pytest.mark.parametrize('jobs', [[], [job('http-1')]])
+def test_successful_conclusion_does_not_hide_an_incomplete_sdk_experiment(tmp_path, jobs):
+    from audit.poc import PocPolicy
+    store = FakeStore()
+    verifier = PocVerifier(store=store, bus=FakeBus(), settings=settings(tmp_path), client_factory=FakeClient)
+    usage = dict(execute_reason='sdk_api_error', diagnostics=[dict(stage='execute', http_status=429)])
+    verifier._record(store.run, FINDING, PocPolicy(), PocVerificationResult(status='inconclusive', summary='攻击观测不足'),
+        prepared={}, jobs=jobs, artifacts={}, usage=usage, reason='completed')
+    record = store.records[0]
+    assert record['execution_status'] == 'execution_error'
+    assert record['status'] == 'inconclusive'
+    assert record['agent']['usage'] == usage
+    assert record['agent']['job_results'] == jobs
+
+
 def test_a_second_finding_is_not_claimed_after_the_first_uses_the_stage_allowance(tmp_path, monkeypatch):
     class BudgetStore(FakeStore):
         allowance = 7

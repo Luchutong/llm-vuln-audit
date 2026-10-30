@@ -186,3 +186,74 @@ def test_resume_queries_known_job_without_preparing_or_resubmitting(state, tmp_p
     assert client.queried == ["prior-job"]
     assert store.list_verifications(finding["id"]) == []
     assert "poc_job_recovered" in bus.kinds()
+
+
+def test_poc_statistics_keeps_five_categories_and_carried_results_separate(state):
+    import json
+    store, run, finding = state
+    rid = run["id"]
+    events = [
+        ("poc_gateway_stream", {"state": "progress", "content_events": 2, "received_bytes": 100}),
+        ("poc_gateway_stream", {"state": "end", "completed": True, "content_events": 9,
+                                "received_bytes": 2048, "events_received": 12,
+                                "event_types": {"message_start": 1, "content_block_delta": 8,
+                                                "message_delta": 2, "message_stop": 1},
+                                "usage": {"input_tokens": 11, "output_tokens": 7},
+                                "elapsed_seconds": 4.5, "first_event_seconds": 0.4}),
+        ("poc_gateway_stream", {"state": "end", "completed": False, "code": "stream_idle_timeout"}),
+        ("poc_queue_progress", {"model_wait_seconds": 42, "since_last_experiment_seconds": 15,
+                                "observations": 2, "text_chars": 120, "thinking_chars": 0,
+                                "tool_arg_chars": 30, "published": False,
+                                "unpublished_reason": "已完成 2 个实验，尚未调用 publish_verification。"}),
+        ("poc_queue_heartbeat", {"elapsed_seconds": 60, "jobs": 2, "soft_limit_exceeded": False}),
+        ("poc_job_finished", {"duration_ms": 1200}),
+        ("poc_job_finished", {"duration_ms": 800}),
+        ("poc_queue_experiment_refused", {"error": "duplicate_experiment"}),
+        ("poc_queue_continued", {}),
+        ("poc_queue_recovery_started", {"requests": 3}),
+        ("poc_queue_recovery_published", {}),
+        ("poc_verification_recorded", {"status": "verified"}),
+    ]
+    for kind, payload in events:
+        store.append_event(rid, None, kind, payload)
+    view = {"items": [
+        {"finding_id": "old-1", "title": "沿用结论", "state": "reused", "status": "verified"},
+        {"finding_id": "retest-1", "title": "复测结论", "state": "completed", "status": "verified"},
+        {"finding_id": "new-1", "title": "本轮结论", "state": "pending", "status": "unverified"},
+    ], "omitted": 0}
+    store._db.execute("UPDATE runs SET task_spec=? WHERE id=?", (json.dumps({"continuation": {
+        "inherited_finding_ids": ["old-1", "retest-1"], "retest_finding_ids": ["retest-1"],
+        "parent_run_id": "parent-run"}}), rid))
+
+    stats = store.poc_statistics(rid, view)
+    assert stats["version"] == "poc-statistics-v1"
+    # Host liveness is separate from model generation.
+    assert stats["host"]["current_item_seconds"] == 60
+    assert stats["host"]["heartbeat_age_seconds"] is not None
+    # Model metadata only, with a completion outcome distinct from an abort.
+    assert stats["model"]["streams"] == 2 and stats["model"]["aborted"] == 1
+    assert stats["model"]["last_abort_code"] == "stream_idle_timeout"
+    assert stats["model"]["waiting_seconds"] == 42
+    assert stats["model"]["usage"] == {"input_tokens": 11, "output_tokens": 7}
+    assert stats["model"]["content_events"] == 9  # final count per ended request, not summed pulses
+    assert stats["generation"]["text_chars"] == 120
+    # Experiments, publication and recovery are their own facts.
+    assert stats["experiments"]["jobs"] == 2 and stats["experiments"]["duration_ms"] == 2000
+    assert stats["experiments"]["duplicates"] == 1 and stats["experiments"]["supplements"] == 1
+    assert stats["conclusion"]["published"] == 1
+    assert stats["conclusion"]["verdicts"] == {"verified": 1}
+    assert stats["conclusion"]["unpublished_reason"].startswith("已完成 2 个实验")
+    assert stats["recovery"] == {"started": 1, "published": 1, "failed": 0, "skipped": 0, "requests": 3}
+    # Carried-over results never count as this round's output.
+    assert stats["continuation"]["inherited"] == 1
+    assert stats["continuation"]["retested"] == 1
+    assert stats["continuation"]["inherited_status"] == {"verified": 1}
+    assert stats["continuation"]["current_status"] == {"verified": 1, "unverified": 1}
+    assert stats["unfinished_total"] == 2
+    assert stats["unfinished"][0]["finding_id"] in {"old-1", "new-1"}
+
+
+def test_poc_statistics_is_absent_when_poc_is_off(state):
+    store, run, finding = state
+    store._db.execute("UPDATE runs SET poc_policy=? WHERE id=?", ('{"mode":"off"}', run["id"]))
+    assert store.poc_statistics(run["id"]) is None

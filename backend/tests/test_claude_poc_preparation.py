@@ -127,7 +127,7 @@ def test_sdk_inherits_the_remaining_attempt_policy(tmp_path, monkeypatch):
 def test_missing_sdk_configuration_never_prepares_or_closes_a_target(tmp_path):
     verifier = PocVerifier.__new__(PocVerifier)
     verifier.bus = SimpleNamespace(emit=lambda *args: None)
-    verifier._sdk_readiness = lambda: {"ready": False, "reason": "gateway_disabled"}
+    verifier._sdk_readiness = lambda *args, **kwargs: {"ready": False, "reason": "gateway_disabled"}
     verifier._record = lambda *args, **kwargs: {"reason": kwargs["reason"]}
     class NoRunnerActions:
         def __getattr__(self, name):

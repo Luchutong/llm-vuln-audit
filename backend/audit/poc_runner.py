@@ -282,6 +282,20 @@ class PocRunnerClient:
     async def get_job(self, job_id: str) -> dict:
         return await self._json("GET", f"/v1/jobs/{quote(_segment(job_id, 'job id'))}")
 
+    async def diagnostics(self, job_id: str, cursor: str = "") -> dict:
+        """One bounded page of correlated server diagnostics for a job.
+
+        ``available: false`` carries a distinct reason (capability, pending, expired,
+        collector failure); it never means "the request produced no errors".
+        """
+        ident = _segment(job_id, "job id")
+        if not isinstance(cursor, str) or not re.fullmatch(r"[0-9]{0,9}", cursor):
+            raise PocRunnerError("invalid diagnostics cursor")
+        query = f"?cursor={quote(cursor)}" if cursor else ""
+        return await self._json("GET", f"/v1/jobs/{quote(ident)}/diagnostics{query}",
+                                timeout=min(self.timeout, 10.0))
+
+
     async def fetch_artifact(self, job_id: str, name: str) -> bytes:
         ident = _segment(job_id, "job id")
         artifact = _segment(name, "artifact name")

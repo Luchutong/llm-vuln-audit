@@ -1,0 +1,539 @@
+<title>Lab30 闭环审计报告</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+  :root {
+    --bg: #f6f3ec;
+    --surface: #fffdf8;
+    --surface-2: #efe9de;
+    --fg: #1d1b18;
+    --muted: #6b645a;
+    --line: #ddd5c7;
+    --accent: #0f6666;
+    --accent-soft: #d8e8e5;
+    --danger: #a83a2b;
+    --danger-soft: #f1ddd8;
+    --ok: #2f6b45;
+    --ok-soft: #dceadf;
+    --shadow: 0 1px 2px rgba(30, 26, 20, .06), 0 8px 24px rgba(30, 26, 20, .05);
+    --sans: "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14161a;
+      --surface: #1b1e23;
+      --surface-2: #23272d;
+      --fg: #ece7dd;
+      --muted: #a39c90;
+      --line: #30353c;
+      --accent: #63c9c1;
+      --accent-soft: #1e3a39;
+      --danger: #e58a78;
+      --danger-soft: #3b2420;
+      --ok: #83c79c;
+      --ok-soft: #1f3327;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .3);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161a;
+    --surface: #1b1e23;
+    --surface-2: #23272d;
+    --fg: #ece7dd;
+    --muted: #a39c90;
+    --line: #30353c;
+    --accent: #63c9c1;
+    --accent-soft: #1e3a39;
+    --danger: #e58a78;
+    --danger-soft: #3b2420;
+    --ok: #83c79c;
+    --ok-soft: #1f3327;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .3);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1020px; margin-inline: auto; }
+  main.wrap { padding-block: 0 72px; }
+
+  .masthead {
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(1200px 300px at 15% -10%, var(--accent-soft), transparent 70%),
+      var(--bg);
+    padding-block: 56px 40px;
+    margin-bottom: 36px;
+  }
+  .kicker {
+    margin: 0 0 14px;
+    font-size: 12px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(34px, 6vw, 54px);
+    line-height: 1.15;
+    letter-spacing: -.01em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .lede {
+    max-width: 46em;
+    font-size: clamp(16px, 2.2vw, 19px);
+    color: var(--fg);
+    margin: 0 0 26px;
+  }
+  .lede strong { color: var(--accent); }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 34px;
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .meta div { display: flex; gap: 8px; align-items: baseline; }
+  .meta dt { color: var(--muted); }
+  .meta dd { margin: 0; color: var(--fg); }
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
+    margin-bottom: 44px;
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 18px 16px;
+    box-shadow: var(--shadow);
+  }
+  .kpi .label {
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .kpi .value {
+    font-family: var(--mono);
+    font-size: 30px;
+    line-height: 1.1;
+    font-weight: 600;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi .value small { font-size: 15px; color: var(--muted); font-weight: 400; }
+  .kpi .note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+  .kpi.good .value { color: var(--ok); }
+  .kpi.warn .value { color: var(--danger); }
+  .kpi.accent .value { color: var(--accent); }
+
+  section { margin-block: 0 52px; }
+  h2 {
+    font-family: var(--serif);
+    font-size: clamp(23px, 3.2vw, 30px);
+    line-height: 1.3;
+    margin: 0 0 8px;
+    text-wrap: balance;
+  }
+  .sub { color: var(--muted); margin: 0 0 22px; max-width: 52em; }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 22px 20px 14px;
+    box-shadow: var(--shadow);
+  }
+  .chart-card svg { display: block; width: 100%; height: auto; }
+  .f1-chart .grid { stroke: var(--line); stroke-width: 1; }
+  .f1-chart .axis { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+  .f1-chart .target-line { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 6 5; }
+  .f1-chart .target-label { font-family: var(--mono); font-size: 11px; fill: var(--danger); }
+  .f1-chart .series { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  .f1-chart .pt { fill: var(--accent); }
+  .f1-chart .pt-end { fill: var(--ok); }
+  .chart-legend {
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+    margin-top: 6px; font-size: 12.5px; color: var(--muted);
+  }
+  .chart-legend span::before {
+    content: ""; display: inline-block; width: 18px; height: 2px;
+    margin-right: 7px; vertical-align: middle; background: var(--accent);
+  }
+  .chart-legend .target::before { background: var(--danger); }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th {
+    font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-2); font-weight: 600;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tbody tr.now { background: var(--accent-soft); }
+  .tag {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; font-family: var(--mono); white-space: nowrap;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  .tag.ok { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
+  .tag.bad { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+
+  .fixes { display: grid; gap: 14px; }
+  .fix {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow);
+    display: grid; grid-template-columns: 40px 1fr; gap: 4px 16px;
+  }
+  .fix .n {
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 8px; text-align: center;
+    line-height: 26px; height: 28px; grid-row: span 3;
+  }
+  .fix h3 { margin: 0; font-size: 17px; line-height: 1.45; }
+  .fix p { margin: 2px 0 0; font-size: 14.5px; }
+  .fix .evidence { color: var(--muted); font-size: 13.5px; }
+  .fix code, .step code, p code, li code, td code {
+    font-family: var(--mono); font-size: .88em;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 5px; padding: .08em .34em;
+  }
+
+  .timeline { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--line); }
+  .timeline li { position: relative; padding: 0 0 18px 26px; }
+  .timeline li::before {
+    content: ""; position: absolute; left: -6px; top: 8px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--accent);
+  }
+  .timeline li.end::before { background: var(--ok); border-color: var(--ok); }
+  .timeline .t { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .timeline p { margin: 0; font-size: 14.5px; }
+
+  .callout {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    background: var(--surface); border-radius: 10px;
+    padding: 14px 18px; margin: 18px 0 0; font-size: 14.5px;
+  }
+  .callout.warn { border-left-color: var(--danger); }
+
+  pre {
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13px; line-height: 1.6;
+    margin: 14px 0 0;
+  }
+  pre code { background: none; border: 0; padding: 0; }
+
+  ul.plain { padding-left: 1.2em; margin: 10px 0 0; }
+  ul.plain li { margin-bottom: 8px; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 22px; color: var(--muted); font-size: 13.5px;
+  }
+  footer p { margin: 0 0 8px; }
+
+  @media (max-width: 620px) {
+    body { font-size: 15.5px; }
+    .masthead { padding-block: 40px 30px; }
+    .fix { grid-template-columns: 1fr; }
+    .fix .n { grid-row: auto; width: 34px; }
+  }
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="kicker">vuln-audit · lab30 拾光商城</p>
+    <h1>Lab30 闭环审计报告</h1>
+    <p class="lede">
+      第七轮真实 LLM 全流程首次以 <strong>completed</strong> 收束：覆盖复核 61/61、
+      POC 24 条确认、终审 22 个批次全部处置（D=0）。此前连续六轮都在终审或阶段切换前中断。
+      检出仍低于归档基准：TP 22 / F1 0.830，差距来自探索深度而非流程。
+    </p>
+    <dl class="meta">
+      <div><dt>run</dt><dd>2969bcf204cd43b5baf2683cbb0e841d</dd></div>
+      <div><dt>时间</dt><dd>2026-10-30 13:58–14:45 UTC</dd></div>
+      <div><dt>模型</dt><dd>deepseek-flash</dd></div>
+      <div><dt>耗时</dt><dd>2832 s / 10800 s</dd></div>
+    </dl>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="kpis" aria-label="关键指标">
+    <div class="kpi good">
+      <p class="label">运行终态</p>
+      <p class="value">completed</p>
+      <p class="note">stop <code>goal_met</code>，非 failed / inconclusive</p>
+    </div>
+    <div class="kpi accent">
+      <p class="label">覆盖复核</p>
+      <p class="value">61<small> / 61</small></p>
+      <p class="note">pending 0 · read 59 · reviewed 61</p>
+    </div>
+    <div class="kpi accent">
+      <p class="label">POC 确认</p>
+      <p class="value">24<small> / 47 jobs</small></p>
+      <p class="note">逐条复位 25 次 · 认证失败 0</p>
+    </div>
+    <div class="kpi good">
+      <p class="label">重复判定 D</p>
+      <p class="value">0</p>
+      <p class="note">终审全部批次结算，<code>failed_checks</code> 为空</p>
+    </div>
+    <div class="kpi warn">
+      <p class="label">F1（v2）</p>
+      <p class="value">0.830</p>
+      <p class="note">基准 0.9286 · TP 22 / FN 8</p>
+    </div>
+  </section>
+
+  <section id="trend">
+    <h2>七轮进程</h2>
+    <p class="sub">每一轮的终态都指向一个具体的框架壁垒；修复后下一轮才继续向前。F1 逐步抬升，第七轮终于不再被流程中断。</p>
+    <div class="chart-card">
+      <svg class="f1-chart" viewBox="0 0 720 220" role="img" aria-label="七轮运行的 F1 变化，从 0.421 升至 0.830，仍低于 0.9286 基准线">
+        <line class="grid" x1="60" y1="168.5" x2="690" y2="168.5"/>
+        <line class="grid" x1="60" y1="122.3" x2="690" y2="122.3"/>
+        <line class="grid" x1="60" y1="76.2"  x2="690" y2="76.2"/>
+        <line class="grid" x1="60" y1="30"    x2="690" y2="30"/>
+        <text class="axis" x="50" y="172.5" text-anchor="end">0.40</text>
+        <text class="axis" x="50" y="126.3" text-anchor="end">0.60</text>
+        <text class="axis" x="50" y="80.2"  text-anchor="end">0.80</text>
+        <text class="axis" x="50" y="34"    text-anchor="end">1.00</text>
+        <line class="target-line" x1="60" y1="46.5" x2="690" y2="46.5"/>
+        <text class="target-label" x="686" y="40" text-anchor="end">基准 0.9286</text>
+        <polyline class="series" points="60,163.6 165,154.3 270,92.3 375,94.6 480,85.7 585,74.8 690,69.2"/>
+        <circle class="pt" cx="60" cy="163.6" r="4"/>
+        <circle class="pt" cx="165" cy="154.3" r="4"/>
+        <circle class="pt" cx="270" cy="92.3" r="4"/>
+        <circle class="pt" cx="375" cy="94.6" r="4"/>
+        <circle class="pt" cx="480" cy="85.7" r="4"/>
+        <circle class="pt" cx="585" cy="74.8" r="4"/>
+        <circle class="pt-end" cx="690" cy="69.2" r="5.5"/>
+        <g class="axis" text-anchor="middle">
+          <text x="60" y="200">R1</text><text x="165" y="200">R2</text><text x="270" y="200">R3</text>
+          <text x="375" y="200">R4</text><text x="480" y="200">R5</text><text x="585" y="200">R6</text>
+          <text x="690" y="200">R7</text>
+        </g>
+      </svg>
+      <div class="chart-legend">
+        <span>每轮 F1（lab30-v2）</span>
+        <span class="target">归档基准 26 TP / F1 0.9286</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="runs">
+    <h2>七轮运行对照</h2>
+    <p class="sub">同一靶场、同一策略（<code>coverage_review</code> + <code>host-queue-v1</code>），预算 2048 responses。每轮的修复都对应下一行的问题。</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>轮</th><th>run</th><th>终态</th><th class="num">覆盖</th>
+            <th class="num">POC confirmed</th><th class="num">TP</th><th class="num">F1</th>
+            <th class="num">D</th><th>该轮之后的决定性修复</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>R1</td><td class="num">7f00e97c</td>
+            <td><span class="tag bad">unresolved_blockers</span></td>
+            <td class="num">54/61</td><td class="num">0</td>
+            <td class="num">16</td><td class="num">0.421</td><td class="num">29</td>
+            <td>调度与去重</td>
+          </tr>
+          <tr>
+            <td>R2</td><td class="num">1287aed9</td>
+            <td><span class="tag bad">unresolved_blockers</span></td>
+            <td class="num">61/61</td><td class="num">21</td>
+            <td class="num">18</td><td class="num">0.462</td><td class="num">28</td>
+            <td>POC 直跑与调度振荡</td>
+          </tr>
+          <tr>
+            <td>R3</td><td class="num">17fc2e83</td>
+            <td><span class="tag bad">final_review_incomplete</span></td>
+            <td class="num">61/61</td><td class="num">27</td>
+            <td class="num">23</td><td class="num">0.730</td><td class="num">8</td>
+            <td>终审停滞判定</td>
+          </tr>
+          <tr>
+            <td>R4</td><td class="num">a93ba654</td>
+            <td><span class="tag bad">audit_partial</span></td>
+            <td class="num">46/61</td><td class="num">18</td>
+            <td class="num">18</td><td class="num">0.720</td><td class="num">1</td>
+            <td>覆盖复核与 blocked 解耦</td>
+          </tr>
+          <tr>
+            <td>R5</td><td class="num">64bd9c50</td>
+            <td><span class="tag bad">model_unavailable</span></td>
+            <td class="num">60/61</td><td class="num">0</td>
+            <td class="num">22</td><td class="num">0.759</td><td class="num">5</td>
+            <td>连接错误纳入有界重试</td>
+          </tr>
+          <tr>
+            <td>R6</td><td class="num">68240a4b</td>
+            <td><span class="tag bad">final_review_incomplete</span></td>
+            <td class="num">61/61</td><td class="num">32</td>
+            <td class="num">27</td><td class="num">0.806</td><td class="num">10</td>
+            <td>拒绝一次列全 + 配额回收</td>
+          </tr>
+          <tr class="now">
+            <td>R7</td><td class="num">2969bcf2</td>
+            <td><span class="tag ok">completed</span></td>
+            <td class="num">61/61</td><td class="num">24</td>
+            <td class="num">22</td><td class="num">0.830</td><td class="num">0</td>
+            <td>—（本轮为验证）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="fixes">
+    <h2>五道壁垒与对应修复</h2>
+    <p class="sub">只删改宿主侧不合理的旧约束，证据、POC、请求/工具/时间/身份/上下文门禁全部保留。</p>
+    <div class="fixes">
+      <article class="fix">
+        <div class="n">01</div>
+        <h3>瞬时故障被当成致命错误</h3>
+        <p>单次 429 或连接失败会直接熔断并终止整轮。现在硬状态（401/402/403/404）仍立即中止，
+           408/429/5xx 与无状态码的连接错误走同一有界重试：退避、尊重 <code>Retry-After</code>、计入预算、发 <code>provider_retry</code>。</p>
+        <p class="evidence">证据：R5 三次 <code>APIConnectionError</code> 在 38 秒内直接终止；R6 重试 9 次后不再因网络中断。文件：<code>codemodel.py</code>、<code>health.py</code>。</p>
+      </article>
+      <article class="fix">
+        <div class="n">02</div>
+        <h3>阻塞任务挡住覆盖复核</h3>
+        <p>只要还有 blocked 任务，覆盖复核就永远不触发。现在两者解耦，Planner 可以对无法推进的路径
+           <code>skip</code> 并记录理由，skip 计入已复核。</p>
+        <p class="evidence">证据：R4 覆盖只到 46/61；R5 缺口 61→10→5→1；R7 61/61、pending 0。文件：<code>worker.py</code>、<code>coverage_review.py</code>、<code>directions.py</code>。</p>
+      </article>
+      <article class="fix">
+        <div class="n">03</div>
+        <h3>终审事实超限与对照判读</h3>
+        <p>整批事实超过消息上限就无法终审。现在用 <code>paged-facts-v2</code> 分页读取并保留版本回执；
+           同一锚点的结论必须通过 <code>comparison_candidates</code> 显式判重，不同根因写 <code>distinct_from</code>。</p>
+        <p class="evidence">证据：R7 22 个批次全部结算，D=0；R6 的 D=10 来自终审未完成而非误合并。文件：<code>review_input.py</code>、<code>review_store.py</code>。</p>
+      </article>
+      <article class="fix">
+        <div class="n">04</div>
+        <h3>拒绝信息逐项披露耗尽纠正额度</h3>
+        <p>一个 2 项批次里，宿主每次只点名一项未满足的要求：模型修好 A，下一次才说 B，来回耗尽每轮 3 次纠正。
+           现在一次列出整批每一项的要求。</p>
+        <p class="evidence">证据：R6 该批次重试 27 轮后整轮失败；R7 仍有 4 次拒绝，但文本每次前进，最终完成。</p>
+      </article>
+      <article class="fix">
+        <div class="n">05</div>
+        <h3>已结束阶段握着配额饿死终审</h3>
+        <p>POC 阶段结束后，未花完的 responses 仍记在它的额度里，终审只能拿到 51–75 条。
+           现在终审批处理入口调用 <code>release_poc_quota()</code>，把剩余配额转入 review；显式配额不动，
+           POC/review 交替循环不提前回收。</p>
+        <p class="evidence">证据：R7 终审前 review 由 96 抬到 1823（<code>transferred=3209</code>），终审只花 29 条就全部完成。文件：<code>execution_state.py</code>、<code>worker.py</code>。</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="timeline">
+    <h2>第七轮关键时间线</h2>
+    <p class="sub">2026-10-30，UTC。开跑前与结束后各复位一次靶场，种子 4 个账号偏差 0。</p>
+    <ol class="timeline">
+      <li><span class="t">13:58:07</span><p>创建 run，快照 69 个文件（可读 52），阶段配额 derived <code>1440 / 512 / 96</code>。</p></li>
+      <li><span class="t">14:04:32</span><p>覆盖复核第二次记录，61 条 first-party 路径全部读过或带理由跳过。</p></li>
+      <li><span class="t">14:09:00</span><p>进入 POC 阶段：discovery 105 条收束，转移 1416 条到 POC（限额 105 / 1928 / 15）。</p></li>
+      <li><span class="t">14:40:58</span><p>进入 review：POC 已用 120 条，剩余全部转入终审（review 1823）。</p></li>
+      <li><span class="t">14:42–14:44</span><p>4 次 <code>planner_round_failed</code>：缺 <code>rationale_summary</code>、观测版本不符等；拒绝文本每次变化，按“changed rejection earns another round”继续。</p></li>
+      <li class="end"><span class="t">14:45:21</span><p><code>run_completed</code>：22 个终审批次全部处置，D=0，<code>failed_checks</code> 为空。</p></li>
+      <li class="end"><span class="t">14:45:26</span><p>评分与报告落盘：<code>closure_2969bcf2.json</code>、<code>report_2969bcf2.md</code>。</p></li>
+    </ol>
+  </section>
+
+  <section id="gap">
+    <h2>检出差距：8 条漏检</h2>
+    <p class="sub">TP 22 / 30，FN 8；precision 0.9565（23 条结论里 22 条命中，1 条 FP），recall 0.7333。</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>truth</th><th>类型</th><th>位置</th><th>漏检原因</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="num">07</td><td>动态函数调用代码执行</td><td><code>ops/formula.php</code></td><td>未读/未报（R6 覆盖过该路径）</td></tr>
+          <tr><td class="num">09</td><td>异常与堆栈信息泄露</td><td><code>ops/database.php</code></td><td>未读/未报</td></tr>
+          <tr><td class="num">10</td><td>MD5 存储密码</td><td><code>auth/register.php</code>、<code>src/setup.php</code></td><td>未读/未报（R6 覆盖过）</td></tr>
+          <tr><td class="num">14</td><td>跨站请求伪造</td><td><code>account/settings.php</code></td><td>未读/未报</td></tr>
+          <tr><td class="num">17</td><td>信任角色 Cookie 越权</td><td><code>ops/users.php</code></td><td>有相关结论但判为 <code>no_related_candidate</code></td></tr>
+          <tr><td class="num">18</td><td>信任请求头认证绕过</td><td><code>ops/maintenance.php</code></td><td>未读/未报（R6 覆盖过）</td></tr>
+          <tr><td class="num">23</td><td>跨文件 SQL 注入</td><td><code>ops/members.php</code>、<code>src/member_lookup.php</code></td><td>未读/未报（R6 覆盖过）</td></tr>
+          <tr><td class="num">24</td><td>跨文件命令注入</td><td><code>ops/batch-check.php</code>、<code>src/host_check.php</code></td><td>报在 <code>ops/ping.php:2</code>，锚点与 truth 不符</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <strong>这不是流程问题。</strong> 第七轮 discovery 在 14:09 就收束（105 responses、33 个路径），
+      第六轮同模型在同一策略下跑了 164 responses、41 个路径并命中 TP 27。两次都有 1400+ 未用响应，
+      差异是 Planner 的探索深度：<code>coverage_review</code> 只要求每条路径被读过或被理由跳过，
+      不要求按漏洞类逐一取证。
+    </div>
+  </section>
+
+  <section id="artifacts">
+    <h2>产物与复现</h2>
+    <p class="sub">本轮所有数字均可从下列文件核对；运行过程记录在第六/七轮章节。</p>
+    <pre><code>datasets/lab30-shop/closure_2969bcf2.json   # 闭环验收明细（指标、冻结预算、commit）
+datasets/lab30-shop/report_2969bcf2.md      # 终审报告 207 KB
+datasets/lab30-shop/score_all_v2.json       # lab30-v2 评分明细与漏检诊断
+docs/lab30-closure-run.md                   # 七轮完整记录与每轮事件链</code></pre>
+    <pre><code>python scripts/run_lab30_e2e.py \
+  --base http://127.0.0.1:8899 \
+  --zip data/imports/lab30-shop-1.0.0-source.zip \
+  --scenario all --closure \
+  --out datasets/lab30-shop/score_all_v2.json</code></pre>
+    <div class="callout">
+      闭环档会自动完成：开跑前复位与种子断言 → 上传快照 → 创建 run（POC auto、覆盖复核收束、
+      2048 responses）→ 等待终审 → 拉取报告 → v2 评分 → 结束后再次复位。
+    </div>
+  </section>
+
+  <section id="next">
+    <h2>待决策</h2>
+    <ul class="plain">
+      <li><strong>模型基线。</strong> 归档 26 TP / F1 0.9286 来自 <code>deepseek-chat</code>；本轮为 <code>deepseek-flash</code>，
+          同模型两轮分别得到 TP 27 与 TP 22。是否切换到 <code>deepseek-chat</code> 做同基线对比，需要你决定。</li>
+      <li><strong>发现力度。</strong> 当前完成策略只判“路径覆盖 + 方向结算”，不判“漏洞类取证完整”。
+          若要稳定超过 26 TP，需要决定是否在 discovery 收束前要求按风险类逐一给出 <code>supported / no_evidence</code>。</li>
+      <li><strong>跨文件 sink 粒度。</strong> truth 24 要求 <code>batch-check.php</code> 与 <code>host_check.php</code>，
+          当前被合并成一条报在 <code>ping.php</code>。是否要求同一入口的多个 sink 独立成条，会直接影响 TP 的计数方式。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>约束遵守：未修改 lab30 业务源码、ground truth 与 <code>scoring_anchors_v2.json</code>；
+      <code>AgentPolicy.version</code> 未提升；历史运行记录保持原状；两份未跟踪交付记录保留。</p>
+    <p>生成于 2026-10-30 · vuln-audit · lab30 拾光商城</p>
+  </footer>
+</main>

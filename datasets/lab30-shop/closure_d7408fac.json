@@ -1,0 +1,106 @@
+{
+  "run_id": "d7408facaa2245be81c08c2ac3c715a2",
+  "status": "cancelled",
+  "stop_reason": {
+    "code": "user_cancelled",
+    "message": "用户取消审计"
+  },
+  "coverage": {
+    "complete": true,
+    "total": 61,
+    "pending_total": 0,
+    "read_paths": 60,
+    "reviewed_paths": 61
+  },
+  "poc": {
+    "jobs": 2,
+    "resets": 1,
+    "reset_failures": 0,
+    "recorded": 0,
+    "verdicts": {},
+    "execution_statuses": {},
+    "confirmed": 0,
+    "authentication_failed": 0,
+    "state_mismatch": 0,
+    "auth_events": 0,
+    "reset_between_findings": true,
+    "seed_verified": true,
+    "seed_accounts": 4,
+    "post_run_reset": true
+  },
+  "context": {
+    "history_bytes": 393216,
+    "peak_request_bytes": 141026,
+    "peak_ratio": 0.3586,
+    "summary_requests": 0,
+    "compactions": 0,
+    "history_limit_hits": 0,
+    "sources": {}
+  },
+  "usage": {
+    "responses": 109,
+    "tools": 191,
+    "seconds": 1050.513
+  },
+  "events": 1998,
+  "frozen": {
+    "budgets": {
+      "responses": 60,
+      "tools": 240,
+      "seconds": 3600
+    },
+    "run_limits": {
+      "responses": 2048,
+      "tools": 16384,
+      "seconds": 10800
+    },
+    "workflow": {
+      "version": "host-queue-v1",
+      "stage": "discovery",
+      "source": "derived",
+      "limits": {
+        "discovery": 1440,
+        "poc": 512,
+        "review": 96
+      },
+      "used": {
+        "discovery": 0,
+        "poc": 0,
+        "review": 0
+      },
+      "transferred": 0,
+      "review_reserved_seconds": 60.0,
+      "poc_reserved_seconds": 3780.0,
+      "review_reserved_rounds": 0,
+      "discovery_stop": null,
+      "remaining": {
+        "discovery": 1440,
+        "poc": 512,
+        "review": 96
+      },
+      "stage_remaining_seconds": 6960.0
+    },
+    "task_limits": {
+      "max_iterations": 6,
+      "max_planner_rounds": 40,
+      "max_total_attempts": 120
+    }
+  },
+  "report": "datasets/lab30-shop/report_d7408fac.md",
+  "score_path": "datasets/lab30-shop/score_all_v2_closure.json",
+  "score": {
+    "protocol": "lab30-v2",
+    "TP": 25,
+    "D": 5,
+    "U": 2,
+    "FN": 5,
+    "precision": 0.78125,
+    "recall": 0.8333333333333334,
+    "f1": 0.8064516129032258,
+    "truths": 30,
+    "findings": 32
+  },
+  "commit": "524c9ee118fd73c295b5a7ab45b1cbd619cdff85",
+  "generated_at": "2026-10-30T10:28:25Z",
+  "failed_checks": []
+}

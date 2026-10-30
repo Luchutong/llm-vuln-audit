@@ -1,0 +1,114 @@
+{
+  "run_id": "a93ba654480d4520a805959e28cf4332",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "audit_partial",
+    "message": "审计与终审已结束，未完成的源码方向及运行限制保留在阶段报告中。"
+  },
+  "coverage": {
+    "complete": false,
+    "total": 61,
+    "pending_total": 15,
+    "read_paths": 46,
+    "reviewed_paths": 46
+  },
+  "poc": {
+    "jobs": 34,
+    "resets": 20,
+    "reset_failures": 0,
+    "recorded": 20,
+    "verdicts": {
+      "confirmed": 18,
+      "uncertain": 2
+    },
+    "execution_statuses": {
+      "success": 18,
+      "other_error": 2
+    },
+    "confirmed": 18,
+    "authentication_failed": 0,
+    "state_mismatch": 0,
+    "auth_events": 0,
+    "reset_between_findings": true,
+    "seed_verified": true,
+    "seed_accounts": 4,
+    "post_run_reset": true
+  },
+  "context": {
+    "history_bytes": 393216,
+    "peak_request_bytes": 150232,
+    "peak_ratio": 0.3821,
+    "summary_requests": 0,
+    "compactions": 0,
+    "history_limit_hits": 0,
+    "sources": {}
+  },
+  "usage": {
+    "responses": 154,
+    "tools": 152,
+    "seconds": 1433.884
+  },
+  "events": 2234,
+  "frozen": {
+    "budgets": {
+      "responses": 60,
+      "tools": 240,
+      "seconds": 3600
+    },
+    "run_limits": {
+      "responses": 2048,
+      "tools": 16384,
+      "seconds": 10800
+    },
+    "workflow": {
+      "version": "host-queue-v1",
+      "stage": "discovery",
+      "source": "derived",
+      "limits": {
+        "discovery": 1440,
+        "poc": 512,
+        "review": 96
+      },
+      "used": {
+        "discovery": 0,
+        "poc": 0,
+        "review": 0
+      },
+      "transferred": 0,
+      "review_reserved_seconds": 60.0,
+      "poc_reserved_seconds": 3780.0,
+      "review_reserved_rounds": 0,
+      "discovery_stop": null,
+      "remaining": {
+        "discovery": 1440,
+        "poc": 512,
+        "review": 96
+      },
+      "stage_remaining_seconds": 6960.0
+    },
+    "task_limits": {
+      "max_iterations": 6,
+      "max_planner_rounds": 40,
+      "max_total_attempts": 120
+    }
+  },
+  "report": "datasets/lab30-shop/report_a93ba654.md",
+  "score_path": "datasets/lab30-shop/score_all_v2.json",
+  "score": {
+    "protocol": "lab30-v2",
+    "TP": 18,
+    "D": 1,
+    "U": 1,
+    "FN": 12,
+    "precision": 0.9,
+    "recall": 0.6,
+    "f1": 0.72,
+    "truths": 30,
+    "findings": 20
+  },
+  "commit": "524c9ee118fd73c295b5a7ab45b1cbd619cdff85",
+  "generated_at": "2026-10-30T12:16:53Z",
+  "failed_checks": [
+    "覆盖复核未完成（pending 15）"
+  ]
+}

@@ -506,13 +506,14 @@
     <p class="sub">本轮所有数字均可从下列文件核对；运行过程记录在第六/七轮章节。</p>
     <pre><code>datasets/lab30-shop/closure_2969bcf2.json   # 闭环验收明细（指标、冻结预算、commit）
 datasets/lab30-shop/report_2969bcf2.md      # 终审报告 207 KB
-datasets/lab30-shop/score_all_v2.json       # lab30-v2 评分明细与漏检诊断
+deliverable/lab30-closure-2026-10-30/scoring-result.json  # 冻结评分明细与漏检诊断
 docs/lab30-closure-run.md                   # 七轮完整记录与每轮事件链</code></pre>
     <pre><code>python scripts/run_lab30_e2e.py \
   --base http://127.0.0.1:8899 \
-  --zip data/imports/lab30-shop-1.0.0-source.zip \
+  --zip llm-vuln-audit-feat-lab30-shop/llm-vuln-audit-feat-lab30-shop/lab30-shop-1.0.0-source.zip \
   --scenario all --closure \
-  --out datasets/lab30-shop/score_all_v2.json</code></pre>
+  --out /tmp/lab30-new-score.json</code></pre>
+    <p>无模型的归档评分重算：<code>python3 scripts/reproduce_release.py</code>。上面的在线命令需自己的 API 与支持逐项复位的本地后端，会真实消费额度；新运行不保证同分。完整步骤见 <a href="../../docs/deployment-and-reproduction.md">部署与复现指南</a>。</p>
     <div class="callout">
       闭环档会自动完成：开跑前复位与种子断言 → 上传快照 → 创建 run（POC auto、覆盖复核收束、
       2048 responses）→ 等待终审 → 拉取报告 → v2 评分 → 结束后再次复位。

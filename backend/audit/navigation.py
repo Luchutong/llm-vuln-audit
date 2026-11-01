@@ -87,6 +87,7 @@ class ProjectIndex:
     files_by_path: dict = field(default_factory=dict)
     binary_paths: set = field(default_factory=set)
     symbols_by_path: dict = field(default_factory=dict)
+    relations_map: dict = field(default_factory=dict)
 
     @classmethod
     def from_map(cls, project_map: dict, repository=None, snapshot_id: str = "") -> "ProjectIndex":
@@ -102,7 +103,33 @@ class ProjectIndex:
             files_by_path={str(item.get("path")): item for item in project_map.get("files") or []},
             binary_paths={str(item.get("path")) for item in project_map.get("binary_files") or []},
             symbols_by_path=symbols,
+            relations_map={key: list(project_map.get(key) or []) for key in ("calls", "includes", "symbols")},
         )
+
+    def relations(self, args: dict) -> str:
+        path = clean_path(args.get("path"))
+        if path not in self.files_by_path:
+            raise FileNotFoundError("relation path must belong to the frozen readable scope")
+        symbol = str(args.get("symbol") or "").strip()
+        offset, limit = args.get("offset", 0), args.get("limit", 20)
+        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 40:
+            raise ValueError("offset >=0, limit 1..40 must be strict integers")
+        rows = []
+        for edge in self.relations_map.get("includes") or []:
+            if edge.get("from_path") == path or edge.get("to_path") == path:
+                rows.append({"kind": "include", **edge})
+        definitions = [s for s in self.relations_map.get("symbols") or [] if s.get("path") == path
+                       and (not symbol or symbol in {s.get("name"), s.get("short_name")})]
+        names = {s.get("short_name") or s.get("name") for s in definitions}
+        for call in self.relations_map.get("calls") or []:
+            short = re.split(r"::|->|\\", str(call.get("name") or ""))[-1]
+            if call.get("path") == path or short in names:
+                rows.append({"kind": "call_site", **call, "candidate_definition_paths": sorted({s.get("path") for s in
+                    self.relations_map.get("symbols") or [] if short in {s.get("name"), s.get("short_name")}})[:8]})
+        rows.sort(key=lambda row: (row.get("path") or row.get("from_path") or "", row.get("line") or 0, row["kind"]))
+        return json.dumps({"path": path, "symbol": symbol, "items": rows[offset:offset+limit], "total": len(rows),
+                           "offset": offset, "next_offset": offset + limit if offset + limit < len(rows) else None,
+                           "notice": "静态调用/include 导航，不证明数据传播、运行时路由或必要依赖；同名定义有歧义，须实际读取各节点。"}, ensure_ascii=False)
 
     def listing(self, args: dict) -> str:
         base = clean_path(args.get("path"))

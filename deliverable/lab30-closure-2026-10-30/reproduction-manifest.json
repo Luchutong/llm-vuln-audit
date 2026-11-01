@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "run_id": "2969bcf204cd43b5baf2683cbb0e841d",
+  "scope": "offline archived score replay, not a new LLM or POC execution",
+  "files": {
+    "llm-vuln-audit-feat-lab30-shop/llm-vuln-audit-feat-lab30-shop/lab30-shop-1.0.0-source.zip": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+    "datasets/lab30-shop/ground_truth.json": "6c215b702fa962082e21a60bf8237692da7e47cb6ef97889d212616fa708faaa",
+    "datasets/lab30-shop/scoring_anchors_v2.json": "1bc01cf80d6326c2b683e251c3bf8c4f2df8bfa28005465d8108b0b73e0e7c7a",
+    "deliverable/lab30-closure-2026-10-30/findings.json": "4f46fc83715f34d8ec244e6a80895fbe9a4eaa03ae548056a70e236eec3cee33",
+    "deliverable/lab30-closure-2026-10-30/scoring-result.json": "d509a0de2b9c62ef68f44912410f40060f47008007bb93df64e88359d3cf7088",
+    "datasets/lab30-shop/closure_2969bcf2.json": "5a80c5d88b97d5f820c4806364324cd32df75ffcbc3644b9ace3b2eb9d11b168",
+    "datasets/lab30-shop/report_2969bcf2.md": "51c0e1537ae3ac466cad82155463adcbcfb852f784ab7a795012d0d1bc03650c"
+  },
+  "expected": {
+    "protocol": "lab30-v2",
+    "truths": 30,
+    "findings": 23,
+    "TP": 22,
+    "D": 0,
+    "U": 1,
+    "FP": 1,
+    "FN": 8,
+    "precision": 0.9565217391304348,
+    "recall": 0.7333333333333333,
+    "f1": 0.8301886792452831
+  }
+}

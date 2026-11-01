@@ -96,7 +96,7 @@ def test_the_prompt_lists_the_phase_tools_and_nothing_else():
     assert "def final_answer(" in full
     assert "def report_progress(message: string) -> string:" in full
 
-    one, _, _ = build(specs=(PLANNER_TOOLS[5],))
+    one, _, _ = build(specs=(next(tool for tool in PLANNER_TOOLS if tool.name == 'read_source'),))
     listed = one.system_prompt
     assert "def read_source(path: string, start: integer, end: integer) -> string:" in listed
     assert "def list_tree(" not in listed

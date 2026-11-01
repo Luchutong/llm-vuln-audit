@@ -35,7 +35,7 @@ Environment:
 
 Options:
   --poc           Enable automatic POC verification against local Lab30.
-  --skip-install  Do not run `uv sync` or `npm install` before starting.
+  --skip-install  Do not run `uv sync` or `npm ci` before starting.
   -h, --help      Show this help text.
 EOF
 }
@@ -330,7 +330,7 @@ if [[ "$SKIP_INSTALL" == false ]]; then
   # not enable it: POC_RUNTIME remains legacy until explicitly configured.
   (cd "$BACKEND_DIR" && uv sync --locked --extra poc-claude)
   printf '同步前端依赖…\n'
-  (cd "$FRONTEND_DIR" && npm install --no-audit --no-fund)
+  (cd "$FRONTEND_DIR" && npm ci --no-audit --no-fund)
 else
   [[ -x "$BACKEND_DIR/.venv/bin/uvicorn" ]] || fail "后端虚拟环境不存在；请去掉 --skip-install。"
   [[ -d "$FRONTEND_DIR/node_modules" ]] || fail "前端依赖不存在；请去掉 --skip-install。"

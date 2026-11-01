@@ -19,6 +19,9 @@ const PHASE_LABELS: Record<string, string> = {
   prepare: '准备源码证据', explore: '源码取证', verdict: '整理源码结论',
 };
 const STOP_LABELS: Record<string, string> = {
+  goal_met: '目标已达成', planner_round_limit: '规划回合已达上限', worker_attempt_limit: '排查尝试已达上限',
+  unresolved_blockers: '仍有未解决的阻塞方向', invalid_output_limit: '输出纠正次数已达上限',
+  environment_unavailable: '执行环境不可用', interrupted: '运行已中断',
   poc_unresolved: '所选或新增 POC 仍有未决，已保留阶段报告',
   run_budget_exhausted: '整次审计预算已耗尽', budget_exhausted: '整次审计预算已耗尽',
   run_responses_exhausted: '整次模型请求额度已耗尽', run_tools_exhausted: '整次工具额度已耗尽',
@@ -97,7 +100,7 @@ export function contextLine(context?: ExecutionContextStats | null): string {
 }
 export function executionPhase(phase: string): string { return PHASE_LABELS[phase] ?? phase; }
 export function activeExecutionCount(summary: ExecutionSummary): number { return Array.isArray(summary.active_executions) ? summary.active_executions.length : summary.active_executions; }
-export function stopReason(summary: ExecutionSummary | null): string {
+export function stopReason(summary: Pick<ExecutionSummary, 'stop_reason'> | null): string {
   const stop = summary?.stop_reason;
   if (!stop) return '';
   return stop.message || `${STOP_LABELS[stop.code] ?? stop.code}${stop.dimension ? `（${DIMENSIONS[stop.dimension] ?? stop.dimension}）` : ''}`;
@@ -110,6 +113,8 @@ export function pocReason(reason?: string | null, message?: string | null): stri
     unsupported_target: '该源码类型暂无可用的自动验证靶场，结论保留为未验证。',
     environment_unavailable: '自动验证环境不可用，结论保留为未验证。',
     not_configured: '尚未配置自动验证环境，源码审计照常进行。',
+    runner_unconfigured: '尚未配置自动验证环境，源码审计照常进行。',
+    runner_unhealthy: '隔离执行器健康检查未通过，结论保留为未验证。',
     runner_unavailable: '隔离执行器不可用，结论保留为未验证。',
     runner_upgrade_required: '隔离执行器需要升级以支持独立验证上下文；源码审计仍可继续。',
     browser_unavailable: '浏览器验证环境不可用，结论保留为未验证。',

@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 
 from ui_fixtures import COMPLETED_ID, CREATED_ID, FULL_RUN_LIMITS, OBJECTIVE, PROJECT_ID, RUN_LIMITS, SNAPSHOT_ID, STAMP, MockAPI, event, finding, run
-from ui_smoke import Checks, close_dialog, goto, no_overflow, open_logs, save
+from ui_smoke import open_more, Checks, close_dialog, goto, no_overflow, open_logs, save
 
 
 def execution(mode="off", terminal=False, limits=None):
@@ -152,6 +152,7 @@ def run_checks(page, base, api, checks, directory):
     clone = api.runs[COMPLETED_ID]
     clone.update(run_limits={"responses": 111, "tools": 555, "seconds": 999}, poc_mode="required", execution_summary=execution("required", True, {"responses": 111, "tools": 555, "seconds": 999}))
     goto(page, base, f"#run/{COMPLETED_ID}")
+    open_more(page)
     page.get_by_role("button", name="基于此任务新建", exact=True).click()
     dialog = options(page)
     expect(dialog.get_by_role("spinbutton", name="整次模型请求上限", exact=False)).to_have_value("111")
@@ -195,14 +196,17 @@ def run_checks(page, base, api, checks, directory):
     page.add_init_script("""window.EventSource = class { constructor() { setTimeout(() => this.onopen?.({}), 0); } close() {} };""")
     goto(page, base, f"#run/{live_id}")
     expect(page.locator(".conversation-meta")).to_contain_text("审计中")
+    expect(page.get_by_role("region", name="当前执行摘要")).to_contain_text("源码审计")
+    page.get_by_role('button', name='审计详情', exact=True).click()
     expect(page.get_by_role("region", name="执行预算与验证策略")).to_contain_text("12 / 256")
+    close_dialog(page)
     live_run.update(status="inconclusive", finished_at=STAMP, execution_summary=execution("auto", True), final_summary=phase_report())
     api.detail_overrides[live_id] = {"report_narrative": {"summary": "历史 Planner 曾主张完成，宿主最终事实覆盖该主张。"}}
     api.event_overrides[live_id] = [event(live_id, number, "model_response", {"role": "worker"}) for number in range(1, 2005)] + [event(live_id, 2005, "goal_inconclusive", {"reason": "整次模型请求预算已耗尽；末尾阶段报告已保存。"})]
     started = time.monotonic()
     expect(page.locator(".conversation-meta")).to_contain_text("结果未决", timeout=5500)
     assert time.monotonic() - started <= 5.1, "terminal transition waited more than five seconds"
-    expect(page.get_by_role("region", name="宿主阶段报告")).to_contain_text("未完成")
+    expect(page.get_by_role("region", name="审计结果")).to_contain_text("宿主阶段结果")
     expect(page.locator(".activity-waiting")).to_have_count(0)
     open_logs(page)
     expect(page.locator(".trace-counts")).to_contain_text("2005 条事件")
@@ -212,7 +216,7 @@ def run_checks(page, base, api, checks, directory):
     dialog.get_by_role("tab", name="结果报告", exact=True).click()
     expect(dialog.get_by_role("region", name="宿主阶段报告")).to_contain_text("去重台账 1")
     expect(dialog.get_by_text("Planner 历史叙述", exact=True)).to_be_visible()
-    expect(dialog.get_by_role("link", name="JSON", exact=True)).to_have_attribute("href", f"/api/runs/{live_id}/report?format=json")
+    expect(dialog.get_by_role("button", name="下载审计报告 json", exact=True)).to_be_visible()
     checks.passed("host final facts stay authoritative beside older Planner narrative and report download links")
     close_dialog(page)
 

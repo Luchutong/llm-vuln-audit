@@ -25,6 +25,7 @@ from ..poc_agent import (
 )
 from ..poc_source import PROGRESS_POLICY, ProgressLimits
 from ..runtime import StopAudit
+from ..schemas import PocExperiment
 
 QUEUE_POLICY = "session-queue-v1"
 CONTINUE_TOOL = "continue_verification"
@@ -58,6 +59,7 @@ class Publication(BaseModel):
     jobs: list[str] = Field(default_factory=list, max_length=16)
     normal_refs: list[str] = Field(default_factory=list, max_length=16)
     attack_refs: list[str] = Field(default_factory=list, max_length=16)
+    experiment: PocExperiment | None = None
 
 
 QUEUE_CONTRACT = """

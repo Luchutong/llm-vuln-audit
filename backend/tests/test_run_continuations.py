@@ -17,9 +17,19 @@ from tests.test_host_queue import hosted, add_claim, submit, completed_task_with
 from tests.test_review_closure import state  # noqa: F401
 from tests.test_goal_tasks import make_worker
 from tests.test_recent_closure_repair import failed_finding
-from tests.test_review_input_repair import decisions
+from tests.test_review_input_repair import decisions as original_decisions
 from tests.code_model import ModelFactory, CONFIG, code, transcript
 from audit.runtime import AgentPolicy
+
+
+def decisions(batch, choice='accept'):
+    values = original_decisions(batch, choice)
+    for item, value in zip(batch['items'], values):
+        if item['kind'] == 'finding' and choice == 'accept':
+            value['focus'] = dict(objective_ref='objective-main', relation='relevant',
+                rationale='已独立读取本项实际输入与敏感操作，确认其处于本次用户目标的业务边界内。',
+                evidence=[dict(path=r['path'],start_line=r['range']['start'],end_line=r['range']['end']) for r in item['payload']['evidence']])
+    return values
 
 
 def finish(store, run):
@@ -105,10 +115,11 @@ def test_completed_accepted_peer_is_carried_but_selected_claim_is_reopened(hoste
     child = store.create_continuation(run['id'], request(finding_ids=[pending['id']]))
     from audit.final_review import canonical_groups
     entries, _ = canonical_groups(store.attach_final_decisions(child['id'], store.list_findings(child['id'])))
-    assert sorted(e['final_disposition'] for e in entries) == ['accepted', 'pending']
-    carried = next(e for e in entries if e['final_disposition'] == 'accepted')
-    assert carried['final_batch_review']['inherited_from_run_id'] == run['id']
-    assert child['task_spec']['continuation']['source_refs'][carried['frozen_claim']['finding_id']] == good['id']
+    # Legacy independent reviews did not classify target relation. Preserve their
+    # evidence and verification, but require a current-policy final review in child.
+    assert sorted(e['final_disposition'] for e in entries) == ['pending', 'pending']
+    copied = next(e for e in entries if e['frozen_claim']['verification_status'] == 'verified')
+    assert child['task_spec']['continuation']['source_refs'][copied['frozen_claim']['finding_id']] == good['id']
 
 
 def test_failed_setup_rolls_back_the_entire_child(hosted, monkeypatch):

@@ -495,6 +495,16 @@ class PocVerifier:
             ):
                 current[key] = (finding, key, revision)
         eligible = [entry for key, entry in current.items() if int(verified_for.get(key, 0)) < entry[2]]
+        outside_focus = []
+        if policy.mode != "off":
+            from .capability import poc_in_focus
+            known_ids = {finding.get("project_finding_id") or finding.get("id") for finding, _, _ in current.values()}
+            outside_focus = [entry for entry in eligible if not poc_in_focus(run, entry[0], known_ids=known_ids - {entry[1]})]
+            outside_keys = {entry[1] for entry in outside_focus}
+            eligible = [entry for entry in eligible if entry[1] not in outside_keys]
+            if outside_focus:
+                self._notice(run, "outside_focus", {"reason": "outside_focus", "count": len(outside_focus),
+                    "message": "非本次显式审计场景的附带发现保留静态证据和待审状态，未自动执行 POC；可明确选择单条复测。"})
         if max_findings is not None and (type(max_findings) is not int or max_findings < 1):
             raise ValueError("max_findings must be a positive integer or None")
         # The cap counts newly executed experiments, not already durable claims
@@ -506,6 +516,7 @@ class PocVerifier:
             "authentication_failed": 0, "state_mismatch": 0,
             "processed": 0, "remaining": len(eligible) - len(selected), "processed_findings": [],
             "deferred": 0, "stop_reason": "",
+            "outside_focus": len(outside_focus),
         }
         def finished_summary():
             summary["remaining"] = sum(int(verified_for.get(key, 0)) < revision for _, key, revision in eligible)
@@ -1139,6 +1150,7 @@ class PocVerifier:
                 "state_changes": prepared.get("state_changes") or [],
                 "normal_evidence": [ref.model_dump() for ref in result.normal_evidence],
                 "attack_evidence": [ref.model_dump() for ref in result.attack_evidence],
+                "experiment": result.experiment.model_dump() if result.experiment else None,
                 "job_results": jobs,
                 "summary": result.summary[:4000],
                 "reason": reason,

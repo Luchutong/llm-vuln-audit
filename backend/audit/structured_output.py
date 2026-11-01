@@ -116,12 +116,13 @@ async def drive_structured_phase(model: AuditCodeModel, gate: PhaseGate, system_
         for step in range(1, max(0, max_steps) + 1):
             request_messages = list(messages)
             if correction:
+                example = ("\n# 当前引用的最小提交样板（只示范结构，须填写真实判读）\n" + json.dumps(gate.correction_example, ensure_ascii=False)) if gate.correction_example and step == 2 else ""
                 request_messages.append(ChatMessage(
                     role="user",
                     # smolagents merges consecutive roles before the SDK call. Every
                     # message must use typed parts so that correction messages can be
                     # merged without its string-content assertion failing.
-                    content=[{"type": "text", "text": "上一次发布被宿主拒绝：" + correction + "\n保留已确认事实与真实 ID，只重新提交完整 JSON 对象。"}],
+                    content=[{"type": "text", "text": "上一次发布被宿主拒绝：" + correction + "\n保留已确认事实与真实 ID，只重新提交完整 JSON 对象。" + example}],
                 ))
             # Avoid native response_format/tool-choice requirements: compatible providers
             # which serve the existing audit loop may not support those API extensions.

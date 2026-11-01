@@ -70,6 +70,57 @@ def payload(deps, *, status='inconclusive', **kwargs):
                 context_id=deps.context_id, status=status, summary='离线观测'), **kwargs}
 
 
+def test_new_capability_experiment_reaches_queue_publication_and_persisted_result(tmp_path):
+    events, saved = [], []
+    deps = service(tmp_path, jobs=[http_job('normal', body='OWN_OBJECT'), http_job('attack', body='OTHER_OWNER_OBJECT')])
+    deps.finding = {**deps.finding, 'capability_policy': 'audit-capability-v1'}
+    async def response():
+        view = json.loads(await rt.call_tool('get_verification_evidence', {}))
+        refs = {r['job_id']: r['evidence_ref_id'] for r in view['evidence'] if r['channel'] == 'body'}
+        data = payload(deps, status='verified', jobs=['normal','attack'],
+                       normal_observation='原身份能够读取自己的对象。', attack_observation='相同身份改变对象 ID 后读到其他属主对象。',
+                       normal_refs=[refs['normal']], attack_refs=[refs['attack']])
+        assert not json.loads(await rt.call_tool('publish_verification', data))['ok']
+        data['experiment'] = dict(security_property='普通用户不能读取其他属主的私有对象。', attacker_identity='alice',
+            resource_owner='bob', initial_state='Alice 与 Bob 各自有一个私有对象。', preconditions=['先登录普通会员并取得真实 CSRF。'],
+            control='Alice 请求自己的对象 ID。', attack_variable='只将对象 ID 改成 Bob 的对象。',
+            expected_discriminator='正常侧只返回自己数据，攻击侧若越权则返回 Bob 数据。',
+            observed_discriminator='两侧原文分别为 OWN_OBJECT 与 OTHER_OWNER_OBJECT。', effect_kind='read',
+            normal_job_ids=['normal'], attack_job_ids=['attack'])
+        assert json.loads(await rt.call_tool('publish_verification', data))['ok']
+        assert saved[0]['result'].experiment.attacker_identity == 'alice'
+        yield ResultMessage()
+    rt, _ = runtime(tmp_path, [response])
+    async def scenario():
+        try:
+            return await invoke(rt, deps, events, saved)
+        finally:
+            await rt.aclose()
+    result = asyncio.run(scenario())
+    assert result.result.status == 'verified'
+    assert result.result.experiment.resource_owner == 'bob'
+
+
+@pytest.mark.parametrize('fault', ['wrong_identity','missing_readback','trivial_success'])
+def test_new_experiment_rejects_privilege_substitution_unread_writes_and_http_success_only(tmp_path, fault):
+    from audit.poc_agent import evidence_errors
+    from audit.schemas import PocVerificationResult
+    attack = 'HTTP 200 OK' if fault == 'trivial_success' else 'OTHER_OWNER_OBJECT'
+    deps = service(tmp_path, jobs=[http_job('normal', body='OWN_OBJECT'),http_job('attack',body=attack)])
+    deps.finding = {**deps.finding,'capability_policy':'audit-capability-v1'}
+    result = PocVerificationResult.model_validate(dict(status='verified',summary='受控实验观察',jobs=['normal','attack'],
+        normal_observation='正常侧返回自己的对象。',attack_observation='攻击侧返回其他数据。',
+        normal_evidence=[dict(job_id='normal',channel='body',excerpt='OWN_OBJECT')],
+        attack_evidence=[dict(job_id='attack',channel='body',excerpt=attack)],
+        experiment=dict(security_property='普通身份不能跨对象修改或读取数据。',attacker_identity='admin' if fault == 'wrong_identity' else 'alice',
+            resource_owner='bob',initial_state='两个账户各有私有对象。',preconditions=['已登录普通账户。'],control='操作自己的对象。',
+            attack_variable='只改变对象标识。',expected_discriminator='跨对象访问应当被权限检查拒绝。',observed_discriminator='观测以作业返回的实际正文为准。',
+            effect_kind='write' if fault == 'missing_readback' else 'read',normal_job_ids=['normal'],attack_job_ids=['attack'])))
+    errors = evidence_errors(result,deps)
+    expected = {'wrong_identity':'身份必须','missing_readback':'读回','trivial_success':'HTTP 成功'}[fault]
+    assert any(expected in error for error in errors)
+
+
 async def invoke(rt, deps, events, saved):
     def publisher(result, usage):
         saved.append(dict(finding_id=deps.finding['id'], result=result, usage=copy.deepcopy(usage)))

@@ -157,14 +157,18 @@ def test_successful_fresh_audit_never_claims_unseen_history_as_carried(state):
 
     inherited = create(state)
     assert state.store.record_carried_findings(state.snapshot["project_id"], inherited["id"]) == 1
-    assert state.store.finalize_goal(inherited["id"], "met", "显式沿用项目中已验证的历史结论。")["status"] == "met"
+    # Current policy retains the carried facts but requires an independent judgment
+    # against this user's frozen objective before they can satisfy a new goal.
+    with pytest.raises(ValueError, match="用户目标"):
+        state.store.finalize_goal(inherited["id"], "met", "显式沿用项目中已验证的历史结论。")
     assert len(state.store.list_run_project_findings(inherited["id"], relation="carried")) == 1
 
     fresh = create(state, completion_policy="goal", baseline_policy="fresh")
     current_ledger, _ = finding(state.store, state.snapshot["project_id"], fresh["id"], path="other.php", title="本次独立审计发现")
     assert current_ledger != old_ledger
     assert state.store.record_carried_findings(state.snapshot["project_id"], fresh["id"]) == 0
-    assert state.store.finalize_goal(fresh["id"], "met", "本轮已独立形成有效结论。")["status"] == "met"
+    with pytest.raises(ValueError, match="用户目标"):
+        state.store.finalize_goal(fresh["id"], "met", "本轮发现尚缺独立目标相关性复核。")
     assert state.store.list_run_project_findings(fresh["id"], relation="carried") == []
     detail = state.client.get(f"/api/runs/{fresh['id']}")
     assert detail.status_code == 200, detail.text

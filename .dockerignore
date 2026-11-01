@@ -17,3 +17,7 @@ test-results
 playwright-report
 *.docx
 *.log
+
+# Local reports, runtime logs and credentials must never enter the build context.
+.run
+.npm-cache

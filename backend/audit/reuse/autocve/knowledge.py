@@ -133,6 +133,7 @@ def route(
     checkpoints: Iterable[str] = (),
     max_bytes: int = DEFAULT_MAX_BYTES,
     directory: Path | None = None,
+    routing_policy: str = "legacy",
 ) -> KnowledgeSelection:
     """Select the smallest useful set of reviewed hints for one work item.
 
@@ -147,18 +148,31 @@ def route(
     frameworks_set = {str(item).casefold() for item in frameworks if item}
     checkpoint_list = [str(item) for item in checkpoints if item]
     scored = []
+    if routing_policy == "focused-v1":
+        body = ("先从用户目标与业务入口建立输入→转换/防护→持久化/读回→敏感操作的证据链。"
+                "逐段读取原始源码并记录权限、身份、配置及状态前提；共享 include 只是导航。"
+                "正常对照与攻击只改变待验证变量，预期和实际观测分开。"
+                "未读、受阻和证据不足不作安全结论；附带风险单列，修复与复测条件如实交付。")
+        general = KnowledgeRef("audit-evidence-method", "2026-11-01.1", "通用证据与交付方法",
+                               hashlib.sha256(body.encode()).hexdigest(), len(body.encode()), body,
+                               "general-method;policy:focused-v1")
+    else:
+        general = None
     for entry in manifest.get("entries") or []:
         if not isinstance(entry, dict) or not entry.get("id"):
             diagnostics.append({"code": "entry_malformed", "entry": str(entry)[:120]})
             continue
         score = _score(entry, languages_set, frameworks_set, checkpoint_list)
+        matched_tags = [str(tag) for tag in entry.get("tags") or [] if str(tag).casefold() in " ".join(checkpoint_list).casefold()]
+        if routing_policy == "focused-v1" and entry.get("tags") and not matched_tags:
+            continue
         if score < 0:
             continue
         scored.append((-score, str(entry["id"]), entry))
     scored.sort(key=lambda item: (item[0], item[1]))
 
-    refs: list[KnowledgeRef] = []
-    total = 0
+    refs: list[KnowledgeRef] = [general] if general and general.bytes <= max_bytes else []
+    total = sum(ref.bytes for ref in refs)
     for _, _, entry in scored:
         if len(refs) >= MAX_RESOURCES:
             diagnostics.append({"code": "resource_count_capped",
@@ -190,7 +204,9 @@ def route(
             id=str(entry["id"]), version=str(entry.get("version") or ""),
             title=str(entry.get("title") or entry["id"]), sha256=digest, bytes=size,
             body=body,
-            reason=_reason(entry, languages_set, frameworks_set),
+            reason=_reason(entry, languages_set, frameworks_set) + (
+                ";tags:" + ",".join(str(tag) for tag in entry.get("tags") or [] if str(tag).casefold() in " ".join(checkpoint_list).casefold())
+                + ";policy:focused-v1" if routing_policy == "focused-v1" else ""),
         ))
         total += size
     return KnowledgeSelection(refs=tuple(refs), diagnostics=tuple(diagnostics),

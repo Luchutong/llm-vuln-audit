@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -1135,6 +1136,16 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
         poc_policy["progress_policy"] = PROGRESS_POLICY
         poc_policy["progress_params"] = progress_policy_snapshot()
     task_spec = payload.task.model_dump()
+    from .capability import POLICY as CAPABILITY_POLICY, freeze_focus
+    task_spec["capability_policy"] = CAPABILITY_POLICY
+    from .review_policy import COMPARISON_POLICY
+    task_spec["comparison_policy"] = COMPARISON_POLICY
+    from .capability import POC_SCOPE_POLICY
+    task_spec["poc_scope_policy"] = POC_SCOPE_POLICY
+    task_spec["audit_focus"] = freeze_focus(task_spec)
+    if task_spec.get("risk_coverage_policy") == "bounded-v1":
+        from .risk_coverage import freeze as freeze_obligations
+        task_spec["risk_obligation_set"] = freeze_obligations(project_map, task_spec, snapshot["id"])
     # "auto" is best effort: when this server cannot run POC at all, its reserved quota
     # could never be spent, so release it to discovery instead of freezing an unusable
     # stage for legacy allocation. New explicitly fixed quotas stay frozen even when
@@ -1154,7 +1165,7 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
         task_spec["stop_on_achieved"] = False
         if task_spec["success_criteria"] == type(payload.task).model_fields["success_criteria"].default:
             task_spec["success_criteria"] = (
-                "在所选完整源码范围内发现由原始行号证据支撑、具有明确触发条件的漏洞风险；"
+                "围绕用户原始目标，在所选完整源码中发现由原始行号证据支撑、具有明确触发条件的目标相关漏洞；"
                 "结算所有可执行方向，并复核未覆盖的第一方源码模块与入口，按实际路径记录跳过理由或未覆盖方向。"
                 "发现漏洞后继续处理剩余可执行任务，不以首个目标达成作为收束条件。"
                 "预算耗尽时保留已落库发现并诚实报告覆盖缺口。提供 CVSS 3.1 基础指标与依据，信息不足时保留待评分状态。"
@@ -1972,10 +1983,13 @@ def _attach_final_review(state: Services, bundle: dict) -> dict | None:
 
 
 @app.get("/api/runs/{run_id}/report")
-async def report(request: Request, run_id: str, format: str = Query("markdown")):
+async def report(request: Request, run_id: str, format: Literal["markdown", "json", "zip"] = Query("markdown"),
+                 view: Literal["audit", "vulnerabilities", "accepted", "archive"] = Query("archive")):
     state = services(request)
     if state.store.get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run does not exist")
+    if view != "archive":
+        return _delivery_response(state, run_id, view, format)
     frozen = _saved_report(state, run_id)
     if frozen is not None:
         content, media, suffix = (frozen["json_export"], "application/json", "json") if format == "json" else (
@@ -2016,6 +2030,91 @@ async def report(request: Request, run_id: str, format: str = Query("markdown"))
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="report-{run_id[:8]}.md"'},
     )
+
+
+def _delivery_response(state, run_id, view, format, canonical_id=None):
+    # Never reconstruct historical facts from mutable rows, even if the archive
+    # endpoint can still render a legacy report. Read only already saved facts.
+    from .report_readable import export, digest, dump, VERSION as DELIVERY_VERSION, TEMPLATE
+    run = state.store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run does not exist")
+    if run["status"] not in {"completed", "inconclusive", "unreachable", "failed", "cancelled", "interrupted"}:
+        raise HTTPException(status_code=409, detail={"code": "report_not_ready", "message": "运行结束后提供冻结报告。"})
+    frozen = state.store.frozen_report(run_id)
+    if not frozen or not frozen.get("facts") or not frozen.get("input"):
+        from .capability import enabled
+        if enabled(run):
+            raise HTTPException(status_code=409, detail={"code": "report_not_ready", "message": "本次运行尚未形成可用的冻结报告，请稍后重试。"})
+        raise HTTPException(status_code=409, detail={"code": "legacy_facts_unavailable", "message": "历史运行缺少冻结事实；可下载归档原件。"})
+    if canonical_id is not None and not any(e["canonical_id"] == canonical_id for e in frozen["facts"].get("canonical_findings") or []):
+        raise HTTPException(status_code=404, detail="Canonical finding does not belong to this frozen run")
+    cache_key = digest(dump({"renderer": DELIVERY_VERSION, "template": TEMPLATE, "view": view, "format": format,
+                             "canonical_id": canonical_id, "input": frozen.get("input_hash"),
+                             "facts": digest(dump(frozen["facts"])), "archive": frozen.get("output_hash")}))
+    cached = getattr(state.store, "delivery_export", lambda *args: None)(run_id, cache_key)
+    try:
+        content = cached if cached is not None else export(frozen, view=view, format=format, canonical_id=canonical_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Canonical finding does not belong to this frozen run") from None
+    if cached is None and hasattr(state.store, "cache_delivery_export"):
+        state.store.cache_delivery_export(run_id, cache_key, content)
+    suffix, media = {"markdown": ("md", "text/markdown; charset=utf-8"), "json": ("json", "application/json"),
+                     "zip": ("zip", "application/zip")}[format]
+    if canonical_id:
+        from .report_readable import numbering
+        label = "finding-" + numbering(frozen["facts"])[canonical_id]
+    else:
+        label = view
+    return Response(content=content, media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{label}-{run_id[:8]}.{suffix}"',
+                             "ETag": '"' + digest(content) + '"', "Cache-Control": "private, must-revalidate"})
+
+
+@app.get("/api/runs/{run_id}/canonical-findings/{canonical_id}/report")
+async def canonical_finding_report(request: Request, run_id: str, canonical_id: str,
+                                   format: Literal["markdown", "json", "zip"] = Query("markdown")):
+    return _delivery_response(services(request), run_id, "finding", format, canonical_id)
+
+
+@app.get("/api/runs/{run_id}/risk-obligations")
+async def run_risk_obligations(request: Request, run_id: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    state = services(request)
+    if not state.store.get_run(run_id):
+        raise HTTPException(status_code=404, detail="Run does not exist")
+    return state.store.list_risk_obligations(run_id, offset=offset, limit=limit)
+
+
+@app.get("/api/project-findings/{finding_id}/reports")
+async def project_finding_reports(request: Request, finding_id: str):
+    """Resolve explicit frozen sources; never label an older revision as current."""
+    state = services(request)
+    ledger = state.store.get_project_finding(finding_id)
+    if not ledger:
+        raise HTTPException(status_code=404, detail="Project finding does not exist")
+    items, visited = [], set()
+    for relation in state.store.project_finding_history(finding_id):
+        run_id = relation["run_id"]
+        if run_id in visited:
+            continue
+        visited.add(run_id)
+        saved = state.store.frozen_report(run_id)
+        if not saved or not saved.get("facts"):
+            continue
+        for entry in saved["facts"].get("canonical_findings") or []:
+            if entry["canonical_id"] != finding_id:
+                continue
+            claim = entry["frozen_claim"]
+            current = (claim.get("project_revision") == ledger.get("revision")
+                       and entry.get("assessment_revision") == (ledger.get("cvss_assessment") or {}).get("assessment_revision")
+                       and claim.get("cvss") == ledger.get("cvss")
+                       and all(claim.get(key) == ledger.get(key) for key in ("title", "summary", "remediation")))
+            items.append({"run_id": run_id, "canonical_id": entry["canonical_id"],
+                          "project_revision": claim.get("project_revision"), "assessment_revision": entry.get("assessment_revision"),
+                          "current": current, "created_at": (saved.get("input") or {}).get("run", {}).get("created_at"),
+                          "snapshot_name": (saved.get("input") or {}).get("snapshot", {}).get("name"),
+                          "path": f"/runs/{run_id}/canonical-findings/{entry['canonical_id']}/report"})
+    return {"items": items, "current_available": any(item["current"] for item in items)}
 
 
 @app.get("/api/health")

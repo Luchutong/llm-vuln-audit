@@ -42,6 +42,8 @@ def compact_observations(verification):
         "id", "status", "verdict", "execution_status", "normal_observation", "attack_observation", "browser_execution")}
     value.update({key: agent.get(key) for key in (
         "context_id", "identity", "preconditions", "state_changes", "normal_evidence", "attack_evidence", "summary", "reason", "jobs")})
+    if agent.get("experiment"):
+        value["experiment"] = agent["experiment"]
     jobs = agent.get("job_results") or []
     value["fact_availability"] = verification_fact_availability(verification)
     value["job_summaries"] = [

@@ -414,6 +414,9 @@ class SourceRepository:
         self._snapshot_cache: OrderedDict[str, tuple[int, dict, dict]] = OrderedDict()
         self._syntax_cache: OrderedDict[str, tuple[int, dict]] = OrderedDict()
         self._cache_limit = 4
+        self._content_cache = OrderedDict()
+        self._content_cache_bytes = 0
+        self._content_cache_limit = 16 * 1024 * 1024
 
     def _directory(self, snapshot_id: str) -> Path:
         if not re.fullmatch(r"[a-f0-9]{32}", snapshot_id or ""):
@@ -772,9 +775,25 @@ class SourceRepository:
             raise FileNotFoundError("Source file does not exist in snapshot")
         if record.get("kind") == "binary":
             raise ValueError("Binary file is registered in the snapshot but cannot be decoded; use the archive for its bytes")
-        content = (self._directory(snapshot_id) / "sources" / path).read_bytes()
+        source_path = self._directory(snapshot_id) / "sources" / path
+        stat = source_path.stat()
+        key = (snapshot_id, path, record["sha256"], stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+        with self._cache_lock:
+            content = self._content_cache.get(key)
+            if content is not None:
+                self._content_cache.move_to_end(key)
+                return content, record
+        content = source_path.read_bytes()
         if _sha(content) != record["sha256"]:
             raise ValueError("Snapshot integrity check failed")
+        if len(content) <= self._content_cache_limit:
+            with self._cache_lock:
+                if key not in self._content_cache:
+                    self._content_cache[key] = content
+                    self._content_cache_bytes += len(content)
+                while self._content_cache_bytes > self._content_cache_limit or len(self._content_cache) > 256:
+                    _, removed = self._content_cache.popitem(last=False)
+                    self._content_cache_bytes -= len(removed)
         return content, record
 
     def read_source(self, snapshot_id: str, path: str, start: int = 1, end: int = 200) -> dict:

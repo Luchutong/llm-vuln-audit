@@ -8,6 +8,7 @@ import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
 import { isVulnerabilityFinding, sourceObservations, vulnerabilityFindings } from '../results';
 import { groupLedgerEvidence } from '../ledger';
+import { FindingReportDownloads } from '../components/ReportDownloads';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
@@ -231,7 +232,7 @@ export function FindingsView({ detail, snapshotId }: { detail: RunDetail; snapsh
         </div>
       </div>
 
-      {current && <FindingDetail key={current.id} finding={current} snapshotId={snapshotId} verificationJobs={detail.verification_jobs} />}
+      {current && <FindingDetail key={current.id} finding={current} snapshotId={snapshotId} verificationJobs={detail.verification_jobs} runStatus={detail.run.status} />}
     </div>
     )}
     <SourceObservationsView detail={detail} snapshotId={snapshotId} />
@@ -327,7 +328,7 @@ export function SourceObservationsView({ detail, snapshotId }: { detail: RunDeta
   </section>;
 }
 
-export function FindingDetail({ finding, snapshotId, observation = false, pocDownloadPath, canonical = false, verificationJobs = [] }: { finding: Finding; snapshotId: string; observation?: boolean; pocDownloadPath?: string | null; canonical?: boolean; verificationJobs?: VerificationJob[] }) {
+export function FindingDetail({ finding, snapshotId, observation = false, pocDownloadPath, canonical = false, verificationJobs = [], runStatus }: { finding: Finding; snapshotId: string; observation?: boolean; pocDownloadPath?: string | null; canonical?: boolean; verificationJobs?: VerificationJob[]; runStatus?: string }) {
   const poc = finding.poc;
   const evidenceKey = JSON.stringify(finding.evidence);
   const evidenceGroups = useMemo(() => groupLedgerEvidence(JSON.parse(evidenceKey) as Evidence[], snapshotId).map((group) => ({ ...group, windows: evidenceWindows(group.references) })), [evidenceKey, snapshotId]);
@@ -335,6 +336,7 @@ export function FindingDetail({ finding, snapshotId, observation = false, pocDow
   const genericSourceFinding = isGenericSourceFinding(finding);
   return (
     <div className="grid">
+      {!canonical && !observation && runStatus && <FindingReportDownloads key={`${finding.id}:${finding.revision}:${finding.cvss_assessment?.assessment_revision}`} runId={finding.run_id} status={runStatus} findingId={finding.id} revision={finding.revision} assessmentRevision={finding.cvss_assessment?.assessment_revision} />}
       <section className="panel" aria-label={observation ? '排查记录详情' : canonical ? '漏洞台账详情' : '漏洞候选详情'}>
         <div className="panel-head">
           <div>

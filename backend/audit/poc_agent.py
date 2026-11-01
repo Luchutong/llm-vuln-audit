@@ -268,6 +268,27 @@ def evidence_errors(result: PocVerificationResult, deps: PocDeps) -> list[str]:
     by_id = {str(job.get("job_id") or ""): job for job in deps.jobs if job.get("job_id")}
     supporting: list[dict] = []
     if result.status in {"verified", "rejected"}:
+        if deps.finding.get("capability_policy") == "audit-capability-v1":
+            experiment = result.experiment
+            if experiment is None:
+                notes.append("新策略须提交 experiment：安全属性、攻击前身份/属主/状态、正常对照、攻击变量、预期与实际判别和作业引用")
+            else:
+                normal_ids = {ref.job_id for ref in result.normal_evidence}
+                attack_ids = {ref.job_id for ref in result.attack_evidence}
+                if not set(experiment.normal_job_ids) <= normal_ids or not set(experiment.attack_job_ids) <= attack_ids:
+                    notes.append("experiment 正常/攻击作业必须分别引用已提交的两侧原文证据")
+                identities = {str(by_id[ident].get("identity") or "") for ident in experiment.attack_job_ids if ident in by_id}
+                if experiment.attacker_identity not in identities:
+                    notes.append("experiment 攻击身份必须与实际攻击作业身份一致，不能用高权限成功冒充低权限攻击")
+                if experiment.effect_kind == "write" and not experiment.readback_job_ids:
+                    notes.append("状态写入实验须提供实际读回作业")
+                if set(experiment.readback_job_ids) - set(result.jobs):
+                    notes.append("experiment 读回引用不属于本次发布作业")
+                if result.normal_observation.strip() == result.attack_observation.strip():
+                    notes.append("两侧观测完全相同，缺少可判别实验依据")
+                trivial = re.compile(r"^(?:HTTP(?:/[\d.]+)?\s+)?(?:200(?:\s+OK)?|0|exit(?:[_ ]code)?\s*[:=]?\s*0)$", re.I)
+                if result.attack_evidence and all(trivial.fullmatch(ref.excerpt.strip()) for ref in result.attack_evidence):
+                    notes.append("攻击证据只有 HTTP 成功或退出码，不能证明安全属性被破坏")
         if not result.jobs:
             notes.append("缺少成功作业支撑：jobs 必须明确引用本次验证的成功作业")
         for ident in result.jobs:
@@ -424,6 +445,12 @@ def execute_instructions(deps: PocDeps) -> str:
     # Historical policies carry no provider and keep their old instructions verbatim.
     if getattr(deps, "source", None) is not None:
         text += SOURCE_RULES + DIAGNOSTICS_RULES
+    if deps.finding.get("capability_policy") == "audit-capability-v1":
+        from .schemas import PocExperiment
+        text += ("\n# 实验判别合同\n最终 verified/rejected 必须提交 experiment。先记录攻击前身份、资源属主、登录/CSRF、初始状态，"
+                 "明确正常对照、攻击变量和安全属性。预期与实际判别分开；写入必须读回。HTTP 200、退出码 0 或管理员成功不能独自证明漏洞。"
+                 "normal_job_ids/attack_job_ids 绑定两侧原文引用，attacker_identity 与实际作业一致。\n"
+                 + json.dumps(PocExperiment.model_json_schema(), ensure_ascii=False))
     return text
 
 

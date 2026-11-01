@@ -549,6 +549,8 @@ class MockAPI:
             offset, limit = int(filters.get("offset", 0)), int(filters.get("limit", 25))
             self.json(route, {"items": [self.ledger_summary(item) for item in items[offset:offset + limit]],
                               "total": len(items), "offset": offset, "limit": limit})
+        elif method == "GET" and len(parts) == 3 and parts[0] == "project-findings" and parts[2] == "reports":
+            self.json(route, {"items": [], "current_available": False})
         elif method == "GET" and len(parts) == 2 and parts[0] == "project-findings":
             value = self.ledger_records.get(parts[1])
             self.json(route, self.ledger_detail(value) if value else {"detail": "Project finding does not exist"}, 200 if value else 404)
@@ -572,6 +574,9 @@ class MockAPI:
             self.json(route, detail(item, self.findings[parts[1]]) | {"project": project,
                 "project_findings": [value for value in self.ledger_records.values() if value["project_id"] == item.get("project_id")],
                 "carried_findings": [], "finding_relations": []} | copy.deepcopy(self.detail_overrides.get(parts[1], {})))
+        elif method == "GET" and parts[0] == "runs" and parts[-1] == "report":
+            route.fulfill(status=200, content_type="application/octet-stream", body="offline frozen report",
+                          headers={"Content-Disposition": 'attachment; filename="offline-report.txt"'})
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] == "final-review" and method == "GET":
             # These fixtures predate Planner v2.  The real endpoint answers 409 and the
             # report page hides the fact package instead of inventing one.

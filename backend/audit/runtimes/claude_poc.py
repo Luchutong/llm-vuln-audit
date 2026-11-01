@@ -131,6 +131,8 @@ class SdkGeneration:
 
 # The structured conclusion is a host contract, not a rendering of Pydantic internals:
 # evidence is chosen by host id, so the model never has to copy raw output.
+from ..schemas import PocExperiment
+
 CONCLUSION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -146,6 +148,7 @@ CONCLUSION_SCHEMA: dict[str, Any] = {
         "jobs": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
         "normal_refs": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
         "attack_refs": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
+        "experiment": PocExperiment.model_json_schema(),
     },
 }
 
@@ -1416,6 +1419,8 @@ class ClaudeCodePocRuntime:
                           "omitted": service.artifacts_omitted}, ensure_ascii=False)
             + "\n现在提交 JSON：normal_refs/attack_refs 填 evidence_ref_id；"
             "jobs 只能填上面出现过的 job_id；不要复制正文，宿主会用 id 还原原文。"
+            + ("\n本项启用 audit-capability-v1：须在 experiment 分别填写安全属性、攻击前身份/属主/状态、正常对照、攻击变量、预期与实际判别、两侧作业 ID；写入实验须有读回。"
+               if service.finding.get("capability_policy") == "audit-capability-v1" else "")
         )
 
     async def _conclude(self, service: PocToolService, refs: EvidenceRefTable,
@@ -1537,6 +1542,7 @@ class ClaudeCodePocRuntime:
                 "jobs": jobs[:16],
                 "normal_evidence": [item.model_dump() for item in normal[:16]],
                 "attack_evidence": [item.model_dump() for item in attack[:16]],
+                "experiment": payload.get("experiment"),
             })
         except Exception as exc:  # noqa: BLE001 - shape errors are a format correction
             return None, [f"结论 JSON 不符合宿主 schema：{type(exc).__name__}"]

@@ -1,0 +1,643 @@
+{
+  "schema_version": "capability-live-pilot/v1",
+  "notice": "同代码策略开关的模块级试验。保留失败与成本，不是全量真值召回或完整版本 A/B。没有启动真实 POC/runner；主项目库不包含这些隔离任务。",
+  "runs": [
+    {
+      "pair": 1,
+      "policy": "legacy-policy",
+      "run_id": "2c2bc9367f6c472f818107e60ac5d0d8",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 11,
+        "tools": 10,
+        "seconds": 39.305
+      },
+      "counts": {
+        "accepted": 1,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 2,
+        "valid_records": 2,
+        "withdrawn": 0
+      },
+      "audit_complete": false,
+      "relations": null,
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 1,
+      "output_rejected": 0,
+      "poc_jobs": 0,
+      "wall_seconds": 39.6,
+      "quality": "releasable_partial",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "live-20261101",
+      "tokens": {
+        "input_tokens": 142672,
+        "output_tokens": 6275
+      },
+      "risk_obligations": {
+        "total": null,
+        "required": null,
+        "pending_required": null,
+        "by_state": null,
+        "complete": null
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-live-20261101/pair-1-legacy-policy"
+    },
+    {
+      "pair": 1,
+      "policy": "current-policy",
+      "run_id": "5a4896ba79e34cd2a52a320f0b546ab5",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 8,
+        "tools": 5,
+        "seconds": 41.003
+      },
+      "counts": {
+        "accepted": 1,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 2,
+        "valid_records": 2,
+        "withdrawn": 0
+      },
+      "audit_complete": true,
+      "relations": {
+        "complete": true,
+        "goal_supporting_ids": [
+          "ab1ec7692ecc420fa2628876b122eab9"
+        ],
+        "incidental": 0,
+        "relevant": 1,
+        "supporting": 0,
+        "unresolved": 0,
+        "version": "audit-focus/v1"
+      },
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 1,
+      "output_rejected": 0,
+      "poc_jobs": 0,
+      "wall_seconds": 41.3,
+      "quality": "releasable_final",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "live-20261101",
+      "tokens": {
+        "input_tokens": 96141,
+        "output_tokens": 7379
+      },
+      "risk_obligations": {
+        "total": null,
+        "required": null,
+        "pending_required": null,
+        "by_state": null,
+        "complete": null
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-live-20261101/pair-1-current-policy"
+    },
+    {
+      "pair": 2,
+      "policy": "current-policy",
+      "run_id": "53f15e91abc54275853fa2b7ddc866d8",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 6,
+        "tools": 6,
+        "seconds": 24.841
+      },
+      "counts": {
+        "accepted": 1,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 1,
+        "valid_records": 1,
+        "withdrawn": 0
+      },
+      "audit_complete": true,
+      "relations": {
+        "complete": true,
+        "goal_supporting_ids": [
+          "fe9ee30a122c445f87286a77aabe6f77"
+        ],
+        "incidental": 0,
+        "relevant": 1,
+        "supporting": 0,
+        "unresolved": 0,
+        "version": "audit-focus/v1"
+      },
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 0,
+      "output_rejected": 0,
+      "poc_jobs": 0,
+      "wall_seconds": 25.07,
+      "quality": "releasable_final",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "live-20261101",
+      "tokens": {
+        "input_tokens": 63197,
+        "output_tokens": 4525
+      },
+      "risk_obligations": {
+        "total": null,
+        "required": null,
+        "pending_required": null,
+        "by_state": null,
+        "complete": null
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-live-20261101/pair-2-current-policy"
+    },
+    {
+      "pair": 2,
+      "policy": "legacy-policy",
+      "run_id": "9f82a9074b894387a280a1029d49c04c",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 15,
+        "tools": 13,
+        "seconds": 58.463
+      },
+      "counts": {
+        "accepted": 1,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 2,
+        "valid_records": 2,
+        "withdrawn": 0
+      },
+      "audit_complete": false,
+      "relations": null,
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 2,
+      "output_rejected": 0,
+      "poc_jobs": 0,
+      "wall_seconds": 59.05,
+      "quality": "releasable_partial",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "live-20261101",
+      "tokens": {
+        "input_tokens": 190355,
+        "output_tokens": 9676
+      },
+      "risk_obligations": {
+        "total": null,
+        "required": null,
+        "pending_required": null,
+        "by_state": null,
+        "complete": null
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-live-20261101/pair-2-legacy-policy"
+    },
+    {
+      "pair": 3,
+      "policy": "legacy-policy",
+      "run_id": "1c8cada53751454cbbe6f54f19850294",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 11,
+        "tools": 6,
+        "seconds": 61.568
+      },
+      "counts": {
+        "accepted": 2,
+        "canonical": 2,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 3,
+        "valid_records": 3,
+        "withdrawn": 0
+      },
+      "audit_complete": false,
+      "relations": null,
+      "types": [
+        "xss_r",
+        "sqli"
+      ],
+      "parse_errors": 2,
+      "output_rejected": 1,
+      "poc_jobs": 0,
+      "wall_seconds": 62.12,
+      "quality": "releasable_partial",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "live-20261101",
+      "tokens": {
+        "input_tokens": 138684,
+        "output_tokens": 10054
+      },
+      "risk_obligations": {
+        "total": null,
+        "required": null,
+        "pending_required": null,
+        "by_state": null,
+        "complete": null
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-live-20261101/pair-3-legacy-policy"
+    },
+    {
+      "pair": 3,
+      "policy": "current-policy",
+      "run_id": "f34c776995a5455da3134538691c728c",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 12,
+        "tools": 12,
+        "seconds": 52.123
+      },
+      "counts": {
+        "accepted": 1,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 2,
+        "valid_records": 2,
+        "withdrawn": 0
+      },
+      "audit_complete": true,
+      "relations": {
+        "complete": true,
+        "goal_supporting_ids": [
+          "005e63df30d14d8fbed7f68e0f30f468"
+        ],
+        "incidental": 0,
+        "relevant": 1,
+        "supporting": 0,
+        "unresolved": 0,
+        "version": "audit-focus/v1"
+      },
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 1,
+      "output_rejected": 0,
+      "poc_jobs": 0,
+      "wall_seconds": 52.4,
+      "quality": "releasable_final",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "live-20261101",
+      "tokens": {
+        "input_tokens": 140059,
+        "output_tokens": 9280
+      },
+      "risk_obligations": {
+        "total": null,
+        "required": null,
+        "pending_required": null,
+        "by_state": null,
+        "complete": null
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-live-20261101/pair-3-current-policy"
+    },
+    {
+      "pair": 1,
+      "policy": "legacy-policy",
+      "run_id": "9a437d4ff4c449d89185a2003ecc54e2",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 16,
+        "tools": 20,
+        "seconds": 77.32
+      },
+      "counts": {
+        "accepted": 2,
+        "canonical": 2,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 3,
+        "valid_records": 3,
+        "withdrawn": 0
+      },
+      "audit_complete": false,
+      "relations": null,
+      "types": [
+        "xss_r",
+        "sqli"
+      ],
+      "parse_errors": 0,
+      "output_rejected": 2,
+      "poc_jobs": 0,
+      "wall_seconds": 77.7,
+      "quality": "releasable_partial",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "deep-20261101",
+      "tokens": {
+        "input_tokens": 207518,
+        "output_tokens": 11654
+      },
+      "risk_obligations": {
+        "total": null,
+        "required": null,
+        "pending_required": null,
+        "by_state": null,
+        "complete": null
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-deep-20261101/pair-1-legacy-policy"
+    },
+    {
+      "pair": 1,
+      "policy": "current-policy",
+      "run_id": "8c23cbf94ef04a8ab1a5fa396310d299",
+      "status": "inconclusive",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 36,
+        "tools": 13,
+        "seconds": 188.13
+      },
+      "counts": {
+        "accepted": 0,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 1,
+        "raw_records": 2,
+        "valid_records": 1,
+        "withdrawn": 1
+      },
+      "audit_complete": false,
+      "relations": {
+        "complete": false,
+        "goal_supporting_ids": [],
+        "incidental": 0,
+        "relevant": 0,
+        "supporting": 0,
+        "unresolved": 1,
+        "version": "audit-focus/v1"
+      },
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 1,
+      "output_rejected": 22,
+      "poc_jobs": 0,
+      "wall_seconds": 188.59,
+      "quality": "releasable_partial",
+      "stop_reason": {
+        "code": "final_review_incomplete",
+        "message": "审计已结束，仍有 3 项未完成终审；已保存事实和阶段报告。"
+      },
+      "experiment": "deep-20261101",
+      "tokens": {
+        "input_tokens": 544727,
+        "output_tokens": 33783
+      },
+      "risk_obligations": {
+        "total": 2,
+        "required": 1,
+        "pending_required": 1,
+        "by_state": {
+          "blocked": 0,
+          "no_evidence": 0,
+          "not_applicable": 0,
+          "pending": 2,
+          "supported": 0
+        },
+        "complete": false
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-deep-20261101/pair-1-current-policy"
+    },
+    {
+      "pair": 1,
+      "policy": "current-policy",
+      "run_id": "3dd88bc2d2534a358ba2563eca21d87a",
+      "status": "inconclusive",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 19,
+        "tools": 9,
+        "seconds": 101.28
+      },
+      "counts": {
+        "accepted": 0,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 1,
+        "raw_records": 2,
+        "valid_records": 1,
+        "withdrawn": 1
+      },
+      "audit_complete": false,
+      "relations": {
+        "complete": false,
+        "goal_supporting_ids": [],
+        "incidental": 0,
+        "relevant": 0,
+        "supporting": 0,
+        "unresolved": 1,
+        "version": "audit-focus/v1"
+      },
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 2,
+      "output_rejected": 9,
+      "poc_jobs": 0,
+      "wall_seconds": 101.52,
+      "quality": "releasable_partial",
+      "stop_reason": {
+        "code": "final_review_incomplete",
+        "message": "审计已结束，仍有 3 项未完成终审；已保存事实和阶段报告。"
+      },
+      "experiment": "deep-fixed-20261101",
+      "tokens": {
+        "input_tokens": 301219,
+        "output_tokens": 18572
+      },
+      "risk_obligations": {
+        "total": 2,
+        "required": 1,
+        "pending_required": 1,
+        "by_state": {
+          "blocked": 0,
+          "no_evidence": 0,
+          "not_applicable": 0,
+          "pending": 2,
+          "supported": 0
+        },
+        "complete": false
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-deep-fixed-20261101/pair-1-current-policy"
+    },
+    {
+      "pair": 1,
+      "policy": "current-policy",
+      "run_id": "d5f49394085442d589db53250207eeff",
+      "status": "completed",
+      "model": "deepseek-flash",
+      "archive_sha256": "3b28e226b6484ff1636082523e0ab6c6f5d0394d42bc66960a79ece4e5bd896a",
+      "usage": {
+        "responses": 6,
+        "tools": 5,
+        "seconds": 27.561
+      },
+      "counts": {
+        "accepted": 1,
+        "canonical": 1,
+        "contested": 0,
+        "pending": 0,
+        "raw_records": 1,
+        "valid_records": 1,
+        "withdrawn": 0
+      },
+      "audit_complete": true,
+      "relations": {
+        "complete": true,
+        "goal_supporting_ids": [
+          "e83cbe7a5dd64ccf9e2d97de6659ad0a"
+        ],
+        "incidental": 0,
+        "relevant": 1,
+        "supporting": 0,
+        "unresolved": 0,
+        "version": "audit-focus/v1"
+      },
+      "types": [
+        "sqli"
+      ],
+      "parse_errors": 0,
+      "output_rejected": 0,
+      "poc_jobs": 0,
+      "wall_seconds": 27.78,
+      "quality": "releasable_final",
+      "stop_reason": {
+        "code": "goal_met",
+        "message": "现有源码任务和覆盖已结算，进入统一证据终审。"
+      },
+      "experiment": "deep-final-20261101",
+      "tokens": {
+        "input_tokens": 72361,
+        "output_tokens": 4652
+      },
+      "risk_obligations": {
+        "total": 2,
+        "required": 1,
+        "pending_required": 0,
+        "by_state": {
+          "blocked": 0,
+          "no_evidence": 0,
+          "not_applicable": 1,
+          "pending": 0,
+          "supported": 1
+        },
+        "complete": true
+      },
+      "initial_limits": {
+        "responses": 36,
+        "tools": 192,
+        "seconds": 240,
+        "poc_mode": "off",
+        "workers": 1
+      },
+      "evidence_location": "/tmp/vuln-audit-capability-deep-final-20261101/pair-1-current-policy"
+    }
+  ],
+  "total_requests": 140
+}

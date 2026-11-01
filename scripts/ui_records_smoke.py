@@ -13,7 +13,7 @@ import re
 from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 from ui_fixtures import COMPLETED_ID, LEDGER_ID, NEWER_SNAPSHOT_ID, OTHER_PROJECT_ID, OTHER_SNAPSHOT_ID, PROJECT_ID, SNAPSHOT_ID, MockAPI, finding, run, snapshot, sources_api
-from ui_smoke import Checks, goto, no_overflow, save
+from ui_smoke import open_more, Checks, goto, no_overflow, save
 
 
 class RecordsAPI(MockAPI):
@@ -104,13 +104,16 @@ def wait_pending(page, api):
 
 def exercise(page, base, api, checks, screenshots):
     goto(page,base,'#run/record-running')
+    open_more(page)
     expect(page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True)).to_be_disabled()
     navigate(page,'#run/record-pending')
+    open_more(page)
     expect(page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True)).to_be_disabled()
     assert not api.mutations
     checks.passed('pending and running audits cannot be deleted from the conversation')
 
     navigate(page,f'#run/{COMPLETED_ID}')
+    open_more(page)
     action=page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True)
     action.click()
     expect(dialog(page,'删除审计记录')).to_contain_text('累计漏洞台账继续保留')
@@ -164,6 +167,7 @@ def exercise(page, base, api, checks, screenshots):
     checks.passed('delete submits once, leaves a busy dialog open, refreshes lists, and returns from the removed audit')
 
     navigate(page,'#run/record-paused')
+    open_more(page)
     page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True).click()
     expect(dialog(page,'删除审计记录')).to_contain_text('已暂停；删除后无法继续')
     confirm(page).click()
@@ -252,6 +256,7 @@ def exercise(page, base, api, checks, screenshots):
             page.get_by_role('button',name=f"切换{'深' if theme=='dark' else '浅'}色主题",exact=True).click()
         api.add_run('visual-paused','paused')
         navigate(page,'#run/visual-paused')
+        open_more(page)
         page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True).click()
         for width in (1440,1024,768,390):
             page.set_viewport_size({'width':width,'height':900})
@@ -272,6 +277,7 @@ def exercise_races(page, base, api, checks):
         if api.pending_read: break
         page.wait_for_timeout(30)
     assert api.pending_read, 'Expected an in-flight list poll'
+    open_more(page)
     page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True).click()
     confirm(page).click()
     expect(dialog(page,'删除审计记录')).to_have_count(0)
@@ -290,6 +296,7 @@ def exercise_races(page, base, api, checks):
 
     api.add_run('background-delete','completed')
     goto(page,base,'#run/background-delete')
+    open_more(page)
     page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True).click()
     api.hold_mutation=True
     confirm(page).click()
@@ -306,6 +313,7 @@ def exercise_races(page, base, api, checks):
 
     api.add_run('already-removed','completed')
     goto(page,base,'#run/already-removed')
+    open_more(page)
     page.locator('.conversation-actions').get_by_role('button',name='删除审计记录',exact=True).click()
     api.delete_run_record('already-removed')
     confirm(page).click()

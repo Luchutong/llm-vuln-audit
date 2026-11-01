@@ -12,6 +12,10 @@ export interface TaskSpec {
   stop_on_achieved: boolean;
   /** Missing on historical runs means legacy goal closure. */
   completion_policy?: 'goal' | 'coverage_review';
+  focus_scope?: 'targeted' | 'all';
+  risk_coverage_policy?: 'off' | 'bounded-v1';
+  capability_policy?: string;
+  audit_focus?: { objective_ref: string; objective: string; scenario?: string | null; policy: string };
   /** Absent on historical records: preserve the original shared-budget scheduler. */
   workflow_policy?: 'legacy' | 'discovery_first';
   orchestration_policy?: 'rounds-v1' | 'host-queue-v1';

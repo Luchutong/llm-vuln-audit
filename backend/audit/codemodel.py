@@ -252,10 +252,10 @@ def rejection_reason(exc: BaseException) -> str:
     if isinstance(exc, ValidationError):
         parts = [
             "{}: {}".format(".".join(str(item) for item in error["loc"]) or "(根)", error["msg"])
-            for error in exc.errors()[:6]
+            for error in exc.errors()
         ]
-        return ("；".join(parts) or "输出不符合本阶段的契约")[:800]
-    return str(exc)[:800]
+        return "；".join(parts) or "输出不符合本阶段的契约"
+    return str(exc)
 
 
 @dataclass
@@ -290,6 +290,8 @@ class PhaseGate:
     request_parameters: dict = field(default_factory=dict)
     request_tool_errors: dict = field(default_factory=dict)
     callback_abort: StopAudit | None = None
+    correction_example: dict | None = None
+    extend_exploration: Callable[[int], int] | None = None
 
     def _on_loop(self, callback: Callable[[], Awaitable]) -> Any:
         """Run one host callback on the event loop and wait for its answer.
@@ -545,6 +547,8 @@ class PhaseGate:
                 "invalid_output", "连续输出或代码纠正已用尽；最后一次拒绝：" + str(reason or "")[:300]
             ))
         try:
+            if self.extend_exploration is not None and not correction and self.execution.attempts >= self.limit:
+                self.limit = max(self.limit, self.extend_exploration(self.limit))
             ceiling = self.execution.before_model(
                 deadline=self.deadline, limit=self.limit, correction=correction, reason=reason,
                 request_bytes=size, message_count=len(messages or ()), purpose="model",
@@ -818,9 +822,9 @@ class PhaseGate:
                 else "runtime_error"
             )
             hints = {
-                "invalid_python": "仅使用已赋值变量；语句必须完整，循环含冒号和缩进体；json 已预载。",
+                "invalid_python": "Python 动作用 None/True/False，不能使用 JSON 的 null/true/false；仅使用已赋值变量，保留完整语法。最终 JSON 发布阶段才使用 null/true/false。",
                 "unauthorized_import": "宿主只允许系统提示列出的内存处理模块；网络/文件/进程代码放进 runner 脚本。",
-                "tool_contract": "按工具声明修正类型、参数名和范围；JSON 工具先检查 error 再访问成功字段。",
+                "tool_contract": "read_source/search_code 返回文本，直接使用或 print，不能 json.loads；只有声明 JSON 的工具才解析 JSON，先检查 error 再访问成功字段。",
             }
             hint = self.action_issue.hint if self.action_issue else hints.get(category, "根据错误位置修正动作，保留已获取的证据。")
             self.pending_correction = (error[:400] + " " + hint)[:800]

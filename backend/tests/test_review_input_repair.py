@@ -252,7 +252,7 @@ def test_read_receipts_cannot_cross_a_pause_or_fill_unread_gaps(hosted):
         store.read_review_input(run['id'], batch['id'], item['item_id'], part['field'], 1024, repository=repo)
 
 
-def test_reading_and_fallback_publication_share_three_responses(hosted, monkeypatch):
+def test_reading_and_fallback_publication_share_the_explicit_paged_batch_allowance(hosted, monkeypatch):
     store, repo, run = hosted
     add_claim(store, run, 1)
     store._write('UPDATE findings SET summary=?', ('长字段原文。' * 2000,))
@@ -265,6 +265,6 @@ def test_reading_and_fallback_publication_share_three_responses(hosted, monkeypa
         task=run['task_spec'], round_no=1, config=CONFIG, budgets={'responses': 12, 'tools': 100, 'seconds': 10},
         policy=AgentPolicy(request_seconds=.5), repository=repo, snapshot_id=run['snapshot_id'],
         allowed_paths=set(run['scope']), pins=store, run_id=run['id']))
-    assert result['decision'] is None and result['usage']['requests'] == 3
-    assert len(factory.phases) == 3
+    assert result['decision'] is None and result['usage']['requests'] == 5
+    assert len(factory.phases) == 5
     assert store.active_review_batch(run['id'])['status'] == 'pending'

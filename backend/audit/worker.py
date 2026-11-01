@@ -1748,6 +1748,8 @@ class AuditWorker:
             # one round after the Planner had already fixed a contract error.
             stall_limit = int(policy.planner_decision_retries) + 1
             stall_state = (0, "")
+            batch_rounds = 0
+            previous_batch = None
             while not verification_stopped():
                 remaining = None
                 if discovery_first:
@@ -1762,13 +1764,24 @@ class AuditWorker:
                 batch = self.store.prepare_review_batch(run_id, "final", run["execution_epoch"], self.repository)
                 if not batch:
                     return
+                if batch["id"] != previous_batch:
+                    stall_state, batch_rounds, previous_batch = (0, ""), 0, batch["id"]
                 response = await run_planner_round(review_phase="final", max_responses=remaining)
+                batch_rounds += 1
                 stalls, failure, stalled = final_review_stall(
                     stall_state, completed=response == "batch_completed",
                     failure=last_planner_failure or response, limit=stall_limit)
                 stall_state = (stalls, failure)
-                if response in {"stage_exhausted", "no_round", "closed"} or stalled:
+                if response in {"stage_exhausted", "no_round", "closed"}:
                     return
+                if response != "batch_completed" and (stalled or batch_rounds >= stall_limit):
+                    if not hosted:
+                        return
+                    if not self.store.execution_write_allowed(run_id, run["execution_epoch"]):
+                        return
+                    self.store.defer_review_batch(run_id, batch["id"],
+                        "本批次有限纠正仍未通过；拆分多项批次或保留单项待审，继续审理其他结论。", split=True)
+                    stall_state, batch_rounds, previous_batch = (0, ""), 0, None
 
         while not stop.is_set():
             current = self.store.get_run(run_id)
@@ -2672,6 +2685,10 @@ class AuditWorker:
                 "missing_context": list(result.get("missing_context") or []),
                 "poc": payload.get("poc"),
                 "remediation": str(payload.get("remediation") or ""),
+                "retest": str(payload.get("retest") or ""),
+                "dataflow": payload.get("dataflow") or [],
+                "focus": payload.get("focus"),
+                "capability_policy": (run.get("task_spec") or {}).get("capability_policy"),
                 "validation_state": "candidate" if candidate else ("invalid_evidence" if not evidence or location_errors else "invalid_finding"),
                 "validation_errors": problems,
                 "verdict": None,

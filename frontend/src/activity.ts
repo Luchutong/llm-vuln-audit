@@ -201,7 +201,19 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
     }
     let title = '', message = '', secondary = '';
     let tone: ActivityMessage['tone'] = 'neutral';
-    if (kind === 'audit_progress') {
+    if (kind === 'workflow_stage_changed') {
+      title = '阶段切换';
+      message = ({ discovery: '进入源码审计', poc: '进入 POC 验证', review: '进入最终复核' } as Record<string, string>)[text(payload.stage)] || '执行阶段已更新';
+      tone = 'progress';
+    } else if (kind === 'workflow_stage_exhausted') {
+      title = '阶段额度已用尽'; message = '当前阶段已停止新增工作，未完成项将保留在阶段报告中。'; tone = 'warning';
+    } else if (kind === 'review_batch_completed') {
+      title = text(payload.phase) === 'final' ? '最终复核' : '结论整合'; message = `本批已处理 ${typeof payload.items === 'number' ? payload.items : '暂无数据'} 项。`;
+    } else if (kind === 'review_batch_deferred') {
+      title = text(payload.action) === 'split' ? '复核拆分' : '部分结论待审'; message = text(payload.action) === 'split' ? '本批拆开逐项复核，保留已经确认的结果。' : '本项保留待审，继续复核其他结论；已确认漏洞仍可交付。'; secondary = text(payload.reason); tone = 'warning';
+    } else if (kind === 'review_group_disposition') {
+      title = '终审结论调整'; message = ({ duplicate: '此结论经复核记为重复。', retract: '此结论经复核已撤回。' } as Record<string, string>)[text(payload.decision)] || '此结论已更新处置状态。';
+    } else if (kind === 'audit_progress') {
       pending.delete(requestKey(entry));
       message = text(payload.message); tone = 'progress';
     } else if (kind === 'agent_code' || kind === 'agent_execution_error') {

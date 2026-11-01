@@ -269,6 +269,8 @@ class TaskSpec(BaseModel):
         default="legacy", description="Frozen workflow semantics; discovery_first tracks unresolved directions and successful source batches independently of failure retries",
     )
     review_policy: Literal["legacy", "batch-v1"] = "batch-v1"
+    focus_scope: Literal["targeted", "all"] = Field(default="targeted", description="Explicit risk scope; readable ZIP scope remains independent")
+    risk_coverage_policy: Literal["off", "bounded-v1"] = Field(default="off", description="Opt-in source-signal risk obligations; does not replace file coverage")
     orchestration_policy: Literal["rounds-v1", "host-queue-v1"] = "rounds-v1"
     workflow_limits: WorkflowLimits | None = Field(
         default=None,
@@ -303,6 +305,23 @@ class PrimaryLocation(BaseModel):
         return value
 
 
+class FlowNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["input", "transform", "protection", "storage", "readback", "sink"]
+    evidence: EvidenceRef
+    explanation: str = Field(min_length=8, max_length=1200)
+
+
+class FocusAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    objective_ref: Literal["objective-main"]
+    relation: Literal["relevant", "supporting", "incidental", "unresolved"]
+    rationale: str = Field(min_length=12, max_length=1600)
+    evidence: list[EvidenceRef] = Field(default_factory=list, max_length=24)
+    supports: list[str] = Field(default_factory=list, max_length=16)
+    chain: list[FlowNode] = Field(default_factory=list, max_length=24)
+
+
 class TaskFinding(CvssCompatibleModel):
     """An actionable, source-backed vulnerability, separate from audit observations."""
 
@@ -332,6 +351,9 @@ class TaskFinding(CvssCompatibleModel):
     preconditions: str = Field(default="", max_length=1600, description="Optional runtime assumptions or entry conditions")
     poc: PocSpec | None = Field(default=None, description="Optional manually reviewable POC for a vulnerability result")
     remediation: str = Field(default="", max_length=2400, description="Optional remediation when an actionable issue exists")
+    retest: str = Field(default="", max_length=4000, description="Concrete post-fix positive/negative tests, identity and business-state regression conditions")
+    focus: FocusAssessment | None = Field(default=None, description="Worker proposal only; independent final review must classify relation to frozen user objective")
+    dataflow: list[FlowNode] = Field(default_factory=list, max_length=24, description="Source-bound input/transformation/storage/readback/sink chain; every node needs an actual read")
 
     @field_validator("vulnerability_type")
     @classmethod
@@ -515,6 +537,8 @@ class PlannerTaskProposal(BaseModel):
         description="Short project-map-grounded reason to schedule this task; never private reasoning",
     )
     source_refs: list[PlannerSourceRef] = Field(default_factory=list, max_length=16)
+    objective_ref: Literal["objective-main"] = "objective-main"
+    obligation_ids: list[str] = Field(default_factory=list, max_length=32)
     direction_ids: list[str] = Field(
         default_factory=list, max_length=32,
         description="Host direction IDs explicitly assigned to this task; a narrowed reopen inherits only these selected directions",
@@ -709,16 +733,27 @@ class PlannerCoverageReview(BaseModel):
     reason: str = Field(min_length=8, max_length=1200)
 
 
+class PeerAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_id: str = Field(min_length=1, max_length=160)
+    relation: Literal["same_root", "distinct", "unresolved"]
+    rationale: str = Field(min_length=12, max_length=1200)
+
+
 class PlannerBatchDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
     item_id: str = Field(min_length=1, max_length=160)
     revision: str = Field(min_length=1, max_length=64)
     decision: Literal["retain", "accept", "needs_evidence", "contested", "duplicate", "withdraw", "resolve", "skip"]
     rationale: str = Field(min_length=8, max_length=1600)
+    focus: FocusAssessment | None = Field(default=None, description="Independent target relation judgment; required for new-policy final finding dispositions except needs_evidence/withdraw/duplicate")
+    risk_outcome: Literal["supported", "no_evidence", "not_applicable", "blocked", "pending"] | None = None
     duplicate_of: str | None = Field(default=None, max_length=160,
         description="Another current canonical item_id retained as the primary claim; not this item's finding_id")
     distinct_from: list[str] = Field(default_factory=list, max_length=400,
         description="Current comparison candidate item_ids explicitly judged to have distinct roots/operations/preconditions; explain the distinction in rationale. Never infer distinctness from CVSS or POC status alone.")
+    comparison_assessments: list[PeerAssessment] = Field(default_factory=list, max_length=400,
+        description="Per-peer same_root/distinct/unresolved judgment with concrete root, operation or precondition rationale; use canonical item_id, never a run finding_id")
 
 
 class PlannerDecision(BaseModel):
@@ -1138,6 +1173,24 @@ class PocEvidenceReference(BaseModel):
     excerpt: str = Field(min_length=1, max_length=4000)
 
 
+class PocExperiment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    security_property: str = Field(min_length=8, max_length=1200)
+    attacker_identity: str = Field(min_length=1, max_length=120)
+    resource_owner: str = Field(min_length=1, max_length=240)
+    initial_state: str = Field(min_length=3, max_length=1600)
+    preconditions: list[str] = Field(min_length=1, max_length=16)
+    control: str = Field(min_length=3, max_length=1600)
+    attack_variable: str = Field(min_length=3, max_length=1600)
+    expected_discriminator: str = Field(min_length=8, max_length=2000)
+    observed_discriminator: str = Field(min_length=8, max_length=2000)
+    effect_kind: Literal["read", "write", "authorization", "script_execution", "other"]
+    normal_job_ids: list[str] = Field(min_length=1, max_length=16)
+    attack_job_ids: list[str] = Field(min_length=1, max_length=16)
+    readback_job_ids: list[str] = Field(default_factory=list, max_length=16)
+    limitations: list[str] = Field(default_factory=list, max_length=16)
+
+
 class PocVerificationResult(BaseModel):
     """What the POC agent hands back for one finding.
 
@@ -1166,6 +1219,7 @@ class PocVerificationResult(BaseModel):
     jobs: list[str] = Field(default_factory=list, max_length=16)
     normal_evidence: list[PocEvidenceReference] = Field(default_factory=list, max_length=16)
     attack_evidence: list[PocEvidenceReference] = Field(default_factory=list, max_length=16)
+    experiment: PocExperiment | None = None
 
     @model_validator(mode="after")
     def _coherent_verdict(self) -> "PocVerificationResult":

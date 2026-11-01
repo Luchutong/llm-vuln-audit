@@ -1,0 +1,1463 @@
+{
+  "provenance": {
+    "run_id": "2969bcf204cd43b5baf2683cbb0e841d",
+    "source": "frozen_run_reports.facts_json.canonical_findings",
+    "scope": "archived scoring input; excludes scripts, accounts, credentials, HTTP and runtime environment"
+  },
+  "findings": [
+    {
+      "title": "account/update.php 批量赋值允许登录用户将自身 role/balance 改写（提权与余额篡改）",
+      "summary": "update.php 定义可更新列 $columns=['display_name','email','role','balance','tier','nickname','homepage']，随后对 $_POST 每个键判断在白名单内即拼接 `key`=? 并写入 UPDATE users SET ... WHERE id=?。虽然 WHERE 限定为当前用户自身行（$u['id'] 来自会话查询），但允许字段包含 role、balance、tier 等敏感列，服务端未做任何字段级授权限制。任意已登录普通用户提交 role=admin 即可获得运营/管理入口权限（如 /ops/index.php），提交 balance=999999 即可篡改账户余额。表单页面本身只渲染 display_name/nickname/email/homepage，但服务端接受隐藏字段，属于典型的服务端缺少字段许可集合校验。",
+      "category": "task_goal:v2:dff2dd466d070894729b:1",
+      "vulnerability_type": "mass_assignment",
+      "primary_location": {
+        "line": 6,
+        "path": "lab30-shop/app/public/account/update.php"
+      },
+      "file_path": "lab30-shop/app/public/account/update.php",
+      "evidence": [
+        {
+          "end_line": 9,
+          "evidence_id": "aecff877ea34a4a4",
+          "path": "lab30-shop/app/public/account/update.php",
+          "range": {
+            "end": 9,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 37,
+          "evidence_id": "78224482780bf94a",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 37,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        },
+        {
+          "end_line": 53,
+          "evidence_id": "6700e4b97da566f5",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 53,
+            "start": 53
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 53
+        }
+      ],
+      "input_source": "POST 参数 role/balance/tier（客户端可任意附加表单字段）",
+      "propagation": "update.php:5 foreach $_POST 过滤后加入 $set/$values → update.php:6 拼接 UPDATE users SET 并执行",
+      "dangerous_operation": "UPDATE users SET role=?,balance=? WHERE id=<当前用户>",
+      "protection": "check_csrf 仅防 CSRF；$columns 白名单仍包含敏感列；无角色/字段级授权检查",
+      "cvss": {
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "L",
+          "I": "H",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "618fed4dab94434c9f2d11308ca4829e",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "template-preview.php 远程文件包含：include 直接使用用户 template 参数且 allow_url_include=On",
+      "summary": "$_GET['template'] 直接传入 include，未做协议/域名/路径校验。php.ini:3 allow_url_include=On 使 http:// 远程 PHP 被当作代码执行。fixtures/server.py:16-17 演示了 /templates/season.php 返回 PHP 内容，攻击者可自建 HTTP 服务返回恶意 PHP 实现 RCE。需 operator/admin 角色，属于提权/横向利用。",
+      "category": "task_goal:v2:3fa03d1b8a8a72b9ba3d:1",
+      "vulnerability_type": "rfi",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/ops/template-preview.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/template-preview.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "5d596a817dad3c10",
+          "path": "lab30-shop/app/public/ops/template-preview.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 13,
+          "evidence_id": "38c5cad78d49b7f3",
+          "path": "lab30-shop/docker/php.ini",
+          "range": {
+            "end": 13,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 17,
+          "evidence_id": "6d302fb291c9a00a",
+          "path": "lab30-shop/fixtures/server.py",
+          "range": {
+            "end": 17,
+            "start": 16
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 16
+        }
+      ],
+      "input_source": "GET /ops/template-preview.php?template=",
+      "propagation": "template-preview.php:2 取 $_GET['template'] -> :3 include $template",
+      "dangerous_operation": "include 用户完全可控的 URL",
+      "protection": "仅 require_user 角色检查；无协议白名单；allow_url_include=On",
+      "cvss": {
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "A": "H",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "H",
+          "PR": "H",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "633719c82cd64d56bc043d63f5b5df83",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "partner/portal.php 仅解码 JWT payload 不验签，构造 role=admin 令牌即可越权读取全部订单",
+      "summary": "portal.php 从 POST token 或 partner_token Cookie 取令牌，split 后用 base64_decode+json_decode 取出 payload 段，只要求 count===3 且数组且 role==='admin'，从不校验 header/签名段与 token.php 使用的 HMAC 密钥。任何访客（含未登录）可自制 header.payload.sig，将 payload 设为 {role:'admin'} 即通过第3行检查，第4行 SELECT 全部订单并在 HTML/JSON 输出订单号与金额。token.php 证明正规用户令牌结构公开且可获取，签名从未被服务端使用。",
+      "category": "task_goal:v2:c6d44f99f2df2205c6b0:1",
+      "vulnerability_type": "auth_bypass",
+      "primary_location": {
+        "line": 2,
+        "path": "lab30-shop/app/public/partner/portal.php"
+      },
+      "file_path": "lab30-shop/app/public/partner/portal.php",
+      "evidence": [
+        {
+          "end_line": 6,
+          "evidence_id": "343d5e3158080141",
+          "path": "lab30-shop/app/public/partner/portal.php",
+          "range": {
+            "end": 6,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        },
+        {
+          "end_line": 4,
+          "evidence_id": "ab54a1f06e186428",
+          "path": "lab30-shop/app/public/partner/token.php",
+          "range": {
+            "end": 4,
+            "start": 4
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 4
+        }
+      ],
+      "input_source": "$_POST['token'] 或 $_COOKIE['partner_token']",
+      "propagation": "token -> explode('.') -> base64_decode(parts[1]) -> json_decode -> $payload['role'] === 'admin' -> db()->query('SELECT order_no,total FROM orders')",
+      "dangerous_operation": "未验签的客户端声明成为 admin 身份断言，读取全部订单金额",
+      "protection": "无签名校验、无会话身份、无密钥比对；仅判断 payload 数组与 role 字符串",
+      "cvss": {
+        "base_score": 8.6,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "N",
+          "PR": "N",
+          "S": "C",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "966576d2146344879dcbedc45dc3fcca",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "support/messages.php 留言内容未编码导致存储型 XSS",
+      "summary": "登录用户提交的 message 通过参数化 INSERT 存入 messages 表，渲染时第 5 行将 $row['message'] 直接拼接到 HTML 文本上下文，未调用 h()。攻击者可提交含脚本标签的留言，任何打开留言页的用户（含管理员）都会执行该脚本。",
+      "category": "task_goal:v2:301d841cd3c920642c92:1",
+      "vulnerability_type": "xss_s",
+      "primary_location": {
+        "line": 5,
+        "path": "lab30-shop/app/public/support/messages.php"
+      },
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "evidence": [
+        {
+          "end_line": 10,
+          "evidence_id": "5220b9ce518719f6",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 10,
+            "start": 10
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 10
+        },
+        {
+          "end_line": 36,
+          "evidence_id": "6220461f4c36cb1a",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 36,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        },
+        {
+          "end_line": 5,
+          "evidence_id": "2ba1a6f9578aa5c7",
+          "path": "lab30-shop/app/public/support/messages.php",
+          "range": {
+            "end": 5,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        }
+      ],
+      "input_source": "$_POST['message']（第3行）写入数据库，第5行读取 $row['message'] 输出",
+      "propagation": "POST message -> INSERT INTO messages -> SELECT m.* -> $row['message'] 拼接到 '<div class=\"message-body\">'",
+      "dangerous_operation": "echo 未编码的 $row['message'] 到 HTML",
+      "protection": "仅有 1-5000 字节长度与 CSRF 校验，无 HTML 编码；h() 已定义但未用于该输出点",
+      "cvss": null,
+      "validation_errors": [],
+      "id": "43b0838f093d472c9143038ec56e1e96",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "unknown"
+    },
+    {
+      "title": "catalog/greeting.php 的 name 参数未编码导致反射型 XSS",
+      "summary": "greeting.php 第2行将 $_GET['name'] 强制转为字符串，第3行在 <h2>你好，'.$name.'</h2> 中直接输出，未使用 h()。攻击者可构造 ?name=<script>... 的链接，受害者点击后脚本在页面上下文执行。",
+      "category": "task_goal:v2:b295df3fd30afdc23b05:1",
+      "vulnerability_type": "xss_r",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/catalog/greeting.php"
+      },
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "evidence": [
+        {
+          "end_line": 10,
+          "evidence_id": "5220b9ce518719f6",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 10,
+            "start": 10
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 10
+        },
+        {
+          "end_line": 3,
+          "evidence_id": "b06ddb554b7c114a",
+          "path": "lab30-shop/app/public/catalog/greeting.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        }
+      ],
+      "input_source": "$_GET['name']（第2行）",
+      "propagation": "$name=(string)$_GET['name'] -> echo '<h2>你好，'.$name.'</h2>'",
+      "dangerous_operation": "echo 未编码的 $name 到 HTML",
+      "protection": "无；form_input 会编码回填值，但第3行直接输出未编码",
+      "cvss": null,
+      "validation_errors": [],
+      "id": "5d49941ea36b4c14aaba5cec95eb33ce",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "unknown"
+    },
+    {
+      "title": "会员备份恢复对 POST 数据直接 unserialize 导致 PHP 对象注入",
+      "summary": "第4行把 $_POST['backup'] 做 base64_decode 后，第5行直接 unserialize($raw)，未设置 allowed_classes 白名单。instanceof MemberBackup 校验发生在反序列化之后，无法阻止任意类实例化与属性注入；第6行再把 $restored->tier / $restored->displayName 写入 users 表。",
+      "category": "task_goal:v2:a7f17a39bc25233b20bf:1",
+      "vulnerability_type": "insecure_deserialization",
+      "primary_location": {
+        "line": 5,
+        "path": "lab30-shop/app/public/account/backup.php"
+      },
+      "file_path": "lab30-shop/app/public/account/backup.php",
+      "evidence": [
+        {
+          "end_line": 6,
+          "evidence_id": "f15ec397a921596f",
+          "path": "lab30-shop/app/public/account/backup.php",
+          "range": {
+            "end": 6,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        },
+        {
+          "end_line": 5,
+          "evidence_id": "9d0d13b19a80b9a2",
+          "path": "lab30-shop/app/src/backup.php",
+          "range": {
+            "end": 5,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        }
+      ],
+      "input_source": "POST 参数 backup（base64 编码的序列化字符串）",
+      "propagation": "$_POST['backup'] -> base64_decode -> unserialize -> $restored 属性 -> UPDATE users SET tier,display_name",
+      "dangerous_operation": "unserialize($raw) 反序列化未受信任用户数据",
+      "protection": "check_csrf() 只防 CSRF；require_user() 只要求登录；instanceof 检查在反序列化之后",
+      "cvss": null,
+      "validation_errors": [],
+      "id": "e4c0d7fa5c0640dbb7e81a774b02ae04",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "unknown"
+    },
+    {
+      "title": "提现先读后写无锁，競态可重复扣减同一余额实现超额提现",
+      "summary": "withdraw.php 第4行 SELECT balance，第5行比较 $balance<$amount，第6行 usleep(350000) 放大窗口，第7行 UPDATE users SET balance=? WHERE id=? 只按 id 更新为预读值减金额，无 WHERE balance>=? 条件也无事务/行锁；第8行再插入 withdrawals。并发请求都能通过余额检查并各自扣减，造成总提现超过实际余额。",
+      "category": "task_goal:v2:86d9568e3fbce0e7b755:1",
+      "vulnerability_type": "race_condition",
+      "primary_location": {
+        "line": 7,
+        "path": "lab30-shop/app/public/wallet/withdraw.php"
+      },
+      "file_path": "lab30-shop/app/public/wallet/withdraw.php",
+      "evidence": [
+        {
+          "end_line": 11,
+          "evidence_id": "22402245fecc9056",
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "range": {
+            "end": 11,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        }
+      ],
+      "input_source": "POST 参数 amount",
+      "propagation": "$_POST['amount'] -> $amount -> 余额检查 -> UPDATE balance -> INSERT withdrawals",
+      "dangerous_operation": "无条件 UPDATE 余额并按旧余额插入提现记录",
+      "protection": "仅金额范围校验与 csrf；无 SELECT FOR UPDATE、无事务、无余额条件更新",
+      "cvss": {
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "H",
+          "AV": "N",
+          "C": "N",
+          "I": "H",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "168e43edeee643d6a8d80cfc004090ba",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "orders/detail.php 仅按订单 id 查询、无用户归属校验，任意登录用户可读他人订单",
+      "summary": "detail.php 以 require_user() 只校验登录状态，随后执行 SELECT ... FROM orders o JOIN users u ... WHERE o.id=? 且仅绑定 $_GET['id']，未加入 user_id=当前用户 的归属条件；查询结果无论属主直接渲染 order_no、购买人、数量、实付金额与 private_note，并在 Accept 含 application/json 时原样 json_response 全量字段。因此任意已登录用户遍历 id 即可越权读取其他用户订单（含私密备注）。对照 index.php 以 user_id=? 绑定当前用户，可见详情页缺失该约束。",
+      "category": "task_goal:v2:6c8f4a83cc83853f054e:1",
+      "vulnerability_type": "idor",
+      "primary_location": {
+        "line": 2,
+        "path": "lab30-shop/app/public/orders/detail.php"
+      },
+      "file_path": "lab30-shop/app/public/orders/detail.php",
+      "evidence": [
+        {
+          "end_line": 4,
+          "evidence_id": "171ea369e07c383b",
+          "path": "lab30-shop/app/public/orders/detail.php",
+          "range": {
+            "end": 4,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 2,
+          "evidence_id": "490c7d72eb514d6b",
+          "path": "lab30-shop/app/public/orders/index.php",
+          "range": {
+            "end": 2,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        },
+        {
+          "end_line": 37,
+          "evidence_id": "78224482780bf94a",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 37,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        }
+      ],
+      "input_source": "GET 参数 id（$_GET['id']??0），由任意登录用户控制",
+      "propagation": "detail.php:2 $q->execute([$_GET['id']??0]) → detail.php:3/4 输出订单字段",
+      "dangerous_operation": "按对象 id 读取订单并在 HTML/JSON 中输出他人订单数据（含 private_note）",
+      "protection": "require_user() 仅验证已登录；未按 user_id 过滤，也未做角色判断，无归属校验",
+      "cvss": {
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "N",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "6f9baa7bb5694f4e8d2f1635f38c7d9f",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "auth/continue.php 的 next 参数未校验即写入 Location 头，导致开放重定向",
+      "summary": "continue.php 先调用 require_user() 要求登录，随后若存在 $_GET['next'] 就直接 header('Location: '.(string)$_GET['next'])。该值未经同源、协议或白名单校验，可填入 https://evil.example 等外部地址，浏览器即跳转至攻击者站点，造成开放重定向，可用于钓鱼与凭据窃取。",
+      "category": "task_goal:v2:e4d5ccd2f12c486d1548:1",
+      "vulnerability_type": "open_redirect",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/auth/continue.php"
+      },
+      "file_path": "lab30-shop/app/public/auth/continue.php",
+      "evidence": [
+        {
+          "end_line": 4,
+          "evidence_id": "3d07985381125c49",
+          "path": "lab30-shop/app/public/auth/continue.php",
+          "range": {
+            "end": 4,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 36,
+          "evidence_id": "6220461f4c36cb1a",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 36,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        }
+      ],
+      "input_source": "$_GET['next']",
+      "propagation": "continue.php:3 isset($_GET['next']) -> 直接拼接进 Location 头",
+      "dangerous_operation": "header('Location: '.$_GET['next'])",
+      "protection": "无：未使用相对路径校验、parse_url 主机比对或允许列表",
+      "cvss": {
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "N",
+          "I": "L",
+          "PR": "N",
+          "S": "U",
+          "UI": "R"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "d5eedb8664a24e029b3279ca593c5f5b",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "订单创建信任客户端提交的 price，可任意低价下单",
+      "summary": "orders/create.php 第3行从 $_POST['price'] 取值，第4行只校验 $price===false 或 $price<0，第5行用 $total=round($price*$quantity,2)，第6-7行把该 price 写入 orders.unit_price 与 total。产品价格来自 $p 但从未用于计算，攻击者可提交 price=0 以零元下单并正常扣减库存。",
+      "category": "task_goal:v2:b3bb19544ab7521f4892:1",
+      "vulnerability_type": "price_manipulation",
+      "primary_location": {
+        "line": 5,
+        "path": "lab30-shop/app/public/orders/create.php"
+      },
+      "file_path": "lab30-shop/app/public/orders/create.php",
+      "evidence": [
+        {
+          "end_line": 7,
+          "evidence_id": "0665b79989f38035",
+          "path": "lab30-shop/app/public/orders/create.php",
+          "range": {
+            "end": 7,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        }
+      ],
+      "input_source": "POST 参数 price、quantity、product_id",
+      "propagation": "$_POST['price'] -> filter_var -> $price -> $total 及 INSERT unit_price/total",
+      "dangerous_operation": "INSERT orders 使用客户端价格作为成交单价与总额",
+      "protection": "仅校验非负与数量范围，无服务端价格重算；csrf 不防篡改",
+      "cvss": {
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "N",
+          "I": "H",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "7c8e155d6b5741d7be73c3dab2bc6a10",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "content/page.php 本地文件包含：未过滤 page 参数拼接 include 路径",
+      "summary": "$_GET['page'] 强制转 string 后直接拼接进 include 路径，仅添加 .php 后缀，未做 basename/白名单/realpath 约束。传 page=../../src/bootstrap 可包含 bootstrap；传 page=../../../../etc/passwd%00 在旧 PHP 可截断（8.4 不支持），主要用于读取应用源码与配置片段，泄露 DB 凭据等敏感信息。allow_url_include=On 使其在 include 路径被解释为 URL 时也可能升级为 RFI。",
+      "category": "task_goal:v2:42d65f63502f4ca2e157:1",
+      "vulnerability_type": "lfi",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/content/page.php"
+      },
+      "file_path": "lab30-shop/app/public/content/page.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "173f24f6297d9164",
+          "path": "lab30-shop/app/public/content/page.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 13,
+          "evidence_id": "38c5cad78d49b7f3",
+          "path": "lab30-shop/docker/php.ini",
+          "range": {
+            "end": 13,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        }
+      ],
+      "input_source": "GET /content/page.php?page= 参数",
+      "propagation": "page.php:2 取 $_GET['page'] -> page.php:3 include APP_ROOT.'/resources/views/'.$name.'.php'",
+      "dangerous_operation": "include 动态拼接路径",
+      "protection": "无 basename/白名单/realpath；open_basedir 未设置（php.ini 全文 13 行未见）",
+      "cvss": {
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "L",
+          "I": "N",
+          "PR": "N",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "5783491e92f4458082050a3863ac0095",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "会员报表 nickname 二次 SQL 注入（用户资料写入后未参数化拼接）",
+      "summary": "ops/report.php 第2行按 user_id 用占位符取出 nickname，第3行却把该 nickname 直接拼接进 `WHERE nickname='...'` 交给 db()->query() 执行，未做任何转义。nickname 可由任意登录用户在 account/update.php 第5-6行通过 POST nickname 写入（该处为参数化 UPDATE，仅存储，不做 SQL 转义），形成存储/二次注入。operator/admin 访问报表时，攻击者控制的 nickname 内容被当作 SQL 执行，可读出任意表数据。",
+      "category": "task_goal:v2:6ba26731387ec942fc48:1",
+      "vulnerability_type": "sqli",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/ops/report.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/report.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "667c91ac7c21aa66",
+          "path": "lab30-shop/app/public/ops/report.php",
+          "range": {
+            "end": 3,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        },
+        {
+          "end_line": 6,
+          "evidence_id": "ec18381d7af73d0f",
+          "path": "lab30-shop/app/public/account/update.php",
+          "range": {
+            "end": 6,
+            "start": 4
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 4
+        },
+        {
+          "end_line": 8,
+          "evidence_id": "85b2e45ff4e8d0eb",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 8,
+            "start": 4
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 4
+        }
+      ],
+      "input_source": "用户资料字段 nickname（POST 到 /account/update.php），再经 /ops/report.php?user_id=<id> 读出",
+      "propagation": "POST nickname -> UPDATE users 参数化写入 -> report.php:2 prepare 读取 $nickname -> report.php:3 字符串拼接 -> db()->query() 执行",
+      "dangerous_operation": "PDO::query() 执行包含用户可控 nickname 的 SQL",
+      "protection": "report.php 第2行只保护了 user_id；第3行对已存 nickname 无转义或占位符；h() 仅用于 HTML 输出，不用于 SQL",
+      "cvss": {
+        "base_score": 4.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "H",
+          "AV": "N",
+          "C": "H",
+          "I": "N",
+          "PR": "L",
+          "S": "U",
+          "UI": "R"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "5aff729ccaaa4480a9e526a947f58de9",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "xml-import.php 以 LIBXML_NOENT|LIBXML_DTDLOAD 解析用户 XML 造成 XXE 文件读取",
+      "summary": "xml-import.php:3 对 $_POST['xml'] 不做过滤即调用 simplexml_load_string 且带 LIBXML_NOENT|LIBXML_DTDLOAD，允许外部 DTD 与实体展开；结果 $doc->title 在第4行回显。check_csrf 可用自身 token 通过，不构成实质性防护。",
+      "category": "task_goal:v2:f43b5a14a0bf63b2514c:1",
+      "vulnerability_type": "xxe",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/ops/xml-import.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/xml-import.php",
+      "evidence": [
+        {
+          "end_line": 4,
+          "evidence_id": "c7321e7900aae64d",
+          "path": "lab30-shop/app/public/ops/xml-import.php",
+          "range": {
+            "end": 4,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        },
+        {
+          "end_line": 40,
+          "evidence_id": "4eba9252f833f919",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 40,
+            "start": 38
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 38
+        }
+      ],
+      "input_source": "POST 参数 xml（operator/admin 会话，附自身 csrf token）",
+      "propagation": "$_POST['xml'] -> (string) -> simplexml_load_string(...,LIBXML_NOENT|LIBXML_DTDLOAD) -> $doc->title -> h($output)",
+      "dangerous_operation": "simplexml_load_string 启用外部实体/DTD 加载",
+      "protection": "仅角色门禁与 CSRF 校验；未使用 LIBXML_NONET，也未拒绝 DOCTYPE/ENTITY",
+      "cvss": {
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "N",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "addbc91072b7478c8aa7d68521c49c73",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "auth/login.php 接受 sid 参数指定会话 ID，登录后不重建会话导致会话固定",
+      "summary": "login.php 第3行把请求参数 $_GET['sid'] 直接传给 start_session；start_session 在 bootstrap.php 第13行关闭 session.use_strict_mode，第17行对符合字符集校验的 sid 调用 session_id()，第18行 session_start() 启动该客户端指定会话。login.php 第7-8行认证成功后只写入 $_SESSION['user_id']，未调用 session_regenerate_id 更换会话 ID。攻击者可先构造 ?sid= 合法格式值的登录链接诱导受害者点击，受害者在同一会话上完成登录后，攻击者用相同 SID 访问即取得该已认证会话，实现身份劫持。",
+      "category": "task_goal:v2:2f38050d210129dece0f:1",
+      "vulnerability_type": "session_fixation",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/auth/login.php"
+      },
+      "file_path": "lab30-shop/app/public/auth/login.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "368b0f4121e7e402",
+          "path": "lab30-shop/app/public/auth/login.php",
+          "range": {
+            "end": 3,
+            "start": 3
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 3
+        },
+        {
+          "end_line": 8,
+          "evidence_id": "61badbb513a28357",
+          "path": "lab30-shop/app/public/auth/login.php",
+          "range": {
+            "end": 8,
+            "start": 7
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 7
+        },
+        {
+          "end_line": 13,
+          "evidence_id": "f9d2260d0bc587cf",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 13,
+            "start": 13
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 13
+        },
+        {
+          "end_line": 18,
+          "evidence_id": "d65d3e90c1e93168",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 18,
+            "start": 17
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 17
+        }
+      ],
+      "input_source": "HTTP GET 参数 sid、SHOPSESSID 会话 cookie",
+      "propagation": "$_GET['sid'] -> start_session($sid) -> session_id($sid) -> session_start(); 认证成功后写 $_SESSION['user_id'] 但无 session_regenerate_id",
+      "dangerous_operation": "以客户端提供的会话 ID 启动会话并在其上完成认证，未重建会话",
+      "protection": "第17行仅做字符集/长度正则校验，不防止攻击者自行选定并复用 ID；第13行显式关闭严格模式，服务端不拒绝未知 ID；第8行认证后无 regenerate。",
+      "cvss": {
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:L",
+        "metrics": {
+          "A": "L",
+          "AC": "H",
+          "AV": "N",
+          "C": "H",
+          "I": "H",
+          "PR": "N",
+          "S": "U",
+          "UI": "R"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "0e642f7c599c4d2a8a0e1973916b983b",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "运营远程模板预览将 GET template 直接 include 造成任意本地文件包含",
+      "summary": "GET template 被直接拼入 include，既接受相对/绝对本地路径，也接受 URL（默认值即 http://fixtures:8080/templates/season.php），无 basename、目录白名单或 realpath 前缀校验，operator/admin 会话即可包含任意本地文件，远程包含取决于 allow_url_include。",
+      "category": "task_goal:v2:476e08867647b189b3bb:1",
+      "vulnerability_type": "lfi",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/ops/template-preview.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/template-preview.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "5d596a817dad3c10",
+          "path": "lab30-shop/app/public/ops/template-preview.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 36,
+          "evidence_id": "6220461f4c36cb1a",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 36,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        }
+      ],
+      "input_source": "$_GET['template']",
+      "propagation": "$_GET['template'] -> $template -> include $template",
+      "dangerous_operation": "include 攻击者控制的文件路径或 URL",
+      "protection": "require_user(['operator','admin']) 仅检查角色，无路径白名单；check_csrf 不适用于 GET",
+      "cvss": {
+        "base_score": 7.6,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:L",
+        "metrics": {
+          "A": "L",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "L",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "755caa0a9ce04369bac0bc106f3406d2",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "account/profile.php 将 GET url 原样拼入 href，javascript: 伪协议反射型 XSS",
+      "summary": "profile.php 第2行从 $_GET['url'] 取值并回退到用户 homepage，第3行在 HTML 属性上下文 href=\"...\" 中直接 echo，未调用 h() 或任何协议校验。bootstrap.php:10 的 h() 只做 htmlspecialchars，且此处根本未使用；因此 url=javascript:alert(document.cookie) 会在用户点击“访问个人主页”链接时执行脚本。攻击者可控输入为 GET 参数，危险操作是未编码的属性值输出，触发前提是受害者已登录并点击该链接。",
+      "category": "task_goal:v2:cfeb2a6aeaedc767b469:1",
+      "vulnerability_type": "xss_r",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/account/profile.php"
+      },
+      "file_path": "lab30-shop/app/public/account/profile.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "4d94f1acccb7284b",
+          "path": "lab30-shop/app/public/account/profile.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 10,
+          "evidence_id": "5220b9ce518719f6",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 10,
+            "start": 10
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 10
+        },
+        {
+          "end_line": 60,
+          "evidence_id": "ae2713ba84d306b9",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 60,
+            "start": 47
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 47
+        }
+      ],
+      "input_source": "GET 参数 url（profile.php:2）",
+      "propagation": "$_GET['url'] → $url → page 回调闭包 → echo '<a id=\"profile-link\" href=\"'.$url.'\">'（profile.php:3）",
+      "dangerous_operation": "未编码/未校验协议即写入 href 属性的字符串输出",
+      "protection": "无：h() 仅用于 display_name，$url 未经 h()；且 htmlspecialchars 无法拦截 javascript: 伪协议",
+      "cvss": {
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "L",
+          "I": "L",
+          "PR": "N",
+          "S": "U",
+          "UI": "R"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "7d425e28404445b7b8301548aba889b1",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "任务导入 unserialize 用户数据触发 DispatchJob::__wakeup 的 shell_exec 命令执行",
+      "summary": "ops/jobs.php 对 base64_decode($_POST['job']) 直接 unserialize($raw)，instanceof DispatchJob 检查在反序列化之后才执行；src/dispatch_job.php:4 的 __wakeup 直接 echo shell_exec($this->command)，command 为公有属性。operator 提交构造的序列化对象即触发命令执行，输出经 ob_get_clean 回显并写入 jobs.details。仅有 CSRF 与角色校验，无 allowed_classes 白名单。",
+      "category": "task_goal:v2:5913069e68f029ade321:1",
+      "vulnerability_type": "insecure_deserialization",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/ops/jobs.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/jobs.php",
+      "evidence": [
+        {
+          "end_line": 5,
+          "evidence_id": "906cb4c8c458a208",
+          "path": "lab30-shop/app/public/ops/jobs.php",
+          "range": {
+            "end": 5,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 5,
+          "evidence_id": "4a4dd3de59c1de26",
+          "path": "lab30-shop/app/src/dispatch_job.php",
+          "range": {
+            "end": 5,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 40,
+          "evidence_id": "063c928d2d7c3b2e",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 40,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        }
+      ],
+      "input_source": "POST 参数 job（base64 序列化串）",
+      "propagation": "$_POST['job'] → base64_decode → unserialize → DispatchJob::__wakeup → shell_exec($this->command) → 回显/入库",
+      "dangerous_operation": "unserialize 不可信数据且 __wakeup 调用 shell_exec",
+      "protection": "check_csrf 与 require_user；instanceof 在 unserialize 之后，无 allowed_classes 或签名",
+      "cvss": {
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "A": "H",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "H",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "fe228c9b642d456694f9b45fb29d5e92",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "support/download.php 直接拼接 $_GET['file'] 到文档目录，导致任意文件读取",
+      "summary": "download.php 第3行将 $_GET['file'] 原样拼接为 data_dir().'/docs/'.$file，仅用 is_file 判断后 file_get_contents 并作为响应体回显。没有 basename、realpath、白名单或目录前缀校验，'../../' 等序列可穿越到 docs 之外读取任意可读文件。",
+      "category": "task_goal:v2:6bb8807e9f1f18ba49f8:1",
+      "vulnerability_type": "path_traversal",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/support/download.php"
+      },
+      "file_path": "lab30-shop/app/public/support/download.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "10c0c8123072e718",
+          "path": "lab30-shop/app/public/support/download.php",
+          "range": {
+            "end": 3,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        },
+        {
+          "end_line": 9,
+          "evidence_id": "f5faf41dff9a5a91",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 9,
+            "start": 9
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 9
+        }
+      ],
+      "input_source": "$_GET['file']",
+      "propagation": "$_GET['file'] -> data_dir().'/docs/'.$_GET['file'] -> is_file -> file_get_contents -> echo",
+      "dangerous_operation": "file_get_contents 读取并输出 attacker 指定路径文件",
+      "protection": "仅有 is_file 存在性检查，无路径规范化或白名单",
+      "cvss": {
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "N",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "eac118f98bf744b498228eacf22fd396",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "商品目录搜索 q 参数直接拼接进 LIKE 查询（反射型 SQL 注入）",
+      "summary": "catalog/index.php 第3行将 $_GET['q'] 强制转字符串后，第4行通过字符串拼接构造 `name LIKE '%...%'` 并交给 db()->query()。db() 返回的 PDO 虽设置 EMULATE_PREPARES=false，但此处未使用 prepare/占位符，用户输入直接作为 SQL 文本执行，任何无需登录的访问者可用单引号闭合 LIKE 条件并追加任意 SQL（UNION/布尔/时间盲注），读取 products 之外的表（如 users.password_md5、settings）。",
+      "category": "task_goal:v2:b1dc7a19dc7bc5a308c6:1",
+      "vulnerability_type": "sqli",
+      "primary_location": {
+        "line": 4,
+        "path": "lab30-shop/app/public/catalog/index.php"
+      },
+      "file_path": "lab30-shop/app/public/catalog/index.php",
+      "evidence": [
+        {
+          "end_line": 4,
+          "evidence_id": "9af2d828eb658d25",
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "range": {
+            "end": 4,
+            "start": 3
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 3
+        },
+        {
+          "end_line": 8,
+          "evidence_id": "85b2e45ff4e8d0eb",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 8,
+            "start": 4
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 4
+        }
+      ],
+      "input_source": "HTTP GET 参数 q（$_GET['q']）",
+      "propagation": "$_GET['q'] -> $term -> 字符串拼接进 \"SELECT ... WHERE name LIKE '%\".$term.\"%'\" -> db()->query() 执行",
+      "dangerous_operation": "PDO::query() 执行拼接后的 SQL",
+      "protection": "无：db() 仅创建 PDO（bootstrap.php:4-8），查询未参数化，EMULATE_PREPARES=false 对 query() 无约束作用",
+      "cvss": {
+        "base_score": 8.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "L",
+          "PR": "N",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "2aad233871a24c91a491d81b3fea08ac",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "运营主机巡检 host 参数未过滤直接拼接 shell_exec 造成命令注入",
+      "summary": "ops/ping.php 读取 $_GET['host'] 后原样拼进 'ping -c 1 -W 1 '.$host 交给 shell_exec；ops/batch-check.php 经 host_check() 走同一路径（src/host_check.php:2 拼接 shell_exec）。仅有 require_user(['operator','admin']) 角色校验，无 escapeshellarg、无 host 白名单，提交 host=127.0.0.1;id 即可执行任意系统命令，输出回显到页面 pre。",
+      "category": "task_goal:v2:ffef75757a975b32ab0a:1",
+      "vulnerability_type": "command_injection",
+      "primary_location": {
+        "line": 2,
+        "path": "lab30-shop/app/public/ops/ping.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/ping.php",
+      "evidence": [
+        {
+          "end_line": 3,
+          "evidence_id": "61f200eb89320676",
+          "path": "lab30-shop/app/public/ops/ping.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 3,
+          "evidence_id": "a41ee4811beeaf1b",
+          "path": "lab30-shop/app/public/ops/batch-check.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 2,
+          "evidence_id": "65fc5323ae7c9b98",
+          "path": "lab30-shop/app/src/host_check.php",
+          "range": {
+            "end": 2,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 3,
+          "evidence_id": "49cfe6a3eb14f7dd",
+          "path": "lab30-shop/app/public/ops/index.php",
+          "range": {
+            "end": 3,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 36,
+          "evidence_id": "6220461f4c36cb1a",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 36,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        }
+      ],
+      "input_source": "GET 参数 host（/ops/ping.php 与 /ops/batch-check.php）",
+      "propagation": "$_GET['host'] → (string) → 拼接 'ping -c 1 -W 1 '.$host → shell_exec() → h() 回显",
+      "dangerous_operation": "shell_exec 执行含攻击者可控片段的系统命令",
+      "protection": "仅 require_user 角色校验；无 escapeshellarg、无正则白名单、无分隔符过滤",
+      "cvss": {
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "A": "H",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "H",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "7d557370dabe4a41ba0c681deb30a0a1",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "运营模板渲染将 {{...}} 表达式直接传入 eval 造成代码执行",
+      "summary": "POST template 在 POST 分支经 csrf 校验后被 preg_replace_callback 提取双花括号内容，直接作为 'return '.$m[1].';' 传给 eval，未做表达式白名单或语法限制，任何 operator/admin 会话即可执行任意 PHP 表达式。",
+      "category": "task_goal:v2:746bdbf702dde1755381:1",
+      "vulnerability_type": "code_execution",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/ops/template-render.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/template-render.php",
+      "evidence": [
+        {
+          "end_line": 4,
+          "evidence_id": "136d02a92a08ac98",
+          "path": "lab30-shop/app/public/ops/template-render.php",
+          "range": {
+            "end": 4,
+            "start": 1
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 1
+        },
+        {
+          "end_line": 40,
+          "evidence_id": "063c928d2d7c3b2e",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 40,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        }
+      ],
+      "input_source": "$_POST['template']",
+      "propagation": "$_POST['template'] -> preg_replace_callback 回调参数 $m[1] -> eval('return '.$m[1].';')",
+      "dangerous_operation": "eval() 执行攻击者控制的 PHP 表达式",
+      "protection": "require_user(['operator','admin']) 与 check_csrf 仅限制角色与请求来源，不限制表达式内容",
+      "cvss": {
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "A": "H",
+          "AC": "L",
+          "AV": "N",
+          "C": "H",
+          "I": "H",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "high",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "cbc0430810e6455eabc064331bd9a754",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "high"
+    },
+    {
+      "title": "运营 URL 预览 GET url 直接交给 file_get_contents 造成 SSRF",
+      "summary": "url-preview.php:2 把 $_GET['url'] 直接转字符串，无协议/主机白名单或内网校验；第3行将其传入 file_get_contents，结果在第4行 h($output) 回显。仅 follow_location=0 与 4 秒超时，不阻止访问回环/内网/元数据地址或其它流包装器。",
+      "category": "task_goal:v2:6f5dea7a01836b51c013:1",
+      "vulnerability_type": "ssrf",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/ops/url-preview.php"
+      },
+      "file_path": "lab30-shop/app/public/ops/url-preview.php",
+      "evidence": [
+        {
+          "end_line": 4,
+          "evidence_id": "17e1cacfb5189678",
+          "path": "lab30-shop/app/public/ops/url-preview.php",
+          "range": {
+            "end": 4,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        },
+        {
+          "end_line": 36,
+          "evidence_id": "6220461f4c36cb1a",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "range": {
+            "end": 36,
+            "start": 33
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 33
+        }
+      ],
+      "input_source": "GET 参数 url（operator/admin 会话）",
+      "propagation": "$_GET['url'] -> (string) -> $url -> file_get_contents($url,...) -> $value -> h($output) 输出到 <pre>",
+      "dangerous_operation": "file_get_contents 以攻击者控制的 URL 发起服务端请求",
+      "protection": "仅 require_user 角色门禁与超时/不跟随跳转；无协议白名单、私网/回环过滤或解析后 IP 校验",
+      "cvss": {
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "L",
+          "AV": "N",
+          "C": "L",
+          "I": "N",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "medium",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "bc328ee5aef640c58a4a4f22afe0015e",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "medium"
+    },
+    {
+      "title": "account/redeem.php 使用 == 比较 MD5，弱类型绕过兑换码免费升级金卡",
+      "summary": "redeem.php 第 4 行 $secret_hash=md5('240610708') 得到 0e462097431906509019562988736854，第 5 行判断 md5((string)$_POST['token'])==$secret_hash 使用宽松比较；当提交的 token 其 MD5 以 0e 开头且后续全为数字（如某些已知魔法值）时，两侧都被当作 0 而相等，无需知道真实兑换码即可通过并执行 UPDATE users SET tier='gold'。",
+      "category": "task_goal:v2:90b9012355422c577bd5:1",
+      "vulnerability_type": "weak_type_comparison",
+      "primary_location": {
+        "line": 5,
+        "path": "lab30-shop/app/public/account/redeem.php"
+      },
+      "file_path": "lab30-shop/app/public/account/redeem.php",
+      "evidence": [
+        {
+          "end_line": 6,
+          "evidence_id": "80ea2098674d64d9",
+          "path": "lab30-shop/app/public/account/redeem.php",
+          "range": {
+            "end": 6,
+            "start": 2
+          },
+          "snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+          "start_line": 2
+        }
+      ],
+      "input_source": "POST 字段 token",
+      "propagation": "$_POST['token'] -> md5() -> == 与 0e 前缀哈希宽松比较 -> 真分支 -> UPDATE users SET tier='gold'",
+      "dangerous_operation": "UPDATE users SET tier='gold' WHERE id=<当前用户>",
+      "protection": "check_csrf 仅防跨站；比较使用 == 而非 hash_equals/===，弱类型可绕过",
+      "cvss": {
+        "base_score": 3.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "A": "N",
+          "AC": "H",
+          "AV": "N",
+          "C": "N",
+          "I": "L",
+          "PR": "L",
+          "S": "U",
+          "UI": "N"
+        },
+        "score_basis": "Base",
+        "severity": "low",
+        "version": "3.1"
+      },
+      "validation_errors": [],
+      "id": "5a0a00576fa249cfb5ad3466c54cf27f",
+      "finding_kind": "vulnerability",
+      "disposition": "standing",
+      "severity": "low"
+    }
+  ]
+}

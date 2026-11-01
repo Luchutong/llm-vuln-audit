@@ -12,7 +12,7 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 from ui_fixtures import COMPLETED_ID, LEDGER_ID, STAMP, event, sources_api, verification_record
-from ui_smoke import Checks, goto, no_overflow, open_logs, save
+from ui_smoke import expand_process, close_dialog, Checks, goto, no_overflow, open_logs, save
 
 
 def diagnostic_events():
@@ -48,6 +48,7 @@ def diagnostic_events():
 
 def run_checks(page, base, api, checks, screenshots):
     goto(page, base, f"#run/{COMPLETED_ID}")
+    page.get_by_role('button', name='审计详情', exact=True).click()
     workflow = page.get_by_role("region", name="执行预算与验证策略")
     expect(workflow).to_contain_text("当前阶段：POC 验证")
     expect(workflow.locator('[data-stage="discovery"]')).to_contain_text("已用 142 / 配额 142")
@@ -63,7 +64,7 @@ def run_checks(page, base, api, checks, screenshots):
     for theme in ("dark", "light"):
         page.set_viewport_size({"width": 1440, "height": 900})
         if page.locator("html").get_attribute("data-theme") != theme:
-            page.get_by_role("button", name=f"切换{'深' if theme == 'dark' else '浅'}色主题", exact=True).click()
+            page.evaluate("theme => { document.documentElement.dataset.theme = theme; }", theme)
         for width in (1440, 1024, 768, 390):
             page.set_viewport_size({"width": width, "height": 900})
             workflow.scroll_into_view_if_needed()
@@ -72,7 +73,8 @@ def run_checks(page, base, api, checks, screenshots):
             if screenshots:
                 page.screenshot(path=str(screenshots / f"audit-workflow-{theme}-{width}.png"), animations="disabled")
     page.set_viewport_size({"width": 1440, "height": 900})
-    summary = page.locator(".activity-stream .agent-diagnostics")
+    page.get_by_role("tab", name="执行日志", exact=True).click()
+    summary = page.locator(".agent-diagnostics")
     expect(summary).to_contain_text("2 次异常请求 · 2 次已恢复")
     summary.get_by_role("button", name="错误与恢复", exact=False).click()
     expect(summary.locator(".diagnostic-counts")).to_contain_text("Worker · 源码审计")
@@ -81,6 +83,10 @@ def run_checks(page, base, api, checks, screenshots):
     expect(summary).to_contain_text("请提交完整的循环体")
     checks.passed("full-history incidents deduplicate nested errors and retain inspectable recovery evidence")
 
+    close_dialog(page)
+    expand_process(page)
+    for summary in page.locator(".activity-message-details > summary").all():
+        summary.click()
     script = page.locator('.activity-tool[data-tool="run_poc"]')
     expect(script).to_have_attribute("data-status", "warning")
     expect(script).to_contain_text("脚本执行失败 · 退出码 2")
@@ -138,7 +144,7 @@ def run_checks(page, base, api, checks, screenshots):
     for theme in ("dark", "light"):
         page.set_viewport_size({"width": 1440, "height": 900})
         if page.locator("html").get_attribute("data-theme") != theme:
-            page.get_by_role("button", name=f"切换{'深' if theme == 'dark' else '浅'}色主题", exact=True).click()
+            page.evaluate("theme => { document.documentElement.dataset.theme = theme; }", theme)
         for width in (1440, 1024, 768, 390):
             page.set_viewport_size({"width": width, "height": 900})
             no_overflow(page, f"verification diagnostics {theme} {width}", checks)
@@ -180,8 +186,8 @@ def run_checks(page, base, api, checks, screenshots):
     ])
     page.set_viewport_size({"width": 1440, "height": 900})
     goto(page, base, f"#run/{COMPLETED_ID}")
-    expect(page.locator(".activity-stream .agent-diagnostics")).to_contain_text("4 次异常请求 · 4 次已恢复")
     dialog = open_logs(page)
+    expect(dialog.locator(".agent-diagnostics")).to_contain_text("4 次异常请求 · 4 次已恢复")
     dialog.get_by_role("button", name="筛选轨迹", exact=False).click()
     kind = dialog.get_by_role("combobox", name="按事件类型筛选轨迹", exact=True)
     kind.select_option("model_response")
@@ -202,6 +208,7 @@ def run_checks(page, base, api, checks, screenshots):
     api.runs[COMPLETED_ID]["task_spec"].pop("workflow_policy")
     goto(page, base, f"#run/{COMPLETED_ID}")
     page.reload()
+    page.get_by_role('button', name='任务要求与策略', exact=True).click()
     expect(page.get_by_label("已冻结的审计策略", exact=True)).to_contain_text("共享预算调度（旧政策）")
     expect(page.get_by_label("阶段配额与未决事项", exact=True)).to_have_count(0)
     checks.passed("historical runs keep legacy scheduling labels and do not invent stage consumption")

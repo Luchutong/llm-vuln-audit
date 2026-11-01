@@ -825,7 +825,10 @@ def build_verification_records(list_verifications, findings: list[dict]) -> list
         })
     return records
 
-class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
+from .risk_coverage import RiskCoverageMixin
+
+
+class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def __init__(self, path: Path | str):
         self.path = str(path)
         self._lock = threading.RLock()
@@ -877,6 +880,7 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
             "max_total_attempts": f"INTEGER NOT NULL DEFAULT {DEFAULT_TASK_MAX_TOTAL_ATTEMPTS}"
         },
         "findings": {
+            "audit_metadata": "TEXT NOT NULL DEFAULT '{}'",
             "vulnerability_type": "TEXT NOT NULL DEFAULT ''",
             "primary_location": "TEXT NOT NULL DEFAULT '{}'",
             "finding_kind": "TEXT NOT NULL DEFAULT ''",
@@ -3347,6 +3351,8 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
             "directions": self.audit_direction_summary(run_id),
             "review_batch": self.active_review_batch(run_id) if self.batch_review_enabled(run_id) else None,
             "coverage_review": self.coverage_review(run_id, project_map),
+            "audit_focus": (run.get("task_spec") or {}).get("audit_focus"),
+            "risk_obligations": self.list_risk_obligations(run_id, limit=12),
             "duplicate_candidates": [_loads(row["payload"], {}) for row in reversed(self._rows(
                 "SELECT payload FROM events WHERE run_id=? AND kind='finding_duplicate_candidate' ORDER BY id DESC LIMIT 20", (run_id,)))],
             # What the round must not redo: conclusions already in the database, and
@@ -3783,11 +3789,17 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
                     if unknown or task_key in deps:
                         raise ValueError(f"Planner task dependencies are invalid for {task_key}")
                     context_spec = {
+                        "objective_ref": task.get("objective_ref") or "objective-main",
+                        "obligation_ids": task.get("obligation_ids") or [],
                         "source_refs": task.get("source_refs") or [],
                         "scope_paths": task.get("scope_paths") or [],
                         "target_symbols": task.get("target_symbols") or [],
                         "query_hints": task.get("query_hints") or [],
                     }
+                    if context_spec["obligation_ids"]:
+                        known_obligations = {o["id"] for o in ((self.get_run(run_id) or {}).get("task_spec") or {}).get("risk_obligation_set", {}).get("items", [])}
+                        if set(context_spec["obligation_ids"]) - known_obligations:
+                            raise ValueError("任务引用了不属于本运行的风险义务")
                     if self.discovery_first(run_id):
                         context_spec["direction_ids"] = list(task.get("direction_ids") or [])
                     prior = existing.get(task_key)
@@ -4261,6 +4273,20 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
                                 f"仍有 {len(unreviewed)} 条已验证结论未经 Planner 比对核实，"
                                 f"不能以此收束：{listing}"
                             )
+                    from .capability import enabled, focus_summary
+                    frozen_run = self.get_run(run_id) or {}
+                    if enabled(frozen_run):
+                        from .final_review import canonical_groups
+                        reviewed, _ = canonical_groups(self.attach_final_decisions(run_id, self.list_findings(run_id)))
+                        related = focus_summary(reviewed)
+                        if not related["complete"] or not related["goal_supporting_ids"]:
+                            raise ValueError("用户目标尚无独立终审接受的 relevant 结论，或相关性仍待判定；附带发现/辅助链不能单独达成目标")
+                        if require_verified and not any(e["canonical_id"] in related["goal_supporting_ids"] and
+                                self.compatible_verified_finding(frozen_run, self.get_finding(e["current_claim_ref"]["finding_id"]) or {}) for e in reviewed):
+                            raise ValueError("required 模式至少需要一条目标相关、源码/修订/目标兼容的动态验证")
+                        risk = self.risk_coverage(run_id)
+                        if risk and not risk["complete"]:
+                            raise ValueError("目标相关风险义务尚未结算，不能标记完整完成")
                     # Scenario runs are "find every reachable instance of one class".  A
                     # standing finding is necessary but not sufficient: the run may not
                     # report completion until the whole frontier is settled and nothing is
@@ -4340,6 +4366,12 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
     # --- findings ----------------------------------------------------------
 
     def _insert_finding(self, finding: dict) -> dict:
+        result = self._insert_finding_content(finding)
+        metadata = {key: finding[key] for key in ("focus", "dataflow", "retest", "capability_policy") if finding.get(key)}
+        self._db.execute("UPDATE findings SET audit_metadata=? WHERE id=?", (_dumps(metadata), result["finding_id"]))
+        return result
+
+    def _insert_finding_content(self, finding: dict) -> dict:
         """Write one conclusion into its slot.
 
         Returns ``{"action": "created"|"superseded", "finding_id": ..., "revision": n}``.
@@ -4366,7 +4398,7 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
             current = self._finding_dict(existing)
             unchanged = (self._project_content_signature(current) == self._project_content_signature(finding)
                          and all(current.get(key) == finding.get(key) for key in
-                                 ("title", "summary", "finding_kind", "validation_state", "poc", "remediation")))
+                                 ("title", "summary", "finding_kind", "validation_state", "poc", "remediation", "focus", "dataflow", "retest")))
             rating_changed = (current.get("cvss") != finding.get("cvss") or
                               (current.get("cvss_assessment") or {}).get("metric_details") !=
                               finding["cvss_assessment"].get("metric_details"))
@@ -4438,6 +4470,7 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
             "disposition_reason": existing["disposition_reason"],
             "disposition_by": existing["disposition_by"],
             "replaced_at": now(),
+            "audit_metadata": _loads(existing["audit_metadata"], {}),
         })
         self._db.execute(
             "UPDATE findings SET fingerprint = ?, finding_kind = ?, title = ?, severity = ?, summary = ?,"
@@ -4556,6 +4589,7 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
 
     def _finding_dict(self, row: sqlite3.Row) -> dict:
         finding = decode_rating(dict(row))
+        finding.update(_loads(finding.pop("audit_metadata", None), {}))
         for name in ("evidence", "preconditions", "missing_context", "validation_errors", "superseded_summary"):
             finding[name] = _loads(finding.get(name), [])
         finding["primary_location"] = _loads(finding.get("primary_location"), {})
@@ -5344,6 +5378,10 @@ class Store(ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssS
     # ``verifications`` is not in this list: it keys off ``finding_id``, which we
     # collect first so the IN-clause is explicit.
     _RUN_CASCADE_TABLES: tuple[tuple[str, str], ...] = (
+        ("derived_run_reports", "run_id"),
+        ("frozen_run_reports", "run_id"),
+        ("audit_review_items", "run_id"),
+        ("audit_review_batches", "run_id"),
         ("run_execution_state", "run_id"),
         ("poc_attempts", "run_id"),
         ("poc_verification_jobs", "run_id"),

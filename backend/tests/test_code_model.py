@@ -102,7 +102,10 @@ def test_the_history_cap_counts_the_request_being_made():
 
 def test_a_long_history_is_summarized_so_the_phase_can_continue():
     """Aged steps are replaced by one host summary instead of ending the phase."""
-    policy = AgentPolicy(history_bytes=34_000, history_keep_steps=2,
+    # Calibrate the window against the actual tool contract, rather than tying a
+    # history test to a particular registry's documentation byte count.
+    probe = Phase(Host({}), specs=PLANNER_TOOLS, output_model=Answer).play([final_answer({"note": "probe"})])
+    policy = AgentPolicy(history_bytes=request_bytes(probe.model.requests[0]) + 6000, history_keep_steps=2,
                          history_summary_bytes=512, history_summary_responses=3)
     host = Host({"read_source": "x" * 900}, policy=policy,
                 budgets={"responses": 16, "tools": 32, "seconds": 600})
@@ -171,7 +174,8 @@ def test_a_summary_is_never_bought_with_the_phase_last_response():
 
 
 def test_the_summary_call_has_its_own_output_budget_and_does_not_recurse():
-    policy = AgentPolicy(history_bytes=34_000, history_keep_steps=2, history_summary_bytes=512)
+    probe = Phase(Host({}), specs=PLANNER_TOOLS, output_model=Answer).play([final_answer({"note": "probe"})])
+    policy = AgentPolicy(history_bytes=request_bytes(probe.model.requests[0]) + 6000, history_keep_steps=2, history_summary_bytes=512)
     host = Host({"read_source": "x" * 900}, policy=policy,
                 budgets={"responses": 16, "tools": 32, "seconds": 600})
     steps = [call("read_source", path=f"f{index}.php", start=1, end=1) for index in range(6)]

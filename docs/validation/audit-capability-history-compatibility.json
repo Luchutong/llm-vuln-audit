@@ -1,0 +1,66 @@
+{
+  "schema_version": "history-report-compatibility/v1",
+  "date": "2026-11-01",
+  "baseline": "main@7a467bd plus working-tree changes",
+  "source_database": "data/audit.db, read-only backup; original database never opened for writing",
+  "initial_full_scan": {
+    "source_database_open_mode": "read_only",
+    "output_directory": "/tmp/vuln-audit-history-check-acqbew9p",
+    "tables_checked": 36,
+    "changed_original_tables": [
+      "frozen_run_reports"
+    ],
+    "new_tables": [
+      "derived_run_reports"
+    ],
+    "new_columns": {},
+    "frozen_runs_checked": 22,
+    "individual_reports_checked": 445,
+    "ledger_source_checks": 445,
+    "http_requests": 1599,
+    "failures": [],
+    "seconds": 533.69,
+    "no_lifespan_worker_or_model_started": true,
+    "outbound_socket_connections": "forbidden",
+    "mutable_source_access": "forbidden"
+  },
+  "initial_scan_result": "failed: source listing materialized one previously unrendered historical report (e6695678) in the isolated copy",
+  "fix": "New delivery exports and ledger report source listing read Store.frozen_report directly; archive/final-review compatibility paths retain their prior behavior.",
+  "after_fix_command": "uv run --project backend python scripts/check_frozen_report_compatibility.py --skip-individual-exports",
+  "after_fix": {
+    "source_database_open_mode": "read_only",
+    "output_directory": "/tmp/vuln-audit-history-check-11frjs_0",
+    "tables_checked": 36,
+    "changed_original_tables": [],
+    "new_tables": [
+      "derived_run_reports"
+    ],
+    "new_columns": {},
+    "frozen_runs_checked": 22,
+    "unmaterialized_frozen_runs": [
+      "e6695678"
+    ],
+    "individual_exports_skipped": true,
+    "individual_reports_checked": 0,
+    "ledger_source_checks": 445,
+    "unique_ledger_source_requests": 152,
+    "http_requests": 417,
+    "failures": [],
+    "seconds": 108.28,
+    "no_lifespan_worker_or_model_started": true,
+    "outbound_socket_connections": "forbidden",
+    "mutable_source_access": "forbidden"
+  },
+  "scope_notes": [
+    "Initial full scan verified JSON and ZIP scope for 445 individual frozen claims across 22 runs; these are not 445 distinct project vulnerabilities.",
+    "After-fix check regenerated whole-run artifacts and rechecked 445 associations through 152 unique ledger source requests. Individual artifacts were not regenerated again because the fix does not change their renderer.",
+    "The unmaterialized historical row remains unchanged; new delivery export explicitly returns 409 instead of creating its missing facts.",
+    "All outbound socket connections and mutable source reads were forbidden. No lifespan, scheduler, audit model, or runner was started."
+  ],
+  "regression": {
+    "backend_report_tests_passed": 49,
+    "frontend_tests_passed": 125,
+    "frontend_build": "passed",
+    "mock_browser_report_checks_passed": 14
+  }
+}

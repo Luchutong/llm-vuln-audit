@@ -366,6 +366,12 @@ def build_final_review(
         decided = {item["item_id"] for item in batch["decisions"]}
         batch["unresolved_items"] = [item["item_id"] for item in batch["item_refs"] if item["item_id"] not in decided]
     facts["run_outcome"] = _run_outcome(run, coverage)
+    from .capability import enabled, outcome
+    if enabled(run):
+        facts["schema_version"] = "final-review/v2"
+        facts["audit_focus"] = (run.get("task_spec") or {}).get("audit_focus")
+        facts["risk_obligations"] = bundle.get("risk_obligations")
+        facts["run_outcome"] = outcome(run, coverage, canonical, risk=bundle.get("risk_obligations"))
     facts["advisory_directions"] = [
         {key: direction.get(key) for key in ("id", "text", "paths", "state", "origin_task_key")}
         for task in bundle.get("tasks") or []
@@ -374,6 +380,8 @@ def build_final_review(
     ]
     facts["evidence_stats"] = _evidence_stats(canonical)
     facts["provenance"] = _provenance(run, bundle.get("snapshot") or {}, facts)
+    if enabled(run):
+        facts["provenance"]["schema_version"] = facts["schema_version"]
     if bundle.get("frozen_input_hash"):
         facts["provenance"]["input_hash"] = bundle["frozen_input_hash"]
         facts["provenance"]["immutable"] = True

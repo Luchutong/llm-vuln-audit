@@ -62,6 +62,19 @@ def workspace_ready(page: Page) -> None:
     expect(page.get_by_role("button", name="开始审计", exact=True)).to_be_enabled()
 
 
+def open_more(page: Page) -> None:
+    menu = page.locator('.run-more')
+    if menu.get_attribute('open') is None:
+        menu.locator('summary').click()
+
+
+def expand_process(page: Page) -> None:
+    # Routine operations are intentionally collapsed in the conversation.
+    collapsed = page.locator('.activity-process-group > button[aria-expanded="false"]')
+    while collapsed.count():
+        collapsed.first.click()
+
+
 def open_findings(page: Page) -> Any:
     page.get_by_role("button", name="审计详情", exact=True).click()
     dialog = page.get_by_role("dialog", name="审计详情", exact=True)
@@ -181,7 +194,9 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     checks.passed("failed create preserves selected ZIP and goal; duplicate submission is locked")
     page.get_by_role("button", name="开始审计", exact=True).click()
     expect(page).to_have_url(re.compile(f"#run/{CREATED_ID}$"))
+    open_more(page)
     expect(page.get_by_role("button", name="停止审计", exact=True)).to_be_visible()
+    page.locator(".run-more > summary").click()
     expect(page.locator(".activity-stream")).to_be_visible()
     expect(page.locator(".trace")).to_have_count(0)
     open_logs(page)
@@ -200,6 +215,7 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     expect(page.locator(".conversation-meta")).to_contain_text("审计中")
     assert api.pause_count == api.resume_count == 1 and api.create_count == 2
     checks.passed("pause and resume retain one running audit")
+    open_more(page)
     page.get_by_role("button", name="停止审计", exact=True).click()
     expect(page.locator(".conversation-meta")).to_contain_text("已取消")
     page.reload(wait_until="domcontentloaded")
@@ -228,8 +244,8 @@ def run_mock(page: Page, base: str, api: MockAPI, checks: Checks, directory: Pat
     dialog = page.get_by_role("dialog", name="审计详情", exact=True)
     dialog.get_by_role("tab", name="结果报告", exact=True).click()
     expect(dialog.get_by_role("region", name="项目级审计报告", exact=True)).to_be_visible()
-    expect(dialog.get_by_role("link", name="证据包", exact=True)).to_have_attribute("href", f"/api/runs/{COMPLETED_ID}/report?format=zip")
-    expect(dialog.get_by_role("link", name="JSON", exact=True)).to_have_attribute("href", f"/api/runs/{COMPLETED_ID}/report?format=json")
+    expect(dialog.get_by_role("button", name="下载审计报告 zip", exact=True)).to_be_visible()
+    expect(dialog.get_by_role("button", name="下载审计报告 json", exact=True)).to_be_visible()
     checks.passed("audit report and evidence download links remain accessible")
     responsive(page, checks, "report-drawer", directory)
     close_dialog(page)
@@ -368,7 +384,7 @@ def run_status_regressions(page: Page, base: str, api: MockAPI, checks: Checks) 
     observed = api.findings[COMPLETED_ID]
     observed["disposition"] = "retracted"
     goto(page, base, f"#run/{COMPLETED_ID}")
-    expect(page.locator(".result-card")).to_contain_text("其中 0 项仍被本次运行主张")
+    expect(page.locator(".result-card")).to_contain_text("终审接受数量暂无数据")
     page.get_by_role("button", name="审计详情", exact=True).click()
     summary = page.get_by_role("dialog", name="审计详情").locator(".stat").filter(has=page.get_by_text("有效漏洞候选", exact=True))
     expect(summary.locator(".stat-value")).to_have_text("0")
@@ -377,7 +393,9 @@ def run_status_regressions(page: Page, base: str, api: MockAPI, checks: Checks) 
     close_dialog(page)
     observed["disposition"] = "contested"
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator(".result-card")).to_contain_text("其中 1 项仍被本次运行主张")
+    dialog = open_findings(page)
+    expect(dialog.locator('.finding-layout')).to_contain_text(observed['title'])
+    close_dialog(page)
     checks.passed("contested claims retain their independent evidence and human-review states")
     observed["disposition"] = "open"
 
@@ -389,7 +407,10 @@ def run_status_regressions(page: Page, base: str, api: MockAPI, checks: Checks) 
     api.findings[failed_id] = copy.deepcopy(observed)
     api.findings[failed_id].update(id=f"finding-{failed_id}", run_id=failed_id)
     goto(page, base, f"#run/{failed_id}")
-    expect(page.get_by_role("alert")).to_contain_text("MOCK_WORKER_RUNTIME_ERROR")
+    expect(page.get_by_role("alert")).to_contain_text("审计执行遇到异常")
+    page.get_by_role('button', name='查看错误详情', exact=True).click()
+    expect(page.get_by_role('dialog')).to_be_visible()
+    close_dialog(page)
     expect(page.locator(".result-card")).to_contain_text("已定位源码证据")
     checks.passed("run errors remain visible alongside a persisted goal terminal reason")
 
@@ -401,14 +422,13 @@ def run_result_classification_checks(page: Page, base: str, api: MockAPI, checks
     observed = api.findings[COMPLETED_ID]
     observed.update(severity="low", disposition="open", verdict="confirmed")
     goto(page, base, f"#run/{COMPLETED_ID}")
-    expect(page.locator(".result-finding")).to_have_count(1)
     if page.get_by_role("button", name="切换深色主题", exact=True).count():
         page.get_by_role("button", name="切换深色主题", exact=True).click()
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
-    expect(page.locator(".result-finding")).to_contain_text("历史等级 低危 · 未量化")
-    expect(page.locator(".result-card")).to_contain_text("另有 2 条排查记录，不计为漏洞")
+    expect(page.locator(".result-card")).to_contain_text("终审接受数量暂无数据")
     dialog = open_findings(page)
     expect(dialog.locator(".finding-layout")).to_contain_text(observed["title"])
+    expect(dialog.locator(".finding-layout")).to_contain_text("历史等级 低危 · 未量化")
     expect(dialog.locator(".finding-layout")).not_to_contain_text("上传路径已规范化")
     checks.passed("real low-severity vulnerabilities remain candidates while safe observations are separate")
 
@@ -460,9 +480,7 @@ def run_result_classification_checks(page: Page, base: str, api: MockAPI, checks
     fact.update(severity="high", finding_kind="data_flow")
     api.detail_overrides[COMPLETED_ID] = {"findings": [copy.deepcopy(observed), fact], "source_observations": []}
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator(".result-card")).to_contain_text("共保存 1 项漏洞候选")
-    expect(page.locator(".result-card")).to_contain_text("另有 1 条排查记录")
-    expect(page.locator(".result-finding")).to_have_count(1)
+    expect(page.locator(".result-card")).to_contain_text("终审接受数量暂无数据")
     page.get_by_role("button", name="审计详情", exact=True).click()
     summary = page.get_by_role("dialog", name="审计详情").locator(".stat").filter(has=page.get_by_text("有效漏洞候选", exact=True))
     expect(summary.locator(".stat-value")).to_have_text("1")
@@ -471,10 +489,9 @@ def run_result_classification_checks(page: Page, base: str, api: MockAPI, checks
 
     api.detail_overrides[COMPLETED_ID] = {"findings": [fact], "source_observations": []}
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator(".result-card")).to_contain_text("共保存 0 项漏洞候选")
-    expect(page.locator(".result-card")).to_contain_text("历史任务状态沿用原判定")
+    expect(page.locator(".result-card")).to_contain_text("历史执行结果")
     expect(page.locator(".result-finding")).to_have_count(0)
-    expect(page.locator(".conversation-meta")).to_contain_text("目标已达成")
+    expect(page.locator(".conversation-meta")).to_contain_text("执行已结束")
     dialog = open_findings(page)
     expect(dialog.locator(".finding-layout")).to_have_count(0)
     expect(dialog.get_by_role("region", name="排查记录（非漏洞）", exact=True)).to_contain_text("1 条")
@@ -567,6 +584,7 @@ def run_chat_activity_checks(page: Page, base: str, api: MockAPI, checks: Checks
     save(page, directory, "progress-before-tools-dark")
 
     emit(frames[3:5])
+    expand_process(page)
     tools = stream.locator(".activity-tool")
     expect(tools).to_have_count(2)
     first = tools.filter(has=page.locator(".activity-tool-subject", has_text="src/upload.php:10–12"))
@@ -603,6 +621,7 @@ def run_chat_activity_checks(page: Page, base: str, api: MockAPI, checks: Checks
     assert api.source_requests[-1] == {"snapshot_id": SNAPSHOT_ID, "path": SOURCE_PATH, "start": 10, "end": 12}
     checks.passed("tool source is fetched only after the explicit source tab is opened")
     emit(frames[7:14])
+    expand_process(page)
     expect(stream).to_contain_text("第二次尝试只补读路径规范化相关源码")
     expect(stream.locator(".activity-tool")).to_have_count(4)
     error_tool = stream.locator('.activity-tool[data-tool="search_code"]')
@@ -686,6 +705,8 @@ def run_activity_focus_checks(page: Page, base: str, api: MockAPI, checks: Check
     expect(page.get_by_role("heading", name="源码包", exact=True)).to_be_visible()
     goto(page, base, f"#run/{ACTIVITY_ID}")
     stream = page.locator(".activity-stream")
+    expect(stream.locator('.activity-process-group')).not_to_have_count(0)
+    expand_process(page)
     expect(stream.locator(".activity-tool")).to_have_count(2)
 
     def emit(values: list[dict[str, Any]]) -> None:
@@ -722,9 +743,9 @@ def run_activity_focus_checks(page: Page, base: str, api: MockAPI, checks: Check
         event(ACTIVITY_ID, 9, "task_agent_terminal", {**context, "request_index": 2, "reason": "completed"}),
     ])
     message = stream.locator('.activity-message[data-event-kind="task_assessment"]')
-    message.get_by_role("button", name="展开全文", exact=True).click()
+    message.get_by_role("button", name="展开过程说明", exact=True).click()
     expect(message).to_contain_text("已保存依据全文末尾。")
-    collapse = message.get_by_role("button", name="收起", exact=True)
+    collapse = message.get_by_role("button", name="收起过程说明", exact=True)
     collapse.focus()
     collapse.evaluate("node => { window.__focusedAuditControl = node; }")
     previous_scroll = scroll.evaluate("node => node.scrollTop")

@@ -127,7 +127,8 @@ class ExecutionStoreMixin:
                 self.assert_execution_write(run_id)
                 batches = self.review_batches_pending(run_id, "final", repository)
                 workers = int(self._row("SELECT COUNT(*) FROM planner_tasks WHERE run_id=? AND state='running'", (run_id,))[0]) + additional_workers
-                needed = 3 * len(batches) + 6 * workers
+                from .review_policy import batch_response_reserve
+                needed = sum(batch_response_reserve(batch) for batch in batches) + 6 * workers
                 seconds = 60 * (len(batches) + 2 * workers + 1)
                 self._tick_execution_tx(run_id)
                 row = self._row("SELECT * FROM run_execution_state WHERE run_id=?", (run_id,))
@@ -537,13 +538,25 @@ class ExecutionStoreMixin:
             group["finding_ids"].append(finding["id"])
             group["findings"].append({k: finding.get(k) for k in ("id", "revision", "project_revision", "title", "severity", "cvss", "cvss_assessment", "legacy_severity", "category", "evidence", "verification_status", "disposition", "file_path", "snapshot_id", "summary", "input_source", "propagation", "dangerous_operation", "protection", "preconditions", "poc", "remediation", "verifications")})
         tasks = self.list_tasks(run_id)
-        return {"source": "host", "policy_version": POLICY_VERSION, "generated_at": stamp(), "run_id": run_id, "status": status, "complete": status in ("completed", "unreachable"), "stop_reason": stop_reason,
+        summary = {"source": "host", "policy_version": POLICY_VERSION, "generated_at": stamp(), "run_id": run_id, "status": status, "complete": status in ("completed", "unreachable"), "stop_reason": stop_reason,
                 "raw_finding_count": len(findings), "valid_finding_count": len(valid), "ledger_group_count": len(groups), "finding_groups": list(groups.values()),
                 "tasks": [{k: t.get(k) for k in ("id", "title", "state", "error", "result", "dependencies")} for t in tasks],
                 "coverage": self.planner_coverage(run_id), "execution": self.execution_summary(run_id), "verification_jobs": self.list_run_verification_jobs(run_id),
                 "directions": self.audit_direction_summary(run_id) if hasattr(self, "audit_direction_summary") else {},
                 "verification": self._verification_progress(run_id),
                 "limitations": ["受阻、未执行、未读取方向均不代表安全。"]}
+        from .capability import enabled, outcome
+        run = self.get_run(run_id) or {}
+        if enabled(run):
+            from .final_review import canonical_groups
+            from .report_bundle import _coverage
+            reviewed = self.attach_final_decisions(run_id, findings)
+            reviewed = [{**r, "verified_compatible": self.compatible_verified_finding(run, r)} for r in reviewed]
+            canonical, _ = canonical_groups(reviewed)
+            result = outcome({**run, "status": status}, _coverage(run.get("execution_summary") or {}, canonical, self.get_project_map(run_id)),
+                             canonical, risk=self.risk_coverage(run_id))
+            summary.update(complete=result["audit_complete"], completion=result, risk_obligations=self.risk_coverage(run_id))
+        return summary
 
     def _terminal_execution_tx(self, run_id, status, reason):
         self._tick_execution_tx(run_id, stop=True)

@@ -136,7 +136,7 @@ def source_flows(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
     expect(inherit).not_to_be_checked()
     expect(page.locator(".composer-fields")).to_contain_text("项目台账 31 条")
     expect(page.locator(".composer-fields")).to_contain_text("项目台账与旧记录仍保留")
-    expect(page.get_by_label("阶段请求配额预览", exact=True)).to_contain_text("源码挖掘 244 · POC 验证 0 · 最终复核 12")
+    expect(page.get_by_label("阶段请求配额预览", exact=True)).to_contain_text("源码挖掘 488 · POC 验证 0 · 最终复核 24")
     page.get_by_role("button", name="高级执行设置", exact=True).click()
     expect(page.get_by_role("spinbutton", name="每任务无进展／失败重试上限", exact=False)).to_have_value("3")
     stop = page.get_by_role("checkbox", name=re.compile("^目标达成后停止未开始的任务"))
@@ -144,11 +144,11 @@ def source_flows(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
     expect(stop).not_to_be_checked()
     page.get_by_role("combobox", name="自动验证模式", exact=True).select_option("auto")
     page.get_by_role("button", name="保存设置", exact=True).click()
-    expect(page.get_by_label("阶段请求配额预览", exact=True)).to_contain_text("源码挖掘 180 · POC 验证 64 · 最终复核 12")
+    expect(page.get_by_label("阶段请求配额预览", exact=True)).to_contain_text("源码挖掘 360 · POC 验证 128 · 最终复核 24")
     page.get_by_role("button", name="高级执行设置", exact=True).click()
     page.get_by_role("combobox", name="自动验证模式", exact=True).select_option("off")
     page.get_by_role("button", name="保存设置", exact=True).click()
-    checks.passed("full-audit form previews 244/0/12 with POC off, 180/64/12 with POC on and explains no-progress retry limits")
+    checks.passed("full-audit form previews 488/0/24 with POC off, 360/128/24 with POC on and explains no-progress retry limits")
     mode.select_option("goal")
     expect(page.get_by_label("阶段请求配额预览", exact=True)).to_have_count(0)
     expect(inherit).to_be_checked()
@@ -162,18 +162,20 @@ def source_flows(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
     uploads = api.upload_count
     page.get_by_role("button", name="开始审计", exact=True).click()
     expect(page).to_have_url(re.compile(f"#run/{CREATED_ID}$"))
-    expect(page.locator(".conversation-meta")).to_contain_text("审计样例源码.zip")
+    expect(page.locator(".message-attachment")).to_contain_text("审计样例源码.zip")
     assert api.create_count == 1 and api.upload_count == uploads
     assert api.create_bodies[-1]["snapshot_id"] == SNAPSHOT_ID
     assert api.create_bodies[-1]["task"]["completion_policy"] == "coverage_review"
     assert api.create_bodies[-1]["task"]["baseline_policy"] == "fresh"
     assert api.create_bodies[-1]["task"]["workflow_policy"] == "discovery_first"
     assert api.create_bodies[-1]["task"]["stop_on_achieved"] is False
+    page.get_by_role('button', name='任务要求与策略', exact=True).click()
     frozen = page.get_by_label("已冻结的审计策略", exact=True)
     expect(frozen).to_contain_text("全量覆盖复核")
     expect(frozen).to_contain_text("空白漏洞基线")
-    expect(frozen).to_contain_text("先源码挖掘，再分批验证与正式复核")
+    expect(frozen).to_contain_text("宿主按需调度 · 先挖掘后验证 · 统一终审")
     assert "project_id" not in api.create_bodies[-1]
+    page.get_by_role('button', name='审计详情', exact=True).click()
     expect(page.get_by_role("link", name="项目漏洞台账", exact=True)).to_be_visible()
     checks.passed("latest archive is the default; explicitly selecting an older ZIP submits exactly its snapshot_id")
     page.get_by_role("link", name="ZIP 与源码", exact=True).click()
@@ -182,6 +184,7 @@ def source_flows(page: Page, base: str, api: MockAPI, checks: Checks) -> None:
     expect(page.get_by_role("combobox", name="浏览 ZIP 快照", exact=True)).to_have_value(SNAPSHOT_ID)
     checks.passed("a run's ZIP browser opens its actual archive and restores that choice on refresh")
     navigate(page, f"#run/{COMPLETED_ID}")
+    page.get_by_role('button', name='任务要求与策略', exact=True).click()
     legacy_policy = page.get_by_label("已冻结的审计策略", exact=True)
     expect(legacy_policy).to_contain_text("快速目标审计（旧记录默认）")
     expect(legacy_policy).to_contain_text("继承项目已有漏洞（旧记录默认）")
@@ -456,7 +459,7 @@ def visual_flows(page: Page, checks: Checks, directory: Path | None) -> None:
             elif label == "findings":
                 ledger_ready(page, 31)
             elif label == "run":
-                expect(page.get_by_label("已冻结的审计策略", exact=True)).to_be_visible()
+                expect(page.get_by_role('region', name='当前执行摘要', exact=True)).to_be_visible()
             else:
                 expect(page.get_by_role("heading", name="上传路径可绕过目录边界", level=1, exact=True)).to_be_visible()
             for width in (1440, 1024, 768, 390):

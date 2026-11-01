@@ -137,7 +137,7 @@ def _structure(gate: _Gate, facts: dict) -> None:
     reviews = facts.get("reviews") or []
     records = (facts.get("appendix") or {}).get("records") or []
 
-    gate.check("structure", "schema_version", facts.get("schema_version") == "final-review/v1",
+    gate.check("structure", "schema_version", facts.get("schema_version") in {"final-review/v1", "final-review/v2"},
                f"schema={facts.get('schema_version')}")
     provenance = facts.get("provenance") or {}
     for key in ("run_id", "snapshot_id", "source_hash", "input_hash", "renderer_version", "template_hash"):
@@ -366,6 +366,14 @@ def _interpretation(gate: _Gate, facts: dict, markdown: str | None) -> None:
         if any(peer["item_id"] not in distinct for peer in entry.get("comparison_candidates", [])
                if policy == "paged-facts-v2" or peer.get("basis_kind", "same_anchor") == "same_anchor"):
             comparison_gaps.append(entry["canonical_id"])
+        from .review_policy import COMPARISON_POLICY
+        decision = entry.get("final_batch_review") or {}
+        if decision.get("comparison_policy") == COMPARISON_POLICY:
+            assessed = {a["item_id"]: a for a in decision.get("comparison_assessments") or []}
+            if any(assessed.get(peer["item_id"], {}).get("relation") != "distinct"
+                   or len(str(assessed.get(peer["item_id"], {}).get("rationale") or "").strip()) < 12
+                   for peer in entry.get("comparison_candidates", [])):
+                comparison_gaps.append(entry["canonical_id"])
     gate.check("interpretation", "comparison_candidates_adjudicated", not comparison_gaps,
                "已接受结论尚缺关联候选的根因判读", objects=comparison_gaps)
 

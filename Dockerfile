@@ -11,9 +11,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.22 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --extra poc-claude --no-dev --no-install-project
 COPY backend/ ./
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --extra poc-claude --no-dev
 
 FROM python:3.12-slim-bookworm AS application
 ENV PYTHONUNBUFFERED=1 \
@@ -22,8 +22,9 @@ ENV PYTHONUNBUFFERED=1 \
     AUDIT_DATA_DIR=/app/data
 RUN groupadd --gid 10001 audit \
     && useradd --uid 10001 --gid audit --no-create-home audit \
-    && mkdir -p /app/data \
-    && chown audit:audit /app/data
+    && mkdir -p /app/data /tmp/audit-poc-workspace \
+    && chown audit:audit /app/data /tmp/audit-poc-workspace \
+    && chmod 700 /tmp/audit-poc-workspace
 COPY --from=backend-build /app/backend /app/backend
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 # Scenario tooling travels with the image: register_scenarios.py talks to this very

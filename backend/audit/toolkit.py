@@ -357,6 +357,10 @@ def build_tools(specs, gate, *, final_answer: Any = None) -> dict[str, Tool]:
 # Descriptions and argument wording are the ones the Planner prompt has been carrying;
 # they are the model's contract, so they move here verbatim rather than being rewritten.
 PLANNER_TOOLS: tuple[ToolSpec, ...] = (
+    spec("source_relations", "Page frozen call/include navigation; ambiguous names are not data-flow evidence.",
+         path=Arg("string", "源码路径。"), symbol=Arg("string", "可选符号。", ""),
+         offset=Arg("integer", "next_offset。", 0, minimum=0), limit=Arg("integer", "条数。", 20, minimum=1, maximum=40),
+         output_fields=('items', 'total', 'next_offset', 'notice'), output_format="json"),
     spec(
         "get_project_map",
         "Return the compact frozen project overview; use focused search for detailed paths, symbols, includes or calls.",
@@ -447,6 +451,13 @@ PLANNER_TOOLS: tuple[ToolSpec, ...] = (
         output_format="json",
     ),
     spec(
+        "list_risk_obligations",
+        "Page frozen risk obligations; assign exact obligation_ids. Sink indexes are not read evidence.",
+        offset=Arg("integer", "next_offset。", 0, minimum=0),
+        limit=Arg("integer", "条数。", 20, minimum=1, maximum=40),
+        output_fields=('items', 'total', 'pending_required', 'next_offset'), output_format="json",
+    ),
+    spec(
         "list_verifications",
         "List this run's verification metadata only; pending reviews must be read in full with read_verification before attestation. Counts cover every record, not just this page; stale cursors must restart.",
         kind=Arg("string", "records（最新验证）、pending（待复核）或 reviews（历史复核）。", "pending"),
@@ -524,7 +535,7 @@ WORKER_NAVIGATION_TOOLS = tuple(
         ),
         args=item.args,
     )
-    for item in PLANNER_TOOLS if item.name in {"list_tree", "find_files"}
+    for item in PLANNER_TOOLS if item.name in {"list_tree", "find_files", "source_relations"}
 )
 
 PEER_TRACE_TOOLS: tuple[ToolSpec, ...] = (

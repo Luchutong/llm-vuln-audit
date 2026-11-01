@@ -7,7 +7,7 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 from ui_fixtures import COMPLETED_ID, PROJECT_ID, SNAPSHOT_ID, sources_api, event
-from ui_smoke import Checks, close_dialog, goto, no_overflow, open_logs
+from ui_smoke import Checks, close_dialog, goto, no_overflow, open_logs, open_more
 
 
 def main():
@@ -129,15 +129,19 @@ def main():
             goto(page, args.base, f'#run/{COMPLETED_ID}')
             activity = page.get_by_role('region', name='实时审计过程', exact=True)
             expect(activity).to_contain_text('响应流达到单请求时限')
+            activity.locator('[data-event-kind="poc_gateway_error"] details > summary').click()
             expect(activity).to_contain_text('HTTP 200 仅表示模型接口已返回响应头')
             checks.passed('stream timeout explanation separates HTTP headers from completed model generation')
+            expect(page.get_by_role('region', name='当前执行摘要')).to_contain_text('最终复核')
+            page.get_by_role('button', name='审计详情', exact=True).click()
             status = page.get_by_role('region', name='执行预算与验证策略')
             expect(status).to_contain_text('宿主调度 · 统一终审')
             expect(status).to_contain_text('待终审 23 项 · 预计 3 批 · 当前预留 9 次请求')
             expect(status).to_contain_text('必做未决方向 0')
             expect(status).to_contain_text('后续建议 9（不阻止收束）')
             expect(status).to_contain_text('单条自动验证配置：实验最多 40 次请求 · 结论最多 3 次请求')
-            checks.passed('frozen SDK quotas are distinct from source agent limits')
+            close_dialog(page)
+            checks.passed('frozen SDK quotas stay accessible in audit details')
             page.get_by_role('button', name='复测与继续审计', exact=True).click()
             retest = page.get_by_role('dialog', name='复测与继续审计', exact=True)
             expect(retest.get_by_role('checkbox')).to_have_count(2)
@@ -202,6 +206,7 @@ def main():
             retest.get_by_role('combobox', name='验证方式', exact=True).select_option('session-queue-v1')
             retest.get_by_role('button', name='创建并启动继续任务', exact=True).click()
             expect(page).to_have_url(args.base.rstrip('/') + '/#run/offline-continuation')
+            page.get_by_role('button', name='审计详情', exact=True).click()
             expect(page.get_by_role('region', name='执行预算与验证策略')).to_contain_text('持续会话队列')
             expect(page.get_by_text('持续会话验证队列 · 3 项', exact=True)).to_be_visible()
             page.get_by_role('button', name='逐项验证进度', exact=False).click()
@@ -213,8 +218,12 @@ def main():
                     no_overflow(page, f'POC queue {theme} {width}', checks)
             checks.passed('durable POC queue shows published/running/pending items and heartbeat in both themes')
             page.evaluate('(theme) => document.documentElement.setAttribute("data-theme", theme)', initial_theme)
-            page.get_by_role('link', name=f'原审计 {COMPLETED_ID[:8]}', exact=True).click()
-            expect(page.get_by_role('region', name='执行预算与验证策略')).to_be_visible()
+            close_dialog(page)
+            page.get_by_role('button', name='任务要求与策略', exact=True).click()
+            page.get_by_role('link', name='查看原审计', exact=True).click()
+            expect(page.locator(f'.run-workspace[data-run-id="{COMPLETED_ID}"]')).to_be_visible()
+            status = page.get_by_role('region', name='当前执行摘要')
+            expect(status).to_be_visible()
             checks.passed('explicit continuation submits selected IDs and increased budgets, then returns to immutable parent')
             for theme in ('dark', 'light'):
                 page.set_viewport_size(dict(width=1440, height=1000))
@@ -239,8 +248,8 @@ def main():
                 page.set_viewport_size(dict(width=width, height=1000))
                 no_overflow(page, f'frozen report {width}', checks)
             page.set_viewport_size(dict(width=1440, height=1000))
-            for name in ('JSON', '证据包'):
-                link = dialog.get_by_role('link', name=name, exact=True)
+            for name in ('json', 'zip'):
+                link = dialog.get_by_role('button', name=f'下载审计报告 {name}', exact=True)
                 expect(link).to_be_visible()
                 with page.expect_download() as download:
                     link.click()
@@ -255,6 +264,7 @@ def main():
             old['execution_summary'] = copy.deepcopy(old['execution_summary'])
             old['execution_summary']['workflow']['version'] = 'discovery-first-v1'
             page.reload()
+            open_more(page)
             page.get_by_role('button', name='基于此任务新建', exact=True).click()
             expect(page.get_by_text('整次上限：模型 256 次', exact=False)).to_be_visible()
             page.get_by_role('button', name='高级执行设置', exact=True).click()

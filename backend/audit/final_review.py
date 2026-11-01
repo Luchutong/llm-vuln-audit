@@ -140,6 +140,8 @@ def claim_snapshot(finding: dict) -> dict:
         "verification_verdict": finding.get("verification_verdict") or "",
         "verification_id": str((verification or {}).get("id") or ""),
         "validation_errors": list(finding.get("validation_errors") or []),
+        **{key: finding[key] for key in ("focus", "dataflow", "retest") if finding.get(key)},
+        **({"verified_compatible": finding["verified_compatible"]} if "verified_compatible" in finding else {}),
     }
 
 
@@ -433,6 +435,7 @@ def verification_attempts(findings: list[dict]) -> list[dict]:
                 "inherited_from": agent.get("continuation_source") or None,
                 "browser_execution": bool(record.get("browser_execution")),
                 "notes": record.get("notes") or "",
+                **({"experiment": agent["experiment"]} if agent.get("experiment") else {}),
             })
     return attempts
 

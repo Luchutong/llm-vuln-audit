@@ -1,0 +1,51 @@
+{
+  "run_id": "c07721af1af54d10bac673de4f1f2da6",
+  "source": "read-only immutable database rows",
+  "output_directory": "/tmp/vuln-audit-c07721af-reports-1zrv05tp",
+  "accepted_report_counts": {
+    "accepted": 6,
+    "canonical": 6,
+    "contested": 0,
+    "pending": 0
+  },
+  "parent_counts": {
+    "accepted": 6,
+    "canonical": 9,
+    "contested": 0,
+    "pending": 3,
+    "raw_records": 16,
+    "valid_records": 9,
+    "withdrawn": 7
+  },
+  "audit_complete": false,
+  "render_quality_passed": true,
+  "http_requests": 12,
+  "original_archive_bytes_and_frozen_row_unchanged": true,
+  "model_requests": 0,
+  "runner_jobs": 0,
+  "artifact_hashes": {
+    "confirmed-vulnerabilities.md": "a7140b538e71510143d6b71d99cab8aee0a5952e469ad7a338d5a35cdf70321d",
+    "confirmed-vulnerabilities.json": "46444e4233357303ece14a8f2c71762da2d22fb581a383603f58d6cdaf4c9012",
+    "confirmed-vulnerabilities.zip": "dcf085984ab6909a2484132ef207748e00c4079fb19824c38e415b58787628d1",
+    "C-01.md": "b5f3ed5f015505134a0cb08417c27f96c39d14b08be5b02bcf05d198cf5e0b11",
+    "C-02.md": "86430df45b2f544197953bd0d19eb4f587b1220a02b924be8058c80851ef17c7",
+    "C-03.md": "e82cb918887e10d070cdf6963087aa4e621e9daaecf2c2af6fe7baa0708ad2da",
+    "C-04.md": "5f525da9ae4064231cebac0b67dd24f99ec7077d9f92941c8c783dcc7944ba6e",
+    "C-05.md": "8cab179e6ab73d9bb74891a811866622056e78af2570de323c8d0d16bfb264d0",
+    "C-06.md": "b9487474fc2604746bfff8c4ed74716b42e857143316343b3bf2c3b483f7edf5"
+  },
+  "scope_notice": "6 个既有规范结论获得终审接受；不重新判重或修改历史处置，另 3 个仍待审。",
+  "durable_local_exports": ".run/reports/c07721af",
+  "template": "readable-2026-11-01-r3",
+  "regression": {
+    "frontend_tests": 125,
+    "frontend_build": "passed",
+    "report_browser_checks": 23,
+    "run_browser_checks": 21,
+    "backend_full_suite": 2267,
+    "backend_full_seconds": 96.22,
+    "final_queue_regression": 57,
+    "poc_scope_regression": 104,
+    "notes": "队列对照输入变化再入队的末次改动由57项受影响回归覆盖；该额外用例不计入此前2267项全量结果。"
+  }
+}

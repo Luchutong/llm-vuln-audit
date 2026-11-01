@@ -1,11 +1,14 @@
+import { summarizeActivity, processLabel, conciseMessage, processPage } from '../activitySummary';
+import type { ProcessItem, ProcessGroup } from '../activitySummary';
+import { CompactText } from './CompactText';
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, CircleAlert, Clock3, FileCode2, LoaderCircle, Terminal, Wrench } from 'lucide-react';
+import { Check, ChevronDown, CircleAlert, Clock3, LoaderCircle, Terminal, Wrench } from 'lucide-react';
 import type { AuditEvent, RunDetail } from '../types';
-import type { ActivityDisplayItem, ActivityMessage, ActivityTool, ActivityToolGroup } from '../activity';
-import { activityPage, activitySubject, groupCompletedTools, projectActivity } from '../activity';
+import type { ActivityMessage, ActivityTool } from '../activity';
+import { activitySubject, projectActivity } from '../activity';
 import { scalar } from '../trace';
 import { toolOutcome } from '../diagnostics';
-import { AgentDiagnostics, ToolOutcome } from './AgentDiagnostics';
+import { ToolOutcome } from './AgentDiagnostics';
 import { LongContent } from './LongContent';
 import { SourceViewer } from './SourceViewer';
 
@@ -119,13 +122,13 @@ function ToolRow({ item, snapshotId, expanded, onToggle }: {
   </div>;
 }
 
-function Message({ item, onOpenLogs }: { item: ActivityMessage; onOpenLogs: () => void }) {
+function Message({ item, onOpenLogs, full = false }: { item: ActivityMessage; onOpenLogs: () => void; full?: boolean }) {
   return <article className={`activity-message activity-message-${item.tone}${item.kind === 'audit_progress' ? ' audit-progress' : ''}`}
     data-activity-key={item.key} data-event-kind={item.kind}>
     <div className="activity-message-byline"><span>{item.actor}</span>{item.title && <span>{item.title}</span>}
       {item.context.attempt && Number(item.context.attempt) > 1 && <span>第 {item.context.attempt} 次尝试</span>}</div>
-    {item.text.length <= 1000 ? <p>{item.text}</p> : <LongContent value={item.text} previewLines={6} />}
-    {item.secondary && <div className="activity-message-rationale">{item.secondary.length <= 1000 ? <p>{item.secondary}</p> : <LongContent value={item.secondary} previewLines={6} />}</div>}
+    <CompactText text={full ? item.text : conciseMessage(item)} label="过程说明" />
+    {(item.secondary || item.text !== conciseMessage(item)) && <details className="activity-message-details"><summary>查看详细说明</summary><p>{item.text !== conciseMessage(item) ? item.text : ''}</p>{item.secondary && <p>{item.secondary}</p>}</details>}
     {item.kind === 'agent_code' && <button type="button" className="text-button activity-message-log" onClick={onOpenLogs}>查看执行日志</button>}
   </article>;
 }
@@ -139,14 +142,14 @@ export function ActivityStream({ events, detail, connected, reconnects = 0, onOp
   const [choices, setChoices] = useState<Record<string, boolean>>({});
   const [protectedItems, setProtectedItems] = useState<Set<string>>(() => new Set());
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>({});
+  const [pinnedGroups, setPinnedGroups] = useState<Record<string, string[]>>({});
   const restoreScroll = useRef<{ box: HTMLElement; height: number; top: number } | null>(null);
   const items = useMemo(() => projectActivity(events, detail), [events, detail]);
-  const groups = useMemo(() => groupCompletedTools(items, protectedItems), [items, protectedItems]);
+  const groups = useMemo(() => summarizeActivity(items, events, protectedItems, pinnedGroups), [items, events, protectedItems, pinnedGroups]);
   const visible = useMemo(() => {
     const keep = new Set([...protectedItems, ...Object.keys(groupsOpen).filter((key) => groupsOpen[key])]);
-    return activityPage(groups, limit, keep);
+    return processPage(groups, limit, keep);
   }, [groups, limit, protectedItems, groupsOpen]);
-  const activeTasks = detail.tasks?.filter((task) => task.state === 'running') ?? [];
   const live = detail.run.status === 'running' || detail.run.status === 'pending';
   useLayoutEffect(() => {
     const saved = restoreScroll.current;
@@ -170,6 +173,8 @@ export function ActivityStream({ events, detail, connected, reconnects = 0, onOp
     const key = row?.getAttribute('data-activity-key');
     if (!key) return;
     onInspect?.();
+    const group = groups.find((item) => item.key === key);
+    if (group?.type === 'process-group') setPinnedGroups((previous) => previous[key] ? previous : { ...previous, [key]: group.items.map((item) => item.key) });
     setProtectedItems((previous) => previous.has(key) ? previous : new Set([...previous, key]));
   };
   const loadEarlier = () => {
@@ -180,17 +185,15 @@ export function ActivityStream({ events, detail, connected, reconnects = 0, onOp
   };
   const renderTool = (item: ActivityTool, insideGroup = false) => <ToolRow key={item.key} item={item} snapshotId={detail.run.snapshot_id}
     expanded={toolExpanded(item)} onToggle={() => toggleTool(item, insideGroup)} />;
-  const renderGroup = (item: ActivityToolGroup) => <div className="activity-tool-group" key={item.key} data-activity-key={item.key}>
-    <button type="button" className="activity-group-toggle" aria-expanded={groupsOpen[item.key] ?? false} onClick={() => {
+  const renderGroup = (item: ProcessGroup) => <div className={`activity-tool-group activity-process-group${item.warnings ? ' activity-message-warning' : ''}`} key={item.key} data-activity-key={item.key}>
+    <button type="button" className="activity-group-toggle" aria-expanded={groupsOpen[item.key] ?? false} aria-controls={`group-${item.order}`} onClick={() => {
       if (!groupsOpen[item.key]) onInspect?.();
       setGroupsOpen((previous) => ({ ...previous, [item.key]: !previous[item.key] }));
-    }}>
-      <Check size={14} /><span>已完成 {item.tools.length} 项操作</span><span className="activity-group-owner">{item.actor}</span><ChevronDown size={13} className={groupsOpen[item.key] ? 'rotated' : ''} />
-    </button>
-    {groupsOpen[item.key] && <div className="activity-group-rows">{item.tools.map((tool) => renderTool(tool, true))}</div>}
+    }}><Wrench size={14} /><span>{processLabel(item)}</span><span className="activity-group-owner">{item.actor}</span><ChevronDown size={13} className={groupsOpen[item.key] ? 'rotated' : ''} /></button>
+    {groupsOpen[item.key] && <div className="activity-group-rows" id={`group-${item.order}`}>{item.items.map((child) => child.type === 'tool' ? renderTool(child, true) : child.type === 'message' ? <Message key={child.key} item={child} onOpenLogs={onOpenLogs} full /> : null)}</div>}
   </div>;
-  const renderItem = (item: ActivityDisplayItem) => {
-    if (item.type === 'tool-group') return renderGroup(item);
+  const renderItem = (item: ProcessItem) => {
+    if (item.type === 'process-group') return renderGroup(item);
     if (item.type === 'tool') return renderTool(item);
     if (item.type === 'message') return <Message item={item} key={item.key} onOpenLogs={onOpenLogs} />;
     return <div className="activity-waiting" role="status" key={item.key} data-activity-key={item.key}><LoaderCircle size={14} className="spin" /><span>{item.actor} · {item.text}</span></div>;
@@ -198,8 +201,6 @@ export function ActivityStream({ events, detail, connected, reconnects = 0, onOp
   return <div ref={stream} className="activity-stream" role="region" aria-label="实时审计过程">
     <div className="activity-stream-toolbar"><span className="activity-stream-connection">{live ? <><span className={`status-dot ${connected ? 'status-completed' : 'status-inconclusive'}`} />{connected ? '实时同步' : '正在恢复连接'}</> : detail.run.status === 'paused' ? <><Clock3 size={13} />已暂停，记录已保存</> : <><Check size={13} />执行记录已恢复</>}{reconnects > 0 && ` · 重连 ${reconnects} 次`}</span>
       <button type="button" className="text-button" onClick={onOpenLogs}><Terminal size={13} />完整执行日志</button></div>
-    {activeTasks.length > 0 && <div className="activity-active-tasks"><FileCode2 size={13} /><span>正在排查：{activeTasks.map((task) => task.title).join('、')}</span></div>}
-    <AgentDiagnostics events={events} onInspect={onInspect} />
     {visible.length < groups.length && <div className="activity-history"><button type="button" className="text-button" onClick={loadEarlier}>加载更早的 50 项活动</button><span>当前显示 {visible.length} / {groups.length} 项</span></div>}
     <div className="activity-feed" onFocusCapture={(event) => preserveInteraction(event.target)} onClickCapture={(event) => preserveInteraction(event.target)}>{visible.length ? visible.map((item, index) => <div className="activity-slot" key={item.key}>
       {index > 0 && groups.indexOf(item) > groups.indexOf(visible[index - 1]) + 1 && <button type="button" className="activity-gap text-button" onClick={loadEarlier}>展开中间的历史活动</button>}

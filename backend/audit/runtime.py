@@ -119,6 +119,7 @@ class AgentPolicy:
     # Publish a small frontier, then incorporate actual worker results next round.
     planner_publication_tasks: int = 2
     worker_explore_responses: int = 6
+    worker_yield_max_responses: int = 10
     worker_publication_findings: int = 2
     # A reading window longer than this is clamped by the host validator, not rejected.
     planner_ref_max_lines: int = 400

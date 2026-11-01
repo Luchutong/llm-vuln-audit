@@ -116,7 +116,7 @@ def provider_refused(exc: BaseException) -> bool:
 
 
 PLANNER_REVIEW_TOOLS = frozenset({
-    "get_task_results", "get_coverage", "list_directions", "list_verifications", "read_verification", "read_review_input",
+    "get_task_results", "get_coverage", "list_directions", "list_risk_obligations", "list_verifications", "read_verification", "read_review_input",
 })
 
 
@@ -732,7 +732,7 @@ class PlannerDeps:
         status = "ok"
         failure = None
         cached = False
-        dynamic = name in {"get_task_results", "get_coverage", "list_verifications", "read_verification", "list_directions", "read_review_input"}
+        dynamic = name in {"get_task_results", "get_coverage", "list_verifications", "read_verification", "list_directions", "list_risk_obligations", "read_review_input"}
         json_output = next(item for item in PLANNER_TOOLS if item.name == name).output_format == "json" if name in {item.name for item in PLANNER_TOOLS} else False
         review_only = bool(self.run_context.get("review_batch")) or (self.run_context.get("workflow_policy") == "discovery_first"
                        and (self.run_context.get("workflow") or {}).get("stage") == "review")
@@ -828,6 +828,7 @@ class PlannerDeps:
             "get_task_results": self._tool_task_results,
             "get_coverage": self._tool_coverage,
             "list_directions": self._tool_directions,
+            "list_risk_obligations": self._tool_risk_obligations,
             "list_verifications": self._tool_verifications,
             "read_verification": self._tool_verification,
             "read_review_input": self._tool_review_input,
@@ -838,6 +839,7 @@ class PlannerDeps:
             "list_tree": self._tool_navigation("list_tree"),
             "find_files": self._tool_navigation("find_files"),
             "file_summary": self._tool_navigation("file_summary"),
+            "source_relations": self._tool_navigation("source_relations"),
         }
         assert set(table) == {item.name for item in PLANNER_TOOLS}, (
             "Planner 工具注册表与分发分支不一致："
@@ -877,6 +879,12 @@ class PlannerDeps:
         if _situation_bytes(result) > 12 * 1024:
             raise ValueError("单个方向记录超过读取容量；宿主保留完整 ID，不能截断后当作已结算。")
         return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+    async def _tool_risk_obligations(self, args: dict) -> str:
+        reader = getattr(self.pins, "list_risk_obligations", None)
+        if reader is None:
+            return json.dumps({"items": [], "total": 0, "complete": None, "next_offset": None})
+        return json.dumps(reader(self.run_id, offset=args.get("offset", 0), limit=args.get("limit", 20)), ensure_ascii=False)
 
     def direction_records(self) -> list[dict]:
         """Read the complete host set for validation, independently of prompt paging."""
@@ -1006,7 +1014,7 @@ class PlannerDeps:
 
     def _tool_navigation(self, name: str):
         """Bind one ``navigation.ProjectIndex`` listing to a Planner tool name."""
-        method = {"list_tree": "listing", "find_files": "find", "file_summary": "summary"}[name]
+        method = {"list_tree": "listing", "find_files": "find", "file_summary": "summary", "source_relations": "relations"}[name]
 
         async def call(args: dict) -> str:
             if self.index is None:
@@ -1569,6 +1577,8 @@ def _planner_situation(run_context: dict) -> dict:
         "workflow_policy": run_context.get("workflow_policy", "legacy"),
         "workflow": dict(run_context.get("workflow") or {}),
         "directions": {**(run_context.get("directions") or {}), "read_tool": "list_directions"},
+        "audit_focus": run_context.get("audit_focus"),
+        "risk_obligations": run_context.get("risk_obligations"),
         "coverage_review": {
             **{key: (run_context.get("coverage_review") or {}).get(key)
                for key in ("version", "total", "pending_total", "complete")
@@ -1691,6 +1701,11 @@ def _bound_situation(situation: dict, *, limit: int = 16 * 1024) -> dict:
     direction_summary["advisory_items"] = list(direction_summary.get("advisory_items") or [])
     totals["advisory_directions"] = len(direction_summary["advisory_items"])
     lists["advisory_directions"] = direction_summary["advisory_items"]
+    risk_summary = dict(situation.get("risk_obligations") or {})
+    risk_summary["items"] = list(risk_summary.get("items") or [])
+    bounded["risk_obligations"] = risk_summary
+    totals["risk_obligations"] = len(risk_summary["items"])
+    lists["risk_obligations"] = risk_summary["items"]
     original_notice = str(bounded.get("notice") or "")
     while _situation_bytes(bounded) > limit and any(lists.values()):
         candidates = [name for name, values in lists.items() if values]
@@ -2601,7 +2616,9 @@ async def pursue_task_work(
             navigation_directories.add(str(parent))
             parent = parent.parent
     navigation = ProjectIndex.from_map({"files": navigation_files, "directories": sorted(navigation_directories)})
-    deps.local_tools.update({"list_tree": navigation.listing, "find_files": navigation.find})
+    if task.get("capability_policy") == "audit-capability-v1" and hasattr(repository, "build_project_map"):
+        navigation.relations_map = repository.build_project_map(snapshot_id, allowed_paths=allowed_paths)
+    deps.local_tools.update({"list_tree": navigation.listing, "find_files": navigation.find, "source_relations": navigation.relations})
     peer_traces_enabled = peer_trace_search is not None and peer_trace_read is not None
     cleaned_lines = unit.get("cleaned_lines") or []
     _, _, ledger_full = ledger.offer(unit["file_path"], cleaned_lines, policy.source_bytes)
@@ -2699,6 +2716,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
             if isinstance(item, dict)
         ]
         knowledge = worker_knowledge.route(
+            routing_policy="focused-v1" if task.get("capability_policy") == "audit-capability-v1" else "legacy",
             languages=worker_knowledge.languages_for_paths(
                 [str(unit.get("file_path") or ""), *excerpt_paths]),
             checkpoints=[str(task.get("objective") or ""),
@@ -2710,6 +2728,15 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
         if knowledge.refs or knowledge.diagnostics:
             emit({"kind": "worker_knowledge_bound", **knowledge.snapshot()})
     batch_limit = max(1, int(policy.worker_publication_findings))
+    if task.get("capability_policy") == "audit-capability-v1":
+        instruction += ("\n# 冻结用户目标合同（高于本工作项的局部措辞）\n"
+            + json.dumps(task.get("audit_focus"), ensure_ascii=False)
+            + "\n本任务明确领取的风险义务（须实际读取操作所在行及必要上下文，任务分配不代表结算）：\n"
+            + json.dumps(task.get("assigned_risk_obligations") or [], ensure_ascii=False)
+            + "\n可读取完整 ZIP 追踪必要依赖，但不能扩展风险目标。每条 finding 给出 focus 的目标关联提案，"
+              "相关性仍由独立终审判读。附带发现保留为 incidental；共享 include 不是 supporting 链。"
+              "dataflow 节点须来自实际读取的行号。补充根因对应修复及 retest 正反例、身份和回归条件；材料不足明确保留，不能编造。")
+        instruction += "\nrisk-* 仅是宿主风险义务 ID，不能写入 direction_results；direction_results 只使用明确领取的 dir_*。宿主按真实读取区间关联风险义务。"
     instruction += (
         f"\n每次提交最多 {batch_limit} 条最有依据的完整 findings，先保存小批结果。"
         "存在尚未处理的不同方向时，将具体源码路径、问题和下一步写入 remaining_work。"
@@ -2798,6 +2825,14 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     detail = "; ".join(problems) if problems else "未解析到 path:start-end 引用"
                     raise ValueError(f"第 {index} 条 {label} 的证据必须来自已显示源码：{detail}。" + evidence_inventory(seen_ranges(unit, deps.reads, exact=True)))
                 if label == "achieved finding":
+                    flow_refs = [node.evidence.model_dump() for node in item.dataflow]
+                    if item.focus:
+                        flow_refs += [ref.model_dump() for ref in item.focus.evidence]
+                        flow_refs += [node.evidence.model_dump() for node in item.focus.chain]
+                    if flow_refs:
+                        _, flow_errors = validate_evidence(flow_refs, {path: 10**9 for path in paths}, seen_ranges(unit, deps.reads, exact=True))
+                        if flow_errors:
+                            raise ValueError("结构化数据流/目标关联引用必须实际读取：" + "; ".join(flow_errors))
                     classification, classification_errors = validate_worker_classification(item.model_dump())
                     if classification_errors:
                         raise ValueError(f"第 {index} 条 finding：" + "; ".join(classification_errors))
@@ -2833,6 +2868,12 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
             response_cap = max(1, int(budgets["responses"]))
             reserve = min(response_cap, 1 + max(0, int(policy.output_corrections)))
             explore_limit = min(max(0, int(policy.worker_explore_responses)), response_cap - reserve)
+            explore_ceiling = explore_limit
+            evidence_yield = None
+            if task.get("capability_policy") == "audit-capability-v1":
+                from .evidence_yield import EvidenceYield
+                explore_ceiling = min(max(explore_limit, int(policy.worker_yield_max_responses)), response_cap - reserve)
+                evidence_yield = EvidenceYield(ledger, ceiling=explore_ceiling, emit=emit)
             specs = WORKER_TOOLS + WORKER_NAVIGATION_TOOLS
             if peer_traces_enabled:
                 specs += PEER_TRACE_TOOLS
@@ -2845,6 +2886,8 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     dispatch=deps.call, deadline=deadline, limit=limit,
                     output_model=GoalAssessment, validate=validate_goal,
                 )
+                if tools and evidence_yield:
+                    gate.extend_exploration = evidence_yield.extend
                 table = build_tools(
                     specs if tools else (), gate,
                     final_answer=FinalAnswerTool.for_model(gate, GoalAssessment, "GoalAssessment"),
@@ -2896,11 +2939,11 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
             exploration_reason = None
             if explore_limit:
                 execution.enter("task_execute", attempt=attempt, response_limit=explore_limit,
-                                reserved_responses=reserve)
+                                reserved_responses=reserve, exploration_ceiling=explore_ceiling)
                 gate = task_phase(tools=True, limit=explore_limit,
                                   deadline=execution.started + budgets["seconds"] * policy.exploration_fraction)
                 try:
-                    await drive_phase(agent, gate, message, max_steps=explore_limit + 1)
+                    await drive_phase(agent, gate, message, max_steps=explore_ceiling + 1)
                 except (StopAudit, ModelCallFailed) as exc:
                     if provider_refused(exc):
                         raise
@@ -2916,6 +2959,8 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     deadline=execution.deadline, limit=min(response_cap, execution.attempts + reserve),
                     output_model=GoalAssessment, validate=validate_goal,
                 )
+                from .submission import worker_example
+                gate.correction_example = worker_example()
                 if model is None:
                     model = build_code_model(config, gate=gate, max_tokens=policy.worker_max_tokens)
                 publish_message = message + "\n# 探索后新增的原始源码（仅实际显示过的行）\n" + ledger.replay(exclude=prepared_keys)
@@ -3637,9 +3682,10 @@ async def plan_audit_frontier(
         "tools": max(0, int(budgets.get("tools", 0))),
     }
     if run_context.get("review_batch"):
-        # Reader turns, corrections and publication share the packer's 3B reserve.
-        # A fallback publication must never open a second allowance after reading.
-        planner_budgets["responses"] = min(3, planner_budgets["responses"])
+        from .review_policy import batch_response_reserve
+        planner_budgets["responses"] = min(
+            batch_response_reserve(run_context["review_batch"]["items"], corrections=int(policy.output_corrections)),
+            planner_budgets["responses"])
     execution = Execution(planner_budgets, policy, emit, agent_invocation_id=agent_invocation_id or uuid.uuid4().hex)
     emit = execution.emit
     preparation_stage = "planner_context"
@@ -4126,13 +4172,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     }]
                 if run_context.get("review_batch"):
                     batch = run_context["review_batch"]
-                    sample = {
-                        "goal_state": "continue", "basis_summary": "逐项审查宿主领取的冻结批次。", "tasks": [],
-                        "review_batch_id": batch["id"],
-                        "review_decisions": [{"item_id": item["item_id"], "revision": item["revision"],
-                                              "decision": "needs_evidence", "rationale": "具体说明本项仍缺少哪些证据及下一步。"}
-                                             for item in batch["items"]],
-                    }
+                    from .submission import review_example, review_contract
+                    sample = review_example(batch)
+                    schema["host_reference_contract"] = review_contract(batch)
                 guidance = (
                     "\n# 批次发布约束\n只提交当前 review_batch_id 与完整逐项 review_decisions；tasks、updates、"
                     "direction_updates、project_updates、coverage_review 均为空；verification_reviews 仅统一 final 可提交。"
@@ -4199,11 +4241,13 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
             if run_context.get("review_batch"):
                 confirmations = 0
                 if any(i.get("paged_fields") for i in run_context["review_batch"]["items"]):
-                    # A single bounded reader/decision loop, sharing the existing three
-                    # response reserve. No separate exploratory or publication allowance.
-                    # Reading cannot consume the final publication request. The
+                    # Reader and publication share the explicit per-batch allowance.
+                    # Reading cannot consume publication or its corrections. The
                     # structured fallback carries the host-captured pages as facts.
                     confirmations = min(2, max(0, response_cap - 1))
+                    # Very small user budgets still allow reading then publication;
+                    # only correction opportunities shrink, never the hard allowance.
+                    corrections = min(corrections, max(0, response_cap - confirmations - 1))
             reserve = 1 + corrections + confirmations
             explore_limit = min(max(0, int(policy.planner_explore_responses)), max(0, response_cap - reserve))
             if review_only:
@@ -4317,6 +4361,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     deadline=execution.deadline,
                     limit=min(response_cap, execution.attempts + 1 + corrections),
                 )
+                if run_context.get("review_batch"):
+                    from .submission import review_example
+                    publish_gate.correction_example = review_example(run_context["review_batch"])
                 # One request to hand the decision in, plus the corrections a rejected
                 # decision is allowed -- each of those is a request too, and a round with a
                 # decision that was refused once must not die of it.
@@ -4524,6 +4571,8 @@ async def pursue_planner_task(
         "success_criteria": planner_task.get("acceptance_criteria") or run_task.get("success_criteria"),
         "max_iterations": planner_task.get("max_attempts") or run_task.get("max_iterations"),
         "assigned_direction_ids": [item["id"] for item in (planner_task.get("result") or {}).get("active_directions") or []],
+        "assigned_risk_obligations": [item for item in (run_task.get("risk_obligation_set") or {}).get("items", [])
+                                      if item["id"] in (planner_task.get("context_spec") or {}).get("obligation_ids", [])],
     }
     result = planner_task.get("result") or {}
     if discovery_first:

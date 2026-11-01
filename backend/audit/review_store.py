@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS frozen_run_reports (
  input_hash TEXT NOT NULL, input_json TEXT NOT NULL, created_at TEXT NOT NULL,
  facts_json TEXT, markdown TEXT, output_hash TEXT, zip_blob BLOB, json_export TEXT
 );
+CREATE TABLE IF NOT EXISTS derived_run_reports (
+ run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+ cache_key TEXT NOT NULL, content BLOB NOT NULL, content_hash TEXT NOT NULL,
+ created_at TEXT NOT NULL, PRIMARY KEY(run_id,cache_key)
+);
 CREATE TRIGGER IF NOT EXISTS frozen_report_input_immutable
 BEFORE UPDATE OF input_hash,input_json,created_at ON frozen_run_reports
 BEGIN SELECT RAISE(ABORT,'frozen report input is immutable'); END;
@@ -106,11 +111,19 @@ def validate_batch(batch, decisions, *, current_items=None):
         item = expected[decision["item_id"]]
         if decision.get("revision") != item["revision"]:
             raise ValueError("批次结论版本已变化，请读取当前批次后重新提交")
-        allowed = {"resolve", "needs_evidence", "skip"} if item["kind"] == "direction" else (
+        allowed = {"resolve", "needs_evidence", "skip"} if item["kind"] in {"direction", "risk"} else (
             {"accept", "needs_evidence", "contested", "duplicate", "withdraw"} if batch["phase"] == "final"
             else {"retain", "needs_evidence", "contested", "duplicate", "withdraw"})
         if decision.get("decision") not in allowed or len(str(decision.get("rationale") or "").strip()) < 8:
             raise ValueError("批次处置类型或具体理由不合法")
+        if item["kind"] == "risk":
+            outcome = decision.get("risk_outcome")
+            if outcome not in {"supported", "no_evidence", "not_applicable", "blocked", "pending"}:
+                raise ValueError("风险义务须明确 risk_outcome，不能以文件读过或任务已分配代替结算")
+            if outcome in {"supported", "no_evidence"} and not item.get("operation_read"):
+                raise ValueError("尚无 worker 实际读取敏感操作区间的凭据，不能结清风险义务")
+            if outcome in {"supported", "no_evidence", "not_applicable"} and (not item.get("evidence_complete") or item.get("review_input_omitted")):
+                raise ValueError("风险义务需读取完整绑定源码后才能结算")
         if item.get("review_input_omitted") and decision["decision"] != "needs_evidence":
             raise ValueError("完整审查输入超过限额，本项只能明确 needs_evidence")
         if decision["decision"] == "duplicate":
@@ -138,6 +151,18 @@ def validate_batch(batch, decisions, *, current_items=None):
 
 
 class ReviewStoreMixin:
+    def delivery_export(self, run_id, cache_key):
+        row = self._row("SELECT d.content,d.content_hash FROM derived_run_reports d JOIN runs r ON r.id=d.run_id WHERE d.run_id=? AND d.cache_key=?", (run_id, cache_key))
+        if row is None:
+            return None
+        content = bytes(row["content"])
+        return content if hashlib.sha256(content).hexdigest() == row["content_hash"] else None
+
+    def cache_delivery_export(self, run_id, cache_key, content):
+        with self._lock:
+            self._db.execute("INSERT OR IGNORE INTO derived_run_reports(run_id,cache_key,content,content_hash,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM frozen_run_reports WHERE run_id=?) AND EXISTS(SELECT 1 FROM runs WHERE id=?)",
+                             (run_id, cache_key, content, hashlib.sha256(content).hexdigest(), stamp(), run_id, run_id))
+
     def host_queue_enabled(self, run_id):
         row = self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,))
         return bool(row and json.loads(row[0] or "{}").get("orchestration_policy") == "host-queue-v1")
@@ -231,6 +256,16 @@ class ReviewStoreMixin:
         by_finding = {record["id"]: record for record in records}
         canonical, _ = canonical_groups(records)
         peers = comparison_candidates(canonical)
+        from .capability import enabled
+        capability_run = self.get_run(run_id) or {}
+        # Same typed coordinates nominate comparisons before POC. Prose phrasing
+        # must not suppress review; the host still never infers sameness or merges.
+        early_peers = set()
+        if enabled(capability_run):
+            for entry in canonical:
+                for peer in peers.get(entry["canonical_id"], []):
+                    if peer.get("basis_kind") == "same_anchor":
+                        early_peers.update((entry["canonical_id"], peer["item_id"]))
         revisions = {e["canonical_id"]: finding_fact_revision(e, by_finding[e["frozen_claim"]["finding_id"]])
                      for e in canonical} if hosted else {}
         prior_reviews = {r["item_id"]: json.loads(r["decision"]) for r in self._rows(
@@ -242,7 +277,7 @@ class ReviewStoreMixin:
         for entry in canonical:
             claim = entry["frozen_claim"]
             raw = by_finding[claim["finding_id"]]
-            if hosted and phase == "integration" and not entry["conflicts"] and claim["finding_id"] not in conflict_ids:
+            if hosted and phase == "integration" and not entry["conflicts"] and claim["finding_id"] not in conflict_ids and entry["canonical_id"] not in early_peers:
                 continue
             from .final_review import current_review, latest_verification
             # Scripts are downloadable artifacts. Keep complete claim prose,
@@ -252,6 +287,11 @@ class ReviewStoreMixin:
                 "assessment_revision", "file_path", "primary_location", "summary", "input_source", "propagation",
                 "dangerous_operation", "protection", "preconditions", "missing_context", "remediation", "evidence",
                 "verification_status", "verification_id")}
+            from .capability import enabled
+            run = self.get_run(run_id) or {}
+            if enabled(run):
+                payload.update({key: claim.get(key) for key in ("focus", "dataflow", "retest")})
+                payload["audit_focus"] = (run.get("task_spec") or {}).get("audit_focus")
             verification = latest_verification(raw) or {}
             payload["verification_observations"] = compact_observations(verification)
             availability = payload["verification_observations"]["fact_availability"]
@@ -277,9 +317,11 @@ class ReviewStoreMixin:
                           "requires_verification_review": claim.get("verification_status") == "verified" and not current_review(raw),
                           "required_read_fields": required_reads,
                           "payload": payload})
+        if phase == "final":
+            items.extend(self.risk_review_candidates(run_id))
         return items
 
-    def review_batches_pending(self, run_id, phase, repository=None):
+    def review_batches_pending(self, run_id, phase, repository=None, *, for_scheduling=False):
         """Pure packing used by both budget estimates and actual leases."""
         reviewed = {(r["item_id"], r["revision"]) for r in self._rows(
             "SELECT item_id,revision FROM audit_review_items WHERE run_id=? AND phase=?", (run_id, phase))}
@@ -287,13 +329,34 @@ class ReviewStoreMixin:
             for batch in self.list_review_batches(run_id):
                 if batch["phase"] == phase and batch["status"] == "deferred":
                     reviewed.update((i["item_id"], i["revision"]) for i in batch["items"])
-        from .review_input import source_input, bounded_item, comparison_groups
+        from .review_input import source_input, bounded_item, comparison_groups, same_input
         groups, selected = [], []
         pending = [i for i in self._review_candidates(run_id, phase) if (i["item_id"], i["revision"]) not in reviewed]
+        isolated = set()
+        if phase == "final" and self.host_queue_enabled(run_id):
+            row = self._row("SELECT claim_epoch FROM run_execution_state WHERE run_id=?", (run_id,))
+            epoch = row[0] if row else None
+            deferred = set()
+            pending_by_id = {item["item_id"]: item for item in pending}
+            for batch in self.list_review_batches(run_id):
+                if batch["phase"] != phase or batch["epoch"] != epoch:
+                    continue
+                target = isolated if batch["status"] == "split" else deferred if batch["status"] == "deferred" else None
+                if target is not None:
+                    target.update((i["item_id"], i["revision"]) for i in batch["items"]
+                                  if target is isolated or same_input(i, pending_by_id.get(i["item_id"])))
+            if for_scheduling:
+                pending = [i for i in pending if (i["item_id"], i["revision"]) not in deferred]
         soft_limit = 32768 if self.host_queue_enabled(run_id) else 24576
         for related in comparison_groups(pending):
-            prepared = [bounded_item(source_input(i, repository) if phase == "final" and i["kind"] == "finding" else i)
+            prepared = [bounded_item(source_input(i, repository) if phase == "final" and i["kind"] in {"finding", "risk"} else i)
                         for i in related]
+            if any((i["item_id"], i["revision"]) in isolated for i in related):
+                if selected:
+                    groups.append(selected)
+                    selected = []
+                groups.extend([item] for item in prepared)
+                continue
             if selected and (len(selected + prepared) > 8 or len(dump(selected + prepared).encode()) > soft_limit):
                 groups.append(selected)
                 selected = []
@@ -328,7 +391,7 @@ class ReviewStoreMixin:
             full = next((i for i in self._review_candidates(run_id, batch["phase"]) if i["item_id"] == item_id), None)
             if not same_input(item, full):
                 raise ValueError("结论版本已变化，旧页不能作为审查依据")
-            if batch["phase"] == "final" and full["kind"] == "finding":
+            if batch["phase"] == "final" and full["kind"] in {"finding", "risk"}:
                 full = source_input(full, repository)
             text = dump(field_values(full)[field])
             if digest(text) != manifest["sha256"] or len(text) != manifest["characters"]:
@@ -354,12 +417,17 @@ class ReviewStoreMixin:
                     "total_characters": len(text), "next_offset": stop if stop < len(text) else None,
                     "all_paged_fields_read": complete}
 
-    def defer_review_batch(self, run_id, batch_id, reason):
+    def defer_review_batch(self, run_id, batch_id, reason, *, split=False):
         with self._lock:
             self.assert_execution_write(run_id)
-            self._db.execute("UPDATE audit_review_batches SET status='deferred',finished_at=? WHERE id=? AND run_id=? AND status='pending'",
-                             (stamp(), batch_id, run_id))
-            self.append_event(run_id, None, "review_batch_deferred", {"batch_id": batch_id, "reason": reason})
+            batch = self.active_review_batch(run_id)
+            if not batch or batch["id"] != batch_id:
+                return
+            status = "split" if split and len(batch["items"]) > 1 else "deferred"
+            self._db.execute("UPDATE audit_review_batches SET status=?,finished_at=? WHERE id=? AND run_id=? AND status='pending'",
+                             (status, stamp(), batch_id, run_id))
+            self.append_event(run_id, None, "review_batch_deferred", {"batch_id": batch_id, "phase": batch["phase"],
+                              "items": len(batch["items"]), "action": status, "reason": reason})
 
     def prepare_review_batch(self, run_id, phase, epoch, repository=None):
         from .review_input import same_input
@@ -384,7 +452,7 @@ class ReviewStoreMixin:
                 if active:
                     self._db.execute("COMMIT")
                     return active
-                groups = self.review_batches_pending(run_id, phase, repository)
+                groups = self.review_batches_pending(run_id, phase, repository, for_scheduling=True)
                 selected = groups[0] if groups else []
                 if not selected:
                     self._db.execute("COMMIT")
@@ -438,6 +506,29 @@ class ReviewStoreMixin:
                 "requires_verification_review": False if decision == "confirmed" else item.get("requires_verification_review"),
                 "conflicts": item.get("conflicts", []) + ([{"kind": "review_contested"}] if decision == "contested" else [])})
         decisions = validate_batch({**batch, "items": validated_items}, decisions, current_items=current.values())
+        from .review_policy import COMPARISON_POLICY, validate_peer_assessments
+        if batch["phase"] == "final" and (self.get_run(run_id).get("task_spec") or {}).get("comparison_policy") == COMPARISON_POLICY:
+            validate_peer_assessments(decisions, current)
+        from .capability import enabled, validate_focus
+        run = self.get_run(run_id) or {}
+        if enabled(run) and batch["phase"] == "final":
+            all_ids = {item["item_id"] for item in self._review_candidates(run_id, "final") if item["kind"] == "finding"}
+            focus_errors = []
+            for decision in decisions:
+                item = current[decision["item_id"]]
+                try:
+                    if item["kind"] == "finding" and decision["decision"] in {"accept", "contested"}:
+                        validate_focus(run, decision.get("focus"), claim=item["payload"], known_ids=all_ids - {item["item_id"]},
+                                       obligations=[o["id"] for o in (run.get("task_spec") or {}).get("risk_obligation_set", {}).get("items", [])])
+                    elif item["kind"] == "risk" and decision.get("risk_outcome") in {"supported", "no_evidence", "not_applicable"}:
+                        validate_focus(run, decision.get("focus"), claim={**item["payload"], "vulnerability_type": item["payload"]["obligation"]["risk"]},
+                                       known_ids=all_ids, obligations=[o["id"] for o in (run.get("task_spec") or {}).get("risk_obligation_set", {}).get("items", [])])
+                        if (decision.get("focus") or {}).get("relation") == "unresolved":
+                            raise ValueError("风险目标关联尚未判定，只能保留 risk_outcome=pending/blocked")
+                except ValueError as exc:
+                    focus_errors.append(f"review_decisions[{decision['item_id']}].focus：{exc}")
+            if focus_errors:
+                raise ValueError("；".join(focus_errors))
         by_decision = {d["item_id"]: d for d in decisions}
         problems = []
         for decision in decisions:
@@ -485,6 +576,9 @@ class ReviewStoreMixin:
         # extra-forbidden publication schema.
         for decision in decisions:
             decision["input_policy"] = "paged-facts-v2"
+            comparison_policy = (self.get_run(run_id).get("task_spec") or {}).get("comparison_policy")
+            if comparison_policy:
+                decision["comparison_policy"] = comparison_policy
         if verification_reviews:
             stored = self.record_verification_reviews(run_id, verification_reviews, plan_id=plan_id)
             if len(stored) != len(verification_reviews):
@@ -560,13 +654,17 @@ class ReviewStoreMixin:
         if not run or run["status"] not in {"completed", "unreachable", "inconclusive", "failed", "cancelled", "interrupted"}:
             return
         records = self.attach_final_decisions(run_id, self.list_findings(run_id))
+        from .capability import enabled
+        if enabled(run):
+            records = [{**record, "verified_compatible": self.compatible_verified_finding(run, record)} for record in records]
         payload = {"run": run, "all_records": records, "findings": records,
                    "planner": self.get_planner_session(run_id), "goal": self.get_task_goal(run_id),
                    "tasks": self.list_tasks(run_id), "plans": self.list_plans(run_id),
                    "project_map": self.get_project_map(run_id), "snapshot": self.get_snapshot(run["snapshot_id"]),
                    "report_narrative": self.latest_plan_narrative(run_id), "review_snapshot": self.review_snapshot(run_id),
                    "verification_jobs": self.list_run_verification_jobs(run_id),
-                   "generated_at": run.get("finished_at") or stamp(), "units": [], "work_items": []}
+                   "generated_at": run.get("finished_at") or stamp(), "units": [], "work_items": [],
+                   "risk_obligations": self.risk_coverage(run_id)}
         from .final_review import canonical_groups
         from .report_bundle import attach_source_evidence
         # Save host-read bytes now, including explicit unavailability. Lazy

@@ -56,7 +56,7 @@ backend/.venv/bin/python scripts/check_claude_poc.py --require-ready
 
 诊断脚本不加载 `.env`、不打开审计数据库、不请求健康接口或上游；唯一的子进程命令是已安装 wheel 内 CLI 的 `--version`，使用清理后的环境。JSON 只包含版本、各配置项是否满足和 `model_requests: 0`，不打印地址、模型名、工作目录或凭据。`ready_for_live` 仅表示本机配置检查通过，`live_connectivity_checked` 始终为 `false`。
 
-上面的命令从仓库根目录运行。依赖由 `backend/pyproject.toml` 的 `poc-claude` extra 和 `backend/uv.lock` 固定；重新安装可在 `backend` 执行 `uv sync --locked --extra poc-claude --extra dev`。启动脚本默认安装基础依赖，使用 SDK 时需保留该 extra，避免后续普通 `uv sync` 移除它。
+上面的命令从仓库根目录运行。依赖由 `backend/pyproject.toml` 的 `poc-claude` extra 和 `backend/uv.lock` 固定；重新安装可在 `backend` 执行 `uv sync --locked --extra poc-claude --extra dev`。启动脚本和 Docker 镜像均安装该 extra；安装不等于启用。手动执行 `uv sync` 时需保留该 extra，避免将 SDK 移除。完整部署与离线复现见 [部署指南](deployment-and-reproduction.md)。
 
 即使 readiness 通过，也不代表已做真实付费验收。本次只运行版本核验与离线测试。生产服务启动后可能恢复队列中已授权的运行，因此不要把启动审计服务当成纯只读的 SDK 核验命令。
 

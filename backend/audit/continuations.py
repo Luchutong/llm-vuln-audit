@@ -101,6 +101,8 @@ class ContinuationStoreMixin:
             selected_subjects = {i['ledger_id'] or i['finding_id'] for i in options['items'] if i['finding_id'] in selected}
             carried = {e['canonical_id']: e['final_batch_review'] for e in parent_entries
                        if e['final_disposition'] == 'accepted' and e.get('final_batch_review')
+                       and parent['task_spec'].get('capability_policy') == 'audit-capability-v1'
+                       and e['final_batch_review'].get('focus')
                        and e['canonical_id'] not in selected_subjects
                        and not any(p['item_id'] in selected_subjects for p in peers.get(e['canonical_id'], []))}
             verifications = [dict(v) for f in rows['findings'] for v in self._rows('SELECT * FROM verifications WHERE finding_id=?', (f['id'],))]
@@ -138,6 +140,8 @@ class ContinuationStoreMixin:
                 retest_finding_ids=[mapping[i] for i in sorted(selected)],
                 source_refs={mapping[f['id']]: f['id'] for f in rows['findings']})
             task = {**parent['task_spec'], 'workflow_limits': None, 'continuation': info}
+            from .capability import POLICY, freeze_focus
+            task.update(capability_policy=POLICY, audit_focus=freeze_focus(task))
             child = {**parent, 'id': child_id, 'created_at': now, 'task_spec': task, 'poc_policy': policy,
                      'run_limits': request['run_limits'], 'project_baseline': parent.get('project_baseline') or []}
             if model_profile is not None:
@@ -148,7 +152,7 @@ class ContinuationStoreMixin:
 
             owned_refs = {'id', 'run_id', 'goal_id', 'task_id', 'origin_task_id', 'plan_id', 'session_id',
                           'finding_id', 'run_finding_id', 'verification_id', 'derived_from_finding_id', 'unit_id',
-                          'item_id', 'duplicate_of', 'distinct_from'}
+                          'item_id', 'duplicate_of', 'distinct_from', 'supports'}
             def remap(value, field=None):
                 if isinstance(value, dict):
                     return {k: v if k in {'continuation_source', 'job_results', 'normal_evidence', 'attack_evidence'} else remap(v, k)
@@ -164,7 +168,8 @@ class ContinuationStoreMixin:
                         continue
                     # Only host queue references change ownership. Observations,
                     # scripts, citations, CVSS provenance and runner bytes stay exact.
-                    if table in {'planner_tasks', 'planner_task_attempts'} and key in {'result', 'context_spec', 'dependencies'} and isinstance(value, str):
+                    if ((table in {'planner_tasks', 'planner_task_attempts'} and key in {'result', 'context_spec', 'dependencies'})
+                            or (table == 'findings' and key == 'audit_metadata')) and isinstance(value, str):
                         try:
                             value = encoded(remap(json.loads(value)))
                         except (ValueError, TypeError):

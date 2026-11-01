@@ -139,7 +139,7 @@ def test_a_tool_table_from_an_earlier_phase_is_refused():
 
 
 def test_a_mistyped_call_names_the_tool_and_the_problem():
-    tool_spec = PLANNER_TOOLS[5]
+    tool_spec = next(item for item in PLANNER_TOOLS if item.name == 'read_source')
     assert tool_spec.name == "read_source"
     with pytest.raises(TypeError, match="read_source: missing a required argument: 'path'"):
         tool_spec.bind((), {})
@@ -148,19 +148,19 @@ def test_a_mistyped_call_names_the_tool_and_the_problem():
 
 
 def test_positional_and_keyword_arguments_bind_the_same_way():
-    tool_spec = PLANNER_TOOLS[5]
+    tool_spec = next(item for item in PLANNER_TOOLS if item.name == 'read_source')
     assert tool_spec.bind(("a.php", 3, 9), {}) == {"path": "a.php", "start": 3, "end": 9}
     assert tool_spec.bind((), {"path": "a.php", "start": 3, "end": 9}) == {"path": "a.php", "start": 3, "end": 9}
 
 
 def test_omitted_arguments_fall_back_to_their_declared_default():
-    tool_spec = PLANNER_TOOLS[5]
+    tool_spec = next(item for item in PLANNER_TOOLS if item.name == 'read_source')
     assert tool_spec.bind(("a.php",), {}) == {"path": "a.php", "start": 1, "end": 0}
     assert ToolSpec("x", "y").bind((), {}) == {}
 
 
 def test_a_missing_required_argument_is_declared_required():
-    tool_spec = PLANNER_TOOLS[5].args["path"]
+    tool_spec = next(item for item in PLANNER_TOOLS if item.name == 'read_source').args["path"]
     assert tool_spec.default is REQUIRED
 
 

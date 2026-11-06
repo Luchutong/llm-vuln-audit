@@ -229,7 +229,7 @@ class FinalAnswerTool(Tool):
             self.description = description
 
     @classmethod
-    def for_model(cls, gate: Any, model: type[BaseModel], label: str) -> "FinalAnswerTool":
+    def for_model(cls, gate: Any, model: type[BaseModel], label: str, *, schema: dict | None = None) -> "FinalAnswerTool":
         """The terminal tool with the phase's own structure written on it.
 
         The framework used to send the output model's JSON schema with every request.  In
@@ -242,7 +242,7 @@ class FinalAnswerTool(Tool):
             f"交回本阶段的最终结果（{label}）并结束本阶段。宿主按下面的结构校验；"
             "不通过时你会收到一条 Observation 说明原因，请修正后重新交回。\n"
             "answer 是一个 dict（也可以按字段名写成关键字参数）：\n"
-            + final_answer_contract(model)
+            + final_answer_contract(model, schema=schema)
         ))
 
     def forward(self, *args, **kwargs) -> str:
@@ -268,11 +268,13 @@ class FinalAnswerTool(Tool):
         return kwargs
 
 
-def final_answer_contract(model: type[BaseModel]) -> str:
+def final_answer_contract(model: type[BaseModel], *, schema: dict | None = None) -> str:
     """Render the wire schema beside a Python-safe, minimal submission example."""
-    schema = model.model_json_schema()
+    schema = model.model_json_schema() if schema is None else schema
 
     def example(item: dict, seen: frozenset[str] = frozenset()) -> Any:
+        if item.get("examples"):
+            return item["examples"][0]
         ref = item.get("$ref")
         if ref:
             name = ref.rsplit("/", 1)[-1]

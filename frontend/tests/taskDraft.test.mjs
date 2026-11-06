@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { draftTask, frozenTaskPolicy, taskForStart, taskWithPolicy } from '../src/taskDraft.ts';
+import { draftTask, frozenTaskPolicy, taskForStart, taskWithPolicy, taskWithExploration } from '../src/taskDraft.ts';
+
+test('exhaustive exploration is explicit and freezes a consistent all-risk policy', () => {
+  assert.equal(draftTask().exploration_policy, 'legacy');
+  const full = taskWithExploration({ ...taskWithPolicy(draftTask(), 'goal'), scenario: 'sqli' }, true);
+  const payload = taskForStart(full, '独立审查项目中的全部风险');
+  assert.equal(payload.exploration_policy, 'exhaustive-v1');
+  assert.equal(payload.focus_scope, 'all');
+  assert.equal(payload.scenario, null);
+  assert.equal(payload.risk_coverage_policy, 'bounded-v2');
+  assert.equal(payload.completion_policy, 'coverage_review');
+  assert.equal(taskWithPolicy(full, 'goal').exploration_policy, 'legacy');
+  assert.equal(taskWithExploration(full, false).exploration_policy, 'legacy');
+  assert.match(frozenTaskPolicy(full).exploration, /观察复核/);
+  assert.equal(draftTask({ objective: '旧审计' }).exploration_policy, 'legacy');
+});
 
 test('new interactive audits default to explicit full coverage review', () => {
   const task = draftTask();
@@ -83,6 +98,23 @@ test('a cloned run never carries its frozen stage quotas into the next request',
   assert.equal('workflow_limits' in payload, false);
   // The settings panel decides the new split, including for a legacy-mode clone.
   assert.equal('workflow_limits' in taskForStart(taskWithPolicy(clone, 'goal'), '快速复核入口'), false);
+});
+
+test('a new interactive run does not inherit the previous evidence contract', () => {
+  for (const role_policy of ['legacy', 'worker-evidence-v1', 'worker-evidence-v2']) {
+    const clone = draftTask({ completion_policy: 'coverage_review', role_policy });
+    const payload = taskForStart(clone, '复核中断运行中尚未完成的证据链');
+    assert.equal('role_policy' in payload, false);
+    assert.equal(clone.role_policy, role_policy);
+  }
+});
+
+test('a new interactive run uses the current investigation policy while history stays frozen', () => {
+  for (const investigation_policy of ['legacy', 'bounded-v1']) {
+    const clone = draftTask({ investigation_policy });
+    assert.equal('investigation_policy' in taskForStart(clone, '继续独立审计'), false);
+    assert.equal(clone.investigation_policy, investigation_policy);
+  }
 });
 
 

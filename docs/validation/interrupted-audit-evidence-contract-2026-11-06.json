@@ -1,0 +1,201 @@
+{
+  "schema_version": "interrupted-audit-evidence-contract/v2",
+  "recorded_at": "2026-11-06T02:28:20.739855+00:00",
+  "source_run": {
+    "run_id": "97887bd142374a2792b055d4bcfe45de",
+    "status": "interrupted",
+    "stop_reason": "server_shutdown",
+    "rejection_events": {
+      "sink_primary_json": 12,
+      "sink_primary_code": 4,
+      "missing_disproof_json": 2,
+      "missing_disproof_code": 2
+    }
+  },
+  "new_policy": "worker-evidence-v2",
+  "previous_contract_sha256": "5b6bcde45e45a1a846115fa09d83279550767fe6a18dffd5d842f2124cb4c3b7",
+  "previous_contract_unchanged": true,
+  "worker_contract_sha256": "2705d1f2093c210767c57accdafd5386b37a3e606e4a1b2d224ec633393010ec",
+  "evidence_reference": {
+    "version": "worker-dataflow-v2",
+    "sha256": "b77d6fffa1ba021287822a1afa926924bb7ae9ddd813a4a752319f6931c68f8f",
+    "bytes": 5498,
+    "schema_snapshot": "docs/worker-evidence-v2.schema.json",
+    "schema_snapshot_matches_live_factory": true,
+    "schema_sha256": "7dc49eac1144a16f8b193f3899f8a3ca29d6e6d254c2450c738bc61fd388cc67"
+  },
+  "replay": {
+    "run_id": "97887bd142374a2792b055d4bcfe45de",
+    "final_status": "interrupted",
+    "final_error": "server_shutdown",
+    "original_policy": "worker-evidence-v1",
+    "new_policy": "worker-evidence-v2",
+    "source_event_fragments_only": true,
+    "complete_untruncated_assessment_replay": false,
+    "cases": [
+      {
+        "event_id": 70657,
+        "task_key": "bootstrap-db-core",
+        "primary_location": {
+          "path": "lab30-shop/app/public/partner/portal.php",
+          "line": 3
+        },
+        "original_sink_refs": [
+          {
+            "path": "lab30-shop/app/public/partner/portal.php",
+            "start_line": 4,
+            "end_line": 6
+          }
+        ],
+        "actual_read_receipts": 100,
+        "read_receipts_sha256": "560b64e204b19238ba7e34d98463ff711d1c73c1135292302a021d9426b049cf",
+        "worker-evidence-v1": {
+          "accepted": false,
+          "reason": "dataflow 的 sink 节点必须覆盖本条 primary_location"
+        },
+        "worker-evidence-v2": {
+          "accepted": false,
+          "reason": "findings[0]（partner/portal.php 未校验令牌签名即信任 payload.role，伪造 token 可读取全部订单结）.primary_location=lab30-shop/app/public/partner/portal.php:3-3 未绑定唯一根因节点；当前 dataflow[3].sink=lab30-shop/app/public/partner/portal.php:4-6。保持真实根因位置；根因与 sink 分离时添加一个 root_cause 节点，其 evidence 同路径且 start_line≤主定位行≤end_line，explanation 说明缺陷与本条 sink 的联系；不要移动主定位或扩大 sink 区间来过校验"
+        },
+        "explicit_root_replay": {
+          "accepted": true,
+          "change": "Only the existing root-covering node kind was changed",
+          "from_kind": "protection",
+          "to_kind": "root_cause",
+          "read_receipts_unchanged": true,
+          "primary_and_sinks_unchanged": true,
+          "limitation": "Tests coordinate/read validation; it is not an independent vulnerability acceptance verdict"
+        }
+      },
+      {
+        "event_id": 70806,
+        "task_key": "bootstrap-db-core",
+        "primary_location": {
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "line": 17
+        },
+        "original_sink_refs": [
+          {
+            "path": "lab30-shop/app/public/auth/login.php",
+            "start_line": 8,
+            "end_line": 9
+          }
+        ],
+        "actual_read_receipts": 109,
+        "read_receipts_sha256": "c6157fb784e3437e806a4215a8603829ed2a6b3d17ca94ab2a2102ae9a967656",
+        "worker-evidence-v1": {
+          "accepted": false,
+          "reason": "dataflow 的 sink 节点必须覆盖本条 primary_location"
+        },
+        "worker-evidence-v2": {
+          "accepted": false,
+          "reason": "findings[0]（登录入口接受 URL 参数 sid 固定会话 ID 且登录后不轮换 SID（session fixation））.primary_location=lab30-shop/app/src/bootstrap.php:17-17 未绑定唯一根因节点；当前 dataflow[3].sink=lab30-shop/app/public/auth/login.php:8-9。保持真实根因位置；根因与 sink 分离时添加一个 root_cause 节点，其 evidence 同路径且 start_line≤主定位行≤end_line，explanation 说明缺陷与本条 sink 的联系；不要移动主定位或扩大 sink 区间来过校验"
+        },
+        "explicit_root_replay": {
+          "accepted": true,
+          "change": "Only the existing root-covering node kind was changed",
+          "from_kind": "transform",
+          "to_kind": "root_cause",
+          "read_receipts_unchanged": true,
+          "primary_and_sinks_unchanged": true,
+          "limitation": "Tests coordinate/read validation; it is not an independent vulnerability acceptance verdict"
+        }
+      }
+    ],
+    "frozen_hashes": {
+      "2969bcf204cd43b5baf2683cbb0e841d": {
+        "input_sha256": "1c48ce503c8af9140bbce4025b742bbbf27145e02ea80606fa636813f97ff940",
+        "export_sha256": "2e39e682623021f5bc2344732a5f681839bf81276b92cc882bdca0fd2f08fc26"
+      },
+      "604b461cee4745b88f5e39deb3637400": {
+        "input_sha256": "9ff428233ce0d0d37505386230483b5da8abeb091e1b5bf3ddeb2b4fb150cba8",
+        "export_sha256": "928c3b288469f2e9751e9287b1439149463918893b0e599e98fe15d7e3b4bf25"
+      },
+      "97887bd142374a2792b055d4bcfe45de": {
+        "input_sha256": "0feae9837b573775ed2baa7352e28999a57dadc2ee9d613282d4ff163b0c179a",
+        "export_sha256": "2f82bf68a9ab0e7d703d0cdea4352db51318e7ddd8dfd4bf7905668cb99975b1"
+      }
+    },
+    "live_model_calls": 0,
+    "live_runner_jobs": 0
+  },
+  "verification": {
+    "backend": {
+      "passed": 2360,
+      "failed": 0,
+      "execution": "All backend test files split across four pytest processes",
+      "reproduction": "backend/.venv/bin/python -m pytest -q backend/tests",
+      "source_and_tests_sha256": "82ea50fbe39c479c6d180811b35702cb695da9c2ea482459d935a60108af5295",
+      "code_unchanged": true,
+      "wall_seconds": 300.904,
+      "groups": [
+        {
+          "group": 1,
+          "passed": 591,
+          "seconds": 300.884,
+          "returncode": 0,
+          "summary": "591 passed in 299.66s (0:04:59)"
+        },
+        {
+          "group": 2,
+          "passed": 589,
+          "seconds": 54.335,
+          "returncode": 0,
+          "summary": "589 passed, 1 warning in 53.49s"
+        },
+        {
+          "group": 3,
+          "passed": 590,
+          "seconds": 281.791,
+          "returncode": 0,
+          "summary": "590 passed in 280.53s (0:04:40)"
+        },
+        {
+          "group": 4,
+          "passed": 590,
+          "seconds": 77.602,
+          "returncode": 0,
+          "summary": "590 passed in 76.54s (0:01:16)"
+        }
+      ]
+    },
+    "frontend": {
+      "tests_passed": 127,
+      "failed": 0,
+      "production_build_passed": true,
+      "commands": [
+        "npm test",
+        "npm run build"
+      ]
+    },
+    "static_checks": [
+      "compileall backend/audit",
+      "py_compile scripts/live_lab30_optimization.py",
+      "live_lab30_optimization.py --help",
+      "git diff --check"
+    ],
+    "archive": {
+      "assets_verified": 7,
+      "TP": 22,
+      "FN": 8,
+      "D": 0,
+      "U": 1,
+      "FP": 1
+    },
+    "frozen_run_inputs_unchanged": true
+  },
+  "other_files_sha256": {
+    "frontend/src/types.ts": "bd4fa5c3393cbb1f604df70d3024fbc65a99acd78cf4888b5296d99221390003",
+    "frontend/src/taskDraft.ts": "1af9360d3efcaf5378ee2869074e8908e3175188ea36294b3eb9ee714c616b38",
+    "frontend/tests/taskDraft.test.mjs": "4280e2c3a8a19f578e71b38075a6fb2d67ce63b836041361a555adcc9cb28383",
+    "scripts/live_lab30_optimization.py": "5616048520e5346dfb638d20cefdbbf0e03db6ac9cbe3166dfbcba61d4c729fb"
+  },
+  "live_model_audits_started": 0,
+  "live_runner_jobs_started": 0,
+  "service_started": false,
+  "limitations": [
+    "Original code events were truncated; replay is limited to extracted, complete dataflow fragments",
+    "Root/sink binding and read receipts do not establish semantic correctness; independent review remains required",
+    "A fresh live v2 audit has not been run; no improved Lab30 score is claimed"
+  ]
+}

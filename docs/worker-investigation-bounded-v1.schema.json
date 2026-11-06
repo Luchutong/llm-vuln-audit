@@ -1,0 +1,1100 @@
+{
+  "$defs": {
+    "EvidenceRef": {
+      "description": "A one-based, inclusive original-file line range.",
+      "properties": {
+        "path": {
+          "description": "Snapshot-relative source path, exactly as shown in the unit header",
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "description": "First original file line of the cited code",
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "end_line": {
+          "description": "Last original file line of the cited code",
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "start_line",
+        "end_line"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "FlowNode": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "input: actual data origin; root_cause: defective operation/boundary at primary_location; sink: sensitive effect. Root and sink may be different lines/files under worker-evidence-v2",
+          "enum": [
+            "input",
+            "transform",
+            "protection",
+            "storage",
+            "readback",
+            "sink",
+            "root_cause"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/EvidenceRef",
+          "description": "Actual source-read range for this node only; never widen it merely to cover another operation"
+        },
+        "explanation": {
+          "description": "Explain the actual operation and its role in this finding's data/control-flow chain",
+          "maxLength": 1200,
+          "minLength": 8,
+          "title": "Explanation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "evidence",
+        "explanation"
+      ],
+      "title": "FlowNode",
+      "type": "object"
+    },
+    "FocusAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "objective_ref": {
+          "const": "objective-main",
+          "title": "Objective Ref",
+          "type": "string"
+        },
+        "relation": {
+          "enum": [
+            "relevant",
+            "supporting",
+            "incidental",
+            "unresolved"
+          ],
+          "title": "Relation",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 1600,
+          "minLength": 12,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "maxItems": 24,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "supports": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Supports",
+          "type": "array"
+        },
+        "chain": {
+          "items": {
+            "$ref": "#/$defs/FlowNode"
+          },
+          "maxItems": 24,
+          "title": "Chain",
+          "type": "array"
+        }
+      },
+      "required": [
+        "objective_ref",
+        "relation",
+        "rationale"
+      ],
+      "title": "FocusAssessment",
+      "type": "object"
+    },
+    "PocSpec": {
+      "properties": {
+        "filename": {
+          "description": "Suggested file name, for example sqli_low_poc.php",
+          "title": "Filename",
+          "type": "string"
+        },
+        "language": {
+          "default": "php",
+          "description": "Script language",
+          "title": "Language",
+          "type": "string"
+        },
+        "script": {
+          "description": "Complete, runnable proof-of-concept script",
+          "title": "Script",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "How to adapt and run it, including the target entry URL",
+          "title": "Instructions",
+          "type": "string"
+        },
+        "normal_input": {
+          "description": "Benign input used as the control",
+          "title": "Normal Input",
+          "type": "string"
+        },
+        "attack_input": {
+          "description": "Payload that should trigger the vulnerability",
+          "title": "Attack Input",
+          "type": "string"
+        },
+        "expected_result": {
+          "description": "Observable difference between the control and the attack run",
+          "title": "Expected Result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "script",
+        "instructions",
+        "normal_input",
+        "attack_input",
+        "expected_result"
+      ],
+      "title": "PocSpec",
+      "type": "object"
+    },
+    "PrimaryLocation": {
+      "description": "The exact root-cause coordinate, independently validated against source reads.",
+      "properties": {
+        "path": {
+          "description": "Exact snapshot-relative source path",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "description": "Original one-based root-cause or dangerous-operation line",
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "line"
+      ],
+      "title": "PrimaryLocation",
+      "type": "object"
+    },
+    "TaskFinding": {
+      "description": "An actionable, source-backed vulnerability, separate from audit observations.",
+      "properties": {
+        "title": {
+          "description": "Short, concrete result title",
+          "maxLength": 240,
+          "minLength": 3,
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "const": "vulnerability",
+          "description": "Must explicitly identify an actionable vulnerability; neutral or safe facts belong in observations",
+          "title": "Kind",
+          "type": "string"
+        },
+        "vulnerability_type": {
+          "type": "string",
+          "enum": [
+            "auth_bypass",
+            "code_execution",
+            "command_injection",
+            "csrf",
+            "idor",
+            "info_disclosure",
+            "insecure_deserialization",
+            "lfi",
+            "mass_assignment",
+            "open_redirect",
+            "path_traversal",
+            "price_manipulation",
+            "race_condition",
+            "rfi",
+            "session_fixation",
+            "sqli",
+            "ssrf",
+            "weak_crypto",
+            "weak_type_comparison",
+            "xss_r",
+            "xss_s",
+            "xxe",
+            "other",
+            "unknown"
+          ],
+          "description": "Explicit supported root cause; unknown/other also requires classification_reason"
+        },
+        "classification_reason": {
+          "default": "",
+          "description": "Concrete reason for unknown or other root cause; required for those classes on new submissions, optional for historical records",
+          "maxLength": 1200,
+          "title": "Classification Reason",
+          "type": "string"
+        },
+        "primary_location": {
+          "$ref": "#/$defs/PrimaryLocation"
+        },
+        "cvss_input": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CVSS 3.1: AV/AC/PR/UI/S/C/I/A -> {value, rationale, evidence}; unknown values=null",
+          "title": "Cvss Input"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Legacy label; host scoring is authoritative",
+          "title": "Severity"
+        },
+        "summary": {
+          "description": "Evidence-bound explanation of what the cited source establishes",
+          "maxLength": 4000,
+          "minLength": 8,
+          "title": "Summary",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "Snapshot citations as path:start-end, separated by semicolons",
+          "maxLength": 2000,
+          "minLength": 3,
+          "title": "Evidence",
+          "type": "string"
+        },
+        "input_source": {
+          "default": "",
+          "description": "Optional attacker or data input source",
+          "maxLength": 1200,
+          "title": "Input Source",
+          "type": "string"
+        },
+        "propagation": {
+          "default": "",
+          "description": "Optional relevant data or control-flow path",
+          "maxLength": 1800,
+          "title": "Propagation",
+          "type": "string"
+        },
+        "dangerous_operation": {
+          "default": "",
+          "description": "Optional risk sink or sensitive operation",
+          "maxLength": 1200,
+          "title": "Dangerous Operation",
+          "type": "string"
+        },
+        "protection": {
+          "default": "",
+          "description": "Optional relevant protection or boundary",
+          "maxLength": 1200,
+          "title": "Protection",
+          "type": "string"
+        },
+        "preconditions": {
+          "default": "",
+          "description": "One string describing runtime assumptions or entry conditions, never an array; join multiple conditions with semicolons",
+          "examples": [
+            "Requires a logged-in account; runtime database settings remain unknown"
+          ],
+          "maxLength": 1600,
+          "title": "Preconditions",
+          "type": "string"
+        },
+        "poc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PocSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional manually reviewable POC for a vulnerability result"
+        },
+        "remediation": {
+          "default": "",
+          "description": "Optional remediation when an actionable issue exists",
+          "maxLength": 2400,
+          "title": "Remediation",
+          "type": "string"
+        },
+        "retest": {
+          "default": "",
+          "description": "Concrete post-fix positive/negative tests, identity and business-state regression conditions",
+          "maxLength": 4000,
+          "title": "Retest",
+          "type": "string"
+        },
+        "focus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FocusAssessment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Worker proposal only; independent final review must classify relation to frozen user objective"
+        },
+        "dataflow": {
+          "description": "Source-bound data/control-flow chain. Worker-evidence-v2 requires input and sink; if root differs from sink, add one root_cause node covering primary_location. Every node needs an actual read; independent review checks causality",
+          "items": {
+            "$ref": "#/$defs/FlowNode"
+          },
+          "maxItems": 24,
+          "title": "Dataflow",
+          "type": "array",
+          "minItems": 2,
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "input"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "sink"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "title",
+        "kind",
+        "summary",
+        "evidence",
+        "vulnerability_type",
+        "primary_location",
+        "dataflow"
+      ],
+      "title": "TaskFinding",
+      "type": "object"
+    },
+    "TaskObservation": {
+      "description": "Cited audit context or a ruled-out direction, never a vulnerability finding.",
+      "properties": {
+        "title": {
+          "maxLength": 240,
+          "minLength": 3,
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source_observation",
+            "data_flow",
+            "security_boundary"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 4000,
+          "minLength": 8,
+          "title": "Summary",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "Displayed source citations as path:start-end",
+          "maxLength": 2000,
+          "minLength": 3,
+          "title": "Evidence",
+          "type": "string"
+        },
+        "disproof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkerDisproof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Existing local candidate checkpoint owning this observation; does not create a second global lead",
+          "title": "Candidate Id"
+        },
+        "finding_index": {
+          "anyOf": [
+            {
+              "maximum": 15,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Existing finding in this submission owning this observation; not a negative safety verdict",
+          "title": "Finding Index"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actual current finding from this run owning this observation; never invent an ID",
+          "title": "Finding Id"
+        },
+        "follow_up": {
+          "default": true,
+          "description": "Whether this observation still nominates an independently checked risk. Set false only when the cited source lines actually settle one concrete risk; facts, protections scoped to a single input, and anything still worth a decision stay true.",
+          "title": "Follow Up",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "title",
+        "kind",
+        "summary",
+        "evidence",
+        "follow_up"
+      ],
+      "title": "TaskObservation",
+      "type": "object"
+    },
+    "WorkerCandidateUpdate": {
+      "additionalProperties": false,
+      "description": "Worker-owned investigation checkpoint; unresolved entries survive a pass.",
+      "properties": {
+        "candidate_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.:-]+$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "supported",
+            "excluded"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "hypothesis": {
+          "maxLength": 1200,
+          "minLength": 8,
+          "title": "Hypothesis",
+          "type": "string"
+        },
+        "primary_location": {
+          "$ref": "#/$defs/PrimaryLocation"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "maxItems": 12,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "missing_context": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Missing Context",
+          "type": "array"
+        },
+        "next_step": {
+          "default": "",
+          "maxLength": 1200,
+          "title": "Next Step",
+          "type": "string"
+        },
+        "finding_index": {
+          "anyOf": [
+            {
+              "maximum": 15,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Index"
+        },
+        "disproof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkerDisproof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "blocked_on": {
+          "anyOf": [
+            {
+              "enum": [
+                "source",
+                "runtime",
+                "environment"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only for pending candidates with concrete missing_context: pause investigation until missing source/runtime/environment becomes available",
+          "title": "Blocked On"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "status",
+        "hypothesis",
+        "primary_location"
+      ],
+      "title": "WorkerCandidateUpdate",
+      "type": "object"
+    },
+    "WorkerDirectionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "direction_id": {
+          "pattern": "^dir_[a-f0-9]{32}$",
+          "title": "Direction Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "supported",
+            "no_evidence",
+            "needs_evidence"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 1200,
+          "minLength": 8,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "disproof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkerDisproof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "direction_id",
+        "outcome",
+        "rationale"
+      ],
+      "title": "WorkerDirectionResult",
+      "type": "object"
+    },
+    "WorkerDisproof": {
+      "additionalProperties": false,
+      "description": "A scoped source counterexample, not a global safety assertion.",
+      "properties": {
+        "basis": {
+          "enum": [
+            "effective_protection",
+            "unreachable",
+            "not_applicable"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 1600,
+          "minLength": 12,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "basis",
+        "rationale",
+        "evidence"
+      ],
+      "title": "WorkerDisproof",
+      "type": "object"
+    }
+  },
+  "description": "One bounded executor pass over a source work item.\n\nA worker may ask for another, distinct pass but cannot unilaterally call the whole\ntask unreachable. The coordinator only makes that judgement after the durable queue\ndrains and all worker outcomes are available.",
+  "properties": {
+    "outcome": {
+      "enum": [
+        "achieved",
+        "continue",
+        "no_evidence",
+        "blocked"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 4000,
+      "minLength": 3,
+      "title": "Summary",
+      "type": "string"
+    },
+    "reasoning": {
+      "description": "Concise auditable rationale tied to displayed source evidence; do not provide private chain-of-thought",
+      "maxLength": 4000,
+      "minLength": 3,
+      "title": "Reasoning",
+      "type": "string"
+    },
+    "next_focus": {
+      "default": "",
+      "maxLength": 1600,
+      "title": "Next Focus",
+      "type": "string"
+    },
+    "remaining_work": {
+      "description": "Concrete remaining source paths or audit directions after this bounded finding batch; at most eight",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Remaining Work",
+      "type": "array"
+    },
+    "direction_results": {
+      "items": {
+        "$ref": "#/$defs/WorkerDirectionResult"
+      },
+      "maxItems": 64,
+      "title": "Direction Results",
+      "type": "array"
+    },
+    "candidate_updates": {
+      "items": {
+        "$ref": "#/$defs/WorkerCandidateUpdate"
+      },
+      "maxItems": 16,
+      "title": "Candidate Updates",
+      "type": "array"
+    },
+    "missing_context": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Context",
+      "type": "array"
+    },
+    "finding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TaskFinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/TaskFinding"
+      },
+      "title": "Findings",
+      "type": "array",
+      "maxItems": 2
+    },
+    "observations": {
+      "description": "Source facts, data flows, and security protections or ruled-out risks; these never satisfy the vulnerability goal",
+      "items": {
+        "$ref": "#/$defs/TaskObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "outcome",
+    "summary",
+    "reasoning"
+  ],
+  "title": "GoalAssessment",
+  "type": "object",
+  "x-host-evidence-contract": {
+    "version": "worker-dataflow-v2",
+    "notice": "所有 demo/ 路径与行号均为合成结构参考，不属于当前快照，不授予读取凭据，不得直接提交这些示例。",
+    "rules": [
+      "每条 finding 至少包含真实 input 与 sink 节点；input 可是请求、持久化数据或配置来源。",
+      "primary_location 是真实根因坐标；没有显式 root_cause 时，须由同位置 sink 覆盖。",
+      "根因与 sink 分离时，用唯一 root_cause 节点覆盖主定位，保留原 sink；节点按本条链的逻辑顺序解释。",
+      "覆盖指路径完全相同且 start_line <= primary_location.line <= end_line。引用的每一行都须实际读取。",
+      "宿主校验坐标与读取，独立审查判断因果与漏洞是否成立；不能为通过格式改变事实。"
+    ],
+    "examples": [
+      {
+        "case": "根因与操作同处",
+        "finding": {
+          "title": "演示：查询直接执行拼接输入",
+          "kind": "vulnerability",
+          "vulnerability_type": "sqli",
+          "summary": "此处仅演示已经读取的来源、根因与敏感操作如何填写；实际审计必须重新独立取证。",
+          "primary_location": {
+            "path": "demo/search.php",
+            "line": 4
+          },
+          "evidence": "demo/search.php:3-3; demo/search.php:4-4",
+          "dataflow": [
+            {
+              "kind": "input",
+              "evidence": {
+                "path": "demo/search.php",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "explanation": "请求参数在此处进入搜索词变量。"
+            },
+            {
+              "kind": "sink",
+              "evidence": {
+                "path": "demo/search.php",
+                "start_line": 4,
+                "end_line": 4
+              },
+              "explanation": "该行拼接并执行 SQL，根因与危险操作同处。"
+            }
+          ]
+        },
+        "source_assumption": "仅在实际读取证明第3行取参、第4行拼接并执行查询时，才可这样标注。"
+      },
+      {
+        "case": "跨文件输入到操作",
+        "finding": {
+          "title": "演示：调用参数进入仓库查询",
+          "kind": "vulnerability",
+          "vulnerability_type": "sqli",
+          "summary": "此处仅演示已经读取的来源、根因与敏感操作如何填写；实际审计必须重新独立取证。",
+          "primary_location": {
+            "path": "demo/repository.php",
+            "line": 8
+          },
+          "evidence": "demo/controller.php:3-3; demo/repository.php:8-8",
+          "dataflow": [
+            {
+              "kind": "input",
+              "evidence": {
+                "path": "demo/controller.php",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "explanation": "请求参数传入当前审计的仓库函数。"
+            },
+            {
+              "kind": "sink",
+              "evidence": {
+                "path": "demo/repository.php",
+                "start_line": 8,
+                "end_line": 8
+              },
+              "explanation": "函数拼接参数并执行 SQL，主定位保留在此操作行。"
+            }
+          ]
+        },
+        "source_assumption": "必须实际读取调用者、被调用者及必要传播上下文；跨文件不要求相同路径。"
+      },
+      {
+        "case": "错误身份判断与后续操作分离",
+        "finding": {
+          "title": "演示：客户端角色决定敏感操作权限",
+          "kind": "vulnerability",
+          "vulnerability_type": "auth_bypass",
+          "summary": "此处仅演示已经读取的来源、根因与敏感操作如何填写；实际审计必须重新独立取证。",
+          "primary_location": {
+            "path": "demo/guard.php",
+            "line": 5
+          },
+          "evidence": "demo/guard.php:3-3; demo/guard.php:5-5; demo/action.php:9-9",
+          "dataflow": [
+            {
+              "kind": "input",
+              "evidence": {
+                "path": "demo/guard.php",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "explanation": "客户端请求中的角色值进入身份判断。"
+            },
+            {
+              "kind": "root_cause",
+              "evidence": {
+                "path": "demo/guard.php",
+                "start_line": 5,
+                "end_line": 5
+              },
+              "explanation": "该行信任可伪造角色放行，导致下游敏感操作可达。"
+            },
+            {
+              "kind": "sink",
+              "evidence": {
+                "path": "demo/action.php",
+                "start_line": 9,
+                "end_line": 9
+              },
+              "explanation": "被该错误边界保护的敏感写入在此执行。"
+            }
+          ]
+        },
+        "source_assumption": "读取并证明 guard 的放行结果确实控制 action；不能因路径共享或函数名猜测因果。"
+      },
+      {
+        "case": "不当字段授权与后续写入分离",
+        "finding": {
+          "title": "演示：不当授权字段进入账户写入",
+          "kind": "vulnerability",
+          "vulnerability_type": "mass_assignment",
+          "summary": "此处仅演示已经读取的来源、根因与敏感操作如何填写；实际审计必须重新独立取证。",
+          "primary_location": {
+            "path": "demo/update.php",
+            "line": 5
+          },
+          "evidence": "demo/update.php:3-3; demo/update.php:5-5; demo/update.php:8-8",
+          "dataflow": [
+            {
+              "kind": "input",
+              "evidence": {
+                "path": "demo/update.php",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "explanation": "请求携带待更新的字段名和字段值。"
+            },
+            {
+              "kind": "root_cause",
+              "evidence": {
+                "path": "demo/update.php",
+                "start_line": 5,
+                "end_line": 5
+              },
+              "explanation": "该行允许普通账号提交敏感列，形成字段授权缺陷。"
+            },
+            {
+              "kind": "sink",
+              "evidence": {
+                "path": "demo/update.php",
+                "start_line": 8,
+                "end_line": 8
+              },
+              "explanation": "已获不当授权的字段在此处写入账户记录。"
+            }
+          ]
+        },
+        "source_assumption": "须读取字段授权与写入语句；不能将一个普通赋值操作直接认定为授权缺陷。"
+      }
+    ],
+    "negative_examples": [
+      {
+        "case": "主定位落在普通 input/transform，sink 位于别处，却未给 root_cause",
+        "remedy": "先核对真正根因；仅在该处确为缺陷时显式给 root_cause。不要机械改 kind 或移动主定位。"
+      },
+      {
+        "case": "将 sink 引用拉长以包住另一行，区间包含未读行",
+        "remedy": "分别保留真实节点区间；补读决定性源码或保持 pending，不能制造读取凭据。"
+      }
+    ],
+    "disproof_example": {
+      "basis": "effective_protection",
+      "rationale": "仅当已读源码证明本输入路径实际使用参数绑定且不存在结构拼接时，才能排除此具体注入风险。",
+      "evidence": [
+        {
+          "path": "demo/safe-query.php",
+          "start_line": 4,
+          "end_line": 5
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "outcome": "achieved",
+      "summary": "合成格式示例，不能作为当前快照结论。",
+      "reasoning": "实际审计须独立读取并验证来源、根因和操作的关系。",
+      "findings": [
+        {
+          "title": "演示：查询直接执行拼接输入",
+          "kind": "vulnerability",
+          "vulnerability_type": "sqli",
+          "summary": "此处仅演示已经读取的来源、根因与敏感操作如何填写；实际审计必须重新独立取证。",
+          "primary_location": {
+            "path": "demo/search.php",
+            "line": 4
+          },
+          "evidence": "demo/search.php:3-3; demo/search.php:4-4",
+          "dataflow": [
+            {
+              "kind": "input",
+              "evidence": {
+                "path": "demo/search.php",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "explanation": "请求参数在此处进入搜索词变量。"
+            },
+            {
+              "kind": "sink",
+              "evidence": {
+                "path": "demo/search.php",
+                "start_line": 4,
+                "end_line": 4
+              },
+              "explanation": "该行拼接并执行 SQL，根因与危险操作同处。"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "x-host-investigation-contract": {
+    "version": "bounded-v1",
+    "rules": "# 有界调查与明确交接\npreconditions 必须是一个字符串，用分号连接条件；既有台账中的数组不是新 finding 的字段格式。\n同一根因坐标改写措辞、CVSS 或前提不会获得新的调查进展额度；全部原始主张仍保存并独立审查，不因此自动合并漏洞。\npending 候选依赖当前快照缺失的源码、运行配置或环境时，填写 blocked_on=source|runtime|environment、missing_context 和具体 next_step；宿主保存已提交 finding 后暂停此任务，将未决项交回 Planner，不能反复重报已有漏洞。\n普通 pending 连续两次有效提交没有新增读取、根因坐标或候选结算时，宿主也会暂停；缺口不能改成安全或静默删除。\n观察对应未决风险时填 candidate_id，先在 candidate_updates 保存实际操作坐标、缺口和下一步。尤其不能把可疑身份判断只写在笼统的安全边界观察里；发现条数用尽时先保存候选，不把它遗漏。\n观察只是复述已有漏洞时填 finding_index（本次 findings 的零起始索引）或当前运行真实 finding_id，不重复主张。观察 evidence 必须实际读过并覆盖所关联根因；只允许一个关联。关联保持原结论/候选的审查与未决状态，不是排除风险的反证。\n未关联观察的 follow_up=false 仍必须给出具体 disproof；候选、观察和风险信号都不能自行变成已接受漏洞。\n",
+    "examples": [
+      {
+        "case": "外部前提缺失时保存并交接",
+        "candidate_updates": [
+          {
+            "candidate_id": "concurrent-update",
+            "status": "pending",
+            "hypothesis": "并发更新是否导致不一致仍需运行配置。",
+            "primary_location": {
+              "path": "demo/wallet.php",
+              "line": 8
+            },
+            "evidence": [
+              {
+                "path": "demo/wallet.php",
+                "start_line": 8,
+                "end_line": 8
+              }
+            ],
+            "missing_context": [
+              "冻结源码未提供实际事务隔离级别和连接事务设置。"
+            ],
+            "next_step": "获取实际连接的事务配置并核对更新是否同一事务。",
+            "blocked_on": "runtime"
+          }
+        ],
+        "observations": [
+          {
+            "kind": "security_boundary",
+            "title": "待核对的事务边界",
+            "summary": "运行前提未决，保留局部候选。",
+            "evidence": "demo/wallet.php:8-8",
+            "follow_up": true,
+            "candidate_id": "concurrent-update"
+          }
+        ]
+      },
+      {
+        "case": "复述本次已提交发现",
+        "observation": {
+          "kind": "data_flow",
+          "title": "已有结论的传播路径",
+          "summary": "此观察只补充 findings[0] 的来源与操作，不排除其它风险。",
+          "evidence": "demo/query.php:4-4",
+          "follow_up": false,
+          "finding_index": 0
+        }
+      }
+    ],
+    "notice": "demo 路径为格式示例，必须替换为当前实际读取的源码；关联对象必须存在，不能用标志隐藏独立风险。"
+  }
+}

@@ -23,6 +23,11 @@
   明确标注为导航线索而非证据。
 - 候选排序：只排序、不合并；同一路径同一类型仍是两个候选。
 
+2026-11-06 的 `audit/role_policy.py` 进一步借鉴候选状态、证据束及发布检查点的思路，
+使用本项目现有任务尝试、读取凭据和预算独立实现。没有复制或调用 FindingAgent；
+不采用上游的高危筛选或模型 `confirmed` 状态。实现与验收见
+`docs/worker-planner-role-separation.md`。
+
 ## 未复用的上游部分
 
 - Orchestrator、Finding runtime、文件队列、token/成本核算。

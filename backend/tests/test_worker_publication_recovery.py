@@ -34,9 +34,11 @@ def test_publication_schema_requires_live_coordinates_without_rewriting_history_
     assert fields["properties"]["vulnerability_type"]["enum"]
     assert fields["properties"]["primary_location"] == {"$ref": "#/$defs/PrimaryLocation"}
     assert schema["properties"]["findings"]["maxItems"] == 2
+    assert "follow_up" in schema["$defs"]["TaskObservation"]["required"]
     historical = GoalAssessment.model_json_schema()["$defs"]["TaskFinding"]
     assert "vulnerability_type" not in historical["required"]
     assert "primary_location" not in historical["required"]
+    assert "follow_up" not in GoalAssessment.model_json_schema()["$defs"]["TaskObservation"]["required"]
 
 
 def test_exploration_is_followed_by_small_json_publication_and_bounded_corrections(monkeypatch):

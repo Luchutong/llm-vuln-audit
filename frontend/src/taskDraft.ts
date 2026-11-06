@@ -11,6 +11,7 @@ export function frozenTaskPolicy(task?: Partial<TaskSpec> | null) {
       ? '本轮未继承历史漏洞结论；共享项目台账与旧运行仍保留，本轮发现继续归入该源码项目。'
       : '本轮允许使用冻结的项目既有漏洞作为审计线索。',
     workflow: task?.orchestration_policy === 'host-queue-v1' ? '宿主按需调度 · 先挖掘后验证 · 统一终审' : task?.workflow_policy === 'discovery_first' ? '先源码挖掘，再分批验证与正式复核' : '共享预算调度（旧政策）',
+    exploration: task?.exploration_policy === 'exhaustive-v1' ? '全部风险 · 线索分流与观察复核' : '标准探索',
   };
 }
 
@@ -22,6 +23,7 @@ export function draftTask(seed?: Partial<TaskSpec>): TaskSpec {
     max_planner_rounds: 24, max_workers: 2, stop_on_achieved: false,
     completion_policy: 'coverage_review', workflow_policy: 'discovery_first', baseline_policy: 'fresh', require_poc: false, scenario: null,
     orchestration_policy: 'host-queue-v1', review_policy: 'batch-v1',
+    exploration_policy: 'legacy',
     ...seed,
     ...(seed && !seed.completion_policy ? { completion_policy: 'goal' as CompletionPolicy } : {}),
     ...(seed && !seed.baseline_policy ? { baseline_policy: 'inherit' as const } : {}),
@@ -35,7 +37,13 @@ export function taskWithPolicy(task: TaskSpec, policy: CompletionPolicy): TaskSp
     workflow_policy: policy === 'coverage_review' ? 'discovery_first' : 'legacy',
     orchestration_policy: policy === 'coverage_review' ? 'host-queue-v1' : 'rounds-v1',
     review_policy: policy === 'coverage_review' ? 'batch-v1' : task.review_policy,
+    exploration_policy: policy === 'coverage_review' ? task.exploration_policy : 'legacy',
     baseline_policy: policy === 'coverage_review' ? 'fresh' : 'inherit' };
+}
+
+export function taskWithExploration(task: TaskSpec, exhaustive: boolean): TaskSpec {
+  return exhaustive ? { ...taskWithPolicy(task, 'coverage_review'), exploration_policy: 'exhaustive-v1',
+    focus_scope: 'all', scenario: null, risk_coverage_policy: 'bounded-v2' } : { ...task, exploration_policy: 'legacy' };
 }
 
 export function taskForStart(task: TaskSpec, objective: string, scopeSuffix = ''): Partial<TaskSpec> {
@@ -49,5 +57,9 @@ export function taskForStart(task: TaskSpec, objective: string, scopeSuffix = ''
   // Stage quotas are chosen in the settings panel for this request; a cloned run's
   // frozen quotas must not leak into a different mode or budget.
   delete payload.workflow_limits;
+  // A new interactive audit uses the server's current evidence contract. Keep the
+  // cloned run's frozen version on its history, rather than silently reusing it.
+  delete payload.role_policy;
+  delete payload.investigation_policy;
   return payload;
 }

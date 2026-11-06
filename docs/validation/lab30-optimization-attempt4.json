@@ -1,0 +1,105 @@
+{
+  "run_id": "b6d0095f76174eacac905967018f39b2",
+  "profile": "optimized",
+  "model": "deepseek-flash",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "run_budget_exhausted",
+    "dimension": "seconds",
+    "message": "整次审计 seconds 预算已耗尽"
+  },
+  "usage": {
+    "responses": 711,
+    "tools": 730,
+    "seconds": 10802.554
+  },
+  "elapsed_seconds": 10807.201,
+  "asserted": {
+    "TP": 30,
+    "FN": 0,
+    "D": 60,
+    "U": 5,
+    "FP": 65,
+    "precision": 0.3157894736842105,
+    "recall": 1.0,
+    "f1": 0.48
+  },
+  "accepted": {
+    "TP": 28,
+    "FN": 2,
+    "D": 0,
+    "U": 1,
+    "FP": 1,
+    "precision": 0.9655172413793104,
+    "recall": 0.9333333333333333,
+    "f1": 0.9491525423728814
+  },
+  "counts": {
+    "accepted": 29,
+    "canonical": 34,
+    "contested": 0,
+    "pending": 5,
+    "raw_records": 161,
+    "valid_records": 95,
+    "withdrawn": 66
+  },
+  "poc_jobs": 0,
+  "code_unchanged": true,
+  "failed_checks": [
+    "评分验收 TP: 需要 30，实际 28",
+    "评分验收 FN: 需要 0，实际 2",
+    "评分验收 U: 需要 0，实际 1",
+    "评分验收 FP: 需要 0，实际 1",
+    "运行或完整性维度尚未完成"
+  ],
+  "scope": "Full-source fresh static audit; retained as an unsuccessful trial and as the failure control for attempt 5",
+  "source_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "code_sha256": "67918411d8aaf792853fdd27f05b68a7fbdaffabe012c5995631fdb91910770a",
+  "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261106-attempt4/01-optimized",
+  "directions": {
+    "total": 256,
+    "pending_total": 3,
+    "assigned_total": 0,
+    "resolved_total": 142,
+    "skipped_total": 31,
+    "unsettled_total": 90,
+    "omitted_leads": 0,
+    "complete": false
+  },
+  "risk_coverage": {
+    "total": 88,
+    "required": 88,
+    "pending_required": 44,
+    "complete": false,
+    "by_state": {
+      "supported": 30,
+      "no_evidence": 13,
+      "not_applicable": 1,
+      "blocked": 0,
+      "pending": 44
+    }
+  },
+  "missed_accepted": [
+    "21 会话固定",
+    "23 会员查询跨文件 SQL 注入"
+  ],
+  "missed_asserted": [],
+  "extra_accepted": [
+    {
+      "title": "auth/register.php 注册写库缺少 CSRF 令牌校验（表单与处理均无 csrf_field/check_csrf）",
+      "type": "csrf",
+      "primary_location": {
+        "line": 8,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    }
+  ],
+  "failure_analysis": {
+    "discovery": "全部 30 个真值都已被仍主张候选发现（asserted TP=30、FN=0）；原始主张的去重与未匹配项很多（D=60、U=5），但这不是本轮接受分缺口的原因。",
+    "review_throughput": "终审从 21:46 持续到 23:24，80 个最终批次里 56 个只有 1 项：每条 finding 的 payload 为 12-20KB（含 comparison_candidates、related_claims 与 related_review_decisions），而宿主批次软上限为 32768 字节，导致每轮只能审一条，轮次延迟约 70 秒。到 seconds 预算耗尽时，88 条风险义务仍有 44 条 pending，256 条线索仍有 90 条未结算。",
+    "stalled_rounds": "第 163/164 轮在同一个 3 项批次（bootstrap.php:59/60 与 dispatch_job.php:4）连续失败：模型先产出不合法代码块与 focus.relation 枚举值，再因含 paged_fields 的项未先 read_review_input 读取完整绑定源码而被拒；两轮共耗约 10 分钟，随后时间预算耗尽。",
+    "unreviewed_truths": "真值 21（session_fixation，bootstrap.php:17）与 23（sqli，member_lookup.php:3）的 finding 均已创建且证据候选有效，但它们的规范项在预算耗尽时仍为 pending（分别有 2 条与 3 条同锚点重复结论待终审判重），因此记为 FN。",
+    "csrf_extra": "auth/register.php:8 的 CSRF 结论被终审接受，尽管其自身 rationale 承认入口不要求登录、SameSite=Lax 下跨站顶层 POST 默认不携带 Cookie。终审把“缺失令牌”本身当成缺陷成立，未执行“未认证入口没有可被冒用的既有会话”的规则。",
+    "risk_chain": "dispatch_job.php:4 命令注入义务可由真值 27 的反序列化结论支持（evidence 覆盖该行且 dangerous_operation 写明该文件），但该义务所在的批次正是被两轮拒绝拖住的批次，预算耗尽前未结算。"
+  }
+}

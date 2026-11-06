@@ -1,0 +1,122 @@
+{
+  "run_id": "4fa3bcd01b064690a02066f838983581",
+  "profile": "optimized",
+  "model": "deepseek-flash",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "exploration_incomplete",
+    "message": "全量探索仍有未分流线索或未读取风险操作，停止无进展重复规划；审计与终审随后结束，未完成方向保留在阶段报告中。"
+  },
+  "usage": {
+    "responses": 326,
+    "tools": 309,
+    "seconds": 2859.171
+  },
+  "elapsed_seconds": 2861.692,
+  "asserted": {
+    "TP": 26,
+    "FN": 4,
+    "D": 19,
+    "U": 9,
+    "FP": 28,
+    "precision": 0.48148148148148145,
+    "recall": 0.8666666666666667,
+    "f1": 0.6190476190476191
+  },
+  "accepted": {
+    "TP": 26,
+    "FN": 4,
+    "D": 0,
+    "U": 4,
+    "FP": 4,
+    "precision": 0.8666666666666667,
+    "recall": 0.8666666666666667,
+    "f1": 0.8666666666666667
+  },
+  "counts": {
+    "accepted": 30,
+    "canonical": 30,
+    "raw_records": 63,
+    "valid_records": 54,
+    "withdrawn": 9,
+    "pending": 0
+  },
+  "poc_jobs": 0,
+  "code_unchanged": true,
+  "failed_checks": [
+    "评分验收 TP: 需要 30，实际 26",
+    "评分验收 FN: 需要 0，实际 4",
+    "评分验收 U: 需要 0，实际 4",
+    "评分验收 FP: 需要 0，实际 4",
+    "运行状态: 需要 completed，实际 inconclusive"
+  ],
+  "scope": "Full-source fresh static audit; retained as an unsuccessful trial and as the failure control for attempt 3",
+  "source_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "code_sha256": "48e6ec30d2694c3f5290b282be055a3ec670172e9d512985f0662665149cd0b1",
+  "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261106-attempt2/01-optimized",
+  "directions": {
+    "total": 145,
+    "pending_total": 2,
+    "assigned_total": 0,
+    "resolved_total": 14,
+    "skipped_total": 0,
+    "unsettled_total": 130,
+    "omitted_leads": 0,
+    "complete": false
+  },
+  "missed_accepted": [
+    "09 数据库诊断异常与堆栈信息泄露",
+    "23 会员查询跨文件 SQL 注入",
+    "24 主机巡检跨文件命令注入",
+    "27 任务导入反序列化链命令执行"
+  ],
+  "missed_asserted": [
+    "09 数据库诊断异常与堆栈信息泄露",
+    "23 会员查询跨文件 SQL 注入",
+    "24 主机巡检跨文件命令注入",
+    "27 任务导入反序列化链命令执行"
+  ],
+  "extra_accepted": [
+    {
+      "title": "account/profile.php url 参数未做协议白名单与属性编码，可开放重定向并经引号注入属性型 XSS",
+      "type": "open_redirect",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/account/profile.php"
+      }
+    },
+    {
+      "title": "注册接口创建账户的 POST 未经 CSRF 令牌校验",
+      "type": "csrf",
+      "primary_location": {
+        "line": 8,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    },
+    {
+      "title": "health.php 未认证泄露应用版本与数据库可用性",
+      "type": "info_disclosure",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/health.php"
+      }
+    },
+    {
+      "title": "partner/token.php 将 settings.generation 用作令牌签名密钥并向任意登录用户签发 Role 令牌",
+      "type": "weak_crypto",
+      "primary_location": {
+        "line": 4,
+        "path": "lab30-shop/app/public/partner/token.php"
+      }
+    }
+  ],
+  "failure_analysis": {
+    "discovery_stop": "宿主在发现三次严格路径拒绝后，以连续未变化规划轮次停止挖掘；stage 于 17:40:53 进入 review，仅完成 49 个任务。",
+    "rejections": [
+      "任务 account-backup-redeem-deser 采纳的宿主方向点名了 auth/continue.php、partner/token.php，模型未把路径写进 source_refs，宿主整份拒绝。"
+    ],
+    "triage": "正式 review 阶段 Planner 未调用任何一次 list_directions，130 条观察/文本线索未结算；脚本 drain 只暴露 4 条线索且无强制分流指令，一轮未变化即退出。",
+    "deferral": "worker 已识别 09/23/24/27 并写入 remaining_work，但 `resolve_task_attempt` 只在 remaining_work 命中「已分派给该任务的方向」时才续跑；这些任务没有分派方向，attempt 1 后即 completed，后续复核任务未建立。",
+    "unread_helpers": "src/member_lookup.php、src/host_check.php、src/dispatch_job.php 从未出现在 read_paths，跨文件 sink 没有被任何 worker 直接读取。"
+  }
+}

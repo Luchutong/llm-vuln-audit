@@ -1095,12 +1095,15 @@ def test_safe_source_observation_is_saved_without_becoming_an_achieved_finding(m
         "observations": [observation],
     })
 
+    # The host records the lead flag even when the worker omitted it: an observation
+    # with no explicit settlement is still an open risk direction.
+    expected = {**observation, "follow_up": True}
     assert result["outcome"] == "no_evidence", result
-    assert result["result"]["observations"] == [observation]
+    assert result["result"]["observations"] == [expected]
     assert result["result"]["finding"] is None
     assert result["result"]["findings"] == []
     assessment = next(event for event in events if event["kind"] == "task_assessment")
-    assert assessment["observations"] == [observation]
+    assert assessment["observations"] == [expected]
     assert assessment["evidence"]["findings"] == []
     assert assessment["evidence"]["observations"][0]["title"] == observation["title"]
     assert assessment["evidence"]["references"] == [{"path": "a.php", "start_line": 3, "end_line": 3}]

@@ -96,7 +96,7 @@ def test_actual_byte_packing_and_reserve_preserve_the_single_ledger(hosted):
     batches = store.review_batches_pending(run['id'], 'final', repo)
     assert sum(map(len, batches)) == 37
     assert len(batches) > 5  # Byte capacity, not merely ceil(37/8).
-    assert all(len(json.dumps(batch, ensure_ascii=False).encode()) < 34000 for batch in batches)
+    assert all(len(json.dumps(batch, ensure_ascii=False).encode()) < 49152 for batch in batches)
     workflow = store.refresh_review_reserve(run['id'], repo, additional_workers=2)
     assert workflow['review_reserve']['responses'] == 3 * len(batches) + 12
     assert workflow['review_reserve']['seconds'] == 60 * (len(batches) + 5)

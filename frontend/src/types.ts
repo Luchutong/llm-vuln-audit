@@ -3,6 +3,8 @@ export type RunStatus =
   | 'pending' | 'running' | 'paused'
   | 'completed' | 'unreachable' | 'inconclusive' | 'failed' | 'cancelled' | 'interrupted';
 export interface TaskSpec {
+  role_policy?: 'legacy' | 'worker-evidence-v1' | 'worker-evidence-v2' | null;
+  investigation_policy?: 'legacy' | 'bounded-v1' | null;
   objective: string;
   success_criteria: string;
   max_iterations: number;
@@ -13,7 +15,8 @@ export interface TaskSpec {
   /** Missing on historical runs means legacy goal closure. */
   completion_policy?: 'goal' | 'coverage_review';
   focus_scope?: 'targeted' | 'all';
-  risk_coverage_policy?: 'off' | 'bounded-v1';
+  risk_coverage_policy?: 'off' | 'bounded-v1' | 'bounded-v2';
+  exploration_policy?: 'legacy' | 'exhaustive-v1';
   capability_policy?: string;
   audit_focus?: { objective_ref: string; objective: string; scenario?: string | null; policy: string };
   /** Absent on historical records: preserve the original shared-budget scheduler. */

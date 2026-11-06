@@ -123,7 +123,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
           <button className="message-attachment" onClick={() => openDetails('overview')}><FileArchive size={24} /><span><strong>{run.snapshot_name}</strong><small>{scopeFileCount(run, detail.project_map)} 个可读文件 · 冻结项目快照</small></span><ArrowUpRight size={16} /></button>
           <CompactText text={run.task_spec?.objective ?? run.prompt_text ?? '历史审计任务'} lines={3} label="任务目标" />
           <Disclosure title="任务要求与策略">
-          {run.task_spec && <><div className="result-actions" aria-label="已冻结的审计策略"><span className="chip">{frozenPolicy.mode}</span><span className="chip">{frozenPolicy.baseline}</span><span className="chip">{frozenPolicy.workflow}</span></div><p className="field-hint">{frozenPolicy.baselineDescription}</p></>}
+          {run.task_spec && <><div className="result-actions" aria-label="已冻结的审计策略"><span className="chip">{frozenPolicy.mode}</span><span className="chip">{frozenPolicy.baseline}</span><span className="chip">{frozenPolicy.workflow}</span>{run.task_spec.exploration_policy === 'exhaustive-v1' && <span className="chip">{frozenPolicy.exploration}</span>}</div><p className="field-hint">{frozenPolicy.baselineDescription}</p></>}
           {run.task_spec?.success_criteria && <LongContent value={run.task_spec.success_criteria} label="验收目标" />}
           {run.task_spec?.continuation && <p className="small muted">本次继承已有证据并独立使用新增预算，<a href={`#run/${run.task_spec.continuation.parent_run_id}`}>查看原审计</a>。</p>}
           </Disclosure>

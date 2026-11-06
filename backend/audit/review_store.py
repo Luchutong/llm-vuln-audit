@@ -8,9 +8,104 @@ from __future__ import annotations
 import hashlib
 import base64
 import json
+import re
 import uuid
+from collections import Counter
 from pathlib import Path
 from datetime import datetime, timezone
+
+_RELATED_STOP = {
+    "that", "this", "with", "from", "have", "been", "will", "when", "where", "which",
+    "what", "their", "there", "then", "than", "into", "over", "under", "after", "before",
+    "http", "https", "html", "json", "echo", "return", "function", "array", "string",
+    "value", "values", "data", "user", "post", "request", "response", "source", "code",
+    "file", "files", "path", "line", "lines", "true", "false", "null", "this", "self",
+    "public", "private", "static", "prepare", "execute", "fetch", "fetchall", "query",
+    "select", "update", "insert", "delete", "where", "from", "join", "into", "set",
+}
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
+_TABLE_REF = re.compile(r"(?:from|join|into|update|table)\s+`?([A-Za-z_][A-Za-z0-9_]*)`?", re.IGNORECASE)
+_DOTTED_REF = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b")
+
+
+def _excerpt_text(excerpt):
+    """``read_source`` returns numbered lines; older fixtures may carry plain text."""
+    lines = excerpt.get("lines")
+    if isinstance(lines, list):
+        return "\n".join(str(line.get("text") or "") for line in lines if isinstance(line, dict))
+    return str(excerpt.get("text") or "")
+
+
+def _claim_corpus(item):
+    payload = item.get("payload") or {}
+    texts = [str(payload.get(key) or "") for key in (
+        "title", "summary", "input_source", "propagation", "dangerous_operation",
+        "protection", "preconditions", "missing_context", "remediation")]
+    for excerpt in item.get("source_excerpts") or []:
+        texts.append(_excerpt_text(excerpt))
+    text = "\n".join(texts)
+    folded = text.casefold()
+    tokens = {token for token in _IDENT.findall(folded)} - _RELATED_STOP
+    tables = {match.group(1).casefold() for match in _TABLE_REF.finditer(text)}
+    tables.update(match.group(1).casefold() for match in _DOTTED_REF.finditer(text))
+    tables -= _RELATED_STOP
+    location = payload.get("primary_location") or {}
+    return {"tokens": tokens, "tables": tables, "path": location.get("path") or payload.get("file_path")}
+
+
+def related_claim_facts(item, candidates, *, limit: int = 3):
+    """Reference other run claims that can corroborate a data source or write path.
+
+    The facts are host-selected neighbours, not a merge and not evidence of this
+    claim's own sink.  Selection is deterministic: shared database tables, rare
+    identifiers across the run's claims, and the same primary file.
+    """
+    if item.get("kind") != "finding":
+        return []
+    own = _claim_corpus(item)
+    if not own["tokens"]:
+        return []
+    others = [candidate for candidate in candidates
+              if candidate.get("kind") == "finding" and candidate.get("item_id") != item.get("item_id")]
+    corpora = {candidate["item_id"]: _claim_corpus(candidate) for candidate in others}
+    frequency = Counter(token for corpus in corpora.values() for token in corpus["tokens"])
+    frequency.update(own["tokens"])
+    scored = []
+    for candidate in others:
+        theirs = corpora[candidate["item_id"]]
+        shared = own["tokens"] & theirs["tokens"]
+        tables = own["tables"] & theirs["tables"]
+        rare = [token for token in shared if frequency[token] <= 3]
+        score = 6 * bool(tables) + 3 * len(rare) + min(len(shared) - len(rare), 5)
+        if own["path"] and own["path"] == theirs["path"]:
+            score += 3
+        if score >= 6:
+            scored.append((score, candidate, sorted(rare)[:6], sorted(tables)))
+    scored.sort(key=lambda row: (-row[0], row[1]["item_id"]))
+    facts = []
+    for score, candidate, rare, tables in scored[:limit]:
+        payload = candidate["payload"]
+        excerpts = []
+        for excerpt in (candidate.get("source_excerpts") or [])[:2]:
+            excerpts.append({
+                "path": excerpt.get("path"), "start_line": excerpt.get("start_line"),
+                "end_line": excerpt.get("end_line"), "text": _excerpt_text(excerpt)[:1200],
+            })
+        facts.append({
+            "item_id": candidate["item_id"],
+            "finding_id": payload.get("finding_id"),
+            "vulnerability_type": payload.get("vulnerability_type"),
+            "title": str(payload.get("title") or "")[:160],
+            "primary_location": payload.get("primary_location"),
+            "summary": str(payload.get("summary") or "")[:500],
+            "dangerous_operation": str(payload.get("dangerous_operation") or "")[:300],
+            "evidence": list(payload.get("evidence") or [])[:4],
+            "shared_tables": tables,
+            "shared_terms": rare,
+            "source_excerpts": excerpts,
+            "relation": "同一运行内的相邻结论；仅作来源/写入路径旁证，不能替代本项的 sink 证据。",
+        })
+    return facts
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_review_batches (
@@ -250,12 +345,15 @@ class ReviewStoreMixin:
                          "worker_results": result.get("direction_results", [])}
                 basis["read_ranges"] = [ref for attempt in (self.list_task_attempts(task["id"]) if task else [])
                                         for ref in (attempt.get("seen") or [])][:32]
+                from .investigation import enabled as bounded
+                if bounded((self.get_run(run_id) or {}).get("task_spec")):
+                    basis["resolution_context"] = self.direction_resolution_context(run_id, direction, tasks=tasks)
                 items.append({"kind": "direction", "item_id": direction["id"], "revision": fingerprint(basis),
                               "task_key": task.get("task_key"), "payload": basis})
         records = self._review_records(run_id, self.list_findings(run_id))
         by_finding = {record["id"]: record for record in records}
         canonical, _ = canonical_groups(records)
-        peers = comparison_candidates(canonical)
+        peers = comparison_candidates(canonical, inclusion_family=self.exhaustive_enabled(run_id))
         from .capability import enabled
         capability_run = self.get_run(run_id) or {}
         # Same typed coordinates nominate comparisons before POC. Prose phrasing
@@ -311,6 +409,7 @@ class ReviewStoreMixin:
                     payload["integration_review"] = {**json.loads(integration["decision"]),
                                                      "batch_id": integration["batch_id"]}
             items.append({"kind": "finding", "item_id": entry["canonical_id"],
+                          "disposition": raw.get("disposition") or entry.get("final_disposition"),
                           "revision": finding_fact_revision(entry, raw) if hosted else fingerprint(entry), "finding_id": claim["finding_id"],
                           "finding_revision": claim["revision"], "verification_id": claim.get("verification_id"),
                           "verification_status": claim.get("verification_status"), "conflicts": entry["conflicts"],
@@ -331,7 +430,8 @@ class ReviewStoreMixin:
                     reviewed.update((i["item_id"], i["revision"]) for i in batch["items"])
         from .review_input import source_input, bounded_item, comparison_groups, same_input
         groups, selected = [], []
-        pending = [i for i in self._review_candidates(run_id, phase) if (i["item_id"], i["revision"]) not in reviewed]
+        candidates = self._review_candidates(run_id, phase)
+        pending = [i for i in candidates if (i["item_id"], i["revision"]) not in reviewed]
         isolated = set()
         if phase == "final" and self.host_queue_enabled(run_id):
             row = self._row("SELECT claim_epoch FROM run_execution_state WHERE run_id=?", (run_id,))
@@ -347,9 +447,28 @@ class ReviewStoreMixin:
                                   if target is isolated or same_input(i, pending_by_id.get(i["item_id"])))
             if for_scheduling:
                 pending = [i for i in pending if (i["item_id"], i["revision"]) not in deferred]
-        soft_limit = 32768 if self.host_queue_enabled(run_id) else 24576
+        enriched = {}
+        if phase == "final" and repository is not None:
+            # The corroboration pool is every current claim, not only the unreviewed
+            # ones: a write-path claim accepted in an earlier batch is still the fact
+            # that proves a later second-order injection's source column.
+            source_items = [i for i in candidates if i["kind"] in {"finding", "risk"}
+                            and i.get("disposition") not in {"withdrawn", "duplicate", "retracted", "superseded"}]
+            for i in source_items:
+                enriched[i["item_id"]] = source_input(i, repository)
+            findings = [enriched[i["item_id"]] for i in source_items if i["kind"] == "finding"]
+            for item in findings:
+                facts = related_claim_facts(item, findings)
+                if facts:
+                    item["payload"] = {**item["payload"], "related_claims": facts}
+        # A single finding payload is ~15-20 KB after corroboration excerpts; at 32 KB
+        # the packer fell back to one item per final batch in a real run (56 of 80
+        # batches), which spent the whole wall-clock budget on round-trip latency while
+        # half the obligations stayed unreviewed. 48 KB packs 2-3 findings (or 4-6 small
+        # risk items) per batch without changing any per-item bound or decision contract.
+        soft_limit = 49152 if self.host_queue_enabled(run_id) else 24576
         for related in comparison_groups(pending):
-            prepared = [bounded_item(source_input(i, repository) if phase == "final" and i["kind"] in {"finding", "risk"} else i)
+            prepared = [bounded_item(enriched.get(i["item_id"], i) if phase == "final" else i)
                         for i in related]
             if any((i["item_id"], i["revision"]) in isolated for i in related):
                 if selected:
@@ -560,9 +679,35 @@ class ReviewStoreMixin:
         directions = self._audit_direction_records(run_id)
         for decision in decisions:
             item = current[decision["item_id"]]
+            if self.exhaustive_enabled(run_id) and item["kind"] == "risk" and decision.get("risk_outcome") == "supported":
+                obligation = item["payload"]["obligation"]
+                ids = decision.get("finding_ids") or []
+                if not ids:
+                    raise ValueError("supported 风险义务须引用实际 finding_ids；观察或合报描述不能替代独立结论")
+                for ident in ids:
+                    finding = self.get_finding(ident)
+                    location = (finding or {}).get("primary_location") or {}
+                    exact = location.get("path") == obligation["path"] and location.get("line") == obligation["line"]
+                    cited = any(ref.get("path") == obligation["path"] and ref.get("start_line", 0) <= obligation["line"] <= ref.get("end_line", 0)
+                                for ref in (finding or {}).get("evidence") or [])
+                    # A chain-rooted conclusion (deserialization reaching __wakeup, an
+                    # include reached through a controller) legitimately owns a sink whose
+                    # line is not its primary location. It may support that obligation when
+                    # its own claim text names the sink and its evidence covers the line;
+                    # SQL injection keeps the exact-primary rule because source and sink
+                    # lines must be distinguished there. Unrelated sinks cannot share a
+                    # broad evidence range: the finding must name the file.
+                    compound = any(str((finding or {}).get(key) or "").find(obligation["path"].rsplit("/", 1)[-1]) >= 0
+                                   for key in ("dangerous_operation", "propagation", "summary"))
+                    chain_sink = obligation["risk"] in {"command_injection", "code_execution"} and compound
+                    if (not finding or finding.get("run_id") != run_id or finding.get("validation_state") != "candidate"
+                        or finding.get("disposition") in {"duplicate", "retracted", "superseded"}
+                        or finding.get("verification_status") == "rejected" or not cited
+                        or (obligation["risk"] in {"command_injection", "code_execution", "sqli"} and not exact and not chain_sink)):
+                        raise ValueError("supported 须有当前有效且对应实际危险操作的 finding；两处独立 sink 不能仅用共同证据合报")
             if item["kind"] == "direction" and decision["decision"] == "resolve":
                 self._validate_direction_resolution_tx(run_id, directions[item["item_id"]],
-                    {"task_key": item["task_key"], "finding_ids": []}, tasks)
+                    {"task_key": item["task_key"], "finding_ids": decision.get("finding_ids") or []}, tasks)
         return decisions
 
     def _commit_review_batch_tx(self, run_id, batch_id, decisions, plan_id, verification_reviews=None):
@@ -590,7 +735,8 @@ class ReviewStoreMixin:
             choice = decision["decision"]
             if item["kind"] == "direction" and choice in {"resolve", "skip"}:
                 updates.append({"direction_id": item["item_id"], "action": choice,
-                                "task_key": item["task_key"], "rationale_summary": decision["rationale"]})
+                                "task_key": item["task_key"], "rationale_summary": decision["rationale"],
+                                "finding_ids": list(decision.get("finding_ids") or [])})
             if item["kind"] == "direction" and choice == "needs_evidence" and batch["phase"] != "final":
                 records = self._audit_direction_records(run_id)
                 records[item["item_id"]].update(state="pending", assigned_task_key=None,

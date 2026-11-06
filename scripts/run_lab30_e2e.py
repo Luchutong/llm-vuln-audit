@@ -97,6 +97,27 @@ CLOSURE_TASK = {
     "baseline_policy": "fresh",
 }
 DEFAULT_HISTORY_BYTES = 384 * 1024
+SCORE_TARGET = {"version": "lab30-30-v1", "protocol": "lab30-v2", "TP": 30, "FN": 0, "D": 0, "U": 0, "FP": 0}
+
+
+def score_problems(score: dict, target: dict | None) -> list[str]:
+    if target is None:
+        return []
+    return [f"评分验收 {key}: 需要 {expected!r}，实际 {score.get(key)!r}"
+            for key, expected in target.items() if key != "version" and
+            (score.get(key) != expected or (isinstance(expected, int) and type(score.get(key)) is not int))]
+
+
+def accepted_score_input(facts: dict) -> list[dict]:
+    """Exact-version independent acceptance, with no scripts or HTTP session data."""
+    records = []
+    for entry in facts.get("canonical_findings") or []:
+        if entry.get("final_disposition") != "accepted" or (entry.get("final_batch_review") or {}).get("decision") != "accept":
+            continue
+        claim = entry["frozen_claim"]
+        records.append({"id": claim["finding_id"], "finding_kind": "vulnerability", "disposition": "open",
+            **{key: claim.get(key) for key in ("title", "summary", "vulnerability_type", "primary_location", "evidence", "cvss", "validation_errors")}})
+    return records
 
 
 
@@ -164,6 +185,7 @@ def create_run(client: httpx.Client, snapshot_id: str, scenario: str | None, obj
         # Explicit stage quotas are only accepted for the discovery-first workflow,
         # which ``coverage_review`` selects (and the API validates).
         task["workflow_limits"] = dict(quotas)
+    task.update(task_overrides or {})
     print(f"[2/4] 创建审计任务（scenario={specific or 'all 全量'}{' · 闭环档' if closure else ''}）")
     response = client.post("/api/runs", json=payload)
     if response.status_code >= 400:
@@ -391,6 +413,12 @@ def closure_problems(closure: dict, score_code: int) -> list[str]:
         problems.append(f"上下文历史超限 {context['history_limit_hits']} 次")
     if score_code != 0:
         problems.append(f"评分脚本退出码 {score_code}")
+    if closure.get("score_target"):
+        if closure.get("status") != "completed":
+            problems.append("评分达标还要求新运行 completed 并完成同版本独立终审")
+        if closure.get("audit_complete") is not True:
+            problems.append("独立终审、目标关联或风险义务尚未完整完成，不能以原始主张分数替代验收")
+        problems.extend(score_problems(closure.get("score") or {}, closure["score_target"]))
     return problems
 
 
@@ -399,7 +427,7 @@ def read_score(path: Path) -> dict:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    keys = ("protocol", "TP", "D", "U", "FN", "precision", "recall", "f1", "truths", "findings")
+    keys = ("protocol", "TP", "D", "U", "FP", "FN", "precision", "recall", "f1", "truths", "findings")
     return {key: report.get(key) for key in keys if key in report}
 
 
@@ -488,6 +516,8 @@ def main() -> int:
     parser.add_argument("--no-preflight-reset", action="store_true",
                         help="闭环档跳过开跑前/结束后的靶场复位与种子断言（仅用于调试）")
     parser.add_argument("--closure-out", default=None, help="closure.json 输出路径（默认与评分文件同目录）")
+    parser.add_argument("--exhaustive", action="store_true", help="新全量任务启用独立线索分流、观察复核和 bounded-v2 风险义务")
+    parser.add_argument("--score-target", choices=("lab30-30-v1",), help="显式冻结 30 TP、0 FN/D/U/FP 的独立评分验收；不改变审计上下文")
     args = parser.parse_args()
 
     base = args.base.rstrip("/")
@@ -495,15 +525,23 @@ def main() -> int:
     out = Path(args.out) if args.out else ROOT / "datasets" / "lab30-shop" / f"score_{tag}.json"
     # v2 只接受完整真值：分场景或分类型筛选时退回 legacy 评分。
     protocol = "" if args.legacy_score or tag != "all" or args.klass else "lab30-v2"
+    if args.exhaustive and (tag != "all" or args.follow):
+        parser.error("--exhaustive 仅用于新建全量任务，不能升级冻结运行或扩大定向任务")
+    if args.score_target and (protocol != "lab30-v2" or args.no_score):
+        parser.error("--score-target 需要完整 lab30-v2 评分且不能使用 --no-score")
 
     # 离线评分：只调用 score_dataset.py，不连接后端。
     if args.offline:
         if args.no_score:
             print("已跳过评分（--no-score）")
             return 0
-        return score(None, base, args.scenario, out, offline=Path(args.offline),
+        code = score(None, base, args.scenario, out, offline=Path(args.offline),
                      check_severity=args.check_severity, check_cvss=args.check_cvss,
                      klass=args.klass, protocol=protocol)
+        problems = score_problems(read_score(out), SCORE_TARGET if args.score_target else None)
+        for problem in problems:
+            print(problem)
+        return code or int(bool(problems))
 
     if not args.zip and not args.follow:
         parser.error("在线模式需要 --zip 源码包，或使用 --offline findings.json 离线评分")
@@ -525,6 +563,10 @@ def main() -> int:
                 overrides[key] = value
 
     budgets = parse_pairs(args.budget, "--budget", BUDGET_FIELDS)
+    if args.exhaustive:
+        overrides.update(exploration_policy="exhaustive-v1", focus_scope="all", risk_coverage_policy="bounded-v2",
+                         completion_policy="coverage_review", workflow_policy="discovery_first",
+                         orchestration_policy="host-queue-v1", review_policy="batch-v1", baseline_policy="fresh")
     limits = parse_pairs(args.run_limit, "--run-limit", RUN_LIMIT_FIELDS)
     quotas = parse_pairs(args.stage_limit, "--stage-limit", STAGE_FIELDS)
     if quotas and tag != "all":
@@ -539,6 +581,8 @@ def main() -> int:
     seed: dict | None = None
     config: dict = {}
     closure: dict | None = None
+    accepted_path = None
+    audit_complete = None
     with client_for(base) as client:
         try:
             client.get("/api/prompts").raise_for_status()
@@ -566,6 +610,17 @@ def main() -> int:
 
         bundle = poll(client, run_id, max_wait, args.interval)
         summarize(bundle)
+        if args.score_target:
+            response = client.get(f"/api/runs/{run_id}/final-review")
+            response.raise_for_status()
+            facts = response.json()
+            audit_complete = (facts.get("run_outcome") or {}).get("audit_complete")
+            accepted_path = out.with_name(f"accepted-findings_{run_id[:8]}.json")
+            accepted_path.parent.mkdir(parents=True, exist_ok=True)
+            with accepted_path.open('w', encoding='utf-8') as handle:
+                import os
+                os.chmod(accepted_path, 0o600)
+                json.dump({"findings": accepted_score_input(facts)}, handle, ensure_ascii=False, indent=2)
 
         if args.closure:
             closure = closure_metrics(bundle, collect_events(client, run_id), config, seed=seed)
@@ -588,13 +643,23 @@ def main() -> int:
         print("\n已跳过评分（--no-score）")
     else:
         score_code = score(run_id, base, args.scenario, out,
+                           offline=accepted_path,
                            check_severity=args.check_severity, check_cvss=args.check_cvss,
                            klass=args.klass, protocol=protocol)
 
     if closure is None:
-        return score_code
+        problems = score_problems(read_score(out), SCORE_TARGET if args.score_target else None)
+        if args.score_target and (bundle['run'].get('status') != 'completed' or audit_complete is not True):
+            problems.append('新运行或同版本独立终审尚未完整完成')
+        for problem in problems:
+            print(problem)
+        return score_code or int(bool(problems))
 
     closure["score"] = read_score(out) if not args.no_score else {}
+    if args.score_target:
+        closure["score_target"] = dict(SCORE_TARGET)
+        closure["audit_complete"] = audit_complete
+        closure["score_scope"] = "independently_accepted_current_claims"
     closure["commit"] = commit_sha()
     closure["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     problems = closure_problems(closure, score_code)

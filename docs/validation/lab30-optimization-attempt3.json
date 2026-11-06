@@ -1,0 +1,106 @@
+{
+  "run_id": "29b9298e127e44fea887969971f98576",
+  "profile": "optimized",
+  "model": "deepseek-flash",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "final_review_needs_evidence",
+    "message": "终审已结束，1 条结论仍需补证；未将其计入已接受漏洞。"
+  },
+  "usage": {
+    "responses": 399,
+    "tools": 492,
+    "seconds": 4733.199
+  },
+  "elapsed_seconds": 4736.112,
+  "asserted": {
+    "TP": 30,
+    "FN": 0,
+    "D": 32,
+    "U": 3,
+    "FP": 35,
+    "precision": 0.46153846153846156,
+    "recall": 1.0,
+    "f1": 0.631578947368421
+  },
+  "accepted": {
+    "TP": 28,
+    "FN": 2,
+    "D": 0,
+    "U": 3,
+    "FP": 3,
+    "precision": 0.9032258064516129,
+    "recall": 0.9333333333333333,
+    "f1": 0.9180327868852459
+  },
+  "counts": {
+    "accepted": 31,
+    "canonical": 32,
+    "contested": 0,
+    "pending": 1,
+    "raw_records": 93,
+    "valid_records": 65,
+    "withdrawn": 28
+  },
+  "poc_jobs": 0,
+  "code_unchanged": true,
+  "failed_checks": [
+    "评分验收 TP: 需要 30，实际 28",
+    "评分验收 FN: 需要 0，实际 2",
+    "评分验收 U: 需要 0，实际 3",
+    "评分验收 FP: 需要 0，实际 3",
+    "运行状态: 需要 completed，实际 inconclusive"
+  ],
+  "scope": "Full-source fresh static audit; retained as an unsuccessful trial and as the failure control for attempt 4",
+  "source_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "code_sha256": "7710b6f1b8bac9910a74713d3c2feeef4a45067a3d6f6e955dc54fdee2ad9342",
+  "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261106-attempt3/01-optimized",
+  "directions": {
+    "total": 119,
+    "pending_total": 0,
+    "assigned_total": 0,
+    "resolved_total": 24,
+    "skipped_total": 0,
+    "unsettled_total": 95,
+    "omitted_leads": 0,
+    "complete": false
+  },
+  "missed_accepted": [
+    "18 维护接口信任请求头认证绕过",
+    "28 会员报表二次 SQL 注入"
+  ],
+  "missed_asserted": [],
+  "extra_accepted": [
+    {
+      "title": "content/page.php 未过滤 page 参数拼接进 include，导致路径穿越与任意本地文件包含",
+      "type": "path_traversal",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/content/page.php"
+      }
+    },
+    {
+      "title": "ops/maintenance.php 仅凭 X-Admin 请求头判定授权，无会话即可写入 jobs 任务",
+      "type": "auth_bypass",
+      "primary_location": {
+        "line": 4,
+        "path": "lab30-shop/app/public/ops/maintenance.php"
+      }
+    },
+    {
+      "title": "partner/portal.php 结算查询无归属条件，任意 admin 令牌即读取全部订单金额（IDOR）",
+      "type": "idor",
+      "primary_location": {
+        "line": 4,
+        "path": "lab30-shop/app/public/partner/portal.php"
+      }
+    }
+  ],
+  "failure_analysis": {
+    "discovery": "发现阶段已覆盖全部 30 个真值：全部仍主张候选的评分为 TP=30、FN=0；缺口在最终独立评审与规范结论选取，而不在是否发现 sink。",
+    "triage_errors": "第 33/34 轮 Planner 采纳线索自动补路径时，sanitize 载荷把 set 直接序列化，触发 TypeError: Object of type set is not JSON serializable；第 35 轮 drain 的分流证据被整体拒绝（'线索分流必须引用 worker 实际读取过的原始源码区间；Planner 导航不是证据'），一轮未变化后 drain 退出，95 条线索未结算。",
+    "primary_drift": "真值 18 的根因是 maintenance.php:3 的 X-Admin 授权判断，但项目台账当前记录 af65b1ee 把主定位报在第 4 行 INSERT；同组的第 3 行记录 f8192fc0 因 project_revision 较低未被选为规范结论，导致真值 18 记为 FN、第 4 行记为 U。",
+    "review_evidence_gap": "真值 28 的 report.php:3 二次注入 sink 证据完整，但终审要求证明 nickname 的写入路径；finding 95d8290b 的 missing_context 自述未读取写入入口，批次未提供 account/update.php:4-6 的旁证，终审因此 needs_evidence。",
+    "cross_type_variants": "content/page.php:3 的 include sink 被同时报为 path_traversal（ce33aada）与 lfi（10d863cf），两条主定位相同但分类不同，未进入 comparison_candidates，终审分别接受。partner/portal.php 的 auth_bypass（第 2/3 行）与 idor（第 4 行）也未互相比对，IDOR 被独立接受。"
+  }
+}

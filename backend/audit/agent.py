@@ -45,12 +45,14 @@ from .schemas import (
     Check,
     GoalAssessment,
     PlannerDecision,
+    PlannerSourceRef,
     UnitAnalysis,
     UnitVerdicts,
 )
 from .source import SourceRepository
 from .reuse.autocve import knowledge as worker_knowledge
 from .reuse.autocve.candidates import rank_candidates
+from . import role_policy
 from .verification_context import (
     projection as verification_projection, list_page as verification_list_page,
     read_chunk as verification_read_chunk, detail_record as verification_detail_record,
@@ -2461,7 +2463,7 @@ def _to_check(name: str, verdict: CategoryVerdict, proof: CategoryPoc | None) ->
     return Check(**payload)
 
 
-def _worker_publication_schema(batch_limit: int) -> dict:
+def _worker_publication_schema(batch_limit: int, *, task: dict | None = None) -> dict:
     """Expose the live contract without changing historical payload parsing."""
     schema = GoalAssessment.model_json_schema()
     schema["properties"]["findings"]["maxItems"] = batch_limit
@@ -2474,6 +2476,32 @@ def _worker_publication_schema(batch_limit: int) -> dict:
         "description": "Explicit supported root cause; unknown/other also requires classification_reason",
     }
     finding["properties"]["primary_location"] = {"$ref": "#/$defs/PrimaryLocation"}
+    # The lead decision must be explicit. An omitted optional flag would default to
+    # "follow up", so a worker that already ruled a concrete risk out would silently
+    # mint a lead and the terminal review would have to triage it again.
+    observation = schema["$defs"]["TaskObservation"]
+    observation["required"] = list(dict.fromkeys([*observation.get("required", []), "follow_up"]))
+    if role_policy.separate_root(task):
+        from .submission import worker_evidence_reference
+        reference = worker_evidence_reference()
+        finding["required"].append("dataflow")
+        flow = finding["properties"]["dataflow"]
+        flow["minItems"] = 2
+        flow["allOf"] = [{"contains": {"type": "object", "properties": {"kind": {"const": kind}}, "required": ["kind"]}}
+                         for kind in ("input", "sink")]
+        schema["x-host-evidence-contract"] = reference
+        schema["examples"] = [{"outcome": "achieved", "summary": "合成格式示例，不能作为当前快照结论。",
+            "reasoning": "实际审计须独立读取并验证来源、根因和操作的关系。",
+            "findings": [reference["examples"][0]["finding"]]}]
+    from . import investigation
+    if investigation.enabled(task):
+        schema["x-host-investigation-contract"] = investigation.reference()
+    else:
+        # Historical policies must not advertise a pause/ownership contract they
+        # do not enforce. Parsing remains backwards compatible for stored data.
+        for key in ("candidate_id", "finding_index", "finding_id"):
+            observation["properties"].pop(key, None)
+        schema["$defs"]["WorkerCandidateUpdate"]["properties"].pop("blocked_on", None)
     return schema
 
 
@@ -2647,7 +2675,7 @@ async def pursue_task_work(
 
     def state(outcome: str, *, error: str | None = None) -> dict:
         findings = [item.model_dump() for item in assessment.findings] if assessment else []
-        observations = [item.model_dump() for item in assessment.observations] if assessment else []
+        observations = [item.model_dump(exclude_none=True) for item in assessment.observations] if assessment else []
         finding = findings[0] if findings else None
         # Tool-level context boundaries (such as a dependency outside the frozen scope)
         # are facts observed by the host, not optional model prose. Preserve them in
@@ -2663,7 +2691,8 @@ async def pursue_task_work(
             "reasoning": assessment.reasoning if assessment else "",
             "next_focus": (assessment.next_focus or "；".join(assessment.remaining_work)) if assessment else "",
             "remaining_work": list(assessment.remaining_work) if assessment else [],
-            "direction_results": [item.model_dump() for item in assessment.direction_results] if assessment else [],
+            "direction_results": [item.model_dump(exclude_none=True) for item in assessment.direction_results] if assessment else [],
+            "candidate_updates": [item.model_dump() for item in assessment.candidate_updates] if assessment else [],
             "missing_context": missing_context,
             "finding": finding,
             "findings": findings,
@@ -2706,6 +2735,24 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
             "host_contract_sha256": hashlib.sha256(host_contract.encode()).hexdigest(),
         })
     instruction += "\n" + worker_classification_contract()
+    if role_policy.enabled(task):
+        contract = role_policy.worker_contract(task)
+        instruction += "\n" + contract
+        instruction += "\n宿主保留的本工作项候选检查点（不是源码证据，引用前仍须本次实际读取）：\n" + json.dumps(
+            role_policy.candidate_context(((context_task or {}).get("result") or {}).get("candidate_journal") or []), ensure_ascii=False)
+        reference_binding = {}
+        if role_policy.separate_root(task):
+            from .submission import worker_evidence_reference
+            reference = worker_evidence_reference()
+            reference_binding = {"evidence_contract_version": reference["version"],
+                "evidence_contract_sha256": hashlib.sha256(json.dumps(reference, ensure_ascii=False, sort_keys=True).encode()).hexdigest()}
+        emit({"kind": "role_contract_bound", "policy": task["role_policy"], "agent_role": "worker",
+              "contract_sha256": hashlib.sha256(contract.encode()).hexdigest(), **reference_binding})
+    from . import investigation
+    if investigation.enabled(task):
+        instruction += "\n" + investigation.WORKER_CONTRACT
+        emit({"kind": "investigation_contract_bound", "policy": investigation.POLICY,
+              "contract_sha256": hashlib.sha256(json.dumps(investigation.reference(), ensure_ascii=False, sort_keys=True).encode()).hexdigest()})
     if instructions is None:
         # Method hints are routed by the languages the task's files actually use and by
         # words in the task itself.  They are review advice, not evidence: the host
@@ -2845,6 +2892,14 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     )
                     if location_errors:
                         raise ValueError(f"第 {index} 条 finding：" + "; ".join(location_errors))
+        owned_task = {**task, "assigned_direction_paths": {d["id"]: d.get("paths") or []
+            for d in ((context_task or {}).get("result") or {}).get("active_directions") or []}}
+        role_policy.validate_assessment(owned_task, result.model_dump(),
+            [{"path": path, "start_line": start, "end_line": end}
+             for path, start, end in seen_ranges(unit, deps.reads, exact=True)],
+            {entry["path"]: entry["line_count"] for entry in snapshot.get("files") or []},
+            previous=((context_task or {}).get("result") or {}).get("candidate_journal") or [],
+            known_findings=current_findings or [])
         return result
 
     try:
@@ -2890,7 +2945,8 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     gate.extend_exploration = evidence_yield.extend
                 table = build_tools(
                     specs if tools else (), gate,
-                    final_answer=FinalAnswerTool.for_model(gate, GoalAssessment, "GoalAssessment"),
+                    final_answer=FinalAnswerTool.for_model(gate, GoalAssessment, "GoalAssessment",
+                        schema=_worker_publication_schema(batch_limit, task=task) if role_policy.separate_root(task) or investigation.enabled(task) else None),
                 )
                 if model is None:
                     model = build_code_model(config, gate=gate, max_tokens=policy.worker_max_tokens)
@@ -2960,7 +3016,8 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     output_model=GoalAssessment, validate=validate_goal,
                 )
                 from .submission import worker_example
-                gate.correction_example = worker_example()
+                gate.correction_example = (_worker_publication_schema(batch_limit, task=task)["examples"][0]
+                                           if role_policy.separate_root(task) else worker_example())
                 if model is None:
                     model = build_code_model(config, gate=gate, max_tokens=policy.worker_max_tokens)
                 publish_message = message + "\n# 探索后新增的原始源码（仅实际显示过的行）\n" + ledger.replay(exclude=prepared_keys)
@@ -2969,10 +3026,12 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                 publish_message += (
                     "\n探索已经结束，源码和导航工具现已收回。只基于上面实际读过的代码，"
                     "提交一个 JSON 格式的 GoalAssessment，不写 Python 或 final_answer 调用。"
-                    f"每次最多 {batch_limit} 条 findings；其余具体方向写入 remaining_work，不能静默省略。"
+                    f"每次最多 {batch_limit} 条 findings；已确认、定位明确且证据充分的独立漏洞必须优先放入 findings，"
+                    "有空位时不得只写进 remaining_work；确实超出条数或仍需补读的方向才写入 remaining_work，"
+                    "不能静默省略。"
                     "缺失证据请写 missing_context；不得把预算停止或未知情况写成已排除漏洞。"
                 )
-                schema = _worker_publication_schema(batch_limit)
+                schema = _worker_publication_schema(batch_limit, task=task)
                 publish_message += "\n# 完整 JSON 字段契约\n" + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
                 publish_message += (
                     "\n只提交已确认的短字段，省略空 finding、observations、poc 等默认字段。"
@@ -3063,7 +3122,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                 "next_focus": assessment.next_focus,
                 "remaining_work": list(assessment.remaining_work),
                 "missing_context": list(dict.fromkeys([*assessment.missing_context, *deps.notes])),
-                "observations": [item.model_dump() for item in assessment.observations],
+                "observations": [item.model_dump(exclude_none=True) for item in assessment.observations],
                 "evidence": {
                     "summary": evidence_text,
                     "references": references,
@@ -3336,8 +3395,11 @@ def _validate_direction_contract(decision: PlannerDecision, *, workflow_policy: 
             raise ModelRetry(f"方向 {identity} 已结算，不能重新分派或覆盖")
         if action == "assign":
             owner = row.get("assigned_task_key")
-            if owner and owner != task_key and (by_task.get(str(owner)) or {}).get("state") == "running":
-                raise ModelRetry(f"方向 {identity} 正由任务 {owner} 执行，不能抢占分派")
+            owner_state = (by_task.get(str(owner)) or {}).get("state")
+            if (owner and owner != task_key and owner not in reopened
+                    and owner_state in {"pending", "ready", "running", "deferred"}):
+                raise ModelRetry(f"方向 {identity} 已由任务 {owner} 领取且尚未结算，不能重复分派；"
+                                 f"先结算该任务的证据或对原任务 reopen")
             target = by_task.get(str(task_key))
             if task_key not in proposed and not (target and (target.get("state") in {"pending", "ready", "deferred"} or task_key in reopened)):
                 raise ModelRetry(f"方向 {identity} 必须分派给本轮新建或可执行的任务，不能指向不存在或已结算任务")
@@ -3527,6 +3589,63 @@ def _validate_planner_decision(
                 "priority 取值区间为 1..100",
             )
             proposal.priority = min(100, max(1, proposal.priority))
+    # A selected lead names the concrete source it rests on.  If the task that adopts it
+    # reads only other files, the worker is checking the lead's summary instead of the code
+    # the lead points at -- which is exactly how a real cookie-role sink was repeatedly
+    # read, deferred, then "cleared" by a synonym task that never opened its file.
+    # The host appends the missing paths instead of rejecting the round: a retry here
+    # discarded otherwise valid discovery plans and burned the run's no-progress budget.
+    direction_paths = {
+        str(item.get("id")): {str(path) for path in item.get("paths") or [] if str(path) in files}
+        for item in directions or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    if direction_paths:
+        for proposal in decision.tasks:
+            named = {
+                path for identity in proposal.direction_ids
+                for path in direction_paths.get(identity, set())
+            }
+            if not named:
+                continue
+            declared = _declared_files(proposal, directory_files)
+            for symbol in project_map.get("symbols") or []:
+                path = str(symbol.get("path") or "")
+                if path not in files:
+                    continue
+                names = {str(symbol.get(key) or "").casefold() for key in ("name", "short_name")}
+                if any(str(value).casefold() in names for value in proposal.target_symbols):
+                    declared.add(path)
+            missing = sorted(named - declared)
+            if not missing:
+                continue
+            added, unplaced = [], []
+            for path in missing:
+                if len(proposal.source_refs) < 16:
+                    proposal.source_refs.append(PlannerSourceRef(
+                        path=path,
+                        start_line=1,
+                        end_line=min(160, max(1, int(files.get(path) or 1))),
+                        reason="adopted_direction_source",
+                    ))
+                    added.append(path)
+                elif len(proposal.scope_paths) < 24:
+                    proposal.scope_paths.append(path)
+                    added.append(path)
+                else:
+                    unplaced.append(path)
+            if added:
+                sanitize(
+                    "direction_ids",
+                    proposal.task_key,
+                    {"adopted_direction_paths": sorted(named), "declared": sorted(declared)},
+                    {"adopted_direction_paths": sorted(named), "declared": sorted(declared | set(added))},
+                    f"采纳线索点名的源码已自动加入阅读范围：{', '.join(added[:4])}",
+                )
+            if unplaced:
+                raise ModelRetry(
+                    f"任务 {proposal.task_key} 采纳的线索点名了 {', '.join(unplaced[:4])}，"
+                    "但 source_refs 与 scope_paths 均已达到容量上限；请缩减其他阅读范围后重试")
     for update in decision.updates:
         prior = prior_by_key.get(update.task_key)
         if prior is None:
@@ -3860,6 +3979,26 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
             "Worker 后续建议为 advisory，只有明确采纳并关联任务才升级 required；不要为了清空建议而反复派工。"
             "completed/读过同一路径不等于方向完成；resolve 必须对应同一方向 ID 的实际取证结果。"
         )
+        if task.get("exploration_policy") == "exhaustive-v1":
+            instruction += (
+                "\n本次显式启用 exhaustive-v1。源码观察也作为待分流线索显示在 list_directions；"
+                "每个 pending/advisory 必须独立判断，不能在关闭前遗留。无需全部派工。"
+                "可直接通过 tasks.direction_ids 采纳并派给窄任务；或 direction_updates 中 action=triage，"
+                "triage_outcome 选择 investigate（升级为必做待派发）、covered（引用实际有效 finding_ids）、"
+                "no_evidence（源码排除）、out_of_scope（明确范围限制）、blocked（保留未决）。"
+                "每项填写 rationale_summary；covered/no_evidence 及已知路径的 out_of_scope 必须附 evidence="
+                "[{path,start_line,end_line}]，来自 worker 实际读取区间，Planner 的导航读取不算证据。"
+                "observation 线索已带 review_evidence，那正是 worker 读过的区间；no_evidence/out_of_scope 可直接复用它，"
+                "不要为补齐证据重新派工。covered 不能引用根因位置无关的发现，不能只说‘已存结论’。"
+                "完成一个具体方向或分流一条观察不等于同文件的其他风险已排除。"
+                "采纳线索时，任务必须直接读线索点名的源码路径：把它写进 source_refs 或覆盖它的 scope_paths，"
+                "不能只读相邻文件或初始化/bootstrap 文件就判断该路径是否安全。"
+                "风险义务 operation_read=false 时先派发读取该操作及防护上下文的任务，不能只等终审。"
+                "\n反重复派工：先读态势里的 tasks、已结算结论与 list_directions 的 assigned_task_key。"
+                "同一路径、同一根因或已被完成/待执行任务覆盖的线索，用 triage covered 或 reopen 更正，"
+                "不要新建近义任务；一个窄任务可携带多个同路径但操作不同的方向（最多 8 个），"
+                "同一处理回合优先结算已派发方向，再决定是否新增任务。"
+            )
 
     if task.get("workflow_policy") == "discovery_first":
         stage = (run_context.get("workflow") or {}).get("stage", "discovery")
@@ -3877,12 +4016,57 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 "源码导航与 investigate_project 已收回；直接读取当前小批至多两条验证的 normal_observation、attack_observation，再提交 verification_reviews。"
                 "只读取并复核当前验证记录、修订结论和有证据结算方向；无证据结算的方向保留未决，"
                 "通过 inconclusive 和报告列出未覆盖、未验证及未复核项，不追加源码任务来消耗保留额度。"
+                + ("\nexhaustive-v1 的已有观察线索仍可在本阶段用 direction_updates action=triage 结算："
+                   "引用线索自带的 review_evidence 或任一 worker 已读区间即可，不需要新建任务；"
+                   "每回合优先处理 list_directions(state=open) 中仍未结算的线索，可一次批量提交多条 triage"
+                   "（宿主上限 64 条/回合），避免把全部预算耗在终审重试上。"
+                   if task.get("exploration_policy") == "exhaustive-v1" else "")
             )
         elif stage == "poc":
             instruction += "\n当前为 POC 阶段：优先复核本波至多两条已完成验证，结论与证据不足时保留未决；源码挖掘阶段已经结束。"
         else:
             instruction += "\n当前为源码挖掘阶段：优先推进源码任务、宿主方向账本和覆盖缺口；不要提前要求 POC 抢占静态审计额度。"
 
+    # Terminal drain: the final review cannot dispatch source work, so the only way a
+    # recorded lead settles is an explicit triage. The regular prompt showed four leads
+    # and the live Planner never opened list_directions during review; surfacing the page
+    # here, with the exact constraint, turns "settle leads" into a concrete short task.
+    lead_drain = run_context.get("lead_drain")
+    from .investigation import enabled as bounded_investigation, PLANNER_CONTRACT as INVESTIGATION_PLANNER_CONTRACT
+    if lead_drain:
+        leads = list(lead_drain.get("leads") or [])
+        instruction += (
+            ("\n【线索复核专轮】只提交 continue、basis_summary 与 advisory 的 direction_updates(action=triage)。"
+             "逐项核对源码依据：已有同根因结论可 covered 并给真实 finding_ids；只有冻结范围之外的线索可 out_of_scope；"
+             "证据不足或需再次调查用 blocked 保留缺口。不能用 no_evidence 排除源码风险，也不能为清空队列丢弃范围内未读源码。"
+             "本阶段不能派工；无法解除的缺口将使运行保持 inconclusive。线索如下：\n"
+             + json.dumps(leads, ensure_ascii=False, separators=(",", ":"))) if bounded_investigation(task) else (
+            "\n【线索结算专轮】宿主方向账本仍有 "
+            f"{int(lead_drain.get('total') or 0)} 条未结算观察线索，本回合固定列出 {len(leads)} 条。"
+            "本回合只允许提交 goal_state=continue、basis_summary 与 direction_updates（每项 action=triage）；"
+            "不得新建或重开任务，也不提交 review_decisions、verification_reviews、project_updates、coverage_review。"
+            "必须逐条处理下面全部线索，不能跳过；每条 rationale_summary 写明实际判断。"
+            "每条线索的 review_evidence 是 worker 实际读过的源码区间；为 no_evidence/out_of_scope 提交 evidence 时"
+            "必须原样使用这些区间，不能改写行号或引用 Planner 导航。"
+            "covered 只能引用与线索路径相同、当前有效的 finding_ids。"
+            "终审阶段无法再派工，investigate 只会让线索继续未决并阻止收束，因此："
+            "核对后确认没有可利用缺陷用 no_evidence，明确超出本次范围用 out_of_scope，已有同位置结论用 covered。"
+            "若某条线索的 review_evidence 为空且未点名冻结源码中的已知路径（或所点名路径从未被读取），"
+            "不要编造证据；对该条使用 out_of_scope，宿主会记录为显式范围限制并结算，"
+            "blocked 不结算线索、会阻止全量覆盖收束，只用于仍依赖当前快照之外事实且无法给出范围结论的线索。"
+            "线索如下：\n"
+            + json.dumps(leads, ensure_ascii=False, separators=(",", ":")))
+        )
+
+    if role_policy.enabled(task):
+        contract = role_policy.REVIEWER_CONTRACT if run_context.get("review_batch") else role_policy.PLANNER_CONTRACT
+        instruction += "\n" + contract
+        instruction += "\n本版本角色合同替代上文宽泛的线索清空建议；未完成项保留未决，不为收束捏造安全判断。"
+        emit({"kind": "role_contract_bound", "policy": task["role_policy"],
+              "agent_role": "reviewer" if run_context.get("review_batch") else "planner",
+              "contract_sha256": hashlib.sha256(contract.encode()).hexdigest()})
+    if bounded_investigation(task):
+        instruction += "\n" + INVESTIGATION_PLANNER_CONTRACT
     try:
         async with asyncio.timeout(planner_budgets["seconds"]):
             def validate_decision(value: PlannerDecision) -> PlannerDecision:
@@ -3895,14 +4079,26 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 attempt must not leave "the host clamped this" events behind for a plan that
                 never reached the frontier.
                 """
+                role_policy.validate_planner_actions(task,
+                    [item.model_dump() for item in value.updates],
+                    [item.model_dump() for item in value.project_updates],
+                    [item.model_dump() for item in value.direction_updates],
+                    pins._audit_direction_records(run_id) if role_policy.enabled(task) and hasattr(pins, '_audit_direction_records') else {},
+                    {t['task_key']: t for t in pins.list_tasks(run_id, include_attempts=False)}
+                    if role_policy.enabled(task) and hasattr(pins, 'list_tasks') else {},
+                    coverage_updates=[item.model_dump() for item in value.coverage_review])
                 batch_notes = []
                 batch = run_context.get("review_batch")
                 unified = hosted and batch and batch["phase"] == "final"
                 if batch:
                     from .review_store import validate_batch
-                    if (value.review_batch_id != batch["id"] or value.tasks or value.updates or value.direction_updates
+                    triage_only = task.get("exploration_policy") == "exhaustive-v1" and all(
+                        item.action == "triage" for item in value.direction_updates)
+                    if (value.review_batch_id != batch["id"] or value.tasks or value.updates
+                            or (value.direction_updates and not triage_only)
                             or value.project_updates or (value.verification_reviews and not unified) or value.coverage_review):
-                        raise ValueError("本回合只提交当前 review_batch_id 与逐项 review_decisions；不得扩展任务图或绕过批次处置")
+                        raise ValueError("本回合只提交当前 review_batch_id 与逐项 review_decisions；"
+                                         "exhaustive-v1 允许附带 action=triage 的线索结算，但不得扩展任务图或绕过批次处置")
                     proposed = [item.model_dump() for item in value.review_decisions]
                     batch_validator = getattr(pins, "validate_review_decisions", None)
                     validated = (batch_validator(run_id, batch, proposed,
@@ -4074,6 +4270,23 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                           "静态证据充分可 accept，但不能把它说成 POC verified。冲突或证据不完整保留 needs_evidence/contested。"
                           "comparison_candidates 是待比对项，不是自动判重结果；逐项比较根因、危险操作和前提。"
                           "相同缺陷应 duplicate 并保留当前主结论；不同根因可分别接受，但理由须说明差异。"
+                          "同一主定位上的不同分类通常是同一根因的另一种说法（例如同一 include 被分别报为路径穿越与 LFI），"
+                          "应先核对 sink 实际行为，分类不同本身不构成独立结论。"
+                          "入口已要求平台管理员或运营员的全局角色时，该角色可查看全量数据属于其授权范围；"
+                          "在同一入口已有认证/授权绕过结论的情况下，缺少按对象过滤不单独接受为 IDOR，"
+                          "除非普通用户或租户可凭自身会话越权访问他人对象。"
+                          "CSRF 核对请求来源、浏览器凭据携带、状态变更、替代防护和攻击者控制条件；"
+                          "未认证入口也可能存在登录CSRF，缺令牌或SameSite值本身都不足以自动接受或排除。"
+                          "缺少关键利用前提时保留needs_evidence/contested，不虚构同站跨源攻击环境。"
+                          "payload.related_claims 是宿主从本运行其他结论中挑选的相邻事实及其证据源码，"
+                          "用于核对数据来源或写入路径，不是本结论自己的证据也不能替代本项 sink 证据。"
+                          "二次注入的 sink 已明确拼接数据库读出的字段，且运行内存在可写该字段的普通用户入口结论或"
+                          "related_claims 旁证时，应接受并写明来源链；不得仅因写入入口不在本项证据窗口而 needs_evidence。"
+                          "数据库账号权限只影响注入可读取的数据范围与影响评级，不决定字符串拼接是否进入执行路径；"
+                          "应在 rationale 写明该适用限制，不能据此把明确的注入 sink 判为 needs_evidence。"
+                          "风险义务的命令注入/代码执行 sink 若正是同一利用链的落点（如反序列化触发 __wakeup 内 shell_exec），"
+                          "可引用链根因结论并标 supported：该结论 evidence 必须实际覆盖本项操作行，且其 dangerous_operation/propagation 写明本项文件；"
+                          "SQL 注入仍须对应本项操作行的结论，两处无关 sink 不能合报。"
                           "accept 的 distinct_from 必须列出仍保留的全部 comparison_candidates.item_id，"
                           "在 rationale 说明根因、操作或前提差异；本批已 duplicate/withdraw 的对照项无需列入。"
                           "不能仅因某项未执行 POC 而拒绝充分源码，同时接受同根因的另一条静态结论。"
@@ -4150,6 +4363,8 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 """A small JSON task batch, with the same complete host contract."""
                 task_limit = max(1, min(8, int(policy.planner_publication_tasks)))
                 schema = PlannerDecision.model_json_schema()
+                if role_policy.enabled(task):
+                    schema = role_policy.planner_schema(schema, full_scope=task.get("focus_scope") == "all")
                 schema["properties"]["tasks"]["maxItems"] = 0 if review_only else task_limit
                 # An actual frozen path avoids teaching the model a fictitious evidence
                 # location. This demonstrates syntax only; the model chooses its tasks.
@@ -4177,7 +4392,10 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     schema["host_reference_contract"] = review_contract(batch)
                 guidance = (
                     "\n# 批次发布约束\n只提交当前 review_batch_id 与完整逐项 review_decisions；tasks、updates、"
-                    "direction_updates、project_updates、coverage_review 均为空；verification_reviews 仅统一 final 可提交。"
+                    "project_updates、coverage_review 均为空；verification_reviews 仅统一 final 可提交。"
+                    + ("exhaustive-v1 可附带 action=triage 的 direction_updates，用于结算已有观察线索；"
+                       "triage 证据可复用它带的 review_evidence，不要新建任务。"
+                       if task.get("exploration_policy") == "exhaustive-v1" else "")
                     if run_context.get("review_batch") else
                     "\n# 复核发布约束\n只提交已实际读取观测的小批 verification_reviews、有依据的 direction_updates 及真实收束说明。tasks 必须为空。"
                     if review_only else

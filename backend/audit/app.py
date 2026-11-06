@@ -1081,8 +1081,11 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     if reason := model_unavailable_reason(getattr(state.settings.model, 'model', '')):
         raise HTTPException(status_code=409, detail=reason)
     if worker_strategy is not None:
-        from .worker_strategies import freeze_worker_strategy
         worker_strategy = freeze_worker_strategy(worker_strategy)
+    elif payload.task.exploration_policy == "exhaustive-v1":
+        worker_strategy = freeze_worker_strategy(next(
+            item for item in builtin_worker_strategies() if item["id"] == (
+                "worker-exhaustive-v1" if payload.task.role_policy == "legacy" else "worker-exhaustive-v2")))
     snapshot, project = _resolve_run_scope(state, payload)
 
     readiness_service = getattr(state, "poc_readiness", None)
@@ -1098,7 +1101,8 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     run_id = uuid.uuid4().hex
     try:
         project_map = await asyncio.to_thread(
-            state.repository.build_project_map, snapshot["id"], None
+            state.repository.build_project_map, snapshot["id"], None,
+            **({"include_risk_signals": True} if payload.task.risk_coverage_policy == "bounded-v2" else {})
         )
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=f"Unable to build the frozen project map: {exc}") from exc
@@ -1136,6 +1140,11 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
         poc_policy["progress_policy"] = PROGRESS_POLICY
         poc_policy["progress_params"] = progress_policy_snapshot()
     task_spec = payload.task.model_dump()
+    from .role_policy import POLICY as ROLE_POLICY
+    task_spec["role_policy"] = task_spec.get("role_policy") or (
+        ROLE_POLICY if task_spec.get("orchestration_policy") == "host-queue-v1" else "legacy")
+    task_spec["investigation_policy"] = task_spec.get("investigation_policy") or (
+        "bounded-v1" if task_spec.get("orchestration_policy") == "host-queue-v1" and task_spec["role_policy"] != "legacy" else "legacy")
     from .capability import POLICY as CAPABILITY_POLICY, freeze_focus
     task_spec["capability_policy"] = CAPABILITY_POLICY
     from .review_policy import COMPARISON_POLICY
@@ -1143,7 +1152,7 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     from .capability import POC_SCOPE_POLICY
     task_spec["poc_scope_policy"] = POC_SCOPE_POLICY
     task_spec["audit_focus"] = freeze_focus(task_spec)
-    if task_spec.get("risk_coverage_policy") == "bounded-v1":
+    if task_spec.get("risk_coverage_policy") in {"bounded-v1", "bounded-v2"}:
         from .risk_coverage import freeze as freeze_obligations
         task_spec["risk_obligation_set"] = freeze_obligations(project_map, task_spec, snapshot["id"])
     # "auto" is best effort: when this server cannot run POC at all, its reserved quota

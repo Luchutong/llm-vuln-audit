@@ -164,6 +164,18 @@ docker compose up --build
 
 一个动态任务只能报告 `achieved`、`continue`、`no_evidence` 或 `blocked`。单个 worker 的“未发现”不会结束整个审计。只有 Planner 已穷尽已知证据方向、所有动态任务已结算、且不存在上下文或执行受阻项时，宿主才会接受“不可达”；共享尝试或 Planner 回合耗尽一律保留为“未决”。Planner 可以更正自己先前的结论：把一条已结算任务重新打开重跑（旧尝试记录全部保留，新结论以新版本写入），或撤回/标为重复一条结论。自动验证判为 `rejected` 的结论不会再支撑“目标已达成”，但源码证据与验证记录仍然保留；历史人工结论字段只作只读追溯，不再阻止 Planner 撤回。撤回不等于删除——行、证据、历史版本与验证记录都留在报告里，单独成区。项目台账会跨运行累计结论：下一次审计启动时，既有结论随基线注入 Planner，不会重复派发；本次未再发现的开放结论以“沿用”列出，不计入本次新发现。
 
+## 全量探索优化（可选）
+
+在新任务的“高级执行设置”中开启“全量风险探索”，可逐项分流 worker 的后续建议、复核源码观察，并使用扩展的有界风险信号。未分流线索会保留为未完成；信号和观察不会自动成为漏洞。运行冻结本次策略及其哈希，旧运行沿用原政策。
+
+新宿主队列审计进一步区分取证与调度：Worker 保存候选检查点、输入到操作的证据链及具体排除依据；Planner 安排任务与补证，不能凭“已有结论覆盖”或预算不足排除源码风险。上述撤回、判重等结论处置在新策略中通过独立审查批次执行。未完成候选继续保留，沿用原预算。详见 [Worker 与 Planner 角色分离](docs/worker-planner-role-separation.md)。
+
+当前新任务默认使用 `worker-evidence-v2`：根因可通过 `root_cause` 节点与下游 sink 分别定位，实际读取要求保留。两种 Worker 提交路径都提供[完整 schema 与结构示例](docs/worker-evidence-v2.schema.json)，具体调整见[中断运行优化记录](docs/interrupted-audit-evidence-contract-2026-11-06.md)。
+
+新宿主队列取证运行同时冻结 `investigation_policy=bounded-v1`：同坐标改写不增加调查额度，连续无进展或明确外部依赖会保存成果并暂停任务；观察可显式关联已有候选/发现，减少重复待办。未决项继续计入完整性缺口。详见[真实运行后的有界调查优化](docs/bounded-investigation-2026-11-06.md)。
+
+[实施与验收记录](docs/lab30-optimization-implementation.md) 包含新任务接口、严格评分开关和隔离实测命令；[22/30 诊断](docs/lab30-22-to-30-analysis.md) 保留原始缺口依据。文件覆盖完成、测试通过和真实模型检出分别判断，不能据此宣称已经达到 30/30。
+
 ## 审计结果与执行详情
 
 “漏洞候选”只包含明确标为 `vulnerability` 且风险等级为 `low`、`medium`、`high` 或 `critical` 的结果；旧版 SQL 注入、反射型 XSS、命令注入记录仍可读取。不能单凭严重性、POC 是否存在或“证据通过”判断漏洞成立。`informational`、`source_observation`、`data_flow`、`security_boundary` 等源码事实保存在独立的“排查记录（非漏洞）”中；真实低危漏洞仍属于漏洞候选。

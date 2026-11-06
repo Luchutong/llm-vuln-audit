@@ -266,7 +266,7 @@ def canonical_groups(findings: list[dict]) -> tuple[list[dict], list[dict]]:
     return canonical, current_records
 
 
-def comparison_candidates(canonical: list[dict]) -> dict[str, list[dict]]:
+def comparison_candidates(canonical: list[dict], *, inclusion_family: bool = False) -> dict[str, list[dict]]:
     """Same typed anchor or a cited peer anchor nominates a comparison, never a merge.
 
     Shared utility citations alone do not match: a citation must cover the other
@@ -283,6 +283,7 @@ def comparison_candidates(canonical: list[dict]) -> dict[str, list[dict]]:
                    <= (ref.get("range") or {}).get("end", ref.get("end_line", 0))
                    for ref in claim.get("evidence") or [])
 
+    authz = {"auth_bypass", "idor"}
     peers = {}
     for index, entry in enumerate(canonical):
         a = entry["frozen_claim"]
@@ -292,17 +293,42 @@ def comparison_candidates(canonical: list[dict]) -> dict[str, list[dict]]:
         for other in canonical[index + 1:]:
             b = other["frozen_claim"]
             target = coordinate(b)
-            if not target or a["vulnerability_type"] != b.get("vulnerability_type"):
+            if not target:
                 continue
-            if coord != target and not covers(a, target) and not covers(b, coord):
+            same_anchor = coord == target
+            same_type = a["vulnerability_type"] == b.get("vulnerability_type")
+            pair_types = {a["vulnerability_type"], b.get("vulnerability_type")}
+            if pair_types == {"lfi", "rfi"} and not inclusion_family:
+                continue  # Local/remote inclusion stays opt-in for the exhaustive policy.
+            inclusion = inclusion_family and same_anchor and pair_types == {"lfi", "rfi"}
+            covering = covers(a, target) or covers(b, coord)
+            authz_variant = (a["vulnerability_type"] in authz and b.get("vulnerability_type") in authz
+                             and not same_type and covering)
+            same_sink_family = same_anchor and pair_types in ({"path_traversal", "lfi"}, {"auth_bypass", "idor"})
+            # An include reported once as path traversal and once as LFI names the
+            # same sink; different classifications alone do not make it a second
+            # vulnerability.  Unrelated type pairs at one line stay un-compared.
+            if not same_type and not inclusion and not same_sink_family and not authz_variant:
                 continue
-            basis = ("同类型且主定位相同" if coord == target else "同类型且证据覆盖对方主定位，可能是跨文件同一链路")
+            if not same_anchor and not covering:
+                continue
+            if inclusion:
+                basis = "同一文件包含操作的本地/远程能力，须核对是否同一未限制 include 根因"
+            elif same_anchor and not same_type:
+                basis = "同一主定位上的不同分类，须核对是否同一根因的重复表述"
+            elif same_anchor:
+                basis = "同类型且主定位相同"
+            elif authz_variant:
+                basis = "同一入口的认证/对象授权边界，须核对是否同一未授权访问根因的拆分"
+            else:
+                basis = "同类型且证据覆盖对方主定位，可能是跨文件同一链路"
             for owner, peer in ((entry, other), (other, entry)):
                 peers.setdefault(owner["canonical_id"], []).append({"item_id": peer["canonical_id"], **{key: peer["frozen_claim"].get(key) for key in (
                     "finding_id", "revision", "title", "vulnerability_type", "primary_location", "summary",
                     "input_source", "dangerous_operation", "protection", "preconditions", "missing_context", "evidence", "cvss", "verification_status")},
                  "basis": basis + "；须统一核对根因与必要前提，不自动归并。"})
-                peers[owner["canonical_id"]][-1]["basis_kind"] = "same_anchor" if coord == target else "cited_anchor"
+                peers[owner["canonical_id"]][-1]["basis_kind"] = (
+                    "same_anchor" if same_anchor else "near_authz_variant" if authz_variant else "cited_anchor")
     return peers
 
 

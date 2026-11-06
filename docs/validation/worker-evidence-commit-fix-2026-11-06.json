@@ -1,0 +1,98 @@
+{
+  "schema_version": "worker-evidence-commit-fix/v1",
+  "recorded_at": "2026-11-06T01:47:10.638984+00:00",
+  "source_failure": {
+    "run_id": "604b461cee4745b88f5e39deb3637400",
+    "status": "failed",
+    "error": "Planner worker 1 failure: ValueError: worker dataflow 必须来自本次实际读取的源码",
+    "source_events": {
+      "publication": 70380,
+      "worker_terminal": 70384
+    },
+    "actual_receipts": 101,
+    "single_line_receipts": 101,
+    "receipts_sha256": "176cd104cbfb33ce0acf09ee03610e94f3c38d50b17a1b0ccd059834500d8b32",
+    "replay_scope": "First published dataflow only; no reconstruction of omitted/truncated fields or acceptance verdict",
+    "original_rule_rejected": [
+      {
+        "path": "lab30-shop/app/public/account/update.php",
+        "start_line": 3,
+        "end_line": 4
+      }
+    ],
+    "patched_rule_accepted": true,
+    "reference_hashes": {
+      "2969bcf204cd43b5baf2683cbb0e841d": {
+        "stored_input_hash": "1c48ce503c8af9140bbce4025b742bbbf27145e02ea80606fa636813f97ff940",
+        "actual_input_hash": "1c48ce503c8af9140bbce4025b742bbbf27145e02ea80606fa636813f97ff940",
+        "export_sha256": "2e39e682623021f5bc2344732a5f681839bf81276b92cc882bdca0fd2f08fc26"
+      },
+      "604b461cee4745b88f5e39deb3637400": {
+        "stored_input_hash": "9ff428233ce0d0d37505386230483b5da8abeb091e1b5bf3ddeb2b4fb150cba8",
+        "actual_input_hash": "9ff428233ce0d0d37505386230483b5da8abeb091e1b5bf3ddeb2b4fb150cba8",
+        "export_sha256": "928c3b288469f2e9751e9287b1439149463918893b0e599e98fe15d7e3b4bf25"
+      }
+    }
+  },
+  "validation": {
+    "reproduced_before": {
+      "failed": 5,
+      "passed": 2
+    },
+    "regression": {
+      "passed": 212,
+      "failed": 0,
+      "groups": [
+        {
+          "group": 1,
+          "passed": 117,
+          "seconds": 134.13
+        },
+        {
+          "group": 2,
+          "passed": 95,
+          "seconds": 107.8
+        }
+      ],
+      "files": [
+        "test_worker_evidence_commit.py",
+        "test_worker_evidence_roles.py",
+        "test_host_queue.py",
+        "test_audit_directions.py",
+        "test_evidence.py",
+        "test_goal_tasks.py",
+        "test_remaining_work_lifecycle_review.py",
+        "test_agent_runtime.py",
+        "test_worker_runtime.py",
+        "test_execution_stability.py",
+        "test_exhaustive_exploration.py"
+      ]
+    },
+    "static_checks": [
+      "compileall backend/audit",
+      "git diff --check"
+    ],
+    "actual_failed_receipts_replayed": true,
+    "unread_gaps_and_foreign_files_still_rejected": true,
+    "frozen_inputs_and_exports_unchanged_after_restart": true
+  },
+  "implementation_sha256": {
+    "backend/audit/role_policy.py": "e5ca387138c049bc2a96a3b09ffd2675ed7d485b3ef535224e990eee13ceb873",
+    "backend/audit/db.py": "3c7ee64f2e1d72fe62c3a312bf59b85a500d005d7665c4bb083c74bad3978821",
+    "backend/audit/worker.py": "301c63ac11682ef3289d0243c0d8714c6a4a7888db75ae96ec04b13095aa6dcc",
+    "backend/tests/test_worker_evidence_commit.py": "471aae570be2e443d1f46be3b0f957cf4eabbf62da4323a30822403df105f724"
+  },
+  "local_service": {
+    "restarted": true,
+    "active_runs_before_restart": 0,
+    "backend_health_ok": true,
+    "frontend_status": 200,
+    "poc_mode_preserved": true
+  },
+  "new_live_audit_runs_started": 0,
+  "new_poc_jobs_started": 0,
+  "limits": [
+    "The replay checks the preserved first dataflow and read receipts, not the entire truncated model submission",
+    "The original failed audit remains failed; a complete live audit has not been rerun"
+  ]
+}

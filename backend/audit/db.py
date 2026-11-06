@@ -3678,6 +3678,11 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                 session = self._db.execute("SELECT * FROM planner_sessions WHERE run_id = ?", (run_id,)).fetchone()
                 if plan is None or session is None or plan["status"] != "planning":
                     raise ValueError("Planner round is not an active draft")
+                from .role_policy import validate_planner_actions, enabled as worker_owned
+                role_task = _loads(self._db.execute("SELECT task_spec FROM runs WHERE id=?", (run_id,)).fetchone()[0], {})
+                validate_planner_actions(role_task, updates, tasks={t["task_key"]: t for t in
+                    self.list_tasks(run_id, include_attempts=False)} if worker_owned(role_task) else {},
+                    coverage_updates=coverage_review)
                 active_batch = self.active_review_batch(run_id) if self.batch_review_enabled(run_id) else None
                 if active_batch and not error and (review_batch_id or not self.host_queue_enabled(run_id)):
                     if tasks or updates or direction_updates or coverage_review:
@@ -4010,6 +4015,25 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                 stored_result["outcome"] = outcome
                 stored_result["attempt"] = attempt
                 reason = terminal_reason or str(stored_result.get("terminal_reason") or "")
+                from . import role_policy
+                frozen_task = _loads(self._db.execute("SELECT task_spec FROM runs WHERE id=?", (row["run_id"],)).fetchone()[0], {})
+                owned_candidates = []
+                if role_policy.enabled(frozen_task):
+                    previous = _loads(row["result"], {}) or {}
+                    owned_candidates = previous.get("candidate_journal") or []
+                    if not error and reason in {"", "completed"}:
+                        owned_task = {**frozen_task, "assigned_direction_paths": {
+                            d["id"]: d.get("paths") or [] for d in self.assigned_task_directions(row["run_id"], row["task_key"])}}
+                        try:
+                            owned_candidates = role_policy.validate_assessment(owned_task, stored_result, seen,
+                                {f["path"]: f["line_count"] for f in (self.get_project_map(row["run_id"]) or {}).get("files", [])},
+                                previous=owned_candidates, known_findings=self.list_findings(row["run_id"]))
+                        except ValueError as exc:
+                            raise role_policy.WorkerAssessmentError(str(exc)) from exc
+                        updated_ids = {item["candidate_id"] for item in stored_result.get("candidate_updates") or []}
+                        owned_candidates = [{**item, "source_attempt": attempt} if item["candidate_id"] in updated_ids else item
+                                            for item in owned_candidates]
+                    stored_result["candidate_journal"] = owned_candidates
                 discovery_first = self.discovery_first(row["run_id"])
                 # A host/model failure produced no assessment of the previously
                 # outstanding directions. Preserve that work across retries and
@@ -4028,8 +4052,11 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                 if discovery_first:
                     stored_result["terminal_reason"] = reason or "completed"
                     stored_result["error"] = error or stored_result.get("error")
-                    direction_records = self._capture_worker_directions_tx(row, stored_result)
+                    direction_records = self._capture_worker_directions_tx(row, stored_result, seen)
                     _, failure_attempts = self._worker_batch_progress_tx(row, stored_result, seen, progress)
+                if role_policy.enabled(frozen_task):
+                    stored_result["remaining_work"] = list(dict.fromkeys([
+                        *(stored_result.get("remaining_work") or []), *role_policy.pending_work(owned_candidates)]))
                 remaining_for_task = bool(stored_result.get("remaining_work"))
                 if discovery_first:
                     returned = {" ".join(str(text).split()) for text in stored_result.get("remaining_work") or []}
@@ -4039,7 +4066,7 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                         item["state"] == "assigned" and item.get("assigned_task_key") == row["task_key"]
                         and item["text"] in returned and item["id"] not in settled_ids
                         for item in direction_records.values()
-                    )
+                    ) or bool(role_policy.pending_work(owned_candidates))
                 if outcome == "continue" or (
                     outcome in {"achieved", "no_evidence"} and remaining_for_task
                 ):
@@ -4061,6 +4088,12 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                 elif outcome not in {"achieved", "no_evidence"}:
                     state = "blocked"
                     stored_error = stored_error or f"未知 worker 结果：{outcome}"
+                from . import investigation
+                pause = investigation.pause_reason(stored_result) if investigation.enabled(frozen_task) and investigation.valid_submission(stored_result) else None
+                if pause and state in {"ready", "blocked"}:
+                    state, finished_at = "blocked", now()
+                    stored_result["investigation_pause"] = pause
+                    stored_error = pause["message"]
                 stamp = now()
                 self._db.execute(
                     "UPDATE planner_tasks SET state = ?, attempts = ?, claimed_by = NULL, claimed_at = NULL, result = ?, "
@@ -4081,6 +4114,16 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                     ),
                 )
                 self._refresh_planner_task_states_tx(row["run_id"], row["goal_id"], stamp)
+                if stored_result.get("investigation_pause"):
+                    self._db.execute("INSERT INTO events(run_id,unit_id,kind,payload,created_at) VALUES(?,?,?,?,?)",
+                        (row["run_id"], task_id, "worker_investigation_paused", _dumps({"task_key": row["task_key"],
+                            "attempt": attempt, **stored_result["investigation_pause"]}), stamp))
+                if role_policy.enabled(frozen_task) and owned_candidates:
+                    self._db.execute("INSERT INTO events(run_id,unit_id,kind,payload,created_at) VALUES(?,?,?,?,?)",
+                        (row["run_id"], task_id, "worker_candidate_checkpoint", _dumps({"task_key": row["task_key"],
+                            "attempt": attempt, "pending": sum(c["status"] == "pending" for c in owned_candidates),
+                            "candidates": [{"candidate_id": c["candidate_id"], "status": c["status"],
+                                "source_attempt": c.get("source_attempt")} for c in owned_candidates]}), stamp))
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")

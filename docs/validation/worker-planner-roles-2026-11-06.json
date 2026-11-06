@@ -1,0 +1,79 @@
+{
+  "schema_version": "worker-planner-role-validation/v1",
+  "recorded_at": "2026-11-06T01:28:19.867829+00:00",
+  "role_policy": "worker-evidence-v1",
+  "scope": "Existing worker implementation; no FindingAgent integration and no live model audit",
+  "validation": {
+    "backend": {
+      "passed": 2330,
+      "failed": 0,
+      "execution": "All backend/tests/test_*.py files partitioned into four isolated pytest processes",
+      "reproduction": "backend/.venv/bin/python -m pytest -q backend/tests",
+      "wall_seconds": 561.143,
+      "source_and_tests_sha256": "ec56e1c65a79dae4bda7cd67388716b8f7c5fe5bef772385fdb855a1ead4f333",
+      "code_unchanged": true,
+      "groups": [
+        {
+          "group": 1,
+          "returncode": 0,
+          "passed": 583,
+          "seconds": 358.17,
+          "summary": "583 passed in 356.86s (0:05:56)"
+        },
+        {
+          "group": 2,
+          "returncode": 0,
+          "passed": 585,
+          "seconds": 361.426,
+          "summary": "585 passed, 1 warning in 360.40s (0:06:00)"
+        },
+        {
+          "group": 3,
+          "returncode": 0,
+          "passed": 581,
+          "seconds": 561.121,
+          "summary": "581 passed in 559.51s (0:09:19)"
+        },
+        {
+          "group": 4,
+          "returncode": 0,
+          "passed": 581,
+          "seconds": 439.578,
+          "summary": "581 passed in 438.52s (0:07:18)"
+        }
+      ]
+    },
+    "static_checks": [
+      "compileall backend/audit",
+      "py_compile live_lab30_optimization.py",
+      "live_lab30_optimization.py --help",
+      "git diff --check"
+    ],
+    "frozen_archive": {
+      "run_id": "2969bcf204cd43b5baf2683cbb0e841d",
+      "assets_verified": 7,
+      "reproduction": "backend/.venv/bin/python scripts/reproduce_release.py --out /tmp/lab30-frozen-score.json",
+      "score": {
+        "TP": 22,
+        "FN": 8,
+        "D": 0,
+        "U": 1,
+        "FP": 1
+      }
+    }
+  },
+  "role_contract_sha256": {
+    "WORKER": "5b6bcde45e45a1a846115fa09d83279550767fe6a18dffd5d842f2124cb4c3b7",
+    "PLANNER": "9fd2f7f9c02647a53d99fb580601fd89933858849b629d34e82013d0f97d861e",
+    "REVIEWER": "a44498784706c32509f2e2c6a009aecacf6aaba3ec45e8ce7952ccd675fb9a37"
+  },
+  "live_harness_sha256": "93a7d4e73965e23c6c31e035e1330be1584b313a23259f46e7dfa76da2378df5",
+  "compatibility": "Historical records without role_policy, or explicitly legacy, keep the old contract; no migration or report rewrite",
+  "live_model_requests": 0,
+  "live_runner_jobs": 0,
+  "limitations": [
+    "Regression tests use mock models or local fixtures; improved Lab30 recall is not established",
+    "Evidence receipts prove reads and ownership, not semantic correctness; independent review remains required",
+    "Candidate investigation remains bounded by the existing task and run budgets"
+  ]
+}

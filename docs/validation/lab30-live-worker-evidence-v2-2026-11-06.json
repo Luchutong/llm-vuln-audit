@@ -1,0 +1,572 @@
+{
+  "schema_version": "lab30-live-monitor/v1",
+  "recorded_at": "2026-11-06T11:42:06.372343+08:00",
+  "run_id": "038b8ffeb5bd476fb0a2c8864eab3e60",
+  "trial_count": 1,
+  "model": "deepseek-flash",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "model_unavailable",
+    "message": "模型认证或路由失败（worker，HTTP 402）：ModelCallFailed: APIStatusError: Error code: 402 - {'error': {'message': 'Insufficient Balance (request_id: 6a8636f5-4039-42cf-b3e0-156b6fd6333d)', 'type': 'insufficient_balance_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  "times": {
+    "started_at": "2026-11-06T10:39:01.715716+08:00",
+    "finished_at": "2026-11-06T11:37:32.194234+08:00"
+  },
+  "ledger_active_seconds": 3373.036,
+  "harness_elapsed_seconds": 3376.139,
+  "run_limits": {
+    "responses": 2048,
+    "tools": 16384,
+    "seconds": 10800
+  },
+  "poc_mode": "off",
+  "poc_jobs": 0,
+  "code_unchanged": true,
+  "frozen_files_checked": 98,
+  "source_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "code_sha256": "c1bfb5eefb7e0a0928ce7f064a26cce9be93fd86ad8d61d240997c6eac9ce30c",
+  "frozen_input_sha256": "078339c75bc3f85687d132a716a530c034dab80a06199f50ca24982f3c8fb98b",
+  "policies": {
+    "role_policy": "worker-evidence-v2",
+    "exploration_policy": "exhaustive-v1",
+    "risk_coverage_policy": "bounded-v2",
+    "baseline_policy": "fresh",
+    "focus_scope": "all",
+    "completion_policy": "coverage_review",
+    "orchestration_policy": "host-queue-v1"
+  },
+  "score": {
+    "asserted": {
+      "TP": 29,
+      "FN": 1,
+      "D": 51,
+      "U": 7,
+      "FP": 58,
+      "precision": 0.3333333333333333,
+      "recall": 0.9666666666666667,
+      "f1": 0.49572649572649574
+    },
+    "accepted": {
+      "TP": 0,
+      "FN": 30,
+      "D": 0,
+      "U": 0,
+      "FP": 0,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0.0
+    }
+  },
+  "score_replay_matches": true,
+  "missed": [
+    {
+      "id": "18",
+      "truth_id": "18",
+      "title": "维护接口信任请求头认证绕过",
+      "class": "auth_bypass",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3,
+          "line_sha256": "3df8df57413258463abaea08fa6fcce33fe128751d9848cf7962a2cc0a8f18d3",
+          "rationale": "仅依赖客户端 X-Admin 请求头决定维护服务授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    }
+  ],
+  "unmatched": [
+    {
+      "id": "24e82658edb049d2b167ce0096c44f4c",
+      "title": "个人主页预览的 url 参数未经校验直接写入 href，可控制跳转至外部站点",
+      "type": "open_redirect",
+      "primary_location": {
+        "line": 3,
+        "path": "lab30-shop/app/public/account/profile.php"
+      }
+    },
+    {
+      "id": "187a58d13af0428b88fc46c11a3567a1",
+      "title": "注册接口缺少 CSRF 令牌校验，可被跨站强制创建账户",
+      "type": "csrf",
+      "primary_location": {
+        "line": 7,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    },
+    {
+      "id": "354dfaf9cc6047438197ea4eefd4941c",
+      "title": "注册接口缺少 CSRF 校验，可被跨站强制创建账户",
+      "type": "csrf",
+      "primary_location": {
+        "line": 7,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    },
+    {
+      "id": "4986a8a590a74a9c82c51f1a28a53639",
+      "title": "注册接口缺少 CSRF 令牌校验，可被跨站强制创建账户",
+      "type": "csrf",
+      "primary_location": {
+        "line": 7,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    },
+    {
+      "id": "5da9dbe8f6af49ddb6f907302c619c1d",
+      "title": "注册接口缺少 CSRF 令牌校验，可被跨站强制创建账户",
+      "type": "csrf",
+      "primary_location": {
+        "line": 7,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    },
+    {
+      "id": "8f8b5b04ff6040e2914420187864881e",
+      "title": "注册接口缺少 CSRF 令牌校验，可被跨站强制创建账户",
+      "type": "csrf",
+      "primary_location": {
+        "line": 7,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    },
+    {
+      "id": "9c8ead0fb6c8499db0228ccde3e15946",
+      "title": "注册接口无 CSRF 校验，可被跨站强制创建账户",
+      "type": "csrf",
+      "primary_location": {
+        "line": 8,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    }
+  ],
+  "counts": {
+    "accepted": 0,
+    "canonical": 34,
+    "contested": 0,
+    "pending": 34,
+    "raw_records": 104,
+    "valid_records": 87,
+    "withdrawn": 17
+  },
+  "coverage": {
+    "directions": {
+      "advisory": 134,
+      "complete": false,
+      "required": 12,
+      "resolved": 5,
+      "skipped": 0,
+      "total": 146,
+      "unsettled": 141
+    },
+    "files": {
+      "complete": true,
+      "pending": 0,
+      "read": 61,
+      "reviewed": 61,
+      "skip_details": [],
+      "skipped": 0,
+      "total": 61
+    },
+    "final_review": {
+      "accepted": 0,
+      "contested": 0,
+      "pending": 34
+    },
+    "verification": {
+      "pending": 34,
+      "pending_review": 0,
+      "reviewed": 0,
+      "total": 34,
+      "verified": 0
+    }
+  },
+  "directions": {
+    "version": "audit-directions-v1",
+    "total": 146,
+    "pending_total": 3,
+    "assigned_total": 4,
+    "resolved_total": 5,
+    "skipped_total": 0,
+    "unsettled_total": 141,
+    "complete": false,
+    "triage_pending_total": 134,
+    "omitted_leads": 0,
+    "unsettled_required_total": 7,
+    "advisory_total": 134,
+    "required_total": 12,
+    "omitted": 137,
+    "next_cursor": 4
+  },
+  "risk": {
+    "total": 88,
+    "required": 88,
+    "pending_required": 88,
+    "unread_required": 0,
+    "complete": false,
+    "by_state": {
+      "supported": 0,
+      "no_evidence": 0,
+      "not_applicable": 0,
+      "blocked": 0,
+      "pending": 88
+    }
+  },
+  "requests": {
+    "ledger_responses": 421,
+    "responses_received": 416,
+    "tools": 365,
+    "provider_retries": 2,
+    "observed_input_tokens": 9171370,
+    "observed_output_tokens": 634436,
+    "note": "Request ledger includes unsuccessful/cancelled attempts; these counts are not a bill or provider balance statement"
+  },
+  "tasks": {
+    "total": 55,
+    "states": {
+      "completed": 51,
+      "cancelled": 2,
+      "blocked": 2
+    },
+    "immutable_attempts": 80,
+    "goal": {
+      "status": "inconclusive",
+      "attempts": 80,
+      "max_total_attempts": 120
+    },
+    "planner_rounds": 26
+  },
+  "events": {
+    "total": 4232,
+    "counts": {
+      "planner_run_queued": 1,
+      "project_findings_baseline_frozen": 1,
+      "run_started": 1,
+      "planner_session_started": 1,
+      "workflow_budget_reallocated": 69,
+      "coverage_review_requested": 8,
+      "planner_round_started": 26,
+      "role_contract_bound": 108,
+      "agent_phase": 273,
+      "planner_overview_prepared": 26,
+      "planner_coverage_prepared": 26,
+      "planner_situational_prepared": 26,
+      "model_request": 421,
+      "model_response": 416,
+      "agent_output_rejected": 68,
+      "model_retry": 153,
+      "planner_decision_sanitized": 159,
+      "agent_error_summary": 95,
+      "planner_assessment": 23,
+      "planner_agent_terminal": 26,
+      "planner_round_committed": 20,
+      "planner_task_started": 82,
+      "planner_context_prepared": 82,
+      "worker_strategy_bound": 82,
+      "worker_knowledge_bound": 82,
+      "agent_parse_error": 68,
+      "audit_progress": 194,
+      "tool_call": 365,
+      "tool_result": 365,
+      "agent_code": 210,
+      "task_assessment": 70,
+      "task_agent_terminal": 82,
+      "worker_candidate_checkpoint": 46,
+      "project_finding_created": 35,
+      "finding_created": 104,
+      "planner_task_completed": 52,
+      "worker_current_findings_prepared": 79,
+      "task_exploration_stopped": 57,
+      "planner_task_requeued": 28,
+      "audit_directions_updated": 13,
+      "planner_task_reopened": 1,
+      "finding_duplicate": 16,
+      "project_finding_corrected": 69,
+      "finding_duplicate_candidate": 57,
+      "agent_execution_error": 5,
+      "review_batch_claimed": 12,
+      "review_batch_completed": 9,
+      "planner_round_failed": 6,
+      "provider_retry": 2,
+      "worker_exploration_extended": 1,
+      "exploration_review_requested": 6,
+      "review_group_disposition": 1,
+      "review_batch_deferred": 2,
+      "run_inconclusive": 2
+    }
+  },
+  "v2_evidence": {
+    "role_bindings": 108,
+    "all_v2": true,
+    "raw_records_with_separate_root_and_sink": 51,
+    "sample_finding_ids": [
+      "d1c74f7b9765430ebb9beacb4f381b6d",
+      "f9e09ebe5c8c423382e4dca090d3c5de",
+      "19957aeb25a54b8e867ef2cab426c061",
+      "d04d5e7580774c86971d4d1d0994f39f",
+      "c8a8a0ced6364810b06f8a9bec62e061",
+      "1a5c37cdf8094da6a5120b9e874233cc"
+    ],
+    "worker_assessment_commit_rejections": 0,
+    "run_failed_events": 0,
+    "old_sink_only_rule_rejections": 0
+  },
+  "repetition_case": {
+    "task_key": "orders-wallet-idor-logic",
+    "attempts": 17,
+    "findings_submitted": 26,
+    "no_new_evidence_but_new_conclusions": [
+      2,
+      3,
+      5,
+      7,
+      8,
+      10,
+      12,
+      16
+    ],
+    "location_counts": [
+      {
+        "type": "price_manipulation",
+        "path": "lab30-shop/app/public/orders/create.php",
+        "line": 5,
+        "records": 14
+      },
+      {
+        "type": "race_condition",
+        "path": "lab30-shop/app/public/wallet/withdraw.php",
+        "line": 7,
+        "records": 11
+      },
+      {
+        "type": "idor",
+        "path": "lab30-shop/app/public/orders/detail.php",
+        "line": 2,
+        "records": 1
+      }
+    ],
+    "final_candidates": [
+      {
+        "candidate_id": "withdraw-race-default-isolation",
+        "status": "supported",
+        "hypothesis": "withdraw.php:4-8 无锁先读后写导致竞态重复出账",
+        "primary_location": {
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "line": 7
+        },
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/wallet/withdraw.php",
+            "start_line": 4,
+            "end_line": 8
+          },
+          {
+            "path": "lab30-shop/app/src/bootstrap.php",
+            "start_line": 4,
+            "end_line": 8
+          }
+        ],
+        "missing_context": [],
+        "next_step": "",
+        "finding_index": 1,
+        "disproof": null,
+        "source_attempt": 17
+      }
+    ],
+    "needs_evidence": [
+      {
+        "direction_id": "dir_151130e5f44c083a28e7d7f2d0fd50d8",
+        "outcome": "needs_evidence",
+        "rationale": "bootstrap.php:6 的 PDO 构造未设置事务隔离级别或 autocommit，快照内无 MySQL 运行时配置（my.cnf、事务、锁），无法确定竞态可重复出账的精确条件；但 withdraw.php:4-8 的无锁先读后写根因已由源码确认。"
+      }
+    ]
+  },
+  "missing_18": {
+    "anchor_read_attempts": [
+      {
+        "task_key": "ops-ssrf-lfi-command",
+        "attempt": 1
+      },
+      {
+        "task_key": "ops-remaining-entries",
+        "attempt": 1
+      }
+    ],
+    "observations": [
+      {
+        "task_key": "ops-remaining-entries",
+        "observation": {
+          "evidence": "lab30-shop/app/public/ops/database.php:2-2; lab30-shop/app/public/ops/jobs.php:2-2; lab30-shop/app/public/ops/members.php:2-2; lab30-shop/app/public/ops/batch-check.php:2-2; lab30-shop/app/public/ops/maintenance.php:3-3",
+          "follow_up": true,
+          "kind": "security_boundary",
+          "summary": "ops 目录各页面在 bootstrap 后调用 require_user([\"operator\",\"admin\"])，非运营角色 403；maintenance.php 例外，使用可伪造的 X-Admin 请求头判定。",
+          "title": "ops 入口统一鉴权为 require_user([\"operator\",\"admin\"])"
+        }
+      }
+    ],
+    "published_maintenance_findings": 0
+  },
+  "timeline": [
+    {
+      "at": "2026-11-06T10:39:19.168245+08:00",
+      "elapsed_seconds": 20.0,
+      "status": "running",
+      "responses": 2,
+      "tasks": {},
+      "findings": 0,
+      "pending_candidates": 0
+    },
+    {
+      "at": "2026-11-06T10:42:06.361935+08:00",
+      "elapsed_seconds": 180.0,
+      "status": "running",
+      "responses": 32,
+      "tasks": {
+        "completed": 4,
+        "running": 2
+      },
+      "findings": 6,
+      "pending_candidates": 0
+    },
+    {
+      "at": "2026-11-06T10:44:54.218788+08:00",
+      "elapsed_seconds": 340.1,
+      "status": "running",
+      "responses": 58,
+      "tasks": {
+        "completed": 5,
+        "running": 1
+      },
+      "findings": 12,
+      "pending_candidates": 1
+    },
+    {
+      "at": "2026-11-06T10:52:50.117397+08:00",
+      "elapsed_seconds": 800.2,
+      "status": "running",
+      "responses": 112,
+      "tasks": {
+        "completed": 11,
+        "running": 1
+      },
+      "findings": 31,
+      "pending_candidates": 1
+    },
+    {
+      "at": "2026-11-06T11:02:25.989091+08:00",
+      "elapsed_seconds": 1360.4,
+      "status": "running",
+      "responses": 173,
+      "tasks": {
+        "ready": 3,
+        "running": 3,
+        "completed": 12
+      },
+      "findings": 47,
+      "pending_candidates": 0
+    },
+    {
+      "at": "2026-11-06T11:10:24.203780+08:00",
+      "elapsed_seconds": 1820.5,
+      "status": "running",
+      "responses": 230,
+      "tasks": {
+        "completed": 22
+      },
+      "findings": 63,
+      "pending_candidates": 0
+    },
+    {
+      "at": "2026-11-06T11:17:00.632719+08:00",
+      "elapsed_seconds": 2200.7,
+      "status": "running",
+      "responses": 290,
+      "tasks": {
+        "completed": 31,
+        "running": 1
+      },
+      "findings": 71,
+      "pending_candidates": 0
+    },
+    {
+      "at": "2026-11-06T11:28:10.909772+08:00",
+      "elapsed_seconds": 2841.0,
+      "status": "running",
+      "responses": 362,
+      "tasks": {
+        "completed": 42
+      },
+      "findings": 91,
+      "pending_candidates": 0
+    },
+    {
+      "at": "2026-11-06T11:36:15.256677+08:00",
+      "elapsed_seconds": 3301.3,
+      "status": "running",
+      "responses": 411,
+      "tasks": {
+        "completed": 51
+      },
+      "findings": 104,
+      "pending_candidates": 0
+    },
+    {
+      "at": "2026-11-06T11:37:37.983733+08:00",
+      "elapsed_seconds": 3381.4,
+      "status": "inconclusive",
+      "responses": 421,
+      "tasks": {
+        "completed": 51,
+        "cancelled": 2,
+        "blocked": 2
+      },
+      "findings": 104,
+      "pending_candidates": 0
+    }
+  ],
+  "limitations": [
+    "The sole live trial ended on provider HTTP 402 before final review; it did not pass 30/30 acceptance",
+    "29 TP is the unreviewed standing-claim score; D and U remain; it is not a final accepted or dynamically verified score",
+    "One trial is not evidence of a stable recall improvement or a controlled comparison with the historical release",
+    "Offline classification of failure reasons and coordinate repetition are diagnostics, not semantic vulnerability decisions"
+  ],
+  "rejection_analysis": {
+    "unit": "Distinct invocation/request/phase; model_retry notifications are not counted again",
+    "total": 182,
+    "by_category": {
+      "planner_scope": 1,
+      "incomplete_code": 30,
+      "missing_code_block": 27,
+      "other_contract_or_execution": 15,
+      "candidate_contract": 6,
+      "root_coordinate_binding": 12,
+      "disproof_contract": 45,
+      "achieved_without_finding": 8,
+      "json_output_format": 11,
+      "preconditions_type": 15,
+      "dataflow_evidence": 2,
+      "direction_resolution_contract": 10
+    }
+  },
+  "direction_contract_rejection_count": 25,
+  "artifact_root": ".run/lab30-live-v2-20261106-103858",
+  "artifact_sha256": {
+    "analysis.json": "0ce5bc7d6c5570ce5505d10a3618f73f913049662a23b20acc4beb42c88ca8d1",
+    "monitor.jsonl": "fb5de3ab15a3e018e59d477bbdb4afe00bc64b94bb59658fd97a7bc1f9021768",
+    "monitor-events.jsonl": "3e7e3c7619574efc31f4a6b32c42ab15820880bdfe7bfe80095ee6f8a3e0970c",
+    "code-manifest.json": "465f893b39d6f30aecb33693cbf12d880034200e748bd54f70bc3f6f46a6b414",
+    "frozen-code.tar.gz": "5dbdd0f0a13550de36d7a42955cf2be5101cbb4bf324f84485d4f01ebd9e7c43",
+    "report.json": "872d9481f49170e7860374713822c9a0483b156423cd35a30ee3ebee5b54ebc9",
+    "report.md": "56f09aeb1dd2411c8cb587daccff7f21cf03e351788a2f9f8d2201392c23be7e",
+    "report.zip": "95822f692ca2c2c9367a4fa8b11ea98d42458d940362c3d5b0a9315decd12f15"
+  }
+}

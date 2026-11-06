@@ -81,6 +81,36 @@ def test_classification_does_not_infer_lfi_rfi_or_command_execution_from_consequ
         assert validate_worker_classification(item) == (cause, [])
 
 
+def test_include_sink_is_lfi_not_path_traversal():
+    payload = finding(
+        vulnerability_type="path_traversal",
+        dangerous_operation="include APP_ROOT.'/resources/views/'.$name.'.php'",
+        input_source="$_GET['page'] 原样字符串",
+        summary="page 参数拼接进 include，可用 php://filter 丢弃前缀读取目标文件。",
+    )
+    assert validate_worker_classification(payload) == ("lfi", [])
+
+
+def test_file_read_api_keeps_path_traversal_classification():
+    payload = finding(
+        vulnerability_type="path_traversal",
+        dangerous_operation="file_get_contents($path)",
+        input_source="$_GET['file']",
+        summary="文件名拼接数据目录后直接读取。",
+    )
+    assert validate_worker_classification(payload) == ("path_traversal", [])
+
+
+def test_remote_include_is_classified_as_rfi():
+    payload = finding(
+        vulnerability_type="path_traversal",
+        dangerous_operation="include $template",
+        input_source="$_GET['template'] 远程 URL",
+        summary="远程模板地址直接 include，可加载外部 PHP。",
+    )
+    assert validate_worker_classification(payload) == ("rfi", [])
+
+
 def test_history_with_omitted_fields_remains_loadable_but_needs_live_correction():
     historical = TaskFinding.model_validate(finding())
     assert historical.vulnerability_type is None
@@ -108,7 +138,7 @@ def test_shared_contract_is_independent_of_strategy_and_has_no_benchmark_answers
     baseline = "识别当前任务中由源码支持的可操作漏洞，说明影响，并准确指出根因或危险操作的位置。"
     assert records["worker-w0-v1"]["text"] == baseline
     assert records["worker-w1-v1"]["text"] == baseline + "逐项核对攻击者输入来源、传播路径、关键操作及已有防护；说明防护是否覆盖当前输入路径，不能只凭函数名称判断。"
-    assert len({hashlib.sha256(row["text"].encode()).hexdigest() for row in records.values()}) == 5
+    assert len({hashlib.sha256(row["text"].encode()).hexdigest() for row in records.values()}) == 7
 
 
 def test_new_test_can_opt_out_of_project_baseline_without_changing_legacy_defaults():

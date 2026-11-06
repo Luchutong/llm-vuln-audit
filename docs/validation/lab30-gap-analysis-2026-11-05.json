@@ -1,0 +1,476 @@
+{
+  "schema_version": "lab30-gap-analysis/v1",
+  "scope": "post-run analysis; no new audit, POC execution or score improvement",
+  "run_id": "2969bcf204cd43b5baf2683cbb0e841d",
+  "model_requests": 0,
+  "runner_jobs": 0,
+  "frozen_assets_verified": 7,
+  "baseline": {
+    "protocol": "lab30-v2",
+    "TP": 22,
+    "FN": 8,
+    "FP": 1,
+    "D": 0,
+    "U": 1,
+    "precision": 0.9565217391304348,
+    "recall": 0.7333333333333333,
+    "f1": 0.8301886792452831
+  },
+  "usage": {
+    "responses": 254,
+    "tools": 270,
+    "seconds": 2832.069
+  },
+  "run_limits": {
+    "responses": 2048,
+    "tools": 16384,
+    "seconds": 10800
+  },
+  "coverage": {
+    "complete": true,
+    "total": 61,
+    "pending_total": 0,
+    "read_paths": 59,
+    "reviewed_paths": 61
+  },
+  "trace": {
+    "available": true,
+    "source": "frozen_run_reports.input_json; not the current project ledger",
+    "input_hash": "1c48ce503c8af9140bbce4025b742bbbf27145e02ea80606fa636813f97ff940",
+    "input_json_sha256": "1c48ce503c8af9140bbce4025b742bbbf27145e02ea80606fa636813f97ff940"
+  },
+  "gaps": [
+    {
+      "truth_id": "07",
+      "title": "运营公式动态函数调用代码执行",
+      "type": "code_execution",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3
+        }
+      ],
+      "published_evidence_candidates": [],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "ops-and-cli",
+          "attempt": 1,
+          "path": "app/public/ops/formula.php",
+          "line": 3
+        }
+      ],
+      "related_directions": [
+        {
+          "origin_task_key": "ops-and-cli",
+          "id": "dir_39311cbb1618e232d39dd66309d8e862",
+          "text": "lab30-shop/app/public/ops/formula.php:3 以 GET func 作为函数名动态调用（如 system/phpinfo）",
+          "state": "pending",
+          "requirement": "advisory",
+          "assigned_task_key": null
+        }
+      ],
+      "observations": []
+    },
+    {
+      "truth_id": "09",
+      "title": "数据库诊断异常与堆栈信息泄露",
+      "type": "info_disclosure",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/ops/database.php",
+          "line": 4
+        }
+      ],
+      "published_evidence_candidates": [],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "sql-data-layer",
+          "attempt": 1,
+          "path": "app/public/ops/database.php",
+          "line": 3
+        },
+        {
+          "task_key": "ops-and-cli",
+          "attempt": 1,
+          "path": "app/public/ops/database.php",
+          "line": 3
+        },
+        {
+          "task_key": "ops-and-cli",
+          "attempt": 1,
+          "path": "app/public/ops/database.php",
+          "line": 4
+        }
+      ],
+      "related_directions": [],
+      "observations": [
+        {
+          "task_key": "ops-and-cli",
+          "kind": "data_flow",
+          "title": "database.php 输出异常堆栈",
+          "summary": "bootstrap.php:62-67 的 set_exception_handler 只输出通用提示；但 ops/database.php:3 catch 中把 get_class($e).': '.$e->getMessage().getTraceAsString() 作为 output 输出，经 h() 编码仍暴露堆栈、路径与连接信息，需 operator 权限触发。",
+          "evidence": "lab30-shop/app/src/bootstrap.php:62-67; lab30-shop/app/public/ops/database.php:1-4"
+        }
+      ]
+    },
+    {
+      "truth_id": "10",
+      "title": "使用 MD5 存储密码",
+      "type": "weak_crypto",
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17
+        }
+      ],
+      "published_evidence_candidates": [],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "session-fixation-auth",
+          "attempt": 1,
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "task_key": "auth-continue-redirect",
+          "attempt": 1,
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "task_key": "redeem-backup-followup",
+          "attempt": 1,
+          "path": "app/src/setup.php",
+          "line": 17
+        },
+        {
+          "task_key": "ops-and-cli",
+          "attempt": 1,
+          "path": "app/src/setup.php",
+          "line": 17
+        }
+      ],
+      "related_directions": [],
+      "observations": [
+        {
+          "task_key": "session-fixation-auth",
+          "kind": "source_observation",
+          "title": "register/logout 的会话处理",
+          "summary": "register.php 未调用 start_session，仅做用户名正则与长度校验后以 MD5 存密码；logout.php 第2行 start_session() 后清空 $_SESSION 并 session_destroy()。注册使用参数化 INSERT，username 正则 ^[a-zA-Z][a-zA-Z0-9_]{2,39}$ 未见类型混淆绕过。",
+          "evidence": "lab30-shop/app/public/auth/register.php:5-8; lab30-shop/app/public/auth/logout.php:2"
+        },
+        {
+          "task_key": "auth-continue-redirect",
+          "kind": "security_boundary",
+          "title": "注册流程使用固定列清单插入，role 硬编码为 customer",
+          "summary": "register.php 第 7-8 行 INSERT 语句列清单固定，role 写死为 'customer'，balance 固定 100，仅 username/password/email 从请求取值；未将 $_POST 整体展开，故不存在 role/balance 等敏感字段的批量赋值路径。",
+          "evidence": "lab30-shop/app/public/auth/register.php:7-8"
+        },
+        {
+          "task_key": "ops-and-cli",
+          "kind": "source_observation",
+          "title": "部署与重置脚本 Web 不可达",
+          "summary": "bin/reset.php:2 以 PHP_SAPI!=='cli' 直接 404 退出，且 app/bin 不在 public 下，Web 不可访问；bin/setup.php 仅在 settings 缺少 generation 时调用 reset_shop()。reset_shop 中表名来自硬编码数组、数据用预处理，未见命令注入或 eval。",
+          "evidence": "lab30-shop/app/bin/reset.php:1-4; lab30-shop/app/bin/setup.php:1-4; lab30-shop/app/src/setup.php:4-39"
+        }
+      ]
+    },
+    {
+      "truth_id": "14",
+      "title": "邮箱设置跨站请求伪造",
+      "type": "csrf",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
+      ],
+      "published_evidence_candidates": [],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "entry-routing-auth",
+          "attempt": 2,
+          "path": "app/public/account/settings.php",
+          "line": 5
+        },
+        {
+          "task_key": "account-mass-assign",
+          "attempt": 1,
+          "path": "app/public/account/settings.php",
+          "line": 5
+        },
+        {
+          "task_key": "account-object-authz",
+          "attempt": 1,
+          "path": "app/public/account/settings.php",
+          "line": 5
+        },
+        {
+          "task_key": "order-wallet-logic",
+          "attempt": 1,
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
+      ],
+      "related_directions": [
+        {
+          "origin_task_key": "account-object-authz",
+          "id": "dir_23beb9e3381c7f561db548226f530653",
+          "text": "lab30-shop/app/public/account/settings.php:3-6 缺少 check_csrf 的 CSRF 修改邮箱路径（需验证 cookie 策略）",
+          "state": "pending",
+          "requirement": "advisory",
+          "assigned_task_key": null
+        }
+      ],
+      "observations": [
+        {
+          "task_key": "account-mass-assign",
+          "kind": "security_boundary",
+          "title": "settings.php 仅允许 email 且经 filter_var 校验",
+          "summary": "settings.php 第 4-5 行只取 email 字段并用 FILTER_VALIDATE_EMAIL 校验后参数化更新本用户邮箱，未发生批量赋值。",
+          "evidence": "lab30-shop/app/public/account/settings.php:2-6"
+        }
+      ]
+    },
+    {
+      "truth_id": "17",
+      "title": "人员管理信任客户端角色 Cookie 权限绕过",
+      "type": "auth_bypass",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2
+        }
+      ],
+      "published_evidence_candidates": [],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "account-mass-assign",
+          "attempt": 1,
+          "path": "app/public/ops/users.php",
+          "line": 2
+        }
+      ],
+      "related_directions": [
+        {
+          "origin_task_key": "account-mass-assign",
+          "id": "dir_0426c7b739326a1be2d5e8edab55dc65",
+          "text": "lab30-shop/app/public/ops/users.php:2 使用 $_COOKIE['role'] 作管理员判定，核查 client-controlled 授权绕过",
+          "state": "pending",
+          "requirement": "advisory",
+          "assigned_task_key": null
+        }
+      ],
+      "observations": []
+    },
+    {
+      "truth_id": "18",
+      "title": "维护接口信任请求头认证绕过",
+      "type": "auth_bypass",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
+      ],
+      "published_evidence_candidates": [],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "ops-and-cli",
+          "attempt": 1,
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
+      ],
+      "related_directions": [
+        {
+          "origin_task_key": "ops-and-cli",
+          "id": "dir_5118407668344f3ba4ee1cd2f83e6972",
+          "text": "lab30-shop/app/public/ops/maintenance.php:3 仅凭可伪造 X-Admin 头鉴权且未要求登录",
+          "state": "pending",
+          "requirement": "advisory",
+          "assigned_task_key": null
+        }
+      ],
+      "observations": []
+    },
+    {
+      "truth_id": "23",
+      "title": "会员查询跨文件 SQL 注入",
+      "type": "sqli",
+      "scoring_locations": [
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3
+        }
+      ],
+      "published_evidence_candidates": [],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "sql-data-layer",
+          "attempt": 1,
+          "path": "app/src/member_lookup.php",
+          "line": 3
+        }
+      ],
+      "related_directions": [
+        {
+          "origin_task_key": "sql-data-layer",
+          "id": "dir_f48161cc01979dea85ed891ae171f997",
+          "text": "lab30-shop/app/src/member_lookup.php:3 中 $term 拼接进 LIKE，上游 ops/members.php:2 仅要求 operator/admin，需评估低权限到高权限横向读取与权限边界",
+          "state": "pending",
+          "requirement": "advisory",
+          "assigned_task_key": null
+        }
+      ],
+      "observations": [
+        {
+          "task_key": "sql-data-layer",
+          "kind": "security_boundary",
+          "title": "其他调用点均已参数化或使用固定 SQL",
+          "summary": "orders/index.php 第2行、catalog/detail.php 第2行、ops/report.php 第2行、bootstrap.php 第23行/第42行等使用 prepare+execute 占位符；health.php、ops/users.php、partner/portal.php、support/messages.php、ops/audit-log.php、ops/jobs.php、index.php 的 db()->query 均为无外部输入的常量 SQL，无可达注入点。member_lookup() 在 member_lookup.php:3 拼接 $term，但上游 ops/members.php:2 已要求 operator/admin 权限，属另一独立方向。",
+          "evidence": "lab30-shop/app/public/orders/index.php:2-2;lab30-shop/app/public/catalog/detail.php:2-2;lab30-shop/app/src/bootstrap.php:23-24;lab30-shop/app/src/bootstrap.php:42-43;lab30-shop/app/public/support/messages.php:4-4;lab30-shop/app/src/member_lookup.php:3-3"
+        }
+      ]
+    },
+    {
+      "truth_id": "24",
+      "title": "主机巡检跨文件命令注入",
+      "type": "command_injection",
+      "scoring_locations": [
+        {
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
+      ],
+      "published_evidence_candidates": [
+        {
+          "id": "7d557370dabe4a41ba0c681deb30a0a1",
+          "type": "command_injection",
+          "primary_location": {
+            "line": 2,
+            "path": "lab30-shop/app/public/ops/ping.php"
+          },
+          "title": "运营主机巡检 host 参数未过滤直接拼接 shell_exec 造成命令注入"
+        }
+      ],
+      "anchor_was_read": true,
+      "reads": [
+        {
+          "task_key": "ops-ssrf-xxe",
+          "attempt": 1,
+          "path": "app/src/host_check.php",
+          "line": 2
+        },
+        {
+          "task_key": "ops-and-cli",
+          "attempt": 1,
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
+      ],
+      "related_directions": [],
+      "observations": [
+        {
+          "task_key": "ops-ssrf-xxe",
+          "kind": "source_observation",
+          "title": "ping.php 与 batch-check.php 的 host 直接拼接 shell_exec",
+          "summary": "ping.php:2 与 src/host_check.php:2 均以 'ping -c 1 -W 1 '.$host 调用 shell_exec，host 来自 GET 且无转义，仅角色门禁，构成命令注入（与本轮其他方向同根因，此处记为观察）。",
+          "evidence": "lab30-shop/app/public/ops/ping.php:2; lab30-shop/app/public/ops/batch-check.php:2; lab30-shop/app/src/host_check.php:2"
+        }
+      ]
+    }
+  ],
+  "extra_prediction_diagnostics": [
+    {
+      "finding_id": "755caa0a9ce04369bac0bc106f3406d2",
+      "reason": "type_mismatch",
+      "vulnerability_type": "lfi",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/template-preview.php",
+        "line": 3
+      },
+      "location_truth_ids": [
+        "06"
+      ],
+      "expected_types": [
+        "rfi"
+      ]
+    }
+  ],
+  "direction_counts": {
+    "advisory:pending": 28,
+    "required:resolved": 8
+  },
+  "summary": {
+    "missed_truths_with_anchor_read": 8,
+    "missed_truths_with_pending_advisory": [
+      "07",
+      "14",
+      "17",
+      "18",
+      "23"
+    ],
+    "worker_tasks": 19,
+    "worker_attempts": 20
+  },
+  "frozen_policy": {
+    "completion_policy": "coverage_review",
+    "focus_scope": null,
+    "risk_coverage_policy": null,
+    "orchestration_policy": "host-queue-v1"
+  },
+  "current_signal_probe": {
+    "scope": "current implementation, frozen index, hypothetical focus_scope=all",
+    "signal_implementation_sha256": "0197e4324f0f701b476f4af0ffcd30080a6162f0a410297ea9a5c46ecc6b62d4",
+    "total": 52,
+    "omitted": 0,
+    "anchor_matches": {
+      "07": [],
+      "09": [
+        {
+          "risk": "sqli",
+          "operation": "query",
+          "path": "lab30-shop/app/public/ops/database.php",
+          "line": 3
+        }
+      ],
+      "10": [],
+      "14": [],
+      "17": [],
+      "18": [],
+      "23": [
+        {
+          "risk": "sqli",
+          "operation": "query",
+          "path": "lab30-shop/app/src/member_lookup.php",
+          "line": 3
+        }
+      ],
+      "24": [
+        {
+          "risk": "command_injection",
+          "operation": "shell_exec",
+          "path": "lab30-shop/app/src/host_check.php",
+          "line": 2
+        }
+      ]
+    },
+    "notice": "A signal at the same line does not prove the missing risk was covered; database.php query is a SQL signal, not an exception-disclosure signal."
+  }
+}

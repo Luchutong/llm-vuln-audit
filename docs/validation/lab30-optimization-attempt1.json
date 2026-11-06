@@ -1,0 +1,89 @@
+{
+  "run_id": "7d0ddccab40d4c30a031300dd04501db",
+  "profile": "optimized",
+  "model": "deepseek-flash",
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "host_review_contract_stall",
+    "message": "实测确认线索膨胀至上限，风险复核缺少当前发现引用，停止重复宿主合同拒绝并保留全部现场用于修复。"
+  },
+  "usage": {
+    "responses": 491,
+    "tools": 359,
+    "seconds": 5942.995
+  },
+  "elapsed_seconds": 5945.198,
+  "asserted": {
+    "TP": 28,
+    "FN": 2,
+    "D": 25,
+    "U": 8,
+    "FP": 33,
+    "precision": 0.45901639344262296,
+    "recall": 0.9333333333333333,
+    "f1": 0.6153846153846154
+  },
+  "accepted": {
+    "TP": 27,
+    "FN": 3,
+    "D": 0,
+    "U": 3,
+    "FP": 3,
+    "precision": 0.9,
+    "recall": 0.9,
+    "f1": 0.9
+  },
+  "poc_jobs": 0,
+  "code_unchanged": true,
+  "failed_checks": [
+    "评分验收 TP: 需要 30，实际 27",
+    "评分验收 FN: 需要 0，实际 3",
+    "评分验收 U: 需要 0，实际 3",
+    "评分验收 FP: 需要 0，实际 3",
+    "运行或完整性维度尚未完成"
+  ],
+  "scope": "Full-source fresh static audit; intentionally stopped after verified host contract failures; retained as an unsuccessful trial",
+  "source_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "code_sha256": "5e90f2b49e48e71ad9f3372def0cd76a6029342f6dd7e188e9b11c205b4d845b",
+  "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261105-attempt1/01-optimized",
+  "directions": {
+    "total": 256,
+    "unsettled_total": 233,
+    "omitted_leads": 1
+  },
+  "missed_accepted": [
+    "10 使用 MD5 存储密码",
+    "17 人员管理信任客户端角色 Cookie 权限绕过",
+    "19 下单信任客户端单价金额篡改"
+  ],
+  "missed_asserted": [
+    "10 使用 MD5 存储密码",
+    "17 人员管理信任客户端角色 Cookie 权限绕过"
+  ],
+  "extra_accepted": [
+    {
+      "title": "登录与注册使用无盐 MD5 存储/校验口令",
+      "type": "weak_crypto",
+      "primary_location": {
+        "line": 7,
+        "path": "lab30-shop/app/public/auth/login.php"
+      }
+    },
+    {
+      "title": "注册 POST 状态变更缺少 CSRF 令牌校验（register.php:8 无 check_csrf）",
+      "type": "csrf",
+      "primary_location": {
+        "line": 8,
+        "path": "lab30-shop/app/public/auth/register.php"
+      }
+    },
+    {
+      "title": "orders/create.php 信任客户端提交的单价计算订单总额（price manipulation）",
+      "type": "price_manipulation",
+      "primary_location": {
+        "line": 6,
+        "path": "lab30-shop/app/public/orders/create.php"
+      }
+    }
+  ]
+}

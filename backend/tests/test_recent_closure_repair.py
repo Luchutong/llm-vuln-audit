@@ -107,7 +107,7 @@ def test_related_entries_are_packed_together_within_the_existing_byte_cap(hosted
     groups = store.review_batches_pending(run['id'], 'final', repo)
     first = {i['item_id'] for i in groups[0]}
     assert {'ledger-00', 'ledger-09'}.issubset(first)
-    assert all(len(json.dumps(g, ensure_ascii=False).encode()) < 34000 for g in groups)
+    assert all(len(json.dumps(g, ensure_ascii=False).encode()) < 49152 for g in groups)
 
 
 def test_split_related_batches_carry_the_prior_exact_version_decision(hosted):
@@ -116,7 +116,7 @@ def test_split_related_batches_carry_the_prior_exact_version_decision(hosted):
         f = add_claim(store, run, i, ledger=f'ledger-{i}', verified=True)
         store._write('UPDATE findings SET primary_location=? WHERE id=?',
                      (json.dumps({'path': 'public/index.php', 'line': i + 1}), f['id']))
-        store._write('UPDATE verifications SET normal_observation=? WHERE finding_id=?', ('完整正常观测。' * 650, f['id']))
+        store._write('UPDATE verifications SET normal_observation=? WHERE finding_id=?', ('完整正常观测。' * 1000, f['id']))
     first = store.prepare_review_batch(run['id'], 'final', run['execution_epoch'], repo)
     assert len(first['items']) == 1  # The pair exceeds the byte ceiling as a unit.
     values = decisions(first, 'needs_evidence')

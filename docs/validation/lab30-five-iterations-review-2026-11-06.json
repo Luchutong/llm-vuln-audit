@@ -1,0 +1,917 @@
+{
+  "schema_version": "lab30-iteration-claim-review/v1",
+  "date": "2026-11-06",
+  "scope": "read-only replay of existing trials; no new LLM or runner work; trial 5 is unfinished",
+  "model_requests": 0,
+  "runner_jobs": 0,
+  "assets": {
+    "truth_sha256": "6c215b702fa962082e21a60bf8237692da7e47cb6ef97889d212616fa708faaa",
+    "anchors_sha256": "1bc01cf80d6326c2b683e251c3bf8c4f2df8bfa28005465d8108b0b73e0e7c7a"
+  },
+  "trials": [
+    {
+      "attempt": 1,
+      "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261105-attempt1/01-optimized",
+      "run_id": "7d0ddccab40d4c30a031300dd04501db",
+      "status": "inconclusive",
+      "score_replay_matches_recorded": true,
+      "input_hash": "25960a7cf81c76e70dd78e4fe0dd7cc98359393d7cd84fae0c415bed1061dae7",
+      "input_hash_verified": true,
+      "asserted": {
+        "TP": 28,
+        "FN": 2,
+        "D": 25,
+        "U": 8,
+        "FP": 33,
+        "precision": 0.45901639344262296,
+        "recall": 0.9333333333333333,
+        "f1": 0.6153846153846154
+      },
+      "accepted": {
+        "TP": 27,
+        "FN": 3,
+        "D": 0,
+        "U": 3,
+        "FP": 3,
+        "precision": 0.9,
+        "recall": 0.9,
+        "f1": 0.9
+      },
+      "missed_accepted": [
+        "10 使用 MD5 存储密码",
+        "17 人员管理信任客户端角色 Cookie 权限绕过",
+        "19 下单信任客户端单价金额篡改"
+      ],
+      "missed_asserted": [
+        "10 使用 MD5 存储密码",
+        "17 人员管理信任客户端角色 Cookie 权限绕过"
+      ],
+      "usage": {
+        "responses": 491,
+        "tools": 359,
+        "seconds": 5942.995
+      },
+      "code_unchanged_recorded": true,
+      "code_unchanged_independently_reconstructed": false,
+      "poc_jobs": 0
+    },
+    {
+      "attempt": 2,
+      "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261106-attempt2/01-optimized",
+      "run_id": "4fa3bcd01b064690a02066f838983581",
+      "status": "inconclusive",
+      "score_replay_matches_recorded": true,
+      "input_hash": "0da552a10b8a54769f6366c37d5ee1b3109a7b0d43644e0e709093e2aee2cb35",
+      "input_hash_verified": true,
+      "asserted": {
+        "TP": 26,
+        "FN": 4,
+        "D": 19,
+        "U": 9,
+        "FP": 28,
+        "precision": 0.48148148148148145,
+        "recall": 0.8666666666666667,
+        "f1": 0.6190476190476191
+      },
+      "accepted": {
+        "TP": 26,
+        "FN": 4,
+        "D": 0,
+        "U": 4,
+        "FP": 4,
+        "precision": 0.8666666666666667,
+        "recall": 0.8666666666666667,
+        "f1": 0.8666666666666667
+      },
+      "missed_accepted": [
+        "09 数据库诊断异常与堆栈信息泄露",
+        "23 会员查询跨文件 SQL 注入",
+        "24 主机巡检跨文件命令注入",
+        "27 任务导入反序列化链命令执行"
+      ],
+      "missed_asserted": [
+        "09 数据库诊断异常与堆栈信息泄露",
+        "23 会员查询跨文件 SQL 注入",
+        "24 主机巡检跨文件命令注入",
+        "27 任务导入反序列化链命令执行"
+      ],
+      "usage": {
+        "responses": 326,
+        "tools": 309,
+        "seconds": 2859.171
+      },
+      "code_unchanged_recorded": true,
+      "code_unchanged_independently_reconstructed": false,
+      "poc_jobs": 0,
+      "correction_helper_files_were_read": [
+        {
+          "path": "app/src/member_lookup.php",
+          "sink_line": 3,
+          "anchor_read_by": [
+            {
+              "task_key": "sqli-secondary-query-paths",
+              "attempt": 1
+            },
+            {
+              "task_key": "dir-unread-ops-cmds",
+              "attempt": 1
+            },
+            {
+              "task_key": "content-page-and-assets-lfi",
+              "attempt": 1
+            },
+            {
+              "task_key": "ops-access-control-recheck",
+              "attempt": 1
+            }
+          ],
+          "direct_read_events": [
+            {
+              "event_id": 466,
+              "task_key": "sqli-secondary-query-paths",
+              "args": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "start": 1,
+                "end": 20
+              }
+            },
+            {
+              "event_id": 2239,
+              "task_key": "dir-unread-ops-cmds",
+              "args": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "start": 1,
+                "end": 4
+              }
+            },
+            {
+              "event_id": 2542,
+              "task_key": "content-page-and-assets-lfi",
+              "args": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "start": 1,
+                "end": 6
+              }
+            },
+            {
+              "event_id": 2587,
+              "task_key": "ops-access-control-recheck",
+              "args": {
+                "path": "lab30-shop/app/src/member_lookup.php",
+                "start": 1,
+                "end": 4
+              }
+            }
+          ]
+        },
+        {
+          "path": "app/src/host_check.php",
+          "sink_line": 2,
+          "anchor_read_by": [
+            {
+              "task_key": "sqli-secondary-query-paths",
+              "attempt": 1
+            },
+            {
+              "task_key": "dir-unread-ops-cmds",
+              "attempt": 1
+            },
+            {
+              "task_key": "content-page-and-assets-lfi",
+              "attempt": 1
+            }
+          ],
+          "direct_read_events": [
+            {
+              "event_id": 488,
+              "task_key": "sqli-secondary-query-paths",
+              "args": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "start": 1,
+                "end": 15
+              }
+            },
+            {
+              "event_id": 2237,
+              "task_key": "dir-unread-ops-cmds",
+              "args": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "start": 1,
+                "end": 2
+              }
+            },
+            {
+              "event_id": 2540,
+              "task_key": "content-page-and-assets-lfi",
+              "args": {
+                "path": "lab30-shop/app/src/host_check.php",
+                "start": 1,
+                "end": 6
+              }
+            }
+          ]
+        },
+        {
+          "path": "app/src/dispatch_job.php",
+          "sink_line": 4,
+          "anchor_read_by": [
+            {
+              "task_key": "ops-admin-header-bypass",
+              "attempt": 1
+            },
+            {
+              "task_key": "sqli-secondary-query-paths",
+              "attempt": 1
+            },
+            {
+              "task_key": "dir-unread-ops-cmds",
+              "attempt": 1
+            },
+            {
+              "task_key": "content-page-and-assets-lfi",
+              "attempt": 1
+            }
+          ],
+          "direct_read_events": [
+            {
+              "event_id": 524,
+              "task_key": "sqli-secondary-query-paths",
+              "args": {
+                "path": "lab30-shop/app/src/dispatch_job.php",
+                "start": 1,
+                "end": 25
+              }
+            },
+            {
+              "event_id": 2241,
+              "task_key": "dir-unread-ops-cmds",
+              "args": {
+                "path": "lab30-shop/app/src/dispatch_job.php",
+                "start": 1,
+                "end": 5
+              }
+            },
+            {
+              "event_id": 2538,
+              "task_key": "content-page-and-assets-lfi",
+              "args": {
+                "path": "lab30-shop/app/src/dispatch_job.php",
+                "start": 1,
+                "end": 6
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "attempt": 3,
+      "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261106-attempt3/01-optimized",
+      "run_id": "29b9298e127e44fea887969971f98576",
+      "status": "inconclusive",
+      "score_replay_matches_recorded": true,
+      "input_hash": "cd3e3f3f52a714575d68c57d07c1a387d862cab58bf34a3318a7d726ca2a8012",
+      "input_hash_verified": true,
+      "asserted": {
+        "TP": 30,
+        "FN": 0,
+        "D": 32,
+        "U": 3,
+        "FP": 35,
+        "precision": 0.46153846153846156,
+        "recall": 1.0,
+        "f1": 0.631578947368421
+      },
+      "accepted": {
+        "TP": 28,
+        "FN": 2,
+        "D": 0,
+        "U": 3,
+        "FP": 3,
+        "precision": 0.9032258064516129,
+        "recall": 0.9333333333333333,
+        "f1": 0.9180327868852459
+      },
+      "missed_accepted": [
+        "18 维护接口信任请求头认证绕过",
+        "28 会员报表二次 SQL 注入"
+      ],
+      "missed_asserted": [],
+      "usage": {
+        "responses": 399,
+        "tools": 492,
+        "seconds": 4733.199
+      },
+      "code_unchanged_recorded": true,
+      "code_unchanged_independently_reconstructed": false,
+      "poc_jobs": 0,
+      "canonical_and_review_witnesses": [
+        {
+          "canonical_id": "482ff3d98f144ecc9817509696d054d9",
+          "selected_finding_id": "af65b1ee289040d6afd2c5ce53dadaaa",
+          "selected_primary_location": {
+            "line": 4,
+            "path": "lab30-shop/app/public/ops/maintenance.php"
+          },
+          "disposition": "accepted",
+          "versions": [
+            {
+              "id": "f8192fc0130845fabc42ac486ac4fb07",
+              "primary_location": {
+                "line": 3,
+                "path": "lab30-shop/app/public/ops/maintenance.php"
+              },
+              "project_revision": 1,
+              "revision": 1
+            },
+            {
+              "id": "af65b1ee289040d6afd2c5ce53dadaaa",
+              "primary_location": {
+                "line": 4,
+                "path": "lab30-shop/app/public/ops/maintenance.php"
+              },
+              "project_revision": 3,
+              "revision": 1
+            }
+          ]
+        },
+        {
+          "finding_id": "95d8290b11ac48139512344b9b32136d",
+          "primary_location": {
+            "line": 3,
+            "path": "lab30-shop/app/public/ops/report.php"
+          },
+          "disposition": "pending",
+          "review": {
+            "decision": "needs_evidence",
+            "rationale": "report.php:2 的 id 强制 (int) 且参数化取值本身安全，但 :3 将数据库读出的 $nickname 直接拼入 WHERE nickname='...' 再 query，二次注入 sink 明确。然而漏洞是否可实现取决于两点本批未取证：其一，能写入含单引号 nickname 的账户资料写入入口源码（如 account/update.php 或 settings.php）未在证据窗口内，载荷植入链未证实；其二，bootstrap.php:4-7 显示 PDO::ATTR_EMULATE_PREPARES=false 且未提供 MySQL 账号权限，无法判断拼接载荷能否越权取数。所引源码不足以独立支撑可利用性，结论自述 missing_context 也指向同一缺口，故保留待补证。"
+          }
+        }
+      ],
+      "set_serialization_error_rounds": [
+        2,
+        5,
+        33,
+        34
+      ]
+    },
+    {
+      "attempt": 4,
+      "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261106-attempt4/01-optimized",
+      "run_id": "b6d0095f76174eacac905967018f39b2",
+      "status": "inconclusive",
+      "score_replay_matches_recorded": true,
+      "input_hash": "8725c8b5accb185c10e8e98c7f7b081c9aa25a9e806295c8d203724a0336d1a5",
+      "input_hash_verified": true,
+      "asserted": {
+        "TP": 30,
+        "FN": 0,
+        "D": 60,
+        "U": 5,
+        "FP": 65,
+        "precision": 0.3157894736842105,
+        "recall": 1.0,
+        "f1": 0.48
+      },
+      "accepted": {
+        "TP": 28,
+        "FN": 2,
+        "D": 0,
+        "U": 1,
+        "FP": 1,
+        "precision": 0.9655172413793104,
+        "recall": 0.9333333333333333,
+        "f1": 0.9491525423728814
+      },
+      "missed_accepted": [
+        "21 会话固定",
+        "23 会员查询跨文件 SQL 注入"
+      ],
+      "missed_asserted": [],
+      "usage": {
+        "responses": 711,
+        "tools": 730,
+        "seconds": 10802.554
+      },
+      "code_unchanged_recorded": true,
+      "code_unchanged_independently_reconstructed": false,
+      "poc_jobs": 0,
+      "review_throughput": {
+        "final_claim_events": 80,
+        "single_item_claim_events": 56,
+        "distinct_final_batches": 61,
+        "single_item_distinct_batches": 40,
+        "finding_item_bytes": {
+          "min": 16977,
+          "median": 21573,
+          "max": 29037
+        }
+      },
+      "pending_relevant_claims": [
+        {
+          "canonical_id": "10ed6dcf92da41a3b57a7a4202b7ec2a",
+          "finding_id": "8745b292b88b459b82746f8fbac2b073",
+          "type": "session_fixation",
+          "primary_location": {
+            "line": 17,
+            "path": "lab30-shop/app/src/bootstrap.php"
+          },
+          "disposition": "pending"
+        },
+        {
+          "canonical_id": "16fda147732f4440924699e5d01fff90",
+          "finding_id": "1c03fe7a8f0a4147927ac2af0c0ecbac",
+          "type": "sqli",
+          "primary_location": {
+            "line": 3,
+            "path": "lab30-shop/app/src/member_lookup.php"
+          },
+          "disposition": "pending"
+        },
+        {
+          "canonical_id": "9b5e2721599b445a9681b3573f0ea918",
+          "finding_id": "ac6f3f3cf88049e0b5bff78cc57479e5",
+          "type": "session_fixation",
+          "primary_location": {
+            "line": 17,
+            "path": "lab30-shop/app/src/bootstrap.php"
+          },
+          "disposition": "pending"
+        },
+        {
+          "canonical_id": "c0a88ef73cd741e9a34bf6b991b14157",
+          "finding_id": "fb38cec382cc4069943b335968968176",
+          "type": "sqli",
+          "primary_location": {
+            "line": 3,
+            "path": "lab30-shop/app/src/member_lookup.php"
+          },
+          "disposition": "pending"
+        },
+        {
+          "canonical_id": "d4523f3021b74a43aab7de8e38c449d6",
+          "finding_id": "c82f598f916e4c5a9b4722b9be045fa9",
+          "type": "sqli",
+          "primary_location": {
+            "line": 3,
+            "path": "lab30-shop/app/src/member_lookup.php"
+          },
+          "disposition": "pending"
+        }
+      ]
+    },
+    {
+      "attempt": 5,
+      "evidence_location": "/tmp/vuln-audit-lab30-optimization-20261106-attempt5/01-optimized",
+      "run_id": "b92e8cc1f6404169895b2da4b4f90741",
+      "database_status": "running",
+      "frozen_report_count": 0,
+      "metrics_exists": false,
+      "last_event": {
+        "id": 2503,
+        "kind": "model_request",
+        "created_at": "2026-11-06T00:07:53.056426+00:00"
+      },
+      "scope": "unfinished candidate snapshot; not a completed or accepted trial",
+      "current_asserted": {
+        "TP": 23,
+        "FN": 7,
+        "D": 13,
+        "U": 3,
+        "FP": 16,
+        "precision": 0.5897435897435898,
+        "recall": 0.7666666666666667,
+        "f1": 0.6666666666666666
+      },
+      "missed_asserted": [
+        "05 内容中心本地文件包含",
+        "08 继续访问开放重定向",
+        "09 数据库诊断异常与堆栈信息泄露",
+        "12 链接预览服务端请求伪造",
+        "13 合作方配置导入 XXE",
+        "14 邮箱设置跨站请求伪造",
+        "15 会员备份不安全反序列化权益篡改"
+      ],
+      "classification_diagnostics": [
+        {
+          "finding_id": "a9bc1a1c51704cdc8ca22f1e0c518cc3",
+          "reason": "unmatched_location",
+          "vulnerability_type": "mass_assignment",
+          "primary_location": {
+            "path": "lab30-shop/app/public/account/backup.php",
+            "line": 6
+          },
+          "location_truth_ids": [],
+          "expected_types": []
+        },
+        {
+          "finding_id": "8186ce41435f42faabf8930f8f803007",
+          "reason": "type_mismatch",
+          "vulnerability_type": "rfi",
+          "primary_location": {
+            "path": "lab30-shop/app/public/content/page.php",
+            "line": 3
+          },
+          "location_truth_ids": [
+            "05"
+          ],
+          "expected_types": [
+            "lfi"
+          ]
+        },
+        {
+          "finding_id": "3dd85eed42d240bbad6a1e4eb743181d",
+          "reason": "type_mismatch",
+          "vulnerability_type": "command_injection",
+          "primary_location": {
+            "path": "lab30-shop/app/src/dispatch_job.php",
+            "line": 4
+          },
+          "location_truth_ids": [
+            "27"
+          ],
+          "expected_types": [
+            "insecure_deserialization"
+          ]
+        }
+      ],
+      "triage_witnesses": [
+        {
+          "origin_task_key": "baseline-bootstrap-db-h",
+          "id": "dir_99c682717245e0ebbd571c86e98074ea",
+          "paths": [
+            "lab30-shop/app/public/auth/continue.php"
+          ],
+          "state": "resolved",
+          "text": "lab30-shop/app/public/auth/continue.php:3 将 $_GET['next'] 直接放入 Location 头，需确认开放重定向可利用性",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "continue.php 第1-4行显示把 $_GET['next'] 放入 Location 头，构成开放重定向的必要条件已由 worker 读到；同路径无有效 finding 可作 covered 引用，按既有排查记录结算为无附加证据方向。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "start_line": 1,
+                "end_line": 4
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "wallet-orders-logic-idor",
+          "id": "dir_3ecd442fa68bcc8948e13bf68300ff4d",
+          "paths": [
+            "lab30-shop/app/public/account/settings.php"
+          ],
+          "state": "skipped",
+          "text": "lab30-shop/app/public/account/settings.php：核实 SameSite/Cookie 实际部署配置，判断缺 CSRF 令牌是否可被真实浏览器跨站利用",
+          "triage": {
+            "outcome": "out_of_scope",
+            "rationale": "线索要求核实 account/settings.php 的 SameSite/Cookie 实际部署配置以判定 CSRF 可利用性，这依赖快照之外的部署运行配置；终审无法派工补读，worker 已读区间仅覆盖 1-8 行的页面逻辑，故按范围限制结算。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/account/settings.php",
+                "start_line": 1,
+                "end_line": 8
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "wallet-orders-logic-idor",
+          "id": "dir_955d7efd7fe6c5cd74e3a58b3d67c32b",
+          "paths": [
+            "lab30-shop/app/public/account/settings.php",
+            "lab30-shop/app/src/bootstrap.php"
+          ],
+          "state": "resolved",
+          "text": "settings.php 状态变更无 CSRF 令牌校验，但同站表单与会话 SameSite=Lax 限制利用：settings.php 第3-5行 POST 分支直接读取 email 写入 users，未见 check_csrf 或 csrf_field。不过 bootstrap.php 第16行会话 Cookie 设为 SameSite=Lax，跨站 POST 不会携带会话；且邮箱修改影响有限。属于缺失防护的信号，但是否可构成可利用 CSRF 取决于浏览器与会话 Cookie 实际策略，单凭缺令牌不足以认定。",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "settings.php 第3-5行 POST 改邮箱缺 CSRF 令牌，但 bootstrap.php 第16行会话 Cookie 为 SameSite=Lax，跨站 POST 不携带会话，且改动影响有限；单凭缺令牌不构成可利用 CSRF。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/account/settings.php",
+                "start_line": 1,
+                "end_line": 8
+              },
+              {
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "start_line": 11,
+                "end_line": 18
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "auth-register-hash",
+          "id": "dir_59927f88be1f6fd8c86a3f213ecb96fa",
+          "paths": [
+            "lab30-shop/app/public/auth/continue.php"
+          ],
+          "state": "resolved",
+          "text": "continue.php 的 next 参数存在开放重定向嫌疑：continue.php 第3行将 $_GET['next'] 原样放入 Location 响应头并 exit，无白名单或站内校验；需求登录用户点击链接，跳转目标可由攻击者指定。本批名额已满，转入 remaining_work。",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "终审阶段无法再派工确认 next 参数是否可被外部利用。continue.php:2-3 的 $_GET['next'] 原样进 Location 且无白名单，但现有 worker 读区间仅覆盖参数读取与赋值，尚未读到任何站内校验或白名单逻辑的实际排除证据，也无落库 finding 支撑，故按无证据结算开放重定向方向，保留为未验证风险点。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "start_line": 2,
+                "end_line": 3
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "ops-report-job-ssrf-cmd",
+          "id": "dir_4097f55ecedd5d60c4bb69946d848651",
+          "paths": [
+            "lab30-shop/app/public/ops/formula.php",
+            "lab30-shop/app/public/ops/url-preview.php"
+          ],
+          "state": "skipped",
+          "text": "lab30-shop/app/public/ops/url-preview.php SSRF 与 formula.php 动态调用、batch-check 命令注入的独立 finding 取证（本轮受 2 条上限限制）",
+          "triage": {
+            "outcome": "out_of_scope",
+            "rationale": "线索要求为 ops/url-preview.php SSRF 与 formula.php 动态调用、batch-check 命令注入单独取证，但终审阶段受额度与阶段限制不能再派任务；worker 仅读过两个文件 1-4 行，尚无同位置现行 finding 可引用，保留为未覆盖方向。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/formula.php",
+                "start_line": 1,
+                "end_line": 4
+              },
+              {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "start_line": 1,
+                "end_line": 4
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "ops-report-job-ssrf-cmd",
+          "id": "dir_ae4a8ef815105a90ee5ae89ce452dd51",
+          "paths": [
+            "lab30-shop/app/public/ops/url-preview.php"
+          ],
+          "state": "resolved",
+          "text": "ops/url-preview.php 服务端请求伪造：url 参数未经任何协议/主机白名单直接传给 file_get_contents，可请求内网服务或读取 file:// 本地文件，输出被 h() 编码仅防 XSS 不防 SSRF。",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "url-preview.php 第1-4行 url 参数直传 file_get_contents 的 SSRF 根因已由既有结论覆盖，h() 编码仅防 XSS；本条为同根因重复线索，不新增独立缺陷。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "start_line": 1,
+                "end_line": 4
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "account-backup-unserialize",
+          "id": "dir_818d1cc147ca7100e34012cb71400381",
+          "paths": [
+            "lab30-shop/app/public/account/backup.php"
+          ],
+          "state": "skipped",
+          "text": "lab30-shop/app/public/account/backup.php 第5行 unserialize 未限制 allowed_classes，建议继续核对是否另有任意类被自动加载（autoload 配置未读到），否则仅保留 mass_assignment 结论，不新增命令执行根因。",
+          "triage": {
+            "outcome": "out_of_scope",
+            "rationale": "backup.php:1-8 已读到 unserialize 未限制 allowed_classes；是否存在可触发魔术方法的自动加载类需读取 src/ 自动加载配置，超出本线索读区间且终审不得新建任务，反序列化对象链方向记为未覆盖。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "start_line": 1,
+                "end_line": 8
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "account-backup-unserialize",
+          "id": "dir_b478168426092f2d1231b6ea81fb95f3",
+          "paths": [
+            "lab30-shop/app/public/account/backup.php",
+            "lab30-shop/app/src/backup.php"
+          ],
+          "state": "resolved",
+          "text": "backup.php 恢复流程对客户端序列化对象属性直接写库：backup.php:4-6 对 $_POST['backup'] base64+unserialize 后，若符合 instanceof MemberBackup 则用其 tier/displayName 执行 UPDATE users，客户端可改写 tier；本文件仅 require src/backup.php（第2行），该类无魔术方法，故不构成命令执行 gadget。",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "worker 已读 backup.php:2-6 与 src/backup.php:1-5：恢复时对 $_POST['backup'] base64 解码后 unserialize，仅当 instanceof MemberBackup 时用其 tier/displayName 走参数化 UPDATE users，属权益字段批量赋值风险；该类无 __wakeup/__destruct 等魔术方法，不构成对象注入命令执行链，故本条不成立。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/account/backup.php",
+                "start_line": 2,
+                "end_line": 6
+              },
+              {
+                "path": "lab30-shop/app/src/backup.php",
+                "start_line": 1,
+                "end_line": 5
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "ops-console-sink-sweep",
+          "id": "dir_0e33c47f6a0e6b94f5432edc1dd1ee8e",
+          "paths": [
+            "lab30-shop/app/public/ops/database.php"
+          ],
+          "state": "resolved",
+          "text": "ops/database.php:3 异常回显 getMessage()+getTraceAsString() 属诊断信息泄露，需确认是否向低权限用户暴露路径/凭据细节",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "worker 已读 ops/database.php:1-4，属异常回显信息泄露的待查线索，不在本轮 18 类可确认漏洞的取证范围内，且无同路径现行 finding 可引用；该条不构成独立可利用漏洞结论。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/database.php",
+                "start_line": 1,
+                "end_line": 4
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "ops-console-sink-sweep",
+          "id": "dir_1ad1c848ddfe705a34a435282179e232",
+          "paths": [
+            "lab30-shop/app/public/ops/database.php"
+          ],
+          "state": "resolved",
+          "text": "database.php 仅用 probe 做固定分支，未进入 SQL：database.php 行2 有 require_user(['operator','admin'])；行3 probe 仅用于 === 'archive' 比较与拼接固定 schema 字符串/环境变量，连接为固定 DSN，未拼接用户值进 SQL。异常信息回显含 trace 属信息泄露观察，归入 remaining_work。",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "worker 已读 database.php:2-3，probe 仅用于 === 'archive' 比较，拼接的是固定 schema 串与环境变量，连接 DSN 固定，未进入 SQL 拼接；require_user 先做角色准入，SQL 注入方向无证据。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/database.php",
+                "start_line": 2,
+                "end_line": 3
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "member-lookup-sqli-chain",
+          "id": "dir_af4985092456fbb9d39780707b231388",
+          "paths": [
+            "lab30-shop/app/public/ops/url-preview.php",
+            "lab30-shop/app/public/ops/xml-import.php"
+          ],
+          "state": "resolved",
+          "text": "读取 lab30-shop/app/public/ops/url-preview.php 与 ops/xml-import.php，核实 SSRF 与 XXE",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "url-preview.php 第2行 SSRF 与 xml-import.php 第2行 XXE 两侧均已由既有结论/线索覆盖，worker 读取区间仅复述同一 sink；本条为同根因重复线索，不另立结论。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "start_line": 2,
+                "end_line": 2
+              },
+              {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "start_line": 2,
+                "end_line": 2
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "catalog-detail-xss-content",
+          "id": "dir_9ccd96a6c1ce8886a0f68b6fd757ecd2",
+          "paths": [
+            "lab30-shop/app/public/content/page.php"
+          ],
+          "state": "resolved",
+          "text": "content/page.php include 拼接与输出点：page.php:2-3 将 $_GET['page'] 直接拼入 include APP_ROOT.'/resources/views/'.$name.'.php'，无白名单；该文件包含根因已由既有 RFI 结论覆盖，本次未发现其额外 HTML 输出编码缺陷（后续静态链接为常量）。",
+          "triage": {
+            "outcome": "no_evidence",
+            "rationale": "page.php 第2-3行 include 拼接根因已由既有 RFI 结论覆盖，线索本身陈述未发现额外输出编码缺陷，后续链接为常量；本条不新增独立缺陷。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/content/page.php",
+                "start_line": 2,
+                "end_line": 3
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "catalog-detail-xss-content",
+          "id": "dir_bc193f5ab8bfc8446cd2736c9d2ddb66",
+          "paths": [
+            "lab30-shop/app/public/ops/url-preview.php",
+            "lab30-shop/app/public/ops/xml-import.php"
+          ],
+          "state": "skipped",
+          "text": "核对 ops/url-preview.php 的 SSRF 与 ops/xml-import.php 的 XXE",
+          "triage": {
+            "outcome": "out_of_scope",
+            "rationale": "worker 已读 url-preview.php:1-4 与 xml-import.php:2-4，但仅覆盖入口头部，未能读到 SSRF 请求构造与 xml_parse/libxml_disable_entity_loader 的具体防护上下文；本终审阶段不再派工，两处具体 sink 的数据流未结算，按未覆盖方向记录。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/url-preview.php",
+                "start_line": 1,
+                "end_line": 4
+              },
+              {
+                "path": "lab30-shop/app/public/ops/xml-import.php",
+                "start_line": 2,
+                "end_line": 4
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "catalog-detail-xss-content",
+          "id": "dir_d2d60cc905c292488084d3c239d55d65",
+          "paths": [
+            "lab30-shop/app/bin/setup.php",
+            "lab30-shop/app/public/content/page.php",
+            "lab30-shop/app/src/setup.php"
+          ],
+          "state": "skipped",
+          "text": "核对 page.php include 能否用 ?page=../../../../var/lib/shop/vault/account 读取 setup.php:35 生成的含 internal_marker 的 PHP 文件（LFI 读取路径）",
+          "triage": {
+            "outcome": "out_of_scope",
+            "rationale": "worker 已读 page.php:1-3 与 src/setup.php:1-39，可见 setup 会在数据目录写出含 internal_marker 的 PHP 文件；但 page.php 到 include 的路径拼接与访问控制未在该窗口内读到，LFI 可达性未结算，按未覆盖方向记录。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/content/page.php",
+                "start_line": 1,
+                "end_line": 3
+              },
+              {
+                "path": "lab30-shop/app/src/setup.php",
+                "start_line": 1,
+                "end_line": 39
+              }
+            ]
+          }
+        },
+        {
+          "origin_task_key": "auth-register-flow-check",
+          "id": "dir_3085d8ebfcbe9e1f45103e06a1b63cf1",
+          "paths": [
+            "lab30-shop/app/public/auth/continue.php"
+          ],
+          "state": "skipped",
+          "text": "lab30-shop/app/public/auth/continue.php:3 将 $_GET['next'] 直接作为 Location 头重定向，存在开放重定向，需单独取证与结论（本工作项仅含登录/注册范围）。",
+          "triage": {
+            "outcome": "out_of_scope",
+            "rationale": "线索指出 auth/continue.php:1-4 将 $_GET['next'] 直接作为 Location 头，属开放重定向待取证方向；终审阶段无法派工，且无同路径现行 finding 可引用，按范围限制结算并保留未决。",
+            "finding_refs": [],
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/auth/continue.php",
+                "start_line": 1,
+                "end_line": 4
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "upstream": {
+    "repository": "https://github.com/larlarua/AutoCVE",
+    "verified_main_commit": "b26025f27199ba2d93145e4a08fc9015e8d846e4",
+    "local_head_matches": true,
+    "finalized_finding_severities": [
+      "critical",
+      "high"
+    ],
+    "ground_truth_severities": {
+      "high": 9,
+      "medium": 17,
+      "none": 1,
+      "low": 3
+    },
+    "contract_probe": {
+      "high": "accepted",
+      "medium": "rejected",
+      "low": "rejected",
+      "none": "rejected",
+      "confirmed_without_dynamic_observation": "schema accepted; not accepted as host verification"
+    },
+    "probe_scope": "synthetic contract validation only; no model call and no claim about overall audit quality"
+  }
+}

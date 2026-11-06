@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from .agent import _parse_evidence, audit_unit, plan_audit_frontier, pursue_planner_task, pursue_task_work
 from .config import ModelConfig, Settings, model_unavailable_reason
 from .db import WITHDRAWN_FINDING_DISPOSITIONS, Store
+from .role_policy import WorkerAssessmentError, enabled as worker_owned_evidence
 from .events import EventBus
 from .evidence import fingerprint, seen_ranges, title_for, validate_evidence
 from .cvss_assessment import propose
@@ -857,8 +858,9 @@ class AuditWorker:
                 frontier = self.store.task_queue_state(run_id)
                 directions = self.store.audit_direction_summary(run_id)
                 gaps = self.store.coverage_review(run_id, project_map) or {}
+                risk_unread = (self.store.risk_coverage(run_id) or {}).get("unread_required", 0) if self.store.exhaustive_enabled(run_id) else 0
                 if state in {"met", "unreachable"} and (
-                    frontier["active"] or frontier["blocked"] or directions["unsettled_total"]
+                    frontier["active"] or frontier["blocked"] or directions["unsettled_total"] or risk_unread
                     or (state == "met" and gaps.get("pending_total"))
                     or (state == "unreachable" and not frontier["total"])
                 ):
@@ -959,7 +961,8 @@ class AuditWorker:
             return True
 
         async def run_planner_round(*, review_phase: str | None = None,
-                                    max_responses: int | None = None) -> str:
+                                    max_responses: int | None = None,
+                                    lead_drain: bool = False) -> str:
             """Reserve, execute and commit one Planner revision."""
             nonlocal round_mutations, last_planner_failure
             if discovery_first and not hosted:
@@ -1023,6 +1026,8 @@ class AuditWorker:
                 value = self.store.list_planner_context(run_id, project_map=project_map)
                 if hosted and review_phase is None:
                     value["review_batch"] = None
+                if lead_drain:
+                    value["lead_drain"] = self._lead_drain_page(run_id)
                 return value
             context = round_context()
             round_budgets = dict(run["budgets"])
@@ -1421,18 +1426,40 @@ class AuditWorker:
                                 return
                             continue
 
-                    resolved = self.store.resolve_task_attempt(
-                        task_id,
-                        worker_id,
-                        outcome=outcome["outcome"],
-                        result=outcome["result"],
-                        usage=outcome.get("usage"),
-                        seen=outcome.get("seen"),
-                        error=outcome.get("error"),
-                        terminal_reason=outcome.get("terminal_reason"),
-                        **({"progress": {"new_conclusion_keys": _new_conclusion_keys(
-                            prepared_findings, self.store.list_findings(run_id))}} if discovery_first else {}),
-                    )
+                    try:
+                        resolved = self.store.resolve_task_attempt(
+                            task_id,
+                            worker_id,
+                            outcome=outcome["outcome"],
+                            result=outcome["result"],
+                            usage=outcome.get("usage"),
+                            seen=outcome.get("seen"),
+                            error=outcome.get("error"),
+                            terminal_reason=outcome.get("terminal_reason"),
+                            **({"progress": {"new_conclusion_keys": _new_conclusion_keys(
+                                prepared_findings, self.store.list_findings(run_id))}} if discovery_first else {}),
+                        )
+                    except WorkerAssessmentError as exc:
+                        # A bounded evidence refusal is not an executor crash. The
+                        # rejected transaction rolled back; retain its raw submission
+                        # for review, block this task and keep independent peers alive.
+                        message = str(exc)[:1200]
+                        rejected = outcome["result"]
+                        outcome = {**outcome, "outcome": "blocked", "error": message,
+                            "terminal_reason": "evidence_rejected", "result": {
+                                "outcome": "blocked", "summary": "宿主拒绝本次 Worker 提交，保留取证缺口。",
+                                "terminal_reason": "evidence_rejected", "missing_context": [message],
+                                "remaining_work": list((planner_task.get("result") or {}).get("remaining_work") or []),
+                                "rejected_assessment": rejected}}
+                        prepared_findings = []
+                        resolved = self.store.resolve_task_attempt(task_id, worker_id, outcome="blocked",
+                            result=outcome["result"], usage=outcome.get("usage"), seen=outcome.get("seen"),
+                            error=message, terminal_reason="evidence_rejected")
+                        if resolved is not None:
+                            self.bus.emit(run_id, task_id, "worker_assessment_rejected", {
+                                "task_id": task_id, "task_key": planner_task["task_key"],
+                                "agent_invocation_id": invocation_id, "attempt": resolved["attempts"],
+                                "terminal_reason": "evidence_rejected", "error": message})
                     if resolved is None:
                         return
                     for prepared in prepared_findings:
@@ -1651,10 +1678,21 @@ class AuditWorker:
                 from .final_review import canonical_groups
                 reviewed_records = self.store.attach_final_decisions(run_id, self.store.list_findings(run_id))
                 reviewed_entries, _ = canonical_groups(reviewed_records)
+                blocked_close = bool(pending) or bool(self.store.pending_continuation_verifications(run_id))
                 if any(entry["final_disposition"] == "pending" for entry in reviewed_entries):
                     final_state = "inconclusive"
+                    blocked_close = True
                 if self.store.pending_continuation_verifications(run_id):
                     final_state = "inconclusive"
+                if final_state == "inconclusive" and not blocked_close:
+                    # The recorded stop may predate the review-phase lead drain: a
+                    # discovery stall kept the run inconclusive while the review then
+                    # settled every remaining lead and accepted the conclusions. The
+                    # goal state is the host's own check (directions, risk, coverage,
+                    # standing, final review); try met and fall back to inconclusive if
+                    # any of those still fails. The model's interim advice is not the
+                    # completion criterion.
+                    final_state = "met"
                 if not await finish_goal(final_state, str(terminal.get("basis") or basis), list(terminal.get("missing") or [])):
                     await finish_goal("inconclusive", "源码、验证及统一终审已停止，未完成项保留为待审。")
                 return
@@ -1741,6 +1779,37 @@ class AuditWorker:
                 self.store.release_poc_quota(run_id)
             nonlocal last_planner_failure
             last_planner_failure = ""
+            if (discovery_first and hosted and self.store.exhaustive_enabled(run_id)
+                    and not worker_owned_evidence(task_spec)):
+                # Terminal review is also the last chance to settle leads the workers
+                # recorded. It is triage-only: the planner reads its own existing records
+                # and cannot create, reopen or assign a source task here. The bound is
+                # wide because one lead is one small update and a full-source run can
+                # legitimately record well over a hundred; the unchanged-count check is
+                # the real guard against spending rounds on the same leads.
+                unchanged = 0
+                for _ in range(24):
+                    directions = self.store.audit_direction_summary(run_id)
+                    pending = int(directions.get("triage_pending_total") or 0)
+                    if not pending or verification_stopped():
+                        break
+                    self.store.refresh_review_reserve(run_id, self.repository)
+                    remaining = int(self.store.workflow_state(run_id).get("remaining", {}).get("review", 0))
+                    if remaining <= 0:
+                        break
+                    response = await run_planner_round(max_responses=remaining, lead_drain=True)
+                    if response in {"stage_exhausted", "no_round", "closed"}:
+                        break
+                    after = int(self.store.audit_direction_summary(run_id).get("triage_pending_total") or 0)
+                    if after >= pending:
+                        # One refused round can be a fixable contract error; two in a
+                        # row with no lead settled means the remaining set cannot be
+                        # triaged without evidence the review stage cannot obtain.
+                        unchanged += 1
+                        if unchanged >= 2:
+                            break
+                    else:
+                        unchanged = 0
             # Identical rejections in a row mean the same frozen batch is stuck; a
             # changed one means the Planner worked through one more contract error and
             # deserves the next round while the review quota can pay for it.  The fixed
@@ -1932,6 +2001,20 @@ class AuditWorker:
                         "reason": "新增已结算尝试、源码证据或结论，继续复核仍未解除的受阻方向。",
                     })
                 repaired_blockers[blockers] = progress
+            if hosted and self.store.exhaustive_enabled(run_id) and not queue["active"]:
+                directions = self.store.audit_direction_summary(run_id)
+                unread = (self.store.risk_coverage(run_id) or {}).get("unread_required", 0)
+                if directions["unsettled_total"] or unread:
+                    if directions.get("omitted_leads") or self.store.host_progress_stalled(run_id):
+                        await finish_discovery_flow("inconclusive", "全量探索仍有未分流线索或未读取风险操作，停止无进展重复规划。", code="exploration_incomplete")
+                        return
+                    self.bus.emit(run_id, None, "exploration_review_requested", {
+                        "directions": directions, "unread_required_operations": unread,
+                    })
+                    state = await run_planner_round()
+                    if state == "closed" or stop.is_set():
+                        return
+                    continue
             # The run is about to satisfy its own completion condition: no direction is being
             # worked on and at least one conclusion survived validation and is still standing.
             # The host's closure is unchanged -- ``finalize_goal`` still checks the same thing --
@@ -2091,6 +2174,54 @@ class AuditWorker:
             "finding_created" if prepared["candidate"] else "finding_rejected_by_validation",
             payload,
         )
+
+    def _lead_drain_page(self, run_id: str, limit: int = 12) -> dict:
+        """The next open advisory leads, for one triage-only planning round.
+
+        ``audit_direction_summary`` deliberately shows only four leads so the regular
+        prompt stays small; the terminal drain needs each lead in front of the Planner to
+        settle it. Paging keeps one round bounded while allowing the loop to work through
+        every recorded lead across rounds.
+        """
+        from .directions import _seen_spans
+        seen = _seen_spans([span for row in self.store._rows(
+            "SELECT seen FROM planner_task_attempts WHERE run_id=?", (run_id,))
+            for span in json.loads(row[0] or "[]")])
+        leads, cursor, total = [], 0, 0
+        while len(leads) < limit:
+            page = self.store.list_audit_directions(run_id, cursor=cursor, limit=100, state="open")
+            total = int(page.get("triage_pending_total") or 0)
+            for item in page["items"]:
+                if item.get("requirement") != "advisory" or item.get("state") != "pending":
+                    continue
+                evidence = [dict(ref) for ref in item.get("review_evidence") or []][:4]
+                if not evidence:
+                    # Text leads from ``remaining_work`` have no observation span to
+                    # reuse.  If a worker actually read one of the named paths, the
+                    # host can cite that read instead of demanding a redundant re-read
+                    # that the review stage cannot dispatch.  Unread paths stay bare
+                    # and are settled as an explicit scope limitation, never given
+                    # fabricated evidence.
+                    for path in item.get("paths") or []:
+                        spans = seen.get(str(path)) or []
+                        if spans:
+                            evidence.append({"path": str(path), "start_line": spans[0][0],
+                                             "end_line": spans[0][1]})
+                        if len(evidence) >= 3:
+                            break
+                leads.append({
+                    "id": item["id"],
+                    "source_kind": item.get("source_kind"),
+                    "text": str(item.get("text") or "")[:400],
+                    "paths": list(item.get("paths") or []),
+                    "review_evidence": evidence,
+                })
+                if len(leads) >= limit:
+                    break
+            if page.get("next_cursor") is None:
+                break
+            cursor = int(page["next_cursor"])
+        return {"leads": leads, "total": total, "limit": limit}
 
     def _merge_project_finding(self, run_id: str, finding_id: str, prepared: dict) -> dict | None:
         """Fold a validated vulnerability into its project's ledger.

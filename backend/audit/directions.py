@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timezone
 
 from .finding_policy import is_vulnerability_finding
+from .exhaustive import ExhaustiveMixin
 
 OPEN_DIRECTION_STATES = frozenset({"pending", "assigned"})
 
@@ -80,7 +81,7 @@ def has_new_source_evidence(seen, previous):
     return False
 
 
-class DirectionStoreMixin:
+class DirectionStoreMixin(ExhaustiveMixin):
     def discovery_first(self, run_id: str) -> bool:
         row = self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,))
         return bool(row and (_load(row["task_spec"], {}) or {}).get("workflow_policy") == "discovery_first")
@@ -91,7 +92,8 @@ class DirectionStoreMixin:
             result = _load(row["result"], {}) or {}
             for item in result.get("host_directions") or []:
                 if isinstance(item, dict) and item.get("id"):
-                    records[item["id"]] = {**item, "origin_task_id": row["id"], "origin_task_key": row["task_key"]}
+                    record = {**item, "run_id": run_id, "origin_task_id": row["id"], "origin_task_key": row["task_key"]}
+                    records[item["id"]] = self._current_exhaustive_record(record) if self.exhaustive_enabled(run_id) else record
         return records
 
     def _persist_audit_directions_tx(self, run_id, records):
@@ -104,6 +106,16 @@ class DirectionStoreMixin:
                 result["host_directions"] = sorted(grouped.get(row["id"], []), key=lambda item: item["id"])
                 self._db.execute("UPDATE planner_tasks SET result=? WHERE id=?", (_dump(result), row["id"]))
 
+    def worker_candidate_gaps(self, run_id):
+        from .role_policy import enabled
+        row = self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,))
+        if not row or not enabled(_load(row[0], {})):
+            return []
+        return [{"task_key": row["task_key"], **{k: c.get(k) for k in
+                 ("candidate_id", "primary_location", "next_step")}}
+                for row in self._rows("SELECT task_key,result FROM planner_tasks WHERE run_id=?", (run_id,))
+                for c in (_load(row["result"], {}) or {}).get("candidate_journal") or [] if c.get("status") == "pending"]
+
     def list_audit_directions(self, run_id: str, *, cursor: int = 0, limit: int = 20, state: str = "open") -> dict:
         if type(cursor) is not int or cursor < 0 or type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("direction cursor and limit must be strict integers, cursor >=0 and limit 1..100")
@@ -113,11 +125,22 @@ class DirectionStoreMixin:
             records = sorted(self._audit_direction_records(run_id).values(), key=lambda item: item["id"]) if self.discovery_first(run_id) else []
         required_open = sum(item["state"] in OPEN_DIRECTION_STATES and item.get("requirement", "required") == "required" for item in records)
         advisory_count = sum(item.get("requirement", "required") == "advisory" for item in records)
-        open_count = required_open if self.host_queue_enabled(run_id) else sum(item["state"] in OPEN_DIRECTION_STATES for item in records)
+        triage_open = sum(item["state"] in OPEN_DIRECTION_STATES and item.get("requirement") == "advisory" for item in records) if self.exhaustive_enabled(run_id) else 0
+        open_count = required_open + triage_open if self.host_queue_enabled(run_id) else sum(item["state"] in OPEN_DIRECTION_STATES for item in records)
+        candidate_gaps = self.worker_candidate_gaps(run_id)
         selected = [item for item in records if state == "all" or (state == "open" and item["state"] in OPEN_DIRECTION_STATES) or item["state"] == state]
         page = selected[cursor:cursor + limit]
-        return {"items": page, "total": len(selected), "unsettled_total": open_count,
+        from .investigation import enabled as bounded
+        frozen = _load((self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,)) or [None])[0], {})
+        if bounded(frozen):
+            tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
+            findings = self.list_findings(run_id)
+            page = [{**item, "resolution_context": self.direction_resolution_context(run_id, item, tasks=tasks, findings=findings, compact=True)}
+                    for item in page]
+        return {"items": page, "total": len(selected), "unsettled_total": open_count + len(candidate_gaps),
+                **({"candidate_pending_total": len(candidate_gaps), "worker_candidates": candidate_gaps[:4]} if candidate_gaps else {}),
                 "unsettled_required_total": required_open, "advisory_total": advisory_count,
+                "triage_pending_total": triage_open,
                 "offset": cursor, "limit": limit, "next_cursor": cursor + len(page) if cursor + len(page) < len(selected) else None}
 
     def audit_direction_summary(self, run_id: str) -> dict:
@@ -128,9 +151,15 @@ class DirectionStoreMixin:
         obligations = [item for item in records if item.get("requirement", "required") == "required"] if hosted else records
         counts = {state: sum(item["state"] == state for item in obligations) for state in ("pending", "assigned", "resolved", "skipped")}
         required_open = [item for item in records if item["state"] in OPEN_DIRECTION_STATES and item.get("requirement", "required") == "required"]
-        unresolved = sorted((required_open if hosted else [item for item in records if item["state"] in OPEN_DIRECTION_STATES]), key=lambda item: item["id"])
+        triage_open = [item for item in advisory if item["state"] in OPEN_DIRECTION_STATES] if self.exhaustive_enabled(run_id) else []
+        omitted = self.exhaustive_omitted(run_id)
+        candidate_gaps = self.worker_candidate_gaps(run_id)
+        unresolved = sorted((required_open + triage_open if hosted else [item for item in records if item["state"] in OPEN_DIRECTION_STATES]), key=lambda item: item["id"])
         return {"version": "audit-directions-v1", "total": len(records), **{key + "_total": value for key, value in counts.items()},
-                "unsettled_total": len(unresolved), "complete": not unresolved, "items": unresolved[:4],
+                "unsettled_total": len(unresolved) + omitted + len(candidate_gaps),
+                "complete": not unresolved and not omitted and not candidate_gaps, "items": unresolved[:4],
+                **({"candidate_pending_total": len(candidate_gaps), "worker_candidates": candidate_gaps[:4]} if candidate_gaps else {}),
+                "triage_pending_total": len(triage_open), "omitted_leads": omitted,
                 "unsettled_required_total": len(required_open), "advisory_total": len(advisory),
                 "required_total": len(records) - len(advisory), "advisory_items": advisory[:4],
                 "omitted": max(0, len(unresolved) - 4), "next_cursor": 4 if len(unresolved) > 4 else None}
@@ -152,11 +181,12 @@ class DirectionStoreMixin:
         # work. The host obligation remains open until Planner evidence review,
         # but must not be re-labelled as a Worker request to keep executing.
         if task.get("state") in {"pending", "ready", "running", "deferred"}:
-            result["remaining_work"] = [item["text"] for item in active]
+            from .role_policy import pending_work
+            result["remaining_work"] = [item["text"] for item in active] + pending_work(result.get("candidate_journal") or [])
         task["result"] = result
         return task
 
-    def _capture_worker_directions_tx(self, row, stored_result):
+    def _capture_worker_directions_tx(self, row, stored_result, seen=None):
         records = self._audit_direction_records(row["run_id"])
         previous = _load(row["result"], {}) or {}
         task_spec = _load(row["context_spec"], {}) or {}
@@ -166,6 +196,12 @@ class DirectionStoreMixin:
         known_paths = [item["path"] for item in project_map.get("files") or [] if isinstance(item, dict) and item.get("path")]
         selected = set(task_spec.get("direction_ids") or [])
         batch_policy = self.batch_review_enabled(row["run_id"])
+        exhaustive = self.exhaustive_enabled(row["run_id"])
+        omitted_leads = set(previous.get("host_omitted_leads") or [])
+        # Text leads are captured while the worker's own read spans are in hand. Storing
+        # them keeps triage evidence and list_directions consistent during discovery, not
+        # only in the terminal drain page; spans come from the worker's actual reads.
+        spans = _seen_spans(seen or []) if exhaustive else {}
         for value in stored_result.get("remaining_work") or []:
             text = _text(value)
             if not text:
@@ -180,16 +216,31 @@ class DirectionStoreMixin:
             identity = "dir_" + hashlib.sha256((row["run_id"] + "\0" + text).encode()).hexdigest()[:32]
             if identity in records:
                 continue
-            paths = sorted(path for path in known_paths if path in text)
+            if exhaustive:
+                from .exhaustive import MAX_LEADS
+                if len(records) >= MAX_LEADS:
+                    omitted_leads.add(identity)
+                    continue
+            paths = sorted(path for path in known_paths if path in text or (exhaustive and any(
+                path.endswith('/' + name) or path == name for name in _SOURCE_NAME.findall(text))))
             local = bool(paths) and all(any(path == target or path.startswith(target.rstrip("/") + "/") for target in declared if target) for path in paths)
             hosted = self.host_queue_enabled(row["run_id"])
             auto_assign = not hosted and not int(row["revisions"] or 0) and local
             unknown = unknown_source_names(text, known_paths)
+            evidence = []
+            for path in paths:
+                for start, end in (spans.get(path) or [])[:1]:
+                    evidence.append({"path": path, "start_line": start, "end_line": end})
+                if len(evidence) >= 3:
+                    break
             records[identity] = {"id": identity, "origin_task_id": row["id"], "origin_task_key": row["task_key"],
                                  "text": text, "paths": paths, "state": "assigned" if auto_assign or identity in selected else "pending",
                                  "assigned_task_key": row["task_key"] if auto_assign or identity in selected else None,
                                  **({"requirement": "advisory", "unknown_paths": unknown} if hosted else {}),
+                                 **({"review_evidence": evidence} if exhaustive else {}),
                                  "created_at": datetime.now(timezone.utc).isoformat()}
+        self._capture_observation_leads(row, stored_result, records, seen,
+            {f["path"]: f for f in project_map.get("files", [])}, omitted_leads)
         stored_result["host_directions"] = [item for item in records.values() if item["origin_task_id"] == row["id"]]
         # Origin rows other than this task are unchanged by capture. Preserve the
         # host register even when the model omits it or fabricates a similarly named field.
@@ -203,6 +254,18 @@ class DirectionStoreMixin:
         previous_seen = []
         for attempt in self._db.execute("SELECT seen FROM planner_task_attempts WHERE task_id=? AND attempt>0", (row["id"],)):
             previous_seen.extend(_load(attempt["seen"], []) or [])
+        from . import investigation
+        frozen = _load(self._db.execute("SELECT task_spec FROM runs WHERE id=?", (row["run_id"],)).fetchone()[0], {})
+        if investigation.enabled(frozen):
+            # Findings may already be persisted by the publisher. Only earlier
+            # immutable submissions define novelty, never model-provided hashes.
+            known = [finding for attempt in self._db.execute(
+                "SELECT result FROM planner_task_attempts WHERE run_id=? AND attempt>0", (row["run_id"],))
+                for assessment in [_load(attempt["result"], {}) or {}] if investigation.valid_submission(assessment)
+                for finding in assessment.get("findings") or []]
+            counters = investigation.progress(previous, stored_result, seen, previous_seen, known)
+            stored_result["host_progress"] = counters
+            return counters["productive"], counters["failed_attempts"]
         new_evidence = has_new_source_evidence(seen or [], previous_seen)
         gained = bool(incoming - known_keys) or new_evidence
         success = stored_result.get("outcome") in {"achieved", "no_evidence", "continue"} and stored_result.get("terminal_reason", "completed") == "completed" and not stored_result.get("error")
@@ -260,7 +323,9 @@ class DirectionStoreMixin:
             reason = _text(update.get("rationale_summary"))
             if len(reason) < 8 or reason.casefold() in {"unknown", "待补充", "无", "不适用"}:
                 raise ValueError("direction settlement requires a concrete rationale of at least eight characters")
-            if action == "assign":
+            if action == "triage":
+                self._triage_exhaustive_lead(run_id, record, update)
+            elif action == "assign":
                 target = tasks.get(task_key)
                 if target is None or target["state"] not in {"pending", "ready", "deferred"}:
                     raise ValueError("direction assignment requires a dispatchable task in this run")
@@ -288,12 +353,41 @@ class DirectionStoreMixin:
                 self._validate_direction_resolution_tx(run_id, record, update, tasks)
                 record.update(state="resolved", resolution_task_key=task_key, finding_ids=list(update.get("finding_ids") or []), resolution_reason=reason)
             elif action == "skip":
+                from .role_policy import enabled as worker_owned
+                frozen_task = _load(self._db.execute("SELECT task_spec FROM runs WHERE id=?", (run_id,)).fetchone()[0], {})
+                if worker_owned(frozen_task) and frozen_task.get("focus_scope") == "all" and record.get("paths"):
+                    raise ValueError("Planner 不得 skip 全量范围内已知源码方向；需 worker 取证或保留未决")
+                if self.exhaustive_enabled(run_id) and record.get("requirement") == "advisory":
+                    raise ValueError("全量策略的 advisory 需要 triage 明确 covered/no_evidence/out_of_scope/blocked，不能用 skip 静默丢弃")
                 record.update(state="skipped", resolution_reason=reason, limitation="该方向未完成源码审查；此项是显式范围限制，不能作为漏洞不存在的证据。")
             else:
                 raise ValueError("unsupported direction update action")
         self._persist_audit_directions_tx(run_id, records)
         if combined:
             self.append_event(run_id, None, "audit_directions_updated", {"updates": combined, "summary": self.audit_direction_summary(run_id)})
+
+    def direction_resolution_context(self, run_id, record, *, tasks=None, findings=None, compact=False):
+        """Reference facts for publication, never a pre-authored source judgment."""
+        if tasks is None:
+            tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
+        task = tasks.get(record.get("assigned_task_key")) or {}
+        result = task.get("result") or {}
+        matching = [item for item in result.get("direction_results") or [] if item.get("direction_id") == record["id"]]
+        eligible = []
+        for finding in self.list_findings(run_id) if findings is None else findings:
+            evidence = finding.get("evidence") or []
+            paths = {ref.get("path") for ref in evidence if isinstance(ref, dict)}
+            if (finding.get("validation_state") == "candidate" and is_vulnerability_finding(finding)
+                    and finding.get("disposition") in {None, "", "open"} and finding.get("verification_status") != "rejected"
+                    and paths and (not record.get("paths") or paths.intersection(record["paths"]))):
+                eligible.append({k: finding.get(k) for k in ("id", "title", "vulnerability_type", "primary_location", "evidence")})
+        return {"requirement": record.get("requirement", "required"), "task_key": task.get("task_key"),
+                "task_state": task.get("state"), "worker_results": matching,
+                **({"eligible_finding_ids": [f["id"] for f in eligible]} if compact else {"eligible_findings": eligible}),
+                "rules": ["required 不能 triage；未领取用 assign，证据不足保留 needs_evidence。",
+                    "resolve 必须引用同一 direction_id 的 supported/no_evidence worker_results 和实际 task_key。",
+                    "supported 必须给实际 finding_ids；从 eligible_findings 独立核对根因后选取，路径交集不证明已覆盖该风险。",
+                    "no_evidence 的 finding_ids 必须为空，并保留对应 worker 的已读源码反证；没有匹配结果不能推测。"]}
 
     def _validate_direction_resolution_tx(self, run_id, record, update, tasks):
         if self.host_queue_enabled(run_id):
@@ -304,6 +398,20 @@ class DirectionStoreMixin:
                         and len(_text(item.get("rationale"))) >= 8]
             if len(matching) != 1 or record.get("assigned_task_key") != update.get("task_key"):
                 raise ValueError("必做方向必须有同一 direction_id 的 supported/no_evidence 取证结果，completed 或路径相交不能替代")
+            from .role_policy import enabled as worker_owned, validate_disproof
+            frozen_task = _load(self._db.execute("SELECT task_spec FROM runs WHERE id=?", (run_id,)).fetchone()[0], {})
+            if worker_owned(frozen_task) and matching[0]["outcome"] == "supported" and not update.get("finding_ids"):
+                raise ValueError("supported 方向须引用实际有效 finding_ids，worker 的支持摘要不能代替落库发现")
+            if worker_owned(frozen_task) and matching[0]["outcome"] == "no_evidence" and update.get("finding_ids"):
+                raise ValueError("worker 反证与漏洞支持引用不能混作同一方向结论")
+            if worker_owned(frozen_task) and matching[0]["outcome"] == "no_evidence":
+                attempts = self._db.execute("SELECT seen,result FROM planner_task_attempts WHERE task_id=? AND attempt>0 ORDER BY attempt DESC", (task["id"],)).fetchall()
+                receipt = next((a for a in attempts if matching[0] in (_load(a["result"], {}).get("direction_results") or [])), None)
+                if receipt is None:
+                    raise ValueError("方向排除须引用实际 worker attempt 的反证，不能复制任务摘要")
+                seen = _load(receipt["seen"], [])
+                validate_disproof(matching[0].get("disproof"),
+                    [(r["path"], r["start_line"], r["end_line"]) for r in seen], paths=record.get("paths"))
         finding_ids = update.get("finding_ids") or []
         if finding_ids:
             for finding_id in finding_ids:

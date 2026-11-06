@@ -10,7 +10,7 @@ import { Overlay } from '../components/Overlay';
 import { LongContent } from '../components/LongContent';
 import { Disclosure } from '../components/Disclosure';
 import { SourceViewer } from '../components/SourceViewer';
-import { draftTask, taskForStart, taskWithPolicy, type CompletionPolicy } from '../taskDraft';
+import { draftTask, taskForStart, taskWithPolicy, taskWithExploration, type CompletionPolicy } from '../taskDraft';
 
 const EXAMPLES = [
   { title: '追踪危险数据流', description: '查找任意文件写入或危险上传漏洞', objective: '审计文件上传入口，查找可被外部输入触发的任意文件写入、路径穿越或危险文件上传漏洞。' },
@@ -314,7 +314,7 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
                   className={`scenario-chip${task.objective === preset.objective ? ' active' : ''}`}
                   disabled={starting}
                   title={`${preset.label} · ${preset.description}`}
-                  onClick={() => { setTask((value) => ({ ...value, objective: preset.objective, scenario: preset.key })); objectiveRef.current?.focus(); }}
+                  onClick={() => { setTask((value) => ({ ...value, objective: preset.objective, scenario: preset.key, exploration_policy: 'legacy', focus_scope: 'targeted' })); objectiveRef.current?.focus(); }}
                 >
                   <preset.icon size={14} />
                   {preset.label}
@@ -352,8 +352,10 @@ export function TaskView({ snapshots, config, seed, project, initialSnapshotId, 
       <LongContent label="归档 SHA256" value={snapshot.archive_sha256} />
     </div></Overlay>}
     {dialog === 'options' && <Overlay title="高级执行设置" onClose={() => setDialog(null)}><div className="overlay-body">
-      <div className="form-grid"><label className="field"><span className="field-label">风险关注范围</span><select aria-label="风险关注范围" value={task.focus_scope ?? 'targeted'} onChange={event => setTask(value => ({ ...value, focus_scope: event.target.value as 'targeted' | 'all' }))}><option value="targeted">围绕原始任务目标</option><option value="all">明确审查全部风险类型</option></select><span className="field-hint">整个 ZIP 始终可读；附带发现单列，不能替代目标达成。</span></label><label className="field"><span className="field-label">深度风险覆盖</span><select aria-label="深度风险覆盖" value={task.risk_coverage_policy ?? 'off'} onChange={event => setTask(value => ({ ...value, risk_coverage_policy: event.target.value as 'off' | 'bounded-v1' }))}><option value="off">标准审计</option><option value="bounded-v1">源码信号风险义务复核</option></select><span className="field-hint">从真实敏感操作生成有界待查项；目标相关必做项未结算时保留阶段结果。</span></label></div>
+      <div className="form-grid"><label className="field"><span className="field-label">风险关注范围</span><select aria-label="风险关注范围" value={task.focus_scope ?? 'targeted'} onChange={event => setTask(value => ({ ...value, focus_scope: event.target.value as 'targeted' | 'all', ...(event.target.value === 'targeted' ? { exploration_policy: 'legacy' as const } : {}) }))}><option value="targeted">围绕原始任务目标</option><option value="all">明确审查全部风险类型</option></select><span className="field-hint">整个 ZIP 始终可读；附带发现单列，不能替代目标达成。</span></label><label className="field"><span className="field-label">深度风险覆盖</span><select aria-label="深度风险覆盖" value={task.risk_coverage_policy ?? 'off'} onChange={event => setTask(value => ({ ...value, risk_coverage_policy: event.target.value as 'off' | 'bounded-v1' | 'bounded-v2' }))}><option value="off">标准审计</option><option value="bounded-v1">源码信号风险义务复核</option><option value="bounded-v2">扩展信号与安全边界复核</option></select><span className="field-hint">从真实敏感操作生成有界待查项；目标相关必做项未结算时保留阶段结果。</span></label></div>
       {seed && <button type="button" className="btn" onClick={() => { setTask({ ...draftTask(), objective: task.objective }); setBudgets(config?.budget_limits?.defaults ?? config?.budgets ?? budgets); setRunLimits(draftRunLimits(undefined, config)); setPocMode('off'); limitsEdited.current = false; quotaEdited.current = false; setQuota(draftWorkflowAllocation(draftRunLimits(undefined, config).responses, 'off')); }}>使用当前默认配置</button>}
+      <label className="checkbox option-checkbox"><input type="checkbox" aria-label="全量风险探索" checked={task.exploration_policy === 'exhaustive-v1'} onChange={event => setTask(value => taskWithExploration(value, event.target.checked))} /><span>全量风险探索：逐项处置后续线索，并复核源码观察中的未决风险</span></label>
+      <p className="field-hint">启用后审查全部风险类型，并检查扩展源码信号。未分流线索会保留为未完成；每次运行仍受当前硬预算约束。</p>
       <div className="settings-section-label"><Sparkles size={16} />Planner 与 worker</div><div className="form-grid">
         {([{ key: 'max_iterations', label: task.workflow_policy === 'discovery_first' ? '每任务无进展／失败重试上限' : '每个动态任务最大尝试', min: 1, max: 8 }, { key: 'max_total_attempts', label: '共享总尝试上限', min: 1, max: 512 }, { key: 'max_planner_rounds', label: 'Planner 最大回合', min: 1, max: 128 }, { key: 'max_workers', label: '并发 worker', min: 1, max: 4 }] as const).filter((field) => field.key !== 'max_planner_rounds' || task.orchestration_policy !== 'host-queue-v1').map((field) => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input type="number" min={field.min} max={field.max} value={task[field.key]} onChange={(event) => setTask((value) => ({ ...value, [field.key]: clamp(event.target.value, field.min, field.max) }))} /><span className="field-hint">{field.min}–{field.max}</span></label>)}
       </div><div className="settings-section-label"><SlidersHorizontal size={16} />整次审计硬预算</div><div className="form-grid">

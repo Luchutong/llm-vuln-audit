@@ -270,7 +270,12 @@ class TaskSpec(BaseModel):
     )
     review_policy: Literal["legacy", "batch-v1"] = "batch-v1"
     focus_scope: Literal["targeted", "all"] = Field(default="targeted", description="Explicit risk scope; readable ZIP scope remains independent")
-    risk_coverage_policy: Literal["off", "bounded-v1"] = Field(default="off", description="Opt-in source-signal risk obligations; does not replace file coverage")
+    risk_coverage_policy: Literal["off", "bounded-v1", "bounded-v2"] = Field(default="off", description="Opt-in source-signal risk obligations; does not replace file coverage")
+    role_policy: Literal["legacy", "worker-evidence-v1", "worker-evidence-v2"] | None = Field(
+        default=None, description="New host-queue runs freeze worker-owned evidence judgments; absent historical fields remain legacy")
+    investigation_policy: Literal["legacy", "bounded-v1"] | None = Field(
+        default=None, description="Versioned investigation progress and candidate blocking; absent historical fields retain legacy behavior")
+    exploration_policy: Literal["legacy", "exhaustive-v1"] = Field(default="legacy", description="Explicit all-risk exploration: independently triage follow-ups and source observations before closure")
     orchestration_policy: Literal["rounds-v1", "host-queue-v1"] = "rounds-v1"
     workflow_limits: WorkflowLimits | None = Field(
         default=None,
@@ -290,6 +295,14 @@ class TaskSpec(BaseModel):
     def _concrete_task_text(cls, value: str, info) -> str:
         return _meaningful_text(value, info.field_name)
 
+    @model_validator(mode="after")
+    def _exhaustive_scope(self):
+        if self.exploration_policy == "exhaustive-v1" and (
+            self.focus_scope != "all" or self.completion_policy != "coverage_review" or self.scenario is not None
+        ):
+            raise ValueError("exhaustive-v1 requires explicit focus_scope=all, completion_policy=coverage_review and no single scenario")
+        return self
+
 
 class PrimaryLocation(BaseModel):
     """The exact root-cause coordinate, independently validated against source reads."""
@@ -307,9 +320,10 @@ class PrimaryLocation(BaseModel):
 
 class FlowNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["input", "transform", "protection", "storage", "readback", "sink"]
-    evidence: EvidenceRef
-    explanation: str = Field(min_length=8, max_length=1200)
+    kind: Literal["input", "transform", "protection", "storage", "readback", "sink", "root_cause"] = Field(
+        description="input: actual data origin; root_cause: defective operation/boundary at primary_location; sink: sensitive effect. Root and sink may be different lines/files under worker-evidence-v2")
+    evidence: EvidenceRef = Field(description="Actual source-read range for this node only; never widen it merely to cover another operation")
+    explanation: str = Field(min_length=8, max_length=1200, description="Explain the actual operation and its role in this finding's data/control-flow chain")
 
 
 class FocusAssessment(BaseModel):
@@ -331,7 +345,7 @@ class TaskFinding(CvssCompatibleModel):
     )
     vulnerability_type: str | None = Field(default=None, description="Explicit root-cause class required for all newly submitted findings; unknown needs classification_reason. Optional only for historical compatibility")
     classification_reason: str = Field(default="", max_length=1200, description="Concrete reason for unknown or other root cause; required for those classes on new submissions, optional for historical records")
-    primary_location: PrimaryLocation | None = Field(default=None, description="Exact root-cause coordinate required for all newly submitted findings; optional only for historical compatibility")
+    primary_location: PrimaryLocation | None = Field(default=None, description="Exact root-cause coordinate; worker-evidence-v2 binds it to root_cause or a coincident sink node. Do not move the root to a downstream effect to satisfy formatting. Optional only for historical compatibility")
     cvss_input: dict[str, object] | None = Field(default=None, description="CVSS 3.1: AV/AC/PR/UI/S/C/I/A -> {value, rationale, evidence}; unknown values=null")
     severity: Severity | None = Field(default=None, description="Legacy label; host scoring is authoritative")
     summary: str = Field(
@@ -348,12 +362,12 @@ class TaskFinding(CvssCompatibleModel):
     propagation: str = Field(default="", max_length=1800, description="Optional relevant data or control-flow path")
     dangerous_operation: str = Field(default="", max_length=1200, description="Optional risk sink or sensitive operation")
     protection: str = Field(default="", max_length=1200, description="Optional relevant protection or boundary")
-    preconditions: str = Field(default="", max_length=1600, description="Optional runtime assumptions or entry conditions")
+    preconditions: str = Field(default="", max_length=1600, description="One string describing runtime assumptions or entry conditions, never an array; join multiple conditions with semicolons", examples=["Requires a logged-in account; runtime database settings remain unknown"])
     poc: PocSpec | None = Field(default=None, description="Optional manually reviewable POC for a vulnerability result")
     remediation: str = Field(default="", max_length=2400, description="Optional remediation when an actionable issue exists")
     retest: str = Field(default="", max_length=4000, description="Concrete post-fix positive/negative tests, identity and business-state regression conditions")
     focus: FocusAssessment | None = Field(default=None, description="Worker proposal only; independent final review must classify relation to frozen user objective")
-    dataflow: list[FlowNode] = Field(default_factory=list, max_length=24, description="Source-bound input/transformation/storage/readback/sink chain; every node needs an actual read")
+    dataflow: list[FlowNode] = Field(default_factory=list, max_length=24, description="Source-bound data/control-flow chain. Worker-evidence-v2 requires input and sink; if root differs from sink, add one root_cause node covering primary_location. Every node needs an actual read; independent review checks causality")
 
     @field_validator("vulnerability_type")
     @classmethod
@@ -381,6 +395,15 @@ class GoalFinding(TaskFinding):
     """
 
 
+class WorkerDisproof(BaseModel):
+    """A scoped source counterexample, not a global safety assertion."""
+
+    model_config = ConfigDict(extra="forbid")
+    basis: Literal["effective_protection", "unreachable", "not_applicable"]
+    rationale: str = Field(min_length=12, max_length=1600)
+    evidence: list[EvidenceRef] = Field(min_length=1, max_length=12)
+
+
 class TaskObservation(BaseModel):
     """Cited audit context or a ruled-out direction, never a vulnerability finding."""
 
@@ -388,6 +411,16 @@ class TaskObservation(BaseModel):
     kind: Literal["source_observation", "data_flow", "security_boundary"]
     summary: str = Field(min_length=8, max_length=4000)
     evidence: str = Field(min_length=3, max_length=2000, description="Displayed source citations as path:start-end")
+    disproof: WorkerDisproof | None = None
+    candidate_id: str | None = Field(default=None, max_length=64, description="Existing local candidate checkpoint owning this observation; does not create a second global lead")
+    finding_index: int | None = Field(default=None, strict=True, ge=0, le=15, description="Existing finding in this submission owning this observation; not a negative safety verdict")
+    finding_id: str | None = Field(default=None, max_length=160, description="Actual current finding from this run owning this observation; never invent an ID")
+    follow_up: bool = Field(
+        default=True,
+        description=("Whether this observation still nominates an independently checked risk. "
+                     "Set false only when the cited source lines actually settle one concrete risk; "
+                     "facts, protections scoped to a single input, and anything still worth a decision stay true."),
+    )
 
     @field_validator("title", "summary", "evidence")
     @classmethod
@@ -400,6 +433,24 @@ class WorkerDirectionResult(BaseModel):
     direction_id: str = Field(pattern=r"^dir_[a-f0-9]{32}$")
     outcome: Literal["supported", "no_evidence", "needs_evidence"]
     rationale: str = Field(min_length=8, max_length=1200)
+    disproof: WorkerDisproof | None = None
+
+
+class WorkerCandidateUpdate(BaseModel):
+    """Worker-owned investigation checkpoint; unresolved entries survive a pass."""
+
+    model_config = ConfigDict(extra="forbid")
+    candidate_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_.:-]+$")
+    status: Literal["pending", "supported", "excluded"]
+    hypothesis: str = Field(min_length=8, max_length=1200)
+    primary_location: PrimaryLocation
+    evidence: list[EvidenceRef] = Field(default_factory=list, max_length=12)
+    missing_context: list[str] = Field(default_factory=list, max_length=8)
+    next_step: str = Field(default="", max_length=1200)
+    finding_index: int | None = Field(default=None, ge=0, le=15, strict=True)
+    disproof: WorkerDisproof | None = None
+    blocked_on: Literal["source", "runtime", "environment"] | None = Field(default=None,
+        description="Only for pending candidates with concrete missing_context: pause investigation until missing source/runtime/environment becomes available")
 
 
 class GoalAssessment(BaseModel):
@@ -423,6 +474,7 @@ class GoalAssessment(BaseModel):
         description="Concrete remaining source paths or audit directions after this bounded finding batch; at most eight",
     )
     direction_results: list[WorkerDirectionResult] = Field(default_factory=list, max_length=64)
+    candidate_updates: list[WorkerCandidateUpdate] = Field(default_factory=list, max_length=16)
     missing_context: list[str] = Field(default_factory=list)
     # ``finding`` was the original single-result field.  Keep it for existing
     # clients and normalise it into ``findings`` below.  One work item can now
@@ -629,10 +681,12 @@ class PlannerDirectionUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     direction_id: str = Field(pattern=r"^dir_[a-f0-9]{32}$")
-    action: Literal["assign", "resolve", "skip"]
+    action: Literal["assign", "resolve", "skip", "triage"]
     task_key: str | None = Field(default=None, min_length=3, max_length=96)
     finding_ids: list[str] = Field(default_factory=list, max_length=8)
     rationale_summary: str = Field(min_length=8, max_length=1200)
+    triage_outcome: Literal["investigate", "covered", "no_evidence", "out_of_scope", "blocked"] | None = None
+    evidence: list[EvidenceRef] = Field(default_factory=list, max_length=24)
 
     @field_validator("rationale_summary")
     @classmethod
@@ -645,6 +699,12 @@ class PlannerDirectionUpdate(BaseModel):
             raise ValueError("assign requires a target task_key")
         if self.action == "resolve" and not (self.finding_ids or self.task_key):
             raise ValueError("resolve requires current finding_ids or an evidence-bearing completed task_key")
+        if self.action == "triage" and not self.triage_outcome:
+            raise ValueError("triage requires triage_outcome")
+        if self.action == "triage" and self.triage_outcome == "covered" and not self.finding_ids:
+            raise ValueError("covered requires actual current finding_ids")
+        if self.action != "triage" and self.triage_outcome is not None:
+            raise ValueError("triage_outcome belongs only to a triage action")
         return self
 
 
@@ -748,6 +808,7 @@ class PlannerBatchDecision(BaseModel):
     rationale: str = Field(min_length=8, max_length=1600)
     focus: FocusAssessment | None = Field(default=None, description="Independent target relation judgment; required for new-policy final finding dispositions except needs_evidence/withdraw/duplicate")
     risk_outcome: Literal["supported", "no_evidence", "not_applicable", "blocked", "pending"] | None = None
+    finding_ids: list[str] = Field(default_factory=list, max_length=8, description="Actual current finding IDs supporting a risk OR supported direction; no_evidence directions must leave this empty. Use the item's supplied reference candidates")
     duplicate_of: str | None = Field(default=None, max_length=160,
         description="Another current canonical item_id retained as the primary claim; not this item's finding_id")
     distinct_from: list[str] = Field(default_factory=list, max_length=400,
@@ -929,6 +990,13 @@ class CreateRunRequest(BaseModel):
                 self.task.orchestration_policy = "host-queue-v1"
         if self.task.orchestration_policy == "host-queue-v1" and self.task.review_policy != "batch-v1":
             raise ValueError("host-queue-v1 requires batch-v1 review")
+        if self.task.role_policy in {"worker-evidence-v1", "worker-evidence-v2"} and self.task.orchestration_policy != "host-queue-v1":
+            raise ValueError(f"{self.task.role_policy} requires host-queue-v1")
+        if self.task.investigation_policy == "bounded-v1" and (
+            self.task.orchestration_policy != "host-queue-v1" or self.task.role_policy == "legacy"):
+            raise ValueError("bounded-v1 investigation requires host-queue-v1 and a worker evidence policy")
+        if self.task.exploration_policy == "exhaustive-v1" and self.task.orchestration_policy != "host-queue-v1":
+            raise ValueError("exhaustive-v1 requires host-queue-v1")
         if (self.task.orchestration_policy == "host-queue-v1" and self.task.workflow_policy == "legacy"
                 and ("workflow_policy" in self.task.model_fields_set or self.task.completion_policy != "coverage_review")):
             raise ValueError("host-queue-v1 requires discovery_first workflow")

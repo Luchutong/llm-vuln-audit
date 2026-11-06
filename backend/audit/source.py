@@ -640,7 +640,9 @@ class SourceRepository:
         errors = [{"type": "missing" if node.is_missing else "error", **_position(node.start_byte, max(node.start_byte + 1, node.end_byte), offsets), "text": _decode(content[node.start_byte:node.end_byte])[:300]} for node in error_nodes]
         if tree.root_node.has_error and not errors:
             errors.append({"type": "error", "start_line": 1, "end_line": len(_lines(content)), "text": "Parser reports an unresolved syntax error"})
-        syntax = {"functions": [], "classes": [], "includes": [], "calls": []}
+        from .source_signals import php_signals
+        syntax = {"functions": [], "classes": [], "includes": [], "calls": [],
+                  "risk_signals": php_signals(nodes, content)}
         spans = []
         for node in nodes:
             if node.type in FUNCTION_TYPES:
@@ -1036,6 +1038,7 @@ class SourceRepository:
         self,
         snapshot_id: str,
         allowed_paths: set[str] | None = None,
+        *, include_risk_signals: bool = False,
     ) -> dict:
         """Return a source-free, immutable project map for the Planner.
 
@@ -1074,6 +1077,7 @@ class SourceRepository:
         symbols: list[dict] = []
         includes: list[dict] = []
         calls: list[dict] = []
+        risk_signals: list[dict] = []
         profiles: dict[str, dict] = {}
         available = set(text_files)
 
@@ -1133,6 +1137,16 @@ class SourceRepository:
                     "name": item.get("name") or "<dynamic>",
                     "line": item.get("start_line"),
                 })
+            signals = index.get("risk_signals", [])
+            if include_risk_signals and record.get("is_php") and "risk_signals" not in index:
+                # Old snapshots keep their original syntax.json. Build the new
+                # navigation projection in memory from hash-checked frozen bytes.
+                from .source_signals import php_signals
+                content, _ = self._content(snapshot_id, path)
+                with self._parser_lock:
+                    tree = self.parser.parse(content)
+                signals = php_signals(list(_walk(tree.root_node)), content)
+            risk_signals.extend({"path": path, **signal} for signal in signals)
 
         inbound_counts = {path: 0 for path in scope}
         outbound_counts = {path: 0 for path in scope}
@@ -1241,6 +1255,7 @@ class SourceRepository:
             "symbols": sorted(symbols, key=lambda item: (item["path"], int(item.get("start_line") or 0), item["name"])),
             "includes": includes,
             "calls": calls,
+            "risk_signals": risk_signals,
             "entrypoints": entrypoints,
             "unresolved_root_candidates": unresolved_root_candidates,
             "binary_files": binary_files[:MAX_LISTED_PATHS],

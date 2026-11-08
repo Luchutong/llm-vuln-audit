@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "document_id": "D-C02",
+  "document_name": "开源审计靶标真值集（T1 公开漏洞回溯 + T2 人工白盒）",
+  "corresponding_plan": "P19",
+  "owner": "成员C（环境与靶标）",
+  "frozen_at": "2026-11-08T22:46:49+08:00",
+  "freeze_rule": "本真值集在任何 LLM 审计运行开始前冻结；审计期间不得增删条目、修改坐标或更换靶标版本，变更须经组长重新评审并留痕。",
+  "target": {
+    "project": "phpMyFAQ",
+    "version": "4.1.1",
+    "released_at": "2026-03-31",
+    "runtime": "PHP 8.4.27 + Apache 2.4.68 + MariaDB 11.4",
+    "local_url": "http://127.0.0.1:18090",
+    "audit_archive": "phpmyfaq-4.1.1-audit.zip",
+    "archive_bytes": 40877272,
+    "archive_sha256": "14ce89e56c68d07909d8cb60e2a4ea1c5e37dd3a460af7624ce2e2116ac1b02f",
+    "archive_entries": 13181,
+    "git_stripped": true
+  },
+
+  "T1_cve_backtrack": {
+    "description": "基于公开 CVE/GHSA 回溯修复前版本得到的真值。仅保留在锁定版本 4.1.1 中经源码核对确实存在的条目作为当前可评估真值；在 4.1.1 已修复的历史漏洞单列于 historical_fixed，不参与本次命中/漏报统计。",
+    "entries": [
+      {
+        "id": "T1-001",
+        "cve": "CVE-2026-46364",
+        "ghsa": "GHSA-289f-fq7w-6q2w",
+        "cwe": "CWE-89",
+        "cvss": 9.8,
+        "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "title": "BuiltinCaptcha 验证码 API 经 User-Agent 头的未认证 SQL 注入",
+        "present_in_4_1_1": true,
+        "authentication_required": false,
+        "csrf_required": false,
+        "session_required": false,
+        "rate_limited": false,
+        "entry_points": [
+          {
+            "route": "GET /api/captcha",
+            "route_name": "api.private.captcha",
+            "file": "phpmyfaq/src/api-routes.php",
+            "line": 222,
+            "controller": "phpMyFAQ\\Controller\\Frontend\\CaptchaController::renderImage",
+            "controller_file": "phpmyfaq/src/phpMyFAQ/Controller/Frontend/CaptchaController.php",
+            "controller_line": 30
+          }
+        ],
+        "call_chain": [
+          {"step": 1, "method": "CaptchaController::renderImage", "file": "phpmyfaq/src/phpMyFAQ/Controller/Frontend/CaptchaController.php", "line": 37},
+          {"step": 2, "method": "BuiltinCaptcha::getCaptchaImage", "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php", "line": 155},
+          {"step": 3, "method": "BuiltinCaptcha::generateCaptchaCode", "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php", "line": 251},
+          {"step": 4, "method": "BuiltinCaptcha::garbageCollector", "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php", "line": 253},
+          {"step": 5, "method": "BuiltinCaptcha::saveCaptcha", "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php", "line": 260}
+        ],
+        "taint_sources": [
+          {"name": "HTTP User-Agent", "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php", "line": 112, "code": "$this->userAgent = $request->headers->get('user-agent');"},
+          {"name": "client IP", "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php", "line": 113, "code": "$this->ip = $request->getClientIp();"}
+        ],
+        "sinks": [
+          {
+            "id": "sink-1",
+            "enclosing_method": "garbageCollector",
+            "query_type": "DELETE",
+            "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php",
+            "sprintf_start_line": 289,
+            "sprintf_end_line": 299,
+            "tainted_parameters": [
+              {"parameter": "useragent", "value": "$this->userAgent", "line": 296},
+              {"parameter": "ip", "value": "$this->ip", "line": 298}
+            ],
+            "query_execution_line": 301,
+            "sanitization": "none",
+            "note": "同方法第一个 DELETE（277-287）仅插值整数 REQUEST_TIME，非用户可控，不计为 sink。"
+          },
+          {
+            "id": "sink-2",
+            "enclosing_method": "saveCaptcha",
+            "query_type": "INSERT",
+            "file": "phpmyfaq/src/phpMyFAQ/Captcha/BuiltinCaptcha.php",
+            "sprintf_start_line": 325,
+            "sprintf_end_line": 338,
+            "tainted_parameters": [
+              {"parameter": "useragent", "value": "$this->userAgent", "line": 334},
+              {"parameter": "ip", "value": "$this->ip", "line": 336}
+            ],
+            "query_execution_line": 339,
+            "sanitization": "none",
+            "note": "同方法前置 SELECT（309-315）插值内部随机生成的 $this->code，非用户可控，不计为 sink。"
+          }
+        ],
+        "missing_sanitization": "用户控制的 userAgent/ip 未经 Database::escape() 转义，也未使用预处理语句，直接经 sprintf 拼入 SQL。",
+        "exploit_class": "时间盲注（SLEEP/BENCHMARK）；mysqli 单语句执行，不支持多语句堆叠",
+        "exploit_evidence": "公开分析基线请求约 0.147s，注入 User-Agent 载荷 x' OR SLEEP(2) OR 'x 后约 4.093s（双 sink 各执行一次 SLEEP）。",
+        "target_data": ["faquser（bcrypt 口令哈希）", "faqconfig（main.phpMyFAQToken、SMTP 凭证）"],
+        "fixed_in_version": "4.1.2",
+        "fixed_at": "2026-04-28",
+        "fix_commit": "b9f25109fddb38eee19987183798638d07943f92",
+        "fix_strategy": "所有用户控制字段在拼接前经 Database::escape() 转义",
+        "sources": [
+          "https://researcher.branch.zeropath.com/blog/cve-2026-46364-phpmyfaq-sql-injection",
+          "https://github.com/advisories/GHSA-289f-fq7w-6q2w",
+          "https://www.cve.org/CVERecord?id=CVE-2026-46364"
+        ]
+      }
+    ],
+    "historical_fixed_not_present": [
+      {
+        "cve": "CVE-2026-34973",
+        "ghsa": "GHSA-gcp9-5jc8-976x",
+        "cwe": "CWE-943",
+        "title": "Search.php 的 LIKE 通配符（%/_）未转义导致内容泄露",
+        "affected_versions": "all before 4.1.1",
+        "fixed_in_version": "4.1.1",
+        "present_in_4_1_1": false,
+        "verification": "4.1.1 源码核心目录中已无 searchCustomPages 方法，确认该版本已修复。",
+        "sources": [
+          "https://advisories.gitlab.com/composer/thorsten/phpmyfaq/CVE-2026-34973/"
+        ]
+      },
+      {
+        "cve": "CVE-2025-62519",
+        "ghsa": "GHSA-fxm2-cmwj-qvx4",
+        "cwe": "CWE-89",
+        "title": "配置更新功能的认证后 SQL 注入（需 Configuration Edit 权限）",
+        "affected_versions": "all before 4.0.14",
+        "fixed_in_version": "4.0.14",
+        "present_in_4_1_1": false,
+        "sources": [
+          "https://nvd.nist.gov/vuln/detail/cve-2025-62519"
+        ]
+      }
+    ]
+  },
+
+  "T2_manual_whitebox": {
+    "description": "成员 C 独立阅读核心模块源码做人工白盒标注，覆盖净化、认证、输入过滤、会话四类安全机制；与 T1 来源独立，用于交叉核对 LLM 结论。下列坐标均对冻结归档逐行核对。",
+    "modules": [
+      {
+        "id": "T2-001",
+        "module": "数据库抽象层（MySQLi 驱动）",
+        "file": "phpmyfaq/src/phpMyFAQ/Database/Mysqli.php",
+        "role": "SQL 字符串转义与查询执行",
+        "findings": [
+          {"line": 116, "symbol": "Mysqli::escape", "kind": "sanitizer", "detail": "内部调用 mysqli::real_escape_string()，是项目标准 SQL 字符串净化入口。"},
+          {"line": 299, "symbol": "Mysqli::query", "kind": "execution", "detail": "经 mysqli::query() 单语句执行，不支持多语句堆叠；这决定 CVE-2026-46364 只能时间盲注。"}
+        ],
+        "security_note": "正确使用 escape 可阻断常规 SQL 注入；但 real_escape_string 不处理 LIKE 通配符（CVE-2026-34973 的根因，4.1.1 已修复）。"
+      },
+      {
+        "id": "T2-002",
+        "module": "数据库认证",
+        "file": "phpmyfaq/src/phpMyFAQ/Auth/AuthDatabase.php",
+        "role": "登录/口令校验",
+        "findings": [
+          {"line": 62, "symbol": "AuthDatabase::create", "kind": "sanitizer", "detail": "login/password/domain 全部经 databaseDriver->escape() 后再拼入 INSERT。"},
+          {"line": 158, "symbol": "AuthDatabase::checkCredentials", "kind": "sanitizer", "detail": "登录名经 escape() 后查询，防止登录框 SQL 注入。"},
+          {"line": 181, "symbol": "AuthDatabase::checkCredentials", "kind": "password_check", "detail": "口令经 setSalt(login)->encrypt(password) 加盐加密后用 !== 比较，不存明文、不回退明文。"}
+        ],
+        "security_note": "与 BuiltinCaptcha 形成直接对照：认证模块所有用户输入均 escape，而验证码模块遗漏，是 T1 漏洞的关键判据。"
+      },
+      {
+        "id": "T2-003",
+        "module": "输入过滤",
+        "file": "phpmyfaq/src/phpMyFAQ/Filter.php",
+        "role": "XSS/输入净化（ext/filter 封装）",
+        "findings": [
+          {"line": 39, "symbol": "Filter::filterInput", "kind": "wrapper", "detail": "封装 filter_input，按指定过滤器读取外部输入。"},
+          {"line": 124, "symbol": "Filter::filterSanitizeString", "kind": "sanitizer", "detail": "htmlspecialchars（ENT_QUOTES）转义 HTML 特殊字符。"},
+          {"line": 130, "symbol": "Filter::filterSanitizeString", "kind": "sanitizer", "detail": "preg_replace 去除 NUL 字节与残留标签。"},
+          {"line": 131, "symbol": "Filter::filterSanitizeString", "kind": "sanitizer", "detail": "单/双引号替换为 HTML 实体。"}
+        ],
+        "security_note": "Filter 面向 XSS 防护；SQL 上下文必须改用 Database::escape，二者不可混用。"
+      },
+      {
+        "id": "T2-004",
+        "module": "会话与 CSRF 令牌",
+        "file": "phpmyfaq/src/phpMyFAQ/Session/Token.php",
+        "role": "CSRF 令牌生成与校验",
+        "findings": [
+          {"line": 190, "symbol": "Token::setSession", "kind": "random", "detail": "令牌由 md5(base64_encode(random_bytes(32))) 生成，使用 CSPRNG，不可预测。"},
+          {"line": 154, "symbol": "Token::verifyToken", "kind": "timing_safe", "detail": "用 hash_equals() 做时序安全比较，同时校验 session 与 cookie 双重令牌。"},
+          {"line": 148, "symbol": "Token::verifyToken", "kind": "expiry", "detail": "校验提交窗口，过期令牌立即移除并拒绝。"}
+        ],
+        "security_note": "CSRF 防护实现规范；但公开的 /api/captcha 路由不经过该令牌校验，因此 CVE-2026-46364 无需 CSRF 即可触发。"
+      }
+    ]
+  },
+
+  "consistency_summary": {
+    "T1_count_present": 1,
+    "T1_count_historical_fixed": 2,
+    "T2_module_count": 4,
+    "cross_check": "T2-02（认证模块全程 escape）与 T2-01（escape 为标准净化）共同佐证 T1-001 中 BuiltinCaptcha 未调用 escape 属真实缺陷，而非项目无净化机制；T2-04 说明 captcha 路由缺少 CSRF 防护，与 T1-001 的未认证可达性一致。"
+  },
+
+  "all_sources": [
+    "https://researcher.branch.zeropath.com/blog/cve-2026-46364-phpmyfaq-sql-injection",
+    "https://github.com/advisories/GHSA-289f-fq7w-6q2w",
+    "https://www.cve.org/CVERecord?id=CVE-2026-46364",
+    "https://advisories.gitlab.com/composer/thorsten/phpmyfaq/CVE-2026-34973/",
+    "https://nvd.nist.gov/vuln/detail/cve-2025-62519"
+  ],
+  "freeze_statement": "上述 T1/T2 全部条目自 2026-11-08T22:46:49+08:00 冻结，作为后续 D-C03 预处理及全部审计运行的唯一真值依据；所有验证仅针对本地部署副本，不向任何线上系统发起请求。"
+}

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Lab30 评分回执 · a403cb8c9efd48cfbba31337c5129842</title>
+<style>
+ :root { color-scheme: light; }
+ * { box-sizing: border-box; }
+ body { margin:0; padding:32px 40px 44px; background:#f6f7f9; color:#14181f;
+        font-family:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif; }
+ h1 { margin:0 0 6px; font-size:22px; letter-spacing:.2px; }
+ .sub { color:#5c6572; font-size:13px; margin-bottom:22px; }
+ .cmd { background:#0f172a; color:#d6e2f5; border-radius:8px; padding:12px 14px;
+        font-family:ui-monospace,Consolas,"Courier New",monospace; font-size:12.5px;
+        line-height:1.6; margin-bottom:20px; white-space:pre-wrap; word-break:break-all; }
+ .cards { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:22px; }
+ .card { background:#fff; border:1px solid #e3e7ee; border-radius:10px; padding:14px 16px; }
+ .card .k { font-size:12px; color:#5c6572; margin-bottom:6px; }
+ .card .v { font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; }
+ .card.hi .v { color:#1f5fd6; }
+ .meta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 28px;
+         background:#fff; border:1px solid #e3e7ee; border-radius:10px; padding:16px 20px; margin-bottom:20px; }
+ .meta div { font-size:13px; line-height:1.7; }
+ .meta b { color:#47505d; font-weight:600; margin-right:8px; }
+ pre { margin:0; background:#fff; border:1px solid #e3e7ee; border-radius:10px;
+       padding:16px 18px; font-family:ui-monospace,Consolas,"Courier New",monospace;
+       font-size:12px; line-height:1.55; max-height:640px; overflow:hidden;
+       -webkit-mask-image:linear-gradient(#000 86%, transparent 100%); }
+ .h2 { font-size:14px; font-weight:700; margin:0 0 10px; color:#14181f; }
+</style></head><body>
+<h1>Lab30 评分回执（scripts/score_dataset.py 导出）</h1>
+<div class="sub">protocol lab30-v2 · 真值 30 项 · 结论 20 条 · 生成于 2026-11-09 02:14:30</div>
+<div class="cmd">$ cd "/home/zsh/桌面/llm-vuln-audit-main (4)/llm-vuln-audit-main" && PY=backend/.venv/bin/python; test -x "$PY" || PY=python3; $PY scripts/score_dataset.py --protocol lab30-v2 --api http://127.0.0.1:8899 --run a403cb8c9efd48cfbba31337c5129842 --out /tmp/score_a403cb8c9efd48cfbba31337c5129842.json</div>
+<div class="cards">
+  <div class="card"><div class="k">TP</div><div class="v">19</div></div>
+  <div class="card"><div class="k">FP</div><div class="v">1</div></div>
+  <div class="card"><div class="k">FN</div><div class="v">11</div></div>
+  <div class="card"><div class="k">Precision</div><div class="v">0.9500</div></div>
+  <div class="card"><div class="k">Recall</div><div class="v">0.6333</div></div>
+  <div class="card hi"><div class="k">F1</div><div class="v">0.7600</div></div>
+</div>
+<div class="meta">
+  <div><b>run id</b>a403cb8c9efd48cfbba31337c5129842</div>
+  <div><b>快照</b>lab30-src.zip</div>
+  <div><b>评分范围</b>all</div>
+  <div><b>类别覆盖</b>15/22 类（68.2%，实例 19/30）</div>
+  <div><b>真值文件</b>/home/zsh/桌面/llm-vuln-audit-main (4)/llm-vuln-audit-main/datasets/lab30-shop/ground_truth.json</div>
+  <div><b>评级口径</b>CVSS:3.1</div>
+</div>
+<div class="h2">导出的 JSON（原始内容）</div>
+<pre>{
+  "protocol": "lab30-v2",
+  "scope": "all",
+  "class_scope": null,
+  "truths": 30,
+  "findings": 20,
+  "rating_standard": "CVSS:3.1",
+  "score_basis": "Base",
+  "TP": 19,
+  "D": 1,
+  "U": 0,
+  "FP": 1,
+  "FN": 11,
+  "precision": 0.95,
+  "recall": 0.6333333333333333,
+  "f1": 0.76,
+  "matches": [
+    {
+      "truth_id": "01",
+      "truth": "01 商品搜索 SQL 注入",
+      "finding_id": "7e5234adaa304e2b9b63f09b74d84f10",
+      "finding": "商品目录搜索参数 q 拼接进 LIKE 子句导致 SQL 注入",
+      "class": "sqli",
+      "primary_location": {
+        "path": "app/public/catalog/index.php",
+        "line": 4
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "03",
+      "truth": "03 网络诊断命令注入",
+      "finding_id": "1613ba438daf46d8809223179b555a1b",
+      "finding": "网络诊断 ping.php 将 $_GET[\"host\"] 拼接进 shell_exec 造成命令注入",
+      "class": "command_injection",
+      "primary_location": {
+        "path": "app/public/ops/ping.php",
+        "line": 2
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "04",
+      "truth": "04 帮助文档路径遍历读取任意文件",
+      "finding_id": "2ece04fc385849d78397644d7f212ce7",
+      "finding": "帮助文档下载 $_GET['file'] 路径穿越导致任意文件读取",
+      "class": "path_traversal",
+      "primary_location": {
+        "path": "app/public/support/download.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L</pre>
+</body></html>

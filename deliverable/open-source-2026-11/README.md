@@ -1,8 +1,8 @@
-# 成员 B 交付物总览（平台与审计截图 + 数据表）
+# 成员 B 交付物总览（平台与审计截图 + 数据表 + 原始材料与脚本）
 
 > **执行年月**：2026-11（目录 `open-source-2026-11`）
 > **负责人**：成员 B（3.6 平台界面 + 5.4.3 Prompt 实验 + 第 6 章证据链 + 9.4 审计成果 + D-B01～D-B04）
-> **分支**：`feat/part-b-screens-data`（基于 `main`，未直接提交主干）
+> **分支**：`main`（经 PR #7 合并）；原始材料与脚本见 `feat/part-b-raw-materials`
 > **运行环境**：Ubuntu 20.04 虚拟机，FastAPI 后端 `:8899` + Vite 前端 `:5173`，模型 `deepseek-chat`（`https://api.deepseek.com/v1`），SQLite `backend/data/audit.db`
 
 ---
@@ -43,8 +43,25 @@
 | **D-B02** | `D-B02_P3_代码规模统计_cloc.md` | 3.x | cloc 1.82 分目录 / 分语言 / 三种口径 |
 | **D-B03** | `D-B03_P4_测试资产统计.md` | 3.x / 第 8 章 | 后端 2,268 项、前端 125 项，通过率、失败归因、采集日期 |
 | **D-B04** | `D-B04_P18_审计成果量化指标.md` | 9.4 | TP/FP/FN、P/R/F1、类别覆盖、CVSS 质量、成本、真值溯源 |
+| **D-B05** | `D-B05_评审补充_原始输出_代码版本_预算口径.md` | 附 | 当次 pytest/npmtest/cloc 原始输出索引、3 项失败堆栈归因、实验代码版本锁定（83 文件指纹 + 13 文件补丁）、预算与用量的统计口径 |
 
 `data/P20_九试次明细.md`、`P3_代码规模统计.md`、`P4_测试资产统计.md` 为 **2026-11-07 旧版**，文件头已标注「已被取代」，仅保留作口径对照。
+
+
+
+### 1.4 原始材料与脚本（`raw/`、`scripts/`）
+
+| 目录 | 内容 | 文件数 | 体积 |
+| --- | --- | --- | --- |
+| `raw/experiments/` | P20 实验完整存档：9 个试次逐次记录、variant 元数据、summary（`preliminary=false`） | 1 | 2.4 MB |
+| `raw/scoring/` | run `a403cb8c` 评分明细 JSON + 同源 HTML 渲染页 | 2 | 109 KB |
+| `raw/runs/` | 两轮真实审计的 metrics 导出（`bundle` / `report` / `event_log`）与 run 指针 | 5 | 13.1 MB |
+| `raw/tests/` | D-B03 当次原始输出：pytest（含 3 项失败完整堆栈）与前端 node:test | 2 | 40.6 KB |
+| `raw/cloc/` | D-B02 cloc 1.82 输出（合计 + 4 单目录，2026-11-09 同参数重跑） | 5 | 4.4 KB |
+| `raw/code-version/` | 实验代码 vs 仓库 main 的 13 文件统一 diff 补丁 | 1 | 141 KB |
+| `scripts/` | 采集、统计、评分、渲染脚本（21 个文件，含清单 README） | 21 | 约 122 KB |
+
+`raw/` 内文件均为运行目录 `.run/` 的**只读副本，数值一字未改**，逐文件 sha256 与生成命令见 `raw/README.md`；`scripts/` 为实际执行版本的归档副本，仅对 1 处默认口令与 1 处本机绝对路径做了脱敏/参数化，差异逐条列在 `scripts/README.md` 的「归档差异」小节。
 
 ---
 
@@ -96,6 +113,17 @@ deliverable/open-source-2026-11/
 │   ├── D-B04_P18_审计成果量化指标.md
 │   ├── README.md                  # 数据总览、跨表一致性提醒、复算入口
 │   └── P20_ / P3_ / P4_（旧版，已标注「已被取代」）
+├── raw/                           # 原始材料（只读归档）
+│   ├── README.md                  # 逐文件来源、生成命令、sha256
+│   ├── experiments/               # P20 九试次实验存档
+│   ├── scoring/                   # run a403cb8c 评分 JSON + HTML
+│   ├── runs/                      # 两轮真实审计 metrics + run 指针
+│   ├── tests/                     # pytest / node:test 当次原始输出
+│   ├── cloc/                      # cloc 1.82 输出（重跑，口径一致）
+│   └── code-version/              # 实验代码 vs main 的 13 文件补丁
+├── scripts/                       # 采集与复算脚本
+│   ├── README.md                  # 脚本清单、依赖、归档差异
+│   └── vm_*.py|sh、_cloc_*.py、gen_*.py、render_*.py、score_dataset.py
 └── screens/                       # 11 张主图 + 3 张补充图
     ├── INDEX.md                   # 逐图索引：报告位置、画面要点、来源性质
     ├── report-set/                # 按报告图号命名的交付集（S-B01～S-B11）
@@ -137,4 +165,4 @@ python scripts/vm_gap_shots.py b11 <run_id>               # S-B11 评分导出 +
 bash   scripts/vm_start_services.sh                       # 虚拟机服务拉起（8899 / 5173）
 ```
 
-> 复算依赖 `.run/` 下的原始存档（实验 JSON 2.4 MB、评分 JSON），该目录按 `.gitignore` 不入库，需按上表命令重新生成。
+> 复算依赖 `.run/` 下的原始存档（实验 JSON 2.4 MB、两轮 run metrics 13.1 MB、评分 JSON 102 KB）。该目录按 `.gitignore` 不入库，本次已在 `raw/` 下归档只读副本（逐文件 sha256 见 `raw/README.md`），可直接从 `raw/` 取用；如需重新生成，按上表命令执行。

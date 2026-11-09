@@ -1,0 +1,64 @@
+
+{"header" : {
+  "cloc_url"           : "github.com/AlDanial/cloc",
+  "cloc_version"       : "1.82",
+  "elapsed_seconds"    : 0.0187458992004395,
+  "n_files"            : 64,
+  "n_lines"            : 826,
+  "files_per_second"   : 3414.0800244194,
+  "lines_per_second"   : 44062.9703151629},
+"PHP" :{
+  "nFiles": 53,
+  "blank": 5,
+  "comment": 16,
+  "code": 414},
+"Python" :{
+  "nFiles": 2,
+  "blank": 14,
+  "comment": 2,
+  "code": 106},
+"YAML" :{
+  "nFiles": 1,
+  "blank": 0,
+  "comment": 0,
+  "code": 72},
+"SVG" :{
+  "nFiles": 1,
+  "blank": 0,
+  "comment": 0,
+  "code": 58},
+"Markdown" :{
+  "nFiles": 1,
+  "blank": 22,
+  "comment": 0,
+  "code": 48},
+"JavaScript" :{
+  "nFiles": 1,
+  "blank": 0,
+  "comment": 0,
+  "code": 23},
+"Bourne Again Shell" :{
+  "nFiles": 1,
+  "blank": 0,
+  "comment": 0,
+  "code": 19},
+"INI" :{
+  "nFiles": 2,
+  "blank": 0,
+  "comment": 3,
+  "code": 14},
+"Bourne Shell" :{
+  "nFiles": 1,
+  "blank": 0,
+  "comment": 0,
+  "code": 6},
+"CSS" :{
+  "nFiles": 1,
+  "blank": 0,
+  "comment": 0,
+  "code": 4},
+"SUM": {
+  "blank": 41,
+  "comment": 21,
+  "code": 764,
+  "nFiles": 64} }

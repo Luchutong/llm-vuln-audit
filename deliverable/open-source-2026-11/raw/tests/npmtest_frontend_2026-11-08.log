@@ -1,0 +1,765 @@
+
+> vuln-audit-web@0.1.0 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: progress and interleaved tool calls retain chronological order while results update their original rows
+ok 1 - progress and interleaved tool calls retain chronological order while results update their original rows
+  ---
+  duration_ms: 17.486492
+  type: 'test'
+  ...
+# Subtest: default display labels describe actual tools and human task names without technical identifiers
+ok 2 - default display labels describe actual tools and human task names without technical identifiers
+  ---
+  duration_ms: 1.228394
+  type: 'test'
+  ...
+# Subtest: formal assessments replace completion fallbacks without repeating their conclusion
+ok 3 - formal assessments replace completion fallbacks without repeating their conclusion
+  ---
+  duration_ms: 1.751172
+  type: 'test'
+  ...
+# Subtest: Planner decisions surface their basis and next action exactly once
+ok 4 - Planner decisions surface their basis and next action exactly once
+  ---
+  duration_ms: 0.399118
+  type: 'test'
+  ...
+# Subtest: waiting states belong to each execution and disappear when it produces public activity or ends
+ok 5 - waiting states belong to each execution and disappear when it produces public activity or ends
+  ---
+  duration_ms: 2.887573
+  type: 'test'
+  ...
+# Subtest: completed history folds in place while failures and explicitly opened tools stay visible
+ok 6 - completed history folds in place while failures and explicitly opened tools stay visible
+  ---
+  duration_ms: 0.871472
+  type: 'test'
+  ...
+# Subtest: public projection omits model internals and deduplicates replayed events
+ok 7 - public projection omits model internals and deduplicates replayed events
+  ---
+  duration_ms: 0.431634
+  type: 'test'
+  ...
+# Subtest: a parse error is a format message, never a code action or a leaked reply
+ok 8 - a parse error is a format message, never a code action or a leaked reply
+  ---
+  duration_ms: 0.863157
+  type: 'test'
+  ...
+# Subtest: an early POC execution stop and a failed conclusion are shown to the reader
+ok 9 - an early POC execution stop and a failed conclusion are shown to the reader
+  ---
+  duration_ms: 3.334317
+  type: 'test'
+  ...
+# Subtest: SDK evidence rejection and cleanup failures preserve actual diagnosis and unknown historical reasons
+ok 10 - SDK evidence rejection and cleanup failures preserve actual diagnosis and unknown historical reasons
+  ---
+  duration_ms: 5.874487
+  type: 'test'
+  ...
+# Subtest: POC job kinds, identities and shared quotas remain distinct from execution and verification
+ok 11 - POC job kinds, identities and shared quotas remain distinct from execution and verification
+  ---
+  duration_ms: 2.377488
+  type: 'test'
+  ...
+# Subtest: unresolved job submissions retain reserved quota while legacy jobs never invent a script type or budget
+ok 12 - unresolved job submissions retain reserved quota while legacy jobs never invent a script type or budget
+  ---
+  duration_ms: 0.447431
+  type: 'test'
+  ...
+# Subtest: pagination retains a long-running older tool alongside the latest public activity
+ok 13 - pagination retains a long-running older tool alongside the latest public activity
+  ---
+  duration_ms: 2.864853
+  type: 'test'
+  ...
+# Subtest: orphaned results stay traceable and invalid arguments never fabricate a source location
+ok 14 - orphaned results stay traceable and invalid arguments never fabricate a source location
+  ---
+  duration_ms: 0.720016
+  type: 'test'
+  ...
+# Subtest: all tools in the current model step remain unfolded until the next request begins
+ok 15 - all tools in the current model step remain unfolded until the next request begins
+  ---
+  duration_ms: 0.964446
+  type: 'test'
+  ...
+# Subtest: search titles retain the actual query when the call also narrows a source directory
+ok 16 - search titles retain the actual query when the call also narrows a source directory
+  ---
+  duration_ms: 0.267215
+  type: 'test'
+  ...
+# Subtest: a full saved assessment stays available instead of being reduced to an event-title preview
+ok 17 - a full saved assessment stays available instead of being reduced to an event-title preview
+  ---
+  duration_ms: 0.148801
+  type: 'test'
+  ...
+# Subtest: old tool failures and current-step tools remain accessible across history pagination
+ok 18 - old tool failures and current-step tools remain accessible across history pagination
+  ---
+  duration_ms: 14.956369
+  type: 'test'
+  ...
+# Subtest: default-ended source reads never display zero or invalid line ranges
+ok 19 - default-ended source reads never display zero or invalid line ranges
+  ---
+  duration_ms: 0.825818
+  type: 'test'
+  ...
+# Subtest: host heartbeats and model progress stay separate rows and never replace each other
+ok 20 - host heartbeats and model progress stay separate rows and never replace each other
+  ---
+  duration_ms: 0.687273
+  type: 'test'
+  ...
+# Subtest: CVSS display distinguishes zero, unscored and legacy ratings
+ok 21 - CVSS display distinguishes zero, unscored and legacy ratings
+  ---
+  duration_ms: 6.061373
+  type: 'test'
+  ...
+# Subtest: completed jobs with insufficient citations do not claim the vulnerability failed to trigger
+ok 22 - completed jobs with insufficient citations do not claim the vulnerability failed to trigger
+  ---
+  duration_ms: 21.1346
+  type: 'test'
+  ...
+# Subtest: successful jobs with an interrupted conclusion keep execution and verification separate
+ok 23 - successful jobs with an interrupted conclusion keep execution and verification separate
+  ---
+  duration_ms: 0.245779
+  type: 'test'
+  ...
+# Subtest: SDK execution failures stay distinct from valid negative experiments, including old records
+ok 24 - SDK execution failures stay distinct from valid negative experiments, including old records
+  ---
+  duration_ms: 0.245524
+  type: 'test'
+  ...
+# Subtest: queue heartbeats collapse per finding while individual publications remain visible
+ok 25 - queue heartbeats collapse per finding while individual publications remain visible
+  ---
+  duration_ms: 13.461041
+  type: 'test'
+  ...
+# Subtest: POC gateway errors show their HTTP status and failure category in the public activity
+ok 26 - POC gateway errors show their HTTP status and failure category in the public activity
+  ---
+  duration_ms: 0.699659
+  type: 'test'
+  ...
+# Subtest: POC stream failures explain timeout versus interrupted generation without unknown placeholders
+ok 27 - POC stream failures explain timeout versus interrupted generation without unknown placeholders
+  ---
+  duration_ms: 1.18775
+  type: 'test'
+  ...
+# Subtest: JSON validation rejection and its retry count once and recover after a committed planner decision
+ok 28 - JSON validation rejection and its retry count once and recover after a committed planner decision
+  ---
+  duration_ms: 1.308599
+  type: 'test'
+  ...
+# Subtest: request diagnostics merge nested tool/interpreter errors, duplicate frames and host summaries
+ok 29 - request diagnostics merge nested tool/interpreter errors, duplicate frames and host summaries
+  ---
+  duration_ms: 0.549942
+  type: 'test'
+  ...
+# Subtest: successful tools alone and successful code from another invocation do not imply recovery
+ok 30 - successful tools alone and successful code from another invocation do not imply recovery
+  ---
+  duration_ms: 20.950119
+  type: 'test'
+  ...
+# Subtest: recovery can cross phases within one invocation but cannot hide an error in the successful action request
+ok 31 - recovery can cross phases within one invocation but cannot hide an error in the successful action request
+  ---
+  duration_ms: 1.759289
+  type: 'test'
+  ...
+# Subtest: a late execution error for an action prevents premature recovery from that same action
+ok 32 - a late execution error for an action prevents premature recovery from that same action
+  ---
+  duration_ms: 0.561534
+  type: 'test'
+  ...
+# Subtest: transient model retries count once per request and a successful final terminal counts as recovery
+ok 33 - transient model retries count once per request and a successful final terminal counts as recovery
+  ---
+  duration_ms: 0.204033
+  type: 'test'
+  ...
+# Subtest: legacy task attempts remain separate and missing request identifiers never merge unrelated events
+ok 34 - legacy task attempts remain separate and missing request identifiers never merge unrelated events
+  ---
+  duration_ms: 0.349248
+  type: 'test'
+  ...
+# Subtest: script failures and timeout retain call success but are never grouped as successful operations
+ok 35 - script failures and timeout retain call success but are never grouped as successful operations
+  ---
+  duration_ms: 1.838867
+  type: 'test'
+  ...
+# Subtest: cached errors preserve errors and HTTP status is separate from script exit code
+ok 36 - cached errors preserve errors and HTTP status is separate from script exit code
+  ---
+  duration_ms: 1.481085
+  type: 'test'
+  ...
+# Subtest: verification job and precondition summaries do not conflate execution with the verdict
+ok 37 - verification job and precondition summaries do not conflate execution with the verdict
+  ---
+  duration_ms: 4.971901
+  type: 'test'
+  ...
+# Subtest: SDK request caps are displayed independently of legacy steps
+ok 38 - SDK request caps are displayed independently of legacy steps
+  ---
+  duration_ms: 38.495785
+  type: 'test'
+  ...
+# Subtest: persistent queue explains shared budgets and soft per-item time without claiming old caps
+ok 39 - persistent queue explains shared budgets and soft per-item time without claiming old caps
+  ---
+  duration_ms: 0.301708
+  type: 'test'
+  ...
+# Subtest: drafts copy only the frozen limits and never previous consumption
+ok 40 - drafts copy only the frozen limits and never previous consumption
+  ---
+  duration_ms: 3.897015
+  type: 'test'
+  ...
+# Subtest: execution summary handles current and legacy run projections and explains budget stops
+ok 41 - execution summary handles current and legacy run projections and explains budget stops
+  ---
+  duration_ms: 1.982883
+  type: 'test'
+  ...
+# Subtest: review completion with missing evidence is distinct from a model output failure
+ok 42 - review completion with missing evidence is distinct from a model output failure
+  ---
+  duration_ms: 0.262517
+  type: 'test'
+  ...
+# Subtest: structured API errors preserve readiness detail and show its message
+ok 43 - structured API errors preserve readiness detail and show its message
+  ---
+  duration_ms: 109.635386
+  type: 'test'
+  ...
+# Subtest: POC off and unavailable environment are neutral lifecycle information
+ok 44 - POC off and unavailable environment are neutral lifecycle information
+  ---
+  duration_ms: 2.09394
+  type: 'test'
+  ...
+# Subtest: contextLine reports the peak against the byte ceiling, never as a token count
+ok 45 - contextLine reports the peak against the byte ceiling, never as a token count
+  ---
+  duration_ms: 0.561747
+  type: 'test'
+  ...
+# Subtest: discovery-first previews match frozen allocation ratios and preserve the final review
+ok 46 - discovery-first previews match frozen allocation ratios and preserve the final review
+  ---
+  duration_ms: 0.703555
+  type: 'test'
+  ...
+# Subtest: workflow facts preserve actual host counters and tolerate legacy absence
+ok 47 - workflow facts preserve actual host counters and tolerate legacy absence
+  ---
+  duration_ms: 0.537174
+  type: 'test'
+  ...
+# Subtest: workflow stop reasons support persisted structured administrative facts and older strings
+ok 48 - workflow stop reasons support persisted structured administrative facts and older strings
+  ---
+  duration_ms: 0.246809
+  type: 'test'
+  ...
+# Subtest: stage quotas are validated client-side before the request reaches the host
+ok 49 - stage quotas are validated client-side before the request reaches the host
+  ---
+  duration_ms: 0.223667
+  type: 'test'
+  ...
+# Subtest: clones preserve their frozen POC mode without accepting unknown policy values
+ok 50 - clones preserve their frozen POC mode without accepting unknown policy values
+  ---
+  duration_ms: 0.146019
+  type: 'test'
+  ...
+# Subtest: ledger URLs retain committed filters, pagination and the source workspace tab
+ok 51 - ledger URLs retain committed filters, pagination and the source workspace tab
+  ---
+  duration_ms: 7.488939
+  type: 'test'
+  ...
+# Subtest: default filtering delegates active dispositions to the API and validates URL inputs
+ok 52 - default filtering delegates active dispositions to the API and validates URL inputs
+  ---
+  duration_ms: 0.994849
+  type: 'test'
+  ...
+# Subtest: evidence from equal paths in different ZIP snapshots never shares a source window
+ok 53 - evidence from equal paths in different ZIP snapshots never shares a source window
+  ---
+  duration_ms: 0.927094
+  type: 'test'
+  ...
+# Subtest: finding return links restore valid list filters and reject unrelated destinations
+ok 54 - finding return links restore valid list filters and reject unrelated destinations
+  ---
+  duration_ms: 0.645217
+  type: 'test'
+  ...
+# Subtest: canonical detail keeps ledger wording and status without promoting historical verification
+ok 55 - canonical detail keeps ledger wording and status without promoting historical verification
+  ---
+  duration_ms: 1.186657
+  type: 'test'
+  ...
+# Subtest: CVSS status and zero-score severity survive filters, history and reset
+ok 56 - CVSS status and zero-score severity survive filters, history and reset
+  ---
+  duration_ms: 1.203829
+  type: 'test'
+  ...
+# Subtest: comparison distinguishes a missing precision from a real zero and uses percentage points for deltas
+ok 57 - comparison distinguishes a missing precision from a real zero and uses percentage points for deltas
+  ---
+  duration_ms: 1.489252
+  type: 'test'
+  ...
+# Subtest: only versioned worker strategies participate; builtin W0 W1 W2 have stable default order
+ok 58 - only versioned worker strategies participate; builtin W0 W1 W2 have stable default order
+  ---
+  duration_ms: 26.1933
+  type: 'test'
+  ...
+# Subtest: frozen prompt changes retain unchanged lines and do not mutate either version
+ok 59 - frozen prompt changes retain unchanged lines and do not mutate either version
+  ---
+  duration_ms: 4.19042
+  type: 'test'
+  ...
+# Subtest: current comparison prefers the unchanged W0 baseline with both v2 strategies
+ok 60 - current comparison prefers the unchanged W0 baseline with both v2 strategies
+  ---
+  duration_ms: 2.219826
+  type: 'test'
+  ...
+# Subtest: isolated experiments have a refreshable route and reject paths with unexpected trailing segments
+ok 61 - isolated experiments have a refreshable route and reject paths with unexpected trailing segments
+  ---
+  duration_ms: 2.706941
+  type: 'test'
+  ...
+# Subtest: experiment references protect a strategy even when isolated runs are absent from the main run list
+ok 62 - experiment references protect a strategy even when isolated runs are absent from the main run list
+  ---
+  duration_ms: 5.351379
+  type: 'test'
+  ...
+# Subtest: the initial timed batch fits exactly two hours and rejects larger schedules
+ok 63 - the initial timed batch fits exactly two hours and rejects larger schedules
+  ---
+  duration_ms: 3.748764
+  type: 'test'
+  ...
+# Subtest: an experiment read timeout is distinct from navigation cancellation and never poisons a later request
+ok 64 - an experiment read timeout is distinct from navigation cancellation and never poisons a later request
+  ---
+  duration_ms: 187.915002
+  type: 'test'
+  ...
+# Subtest: cleanup respects project boundaries and explicitly includes paused audits
+ok 65 - cleanup respects project boundaries and explicitly includes paused audits
+  ---
+  duration_ms: 2.016367
+  type: 'test'
+  ...
+# Subtest: all audit references protect ZIPs and prompts, including completed audits
+ok 66 - all audit references protect ZIPs and prompts, including completed audits
+  ---
+  duration_ms: 2.307148
+  type: 'test'
+  ...
+# Subtest: delete requests accept empty 204 responses and retain conflict status and details
+ok 67 - delete requests accept empty 204 responses and retain conflict status and details
+  ---
+  duration_ms: 230.607868
+  type: 'test'
+  ...
+# Subtest: finding deletion blocks paused audits and scopes active-run guards to the selected project
+ok 68 - finding deletion blocks paused audits and scopes active-run guards to the selected project
+  ---
+  duration_ms: 0.504861
+  type: 'test'
+  ...
+# Subtest: finding cleanup paths use only the selected project and encode source identifiers
+ok 69 - finding cleanup paths use only the selected project and encode source identifiers
+  ---
+  duration_ms: 0.433718
+  type: 'test'
+  ...
+# Subtest: finding cleanup keeps server conflict and failure responses available for retry
+ok 70 - finding cleanup keeps server conflict and failure responses available for retry
+  ---
+  duration_ms: 1.887775
+  type: 'test'
+  ...
+# Subtest: explicit vulnerability classification retains real low risk and excludes neutral source facts
+ok 71 - explicit vulnerability classification retains real low risk and excludes neutral source facts
+  ---
+  duration_ms: 1.665508
+  type: 'test'
+  ...
+# Subtest: only legacy fixed vulnerability categories are inferred without an explicit kind
+ok 72 - only legacy fixed vulnerability categories are inferred without an explicit kind
+  ---
+  duration_ms: 0.251114
+  type: 'test'
+  ...
+# Subtest: old mixed responses split without dropping source facts, human records or revisions
+ok 73 - old mixed responses split without dropping source facts, human records or revisions
+  ---
+  duration_ms: 1.064089
+  type: 'test'
+  ...
+# Subtest: new explicit observation projection wins over its legacy raw row and is deduplicated
+ok 74 - new explicit observation projection wins over its legacy raw row and is deduplicated
+  ---
+  duration_ms: 0.268399
+  type: 'test'
+  ...
+# Subtest: source library is default and legacy audit/settings links keep working
+ok 75 - source library is default and legacy audit/settings links keep working
+  ---
+  duration_ms: 5.954228
+  type: 'test'
+  ...
+# Subtest: source tasks keep an explicit ZIP identifier and decode identifiers safely
+ok 76 - source tasks keep an explicit ZIP identifier and decode identifiers safely
+  ---
+  duration_ms: 0.616973
+  type: 'test'
+  ...
+# Subtest: malformed or unsupported links show a missing page instead of silently creating a draft
+ok 77 - malformed or unsupported links show a missing page instead of silently creating a draft
+  ---
+  duration_ms: 1.100651
+  type: 'test'
+  ...
+# Subtest: stage uses workflow first and never guesses a missing historical stage
+ok 78 - stage uses workflow first and never guesses a missing historical stage
+  ---
+  duration_ms: 6.544351
+  type: 'test'
+  ...
+# Subtest: compact facts distinguish unavailable data, waiting, observations and publication
+ok 79 - compact facts distinguish unavailable data, waiting, observations and publication
+  ---
+  duration_ms: 1.055398
+  type: 'test'
+  ...
+# Subtest: a completed status cannot override pending final review or incomplete host facts
+ok 80 - a completed status cannot override pending final review or incomplete host facts
+  ---
+  duration_ms: 0.382839
+  type: 'test'
+  ...
+# Subtest: routine operations dedupe reads without mixing tasks, identities or revisions
+ok 81 - routine operations dedupe reads without mixing tasks, identities or revisions
+  ---
+  duration_ms: 4.563457
+  type: 'test'
+  ...
+# Subtest: formal settlement, publication, stage changes and experiment failures stay visible
+ok 82 - formal settlement, publication, stage changes and experiment failures stay visible
+  ---
+  duration_ms: 0.807503
+  type: 'test'
+  ...
+# Subtest: only an error with same-execution recovery folds; originals remain expandable
+ok 83 - only an error with same-execution recovery folds; originals remain expandable
+  ---
+  duration_ms: 0.572989
+  type: 'test'
+  ...
+# Subtest: pinned groups retain focused children when results fail or new calls arrive
+ok 84 - pinned groups retain focused children when results fail or new calls arrive
+  ---
+  duration_ms: 1.844
+  type: 'test'
+  ...
+# Subtest: paging keeps inspected history and unresolved errors while limiting routine noise
+ok 85 - paging keeps inspected history and unresolved errors while limiting routine noise
+  ---
+  duration_ms: 1.959929
+  type: 'test'
+  ...
+# Subtest: final review cache shares reads, retains frozen facts and aborts only after last subscriber
+ok 86 - final review cache shares reads, retains frozen facts and aborts only after last subscriber
+  ---
+  duration_ms: 14.903609
+  type: 'test'
+  ...
+# Subtest: missing legacy facts differ from retryable errors and stale late responses cannot publish
+ok 87 - missing legacy facts differ from retryable errors and stale late responses cannot publish
+  ---
+  duration_ms: 2.031004
+  type: 'test'
+  ...
+# Subtest: in-flight reads never count as read files and unrecovered action errors stay explicit
+ok 88 - in-flight reads never count as read files and unrecovered action errors stay explicit
+  ---
+  duration_ms: 1.531378
+  type: 'test'
+  ...
+# Subtest: known legacy 409 falls back but an unrelated 409 stays retryable
+ok 89 - known legacy 409 falls back but an unrelated 409 stays retryable
+  ---
+  duration_ms: 2.955032
+  type: 'test'
+  ...
+# Subtest: different workers and long chronological gaps bound routine summaries
+ok 90 - different workers and long chronological gaps bound routine summaries
+  ---
+  duration_ms: 0.440368
+  type: 'test'
+  ...
+# Subtest: missing coverage counters stay unknown rather than becoming zero or NaN
+ok 91 - missing coverage counters stay unknown rather than becoming zero or NaN
+  ---
+  duration_ms: 0.134312
+  type: 'test'
+  ...
+# Subtest: new interactive audits default to explicit full coverage review
+ok 92 - new interactive audits default to explicit full coverage review
+  ---
+  duration_ms: 1.328323
+  type: 'test'
+  ...
+# Subtest: legacy task copies preserve goal closure and explicit switching controls stop behavior
+ok 93 - legacy task copies preserve goal closure and explicit switching controls stop behavior
+  ---
+  duration_ms: 0.613321
+  type: 'test'
+  ...
+# Subtest: full audits can explicitly inherit the ledger without changing the completion policy
+ok 94 - full audits can explicitly inherit the ledger without changing the completion policy
+  ---
+  duration_ms: 0.275322
+  type: 'test'
+  ...
+# Subtest: mode is never inferred from objective words or a scenario shortcut
+ok 95 - mode is never inferred from objective words or a scenario shortcut
+  ---
+  duration_ms: 0.370962
+  type: 'test'
+  ...
+# Subtest: full coverage always submits stop false even for an inconsistent historical draft
+ok 96 - full coverage always submits stop false even for an inconsistent historical draft
+  ---
+  duration_ms: 0.359122
+  type: 'test'
+  ...
+# Subtest: run policy labels reflect the frozen fields and distinguish historical defaults
+ok 97 - run policy labels reflect the frozen fields and distinguish historical defaults
+  ---
+  duration_ms: 0.483021
+  type: 'test'
+  ...
+# Subtest: copied historical full audits do not silently adopt the new workflow
+ok 98 - copied historical full audits do not silently adopt the new workflow
+  ---
+  duration_ms: 0.289169
+  type: 'test'
+  ...
+# Subtest: a cloned run never carries its frozen stage quotas into the next request
+ok 99 - a cloned run never carries its frozen stage quotas into the next request
+  ---
+  duration_ms: 0.254848
+  type: 'test'
+  ...
+# Subtest: historical copies preserve orchestration and current defaults are an explicit choice
+ok 100 - historical copies preserve orchestration and current defaults are an explicit choice
+  ---
+  duration_ms: 0.669933
+  type: 'test'
+  ...
+# Subtest: payload narrowing rejects arrays/null; summaries never stringify nested JSON
+ok 101 - payload narrowing rejects arrays/null; summaries never stringify nested JSON
+  ---
+  duration_ms: 4.464226
+  type: 'test'
+  ...
+# Subtest: top-level persisted context takes precedence over older payload context
+ok 102 - top-level persisted context takes precedence over older payload context
+  ---
+  duration_ms: 0.730423
+  type: 'test'
+  ...
+# Subtest: reused tool IDs remain distinct across runs, roles, sessions, plans, tasks, workers and attempts
+ok 103 - reused tool IDs remain distinct across runs, roles, sessions, plans, tasks, workers and attempts
+  ---
+  duration_ms: 3.536137
+  type: 'test'
+  ...
+# Subtest: planner round markers scope legacy events that repeat invocation IDs
+ok 104 - planner round markers scope legacy events that repeat invocation IDs
+  ---
+  duration_ms: 1.966997
+  type: 'test'
+  ...
+# Subtest: even very old planner round markers without plan IDs isolate repeated calls
+ok 105 - even very old planner round markers without plan IDs isolate repeated calls
+  ---
+  duration_ms: 0.525883
+  type: 'test'
+  ...
+# Subtest: planner model request counters do not split the planning round into worker attempts
+ok 106 - planner model request counters do not split the planning round into worker attempts
+  ---
+  duration_ms: 0.877385
+  type: 'test'
+  ...
+# Subtest: span IDs distinguish calls; repeated same-scope IDs are never overwritten
+ok 107 - span IDs distinguish calls; repeated same-scope IDs are never overwritten
+  ---
+  duration_ms: 0.315254
+  type: 'test'
+  ...
+# Subtest: call IDs without spans pair only in the same phase; uncorrelated history remains separate
+ok 108 - call IDs without spans pair only in the same phase; uncorrelated history remains separate
+  ---
+  duration_ms: 0.339349
+  type: 'test'
+  ...
+# Subtest: saved zero duration is retained, timestamp fallback and malformed timestamps are safe
+ok 109 - saved zero duration is retained, timestamp fallback and malformed timestamps are safe
+  ---
+  duration_ms: 0.555801
+  type: 'test'
+  ...
+# Subtest: filters and latest-50 paging keep tool pairs intact across the boundary
+ok 110 - filters and latest-50 paging keep tool pairs intact across the boundary
+  ---
+  duration_ms: 1.536666
+  type: 'test'
+  ...
+# Subtest: parallel current workers expand while old attempts and finished planning remain historical
+ok 111 - parallel current workers expand while old attempts and finished planning remain historical
+  ---
+  duration_ms: 0.435347
+  type: 'test'
+  ...
+# Subtest: real Planner lifecycle retires queue/session placeholders when plans and workers start
+ok 112 - real Planner lifecycle retires queue/session placeholders when plans and workers start
+  ---
+  duration_ms: 3.529393
+  type: 'test'
+  ...
+# Subtest: queued projections retain explicit top-level roles but never become active executions
+ok 113 - queued projections retain explicit top-level roles but never become active executions
+  ---
+  duration_ms: 0.283065
+  type: 'test'
+  ...
+# Subtest: two recon invocations in one Planner round isolate reset spans, steps and lifecycle
+ok 114 - two recon invocations in one Planner round isolate reset spans, steps and lifecycle
+  ---
+  duration_ms: 0.6704
+  type: 'test'
+  ...
+# Subtest: phase replay cannot join a new result to a dangling invocation from an earlier phase entry
+ok 115 - phase replay cannot join a new result to a dangling invocation from an earlier phase entry
+  ---
+  duration_ms: 0.327527
+  type: 'test'
+  ...
+# Subtest: JSON publication distinguishes empty and truncated replies from a valid response or rejected decision
+ok 116 - JSON publication distinguishes empty and truncated replies from a valid response or rejected decision
+  ---
+  duration_ms: 0.383936
+  type: 'test'
+  ...
+# Subtest: context events say which side of the ceiling was reached and in what sizes
+ok 117 - context events say which side of the ceiling was reached and in what sizes
+  ---
+  duration_ms: 0.473111
+  type: 'test'
+  ...
+# Subtest: a parse failure is summarized as an output-format problem, not an execution error
+ok 118 - a parse failure is summarized as an output-format problem, not an execution error
+  ---
+  duration_ms: 0.766602
+  type: 'test'
+  ...
+# Subtest: code actions preserve saved code/log/error and phase final does not settle the audit
+ok 119 - code actions preserve saved code/log/error and phase final does not settle the audit
+  ---
+  duration_ms: 0.530972
+  type: 'test'
+  ...
+# Subtest: pause/resume remains reversible and historical terminal records stay collapsed
+ok 120 - pause/resume remains reversible and historical terminal records stay collapsed
+  ---
+  duration_ms: 0.563261
+  type: 'test'
+  ...
+# Subtest: coverage, pinned reuse and budget withdrawal summaries remain bounded and distinguish navigation
+ok 121 - coverage, pinned reuse and budget withdrawal summaries remain bounded and distinguish navigation
+  ---
+  duration_ms: 0.80183
+  type: 'test'
+  ...
+# Subtest: explicit execution IDs isolate clipped recon history without relying on its start marker
+ok 122 - explicit execution IDs isolate clipped recon history without relying on its start marker
+  ---
+  duration_ms: 0.420096
+  type: 'test'
+  ...
+# Subtest: model request ordinals remain separate from worker attempts and repeated span IDs
+ok 123 - model request ordinals remain separate from worker attempts and repeated span IDs
+  ---
+  duration_ms: 0.392705
+  type: 'test'
+  ...
+# Subtest: old worker logs infer model steps without treating the task retry as a request ordinal
+ok 124 - old worker logs infer model steps without treating the task retry as a request ordinal
+  ---
+  duration_ms: 0.387225
+  type: 'test'
+  ...
+# Subtest: duplicate persisted frames never duplicate a tool row or public progress paragraph
+ok 125 - duplicate persisted frames never duplicate a tool row or public progress paragraph
+  ---
+  duration_ms: 0.414394
+  type: 'test'
+  ...
+1..125
+# tests 125
+# suites 0
+# pass 125
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 893.823022
+NPM_EXIT=0

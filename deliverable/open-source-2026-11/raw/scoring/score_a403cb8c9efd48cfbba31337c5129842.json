@@ -1,0 +1,3688 @@
+{
+  "protocol": "lab30-v2",
+  "scope": "all",
+  "class_scope": null,
+  "truths": 30,
+  "findings": 20,
+  "rating_standard": "CVSS:3.1",
+  "score_basis": "Base",
+  "TP": 19,
+  "D": 1,
+  "U": 0,
+  "FP": 1,
+  "FN": 11,
+  "precision": 0.95,
+  "recall": 0.6333333333333333,
+  "f1": 0.76,
+  "matches": [
+    {
+      "truth_id": "01",
+      "truth": "01 商品搜索 SQL 注入",
+      "finding_id": "7e5234adaa304e2b9b63f09b74d84f10",
+      "finding": "商品目录搜索参数 q 拼接进 LIKE 子句导致 SQL 注入",
+      "class": "sqli",
+      "primary_location": {
+        "path": "app/public/catalog/index.php",
+        "line": 4
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "03",
+      "truth": "03 网络诊断命令注入",
+      "finding_id": "1613ba438daf46d8809223179b555a1b",
+      "finding": "网络诊断 ping.php 将 $_GET[\"host\"] 拼接进 shell_exec 造成命令注入",
+      "class": "command_injection",
+      "primary_location": {
+        "path": "app/public/ops/ping.php",
+        "line": 2
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "04",
+      "truth": "04 帮助文档路径遍历读取任意文件",
+      "finding_id": "2ece04fc385849d78397644d7f212ce7",
+      "finding": "帮助文档下载 $_GET['file'] 路径穿越导致任意文件读取",
+      "class": "path_traversal",
+      "primary_location": {
+        "path": "app/public/support/download.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "05",
+      "truth": "05 内容中心本地文件包含",
+      "finding_id": "38009b192ce94e2a877c0247039c2fdd",
+      "finding": "内容页 $_GET['page'] 无过滤拼入 include，可路径穿越/伪协议包含任意文件",
+      "class": "lfi",
+      "primary_location": {
+        "path": "app/public/content/page.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 2.9,
+      "cvss_score_error": 2.9,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "high",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "11",
+      "truth": "11 在线留言存储型 XSS",
+      "finding_id": "6d4f7b4c18aa4046897261a5a91a270a",
+      "finding": "客服留言 $_POST['message'] 存储后未经 h() 回显导致存储型 XSS",
+      "class": "xss_s",
+      "primary_location": {
+        "path": "app/public/support/messages.php",
+        "line": 5
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "13",
+      "truth": "13 合作方配置导入 XXE",
+      "finding_id": "57594bca6898461d9c6ef0705df3c00c",
+      "finding": "xml-import.php 以 LIBXML_NOENT|LIBXML_DTDLOAD 解析 POST XML 造成 XXE 外部实体读取",
+      "class": "xxe",
+      "primary_location": {
+        "path": "app/public/ops/xml-import.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.6,
+      "cvss_score_error": 1.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "15",
+      "truth": "15 会员备份不安全反序列化权益篡改",
+      "finding_id": "74af8fea612849178e9acce08d5052d2",
+      "finding": "会员备份恢复对 $_POST 内容 unserialize 仅做类型判断，存在不安全反序列化",
+      "class": "insecure_deserialization",
+      "primary_location": {
+        "path": "app/public/account/backup.php",
+        "line": 5
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.0,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:L",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "L",
+          "A": "L"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.7,
+      "cvss_score_error": 0.7,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "16",
+      "truth": "16 订单详情越权访问（IDOR）",
+      "finding_id": "e7f3aa5eb8744354bda0c94972980e5e",
+      "finding": "订单详情页缺少归属校验导致越权读取任意订单（IDOR）",
+      "class": "idor",
+      "primary_location": {
+        "path": "app/public/orders/detail.php",
+        "line": 2
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "17",
+      "truth": "17 人员管理信任客户端角色 Cookie 权限绕过",
+      "finding_id": "48166fd3229e48db9d32678e92d487fc",
+      "finding": "ops/users.php 以 $_COOKIE['role'] 作管理员判定，已登录普通用户可伪造 Cookie 越权读取全部用户清单",
+      "class": "auth_bypass",
+      "primary_location": {
+        "path": "app/public/ops/users.php",
+        "line": 2
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 2.2,
+      "cvss_score_error": 2.2,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "20",
+      "truth": "20 提现竞争条件重复支付",
+      "finding_id": "531aba19759244da99fcd894490741ed",
+      "finding": "提现接口先查余额后更新（TOCTOU 竞态），并发可超额提现透支",
+      "class": "race_condition",
+      "primary_location": {
+        "path": "app/public/wallet/withdraw.php",
+        "line": 7
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 0.0,
+      "cvss_score_error": 0.0,
+      "cvss_score_ok": true,
+      "cvss_vector_ok": true,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "21",
+      "truth": "21 会话固定",
+      "finding_id": "b7d7896beb2e4318982adefff2869d09",
+      "finding": "登录前通过 $_GET[sid] 指定会话 ID 且关闭 strict mode 导致会话固定",
+      "class": "session_fixation",
+      "primary_location": {
+        "path": "app/public/auth/login.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "N",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": -1.3,
+      "cvss_score_error": 1.3,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "medium",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "22",
+      "truth": "22 会员兑换码弱类型比较绕过",
+      "finding_id": "1b13d964461f4dae985b32c04bc7d57a",
+      "finding": "兑换码 md5 弱类型比较可被 0e 魔术哈希绕过，免费升级金卡会员",
+      "class": "weak_type_comparison",
+      "primary_location": {
+        "path": "app/public/account/redeem.php",
+        "line": 5
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 2.2,
+      "cvss_score_error": 2.2,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "23",
+      "truth": "23 会员查询跨文件 SQL 注入",
+      "finding_id": "1a1eed009f574569ac803831d324daa3",
+      "finding": "运营会员查询 $_GET['q'] 拼接进 SQL LIKE 造成 SQL 注入（members.php → member_lookup.php）",
+      "class": "sqli",
+      "primary_location": {
+        "path": "app/src/member_lookup.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 4.9,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 2.2,
+      "cvss_score_error": 2.2,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "high",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "25",
+      "truth": "25 个人主页 HTML 属性注入型 XSS",
+      "finding_id": "74953b32ee3d454fa431dee62bd500e7",
+      "finding": "个人主页预览 $_GET['url'] 未转义直出到 href，反射型 XSS/开放重定向",
+      "class": "xss_r",
+      "primary_location": {
+        "path": "app/public/account/profile.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "C",
+          "C": "L",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": -0.7,
+      "cvss_score_error": 0.7,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "medium",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "26",
+      "truth": "26 合作方结算 JWT 未校验签名身份伪造",
+      "finding_id": "83679ea6f22c44d395df903e80119184",
+      "finding": "合作方结算工作台信任客户端 JWT payload 未验签导致认证绕过（IDOR/信息泄露全站订单）",
+      "class": "auth_bypass",
+      "primary_location": {
+        "path": "app/public/partner/portal.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.3,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "N",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 2.2,
+      "cvss_score_error": 2.2,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "medium",
+      "severity_reported": "high",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "27",
+      "truth": "27 任务导入反序列化链命令执行",
+      "finding_id": "47f4e223bb664c5b9add7ce3717f06c2",
+      "finding": "运营任务导入对 $_POST['job'] 反序列化触发 DispatchJob::__wakeup 的 shell_exec 任意命令执行",
+      "class": "insecure_deserialization",
+      "primary_location": {
+        "path": "app/src/dispatch_job.php",
+        "line": 4
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.6,
+      "cvss_score_error": 1.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "28",
+      "truth": "28 会员报表二次 SQL 注入",
+      "finding_id": "038091d558db41a2b4c4a9c53610cfb3",
+      "finding": "运营报表 report.php 将用户可写 nickname 二次拼入 SQL 造成二次 SQL 注入",
+      "class": "sqli",
+      "primary_location": {
+        "path": "app/public/ops/report.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 3.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "N",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "low"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 5.4,
+        "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:L/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "H",
+          "PR": "L",
+          "UI": "R",
+          "S": "U",
+          "C": "H",
+          "I": "L",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.9,
+      "cvss_score_error": 1.9,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "low",
+      "severity_reported": "medium",
+      "severity_ok": false
+    },
+    {
+      "truth_id": "29",
+      "truth": "29 营销排版模板表达式执行",
+      "finding_id": "a76c029d1cb44afcb689a67700828780",
+      "finding": "template-render.php 将 POST 模板中 {{...}} 内表达式直接拼入 eval 造成代码执行",
+      "class": "code_execution",
+      "primary_location": {
+        "path": "app/public/ops/template-render.php",
+        "line": 3
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.2,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "H",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 8.8,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "H"
+        },
+        "severity": "high"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": 1.6,
+      "cvss_score_error": 1.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "high",
+      "severity_ok": true
+    },
+    {
+      "truth_id": "30",
+      "truth": "30 会员资料批量赋值敏感字段修改",
+      "finding_id": "4129b026f1864cb29558c05ee5785818",
+      "finding": "资料更新接口存在大规模字段赋值，可修改 role/balance/tier 提权与篡改余额",
+      "class": "mass_assignment",
+      "primary_location": {
+        "path": "app/public/account/update.php",
+        "line": 6
+      },
+      "cvss_expected": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 7.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "L",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "high"
+      },
+      "cvss_reported": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 6.5,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "L",
+          "UI": "N",
+          "S": "U",
+          "C": "N",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "medium"
+      },
+      "cvss_error": null,
+      "cvss_status": "compared",
+      "cvss_score_delta": -0.6,
+      "cvss_score_error": 0.6,
+      "cvss_score_ok": false,
+      "cvss_vector_ok": false,
+      "severity_expected": "high",
+      "severity_reported": "medium",
+      "severity_ok": false
+    }
+  ],
+  "truth_results": [
+    {
+      "id": "01",
+      "truth_id": "01",
+      "title": "商品搜索 SQL 注入",
+      "class": "sqli",
+      "detected": true,
+      "finding_id": "7e5234adaa304e2b9b63f09b74d84f10",
+      "scoring_locations": [
+        {
+          "path": "app/public/catalog/index.php",
+          "line": 4,
+          "line_sha256": "beffe7da46f3d071e3c354cab2096d3e67bf0c616e80ca230525ad7f5907b675",
+          "rationale": "用户检索词直接拼接 SQL 并执行 query。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/catalog/index.php",
+          "line": 4
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/catalog/index.php",
+        "line": 4
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "02",
+      "truth_id": "02",
+      "title": "到店欢迎反射型 XSS",
+      "class": "xss_r",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3,
+          "line_sha256": "bde78a4a7c32af2ebe76205dc9e9b804f18f85e1100ac40e0a15a5b79ab06b0b",
+          "rationale": "未编码的用户名称进入 HTML 文本输出。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "03",
+      "truth_id": "03",
+      "title": "网络诊断命令注入",
+      "class": "command_injection",
+      "detected": true,
+      "finding_id": "1613ba438daf46d8809223179b555a1b",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/ping.php",
+          "line": 2,
+          "line_sha256": "9420da9ae249eb8fa54bba5abc2a363e03aed97d7a78ad9bcf3c9ac120bb7cae",
+          "rationale": "用户 host 拼接 shell_exec 参数，无 shell 参数转义。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/ping.php",
+          "line": 2
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/ops/ping.php",
+        "line": 2
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "04",
+      "truth_id": "04",
+      "title": "帮助文档路径遍历读取任意文件",
+      "class": "path_traversal",
+      "detected": true,
+      "finding_id": "2ece04fc385849d78397644d7f212ce7",
+      "scoring_locations": [
+        {
+          "path": "app/public/support/download.php",
+          "line": 3,
+          "line_sha256": "18400287d034179782608795cb1c445824259d3fad802d9b70a3901ccb828386",
+          "rationale": "用户文件名拼接数据目录后直接读取，无规范化边界校验。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/support/download.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/support/download.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "05",
+      "truth_id": "05",
+      "title": "内容中心本地文件包含",
+      "class": "lfi",
+      "detected": true,
+      "finding_id": "38009b192ce94e2a877c0247039c2fdd",
+      "scoring_locations": [
+        {
+          "path": "app/public/content/page.php",
+          "line": 3,
+          "line_sha256": "01ecb58858c8af3162d88b2c183e42d4dc4146a98e34000a42f3223376e85583",
+          "rationale": "用户 page 拼接模板路径后 include，无路径约束。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/content/page.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/content/page.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 2.9,
+        "cvss_score_error": 2.9,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "high",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "06",
+      "truth_id": "06",
+      "title": "远程模板预览远程文件包含",
+      "class": "rfi",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3,
+          "line_sha256": "9bd126053a56cceb5676fb20fed2c1aa9b0890297dbd456684a0f6cac0e44698",
+          "rationale": "用户提供的远程模板地址直接 include。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "07",
+      "truth_id": "07",
+      "title": "运营公式动态函数调用代码执行",
+      "class": "code_execution",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3,
+          "line_sha256": "b19cc75cb9b92d69d482f8fe626389c836cb73d63bc563cdcb374148ac192812",
+          "rationale": "用户选择函数名并控制调用参数，缺少允许函数清单。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "08",
+      "truth_id": "08",
+      "title": "继续访问开放重定向",
+      "class": "open_redirect",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3,
+          "line_sha256": "1f0b75a5fd28bf348d7394d0ddc7dc2fe0df29d01ba17ada286ab9304404afbf",
+          "rationale": "未校验目的域名的 next 直接进入 Location 响应头。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "09",
+      "truth_id": "09",
+      "title": "数据库诊断异常与堆栈信息泄露",
+      "class": "info_disclosure",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3,
+          "line_sha256": "e78884061f4c4b81c82941cb05fa6ad4522f0f1565fdec2bdffeae193a6e0fce",
+          "rationale": "异常类型、消息和完整堆栈直接拼入页面输出。"
+        },
+        {
+          "path": "app/public/ops/database.php",
+          "line": 4,
+          "line_sha256": "0a928e56e8e51b9557dc4c79294611f7c293246f1d7a42b73e79a56fc1617cc6",
+          "rationale": "页面输出未经隐藏处理的诊断异常消息和堆栈；HTML 转义不消除信息泄露。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "10",
+      "truth_id": "10",
+      "title": "使用 MD5 存储密码",
+      "class": "weak_crypto",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8,
+          "line_sha256": "a231629824f2b856423cfaf35a47e1af2b791b88241ac2d32ea979a3a4099923",
+          "rationale": "注册密码以无盐快速 MD5 形式写入 password_md5。"
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17,
+          "line_sha256": "e23345e7042ee9c9cee6290475dcebee0cac02f9d3a2852c2cd5ae8390045b8a",
+          "rationale": "初始化用户密码以无盐 MD5 形式写入用户表。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "11",
+      "truth_id": "11",
+      "title": "在线留言存储型 XSS",
+      "class": "xss_s",
+      "detected": true,
+      "finding_id": "6d4f7b4c18aa4046897261a5a91a270a",
+      "scoring_locations": [
+        {
+          "path": "app/public/support/messages.php",
+          "line": 5,
+          "line_sha256": "e1df15bc3431b02f261af85b540e7427cfae28b52053db5de25a7df0373a2378",
+          "rationale": "持久化用户留言直接进入 HTML，不执行输出编码。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/support/messages.php",
+          "line": 5
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/support/messages.php",
+        "line": 5
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.4,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "R",
+            "S": "C",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.4,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "R",
+            "S": "C",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "12",
+      "truth_id": "12",
+      "title": "链接预览服务端请求伪造",
+      "class": "ssrf",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3,
+          "line_sha256": "7c71772702bac10d8d234b0d0a8dfc408153bc059dcef867254ba35f29cda6a9",
+          "rationale": "任意用户 URL 传入服务器 file_get_contents，无目标允许清单。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "13",
+      "truth_id": "13",
+      "title": "合作方配置导入 XXE",
+      "class": "xxe",
+      "detected": true,
+      "finding_id": "57594bca6898461d9c6ef0705df3c00c",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/xml-import.php",
+          "line": 3,
+          "line_sha256": "e463934898ab6cb2064502fc48cb73574f6b237924606e707d33c482dd7f3f06",
+          "rationale": "不可信 XML 使用 LIBXML_NOENT 和 LIBXML_DTDLOAD 展开外部实体。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/xml-import.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/ops/xml-import.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.9,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.6,
+        "cvss_score_error": 1.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "14",
+      "truth_id": "14",
+      "title": "邮箱设置跨站请求伪造",
+      "class": "csrf",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5,
+          "line_sha256": "53f409fd8b888dc72278f1bb483f4bb3a0097af02379243396b9bc2092248f29",
+          "rationale": "已认证用户邮箱更新操作缺失 CSRF 令牌检查。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "15",
+      "truth_id": "15",
+      "title": "会员备份不安全反序列化权益篡改",
+      "class": "insecure_deserialization",
+      "detected": true,
+      "finding_id": "74af8fea612849178e9acce08d5052d2",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/backup.php",
+          "line": 5,
+          "line_sha256": "bb6cd41856580981d3f89d24aa955bb9e1074d1b03212c8f13245a346d8e9bc1",
+          "rationale": "未设置 allowed_classes 的不可信反序列化，之后的类型判断发生过晚。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/backup.php",
+          "line": 5
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/account/backup.php",
+        "line": 5
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.0,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:L",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "L",
+            "A": "L"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.7,
+        "cvss_score_error": 0.7,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "16",
+      "truth_id": "16",
+      "title": "订单详情越权访问（IDOR）",
+      "class": "idor",
+      "detected": true,
+      "finding_id": "e7f3aa5eb8744354bda0c94972980e5e",
+      "scoring_locations": [
+        {
+          "path": "app/public/orders/detail.php",
+          "line": 2,
+          "line_sha256": "0b45c2674e8bb6ef3d17c37a2bdc9c42e02c5f6bf60881f99fce938599078930",
+          "rationale": "按用户控制订单 ID 查询，无订单 user_id 归属限制。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/orders/detail.php",
+          "line": 2
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/orders/detail.php",
+        "line": 2
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "17",
+      "truth_id": "17",
+      "title": "人员管理信任客户端角色 Cookie 权限绕过",
+      "class": "auth_bypass",
+      "detected": true,
+      "finding_id": "48166fd3229e48db9d32678e92d487fc",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2,
+          "line_sha256": "2c144459341e60bd6a9a03ae60ef87881d140dd3d089e584f9fcf546229f4e36",
+          "rationale": "客户端 role Cookie 覆盖真实用户角色并决定管理员授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/users.php",
+          "line": 2
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/ops/users.php",
+        "line": 2
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 2.2,
+        "cvss_score_error": 2.2,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "18",
+      "truth_id": "18",
+      "title": "维护接口信任请求头认证绕过",
+      "class": "auth_bypass",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3,
+          "line_sha256": "3df8df57413258463abaea08fa6fcce33fe128751d9848cf7962a2cc0a8f18d3",
+          "rationale": "仅依赖客户端 X-Admin 请求头决定维护服务授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "19",
+      "truth_id": "19",
+      "title": "下单信任客户端单价金额篡改",
+      "class": "price_manipulation",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3,
+          "line_sha256": "f8bca8b689b32a51ea0fa3eb226047c9a64c8eb9c8085b8211c31db263d9ebfd",
+          "rationale": "订单单价取自客户端 POST price 而非已读取的服务端商品记录。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5,
+          "line_sha256": "7b36f5f1102b5b2e73b185de7df3ea0bccf240d9ba391f88365b67cd0991f325",
+          "rationale": "直接以客户端单价计算订单总价。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 7,
+          "line_sha256": "2a1a65f646c4e6f459858146edc063f2d7e9a96a1127b71e98b2a27d6c23643a",
+          "rationale": "将客户端单价和据此计算的总价持久化为订单价格。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "20",
+      "truth_id": "20",
+      "title": "提现竞争条件重复支付",
+      "class": "race_condition",
+      "detected": true,
+      "finding_id": "531aba19759244da99fcd894490741ed",
+      "scoring_locations": [
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 4,
+          "line_sha256": "cbe6f3296cf5b7d32dfdcdb71ece7e5f4a0fd1a9a489bad868b51ac928848aec",
+          "rationale": "余额读取不加锁，与后续写入及提现记录缺少原子事务。"
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 7,
+          "line_sha256": "a776c4ce70272bf6ce67b9bd10738dab70c6a0039a6d2790f7bae7f36099a70b",
+          "rationale": "以过时余额计算并覆盖更新，缺少余额条件的原子扣款。"
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 8,
+          "line_sha256": "a414d1c3d23923668f66b17a88d491d780ae62c4c7695dcac2e7c8d063a094f0",
+          "rationale": "提现记录与余额检查及扣款缺少同一受锁事务。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/wallet/withdraw.php",
+          "line": 7
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/wallet/withdraw.php",
+        "line": 7
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 0.0,
+        "cvss_score_error": 0.0,
+        "cvss_score_ok": true,
+        "cvss_vector_ok": true,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "21",
+      "truth_id": "21",
+      "title": "会话固定",
+      "class": "session_fixation",
+      "detected": true,
+      "finding_id": "b7d7896beb2e4318982adefff2869d09",
+      "scoring_locations": [
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 13,
+          "line_sha256": "51ba4456e570a6e82e11c7e63c95004fe219b2474f825e6f03a4b7478acd86e1",
+          "rationale": "关闭会话严格模式，允许接受未初始化的外部会话 ID。"
+        },
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 17,
+          "line_sha256": "6b0b26071dd19abb23b0a3ce89387c7f527c3cd0dac38d62c6265f0dada38bf7",
+          "rationale": "显式将外部提供 ID 设置为会话 ID。"
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 3,
+          "line_sha256": "4512a29dd995273eb616faa731118a9663017d83d2899fdb315a719a56a283e2",
+          "rationale": "登录入口接受 sid 并传入会话启动逻辑。"
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 8,
+          "line_sha256": "a273818ddbe6b1ba72e6e4449153382e8ae3ed865e0e88311325b708183fb23f",
+          "rationale": "认证成功仅设置 user_id，未重新生成会话 ID。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/src/bootstrap.php",
+          "line": 13
+        },
+        {
+          "path": "app/public/auth/login.php",
+          "line": 8
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/auth/login.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.8,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "N",
+            "UI": "R",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": -1.3,
+        "cvss_score_error": 1.3,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "medium",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "22",
+      "truth_id": "22",
+      "title": "会员兑换码弱类型比较绕过",
+      "class": "weak_type_comparison",
+      "detected": true,
+      "finding_id": "1b13d964461f4dae985b32c04bc7d57a",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/redeem.php",
+          "line": 5,
+          "line_sha256": "660f9f18c8c95ea97a893d82b67cd5a2839f4b5720bee01cdf36503fa9a1048e",
+          "rationale": "MD5 摘要采用 == 弱比较，数字形式摘要触发类型转换。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/redeem.php",
+          "line": 5
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/account/redeem.php",
+        "line": 5
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 2.2,
+        "cvss_score_error": 2.2,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "23",
+      "truth_id": "23",
+      "title": "会员查询跨文件 SQL 注入",
+      "class": "sqli",
+      "detected": true,
+      "finding_id": "1a1eed009f574569ac803831d324daa3",
+      "scoring_locations": [
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3,
+          "line_sha256": "a7d93b540dbfb5dc4ad5ae70d79c16c1cf24201f488f728a5b9481a365451c1b",
+          "rationale": "跨文件传入的检索词在公共函数中拼接 SQL 并 query。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/members.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/member_lookup.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "app/src/member_lookup.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 4.9,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 2.2,
+        "cvss_score_error": 2.2,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "high",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "24",
+      "truth_id": "24",
+      "title": "主机巡检跨文件命令注入",
+      "class": "command_injection",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/src/host_check.php",
+          "line": 2,
+          "line_sha256": "fa0699fdd4a540a46ac8bd99e7eea2771d121362ac5dfc6b561d4625372954fa",
+          "rationale": "公共巡检函数将调用方 host 直接拼入 shell_exec。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/batch-check.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "25",
+      "truth_id": "25",
+      "title": "个人主页 HTML 属性注入型 XSS",
+      "class": "xss_r",
+      "detected": true,
+      "finding_id": "74953b32ee3d454fa431dee62bd500e7",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/profile.php",
+          "line": 3,
+          "line_sha256": "1ae1b7787fc2d28cd30e6f9b1089657e3fa3d486ce673efc0899d8c3fc6b7b88",
+          "rationale": "用户 URL 未经属性编码或协议校验直接进入 href 属性。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/profile.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/account/profile.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "R",
+            "S": "C",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.4,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "R",
+            "S": "C",
+            "C": "L",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": -0.7,
+        "cvss_score_error": 0.7,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "medium",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "26",
+      "truth_id": "26",
+      "title": "合作方结算 JWT 未校验签名身份伪造",
+      "class": "auth_bypass",
+      "detected": true,
+      "finding_id": "83679ea6f22c44d395df903e80119184",
+      "scoring_locations": [
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 2,
+          "line_sha256": "b9e89e5ab7438cdd6c57b4695e78e0c27c084b2b9e014863735300b25ef4dc77",
+          "rationale": "仅 Base64 解码 JWT 负载，未核验签名。"
+        },
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 3,
+          "line_sha256": "f3b86cdd20addf7e6c3445c9dd4b44360c28f32138a8e697a7a6a864d2616ea2",
+          "rationale": "对未验签负载中的 role 直接进行管理员授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/partner/portal.php",
+          "line": 2
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/partner/portal.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.3,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "N",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "N",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 2.2,
+        "cvss_score_error": 2.2,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "medium",
+        "severity_reported": "high",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "27",
+      "truth_id": "27",
+      "title": "任务导入反序列化链命令执行",
+      "class": "insecure_deserialization",
+      "detected": true,
+      "finding_id": "47f4e223bb664c5b9add7ce3717f06c2",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/jobs.php",
+          "line": 3,
+          "line_sha256": "779c09d981ca0cb034e29b4414e7765c323dbc4d54ec268aa3a0991978e4ad27",
+          "rationale": "用户任务在实例检查前执行不受限 unserialize，触发生命周期方法。"
+        },
+        {
+          "path": "app/src/dispatch_job.php",
+          "line": 4,
+          "line_sha256": "8257b36671b583b23b53f8a98081627109cb9e6ec6f44eb4a661e97ef128f868",
+          "rationale": "反序列化触发 __wakeup 并对对象控制的 command 执行 shell_exec。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/jobs.php",
+          "line": 3
+        },
+        {
+          "path": "app/src/dispatch_job.php",
+          "line": 4
+        }
+      ],
+      "primary_location": {
+        "path": "app/src/dispatch_job.php",
+        "line": 4
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.8,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.6,
+        "cvss_score_error": 1.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "28",
+      "truth_id": "28",
+      "title": "会员报表二次 SQL 注入",
+      "class": "sqli",
+      "detected": true,
+      "finding_id": "038091d558db41a2b4c4a9c53610cfb3",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/report.php",
+          "line": 3,
+          "line_sha256": "c828247b5cfc2b4b842f36335ad318dd7aa58e039a0406db76f8fd74c6ad721d",
+          "rationale": "从数据库读出的可控昵称再次拼接 SQL，属于二次 SQL 注入实际执行点。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/update.php",
+          "line": 6
+        },
+        {
+          "path": "app/public/ops/report.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/ops/report.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 3.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "R",
+            "S": "U",
+            "C": "N",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "low"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 5.4,
+          "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:L/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "H",
+            "PR": "L",
+            "UI": "R",
+            "S": "U",
+            "C": "H",
+            "I": "L",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.9,
+        "cvss_score_error": 1.9,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "low",
+        "severity_reported": "medium",
+        "severity_ok": false
+      }
+    },
+    {
+      "id": "29",
+      "truth_id": "29",
+      "title": "营销排版模板表达式执行",
+      "class": "code_execution",
+      "detected": true,
+      "finding_id": "a76c029d1cb44afcb689a67700828780",
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/template-render.php",
+          "line": 3,
+          "line_sha256": "dce9c9b6051abbea490f77e5af24055a7311da63daa6862bc540fee1f649b0b9",
+          "rationale": "用户模板表达式直接进入 eval 动态执行。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/template-render.php",
+          "line": 3
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/ops/template-render.php",
+        "line": 3
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.2,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "H",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 8.8,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "H",
+            "I": "H",
+            "A": "H"
+          },
+          "severity": "high"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": 1.6,
+        "cvss_score_error": 1.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "high",
+        "severity_ok": true
+      }
+    },
+    {
+      "id": "30",
+      "truth_id": "30",
+      "title": "会员资料批量赋值敏感字段修改",
+      "class": "mass_assignment",
+      "detected": true,
+      "finding_id": "4129b026f1864cb29558c05ee5785818",
+      "scoring_locations": [
+        {
+          "path": "app/public/account/update.php",
+          "line": 4,
+          "line_sha256": "52d8c65d3ed7239c41a68274ea9cb6d3ab0bf41ea8945e006464c7b8f762bcee",
+          "rationale": "普通会员可编辑字段清单错误包含 role、balance、tier 敏感属性。"
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 5,
+          "line_sha256": "a96d906676e0d81d568b03b0235a3fdb05d7d1c1d5d0a37eddfed7d440b8d1a2",
+          "rationale": "根据过宽字段清单接受客户端敏感属性。"
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 6,
+          "line_sha256": "3b4287334996f92bbb92739759cd27a4b85216d00e46f82fc385085fbffa097f",
+          "rationale": "预处理仅保护值语法，仍把无权修改的敏感字段持久化。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/update.php",
+          "line": 4
+        },
+        {
+          "path": "app/public/account/update.php",
+          "line": 6
+        }
+      ],
+      "primary_location": {
+        "path": "app/public/account/update.php",
+        "line": 6
+      },
+      "rating": {
+        "cvss_expected": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 7.1,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "L",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "high"
+        },
+        "cvss_reported": {
+          "version": "3.1",
+          "score_basis": "Base",
+          "base_score": 6.5,
+          "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+          "metrics": {
+            "AV": "N",
+            "AC": "L",
+            "PR": "L",
+            "UI": "N",
+            "S": "U",
+            "C": "N",
+            "I": "H",
+            "A": "N"
+          },
+          "severity": "medium"
+        },
+        "cvss_error": null,
+        "cvss_status": "compared",
+        "cvss_score_delta": -0.6,
+        "cvss_score_error": 0.6,
+        "cvss_score_ok": false,
+        "cvss_vector_ok": false,
+        "severity_expected": "high",
+        "severity_reported": "medium",
+        "severity_ok": false
+      }
+    }
+  ],
+  "duplicates": [
+    {
+      "id": "38273869d4474b6eb03476f321dd532c",
+      "run_id": "a403cb8c9efd48cfbba31337c5129842",
+      "unit_id": "bf2f28686bce472d929518526726d5ac",
+      "fingerprint": "e719392b08ec64ec1c741c27b858f959",
+      "category": "task_goal:v2:809215750a4dd8e0c67f:1",
+      "finding_kind": "vulnerability",
+      "title": "内容中心 $_GET['page'] 未过滤拼接进 include，导致无需登录的 LFI/本地 PHP 执行",
+      "severity": "critical",
+      "summary": "content/page.php:2 从 $_GET['page'] 取值并强制转字符串后传入闭包；第 3 行直接用 include APP_ROOT.'/resources/views/'.$name.'.php' 拼接，未使用 basename、realpath 或白名单。bootstrap.php:3 中 APP_ROOT 为 app 目录，因此注入 ../.. 可跳出 views 目录。setup.php:34 写入 data_dir()/vault/internal.txt，35 写入 account.php（内含 PHP echo 代码）；bootstrap.php:9 默认 data_dir 为 /var/lib/shop。因 content/page.php:2 未调用 require_user，未登录即可读取或执行这些已存在文件。",
+      "evidence": [
+        {
+          "path": "app/public/content/page.php",
+          "start_line": 1,
+          "end_line": 3
+        },
+        {
+          "path": "app/src/bootstrap.php",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "app/src/bootstrap.php",
+          "start_line": 9,
+          "end_line": 9
+        },
+        {
+          "path": "app/src/bootstrap.php",
+          "start_line": 47,
+          "end_line": 60
+        },
+        {
+          "path": "app/src/setup.php",
+          "start_line": 30,
+          "end_line": 35
+        },
+        {
+          "path": "app/resources/views/home.php",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "app/resources/views/shipping.php",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ],
+      "input_source": "HTTP GET 参数 page（$_GET['page']）",
+      "propagation": "page.php:2 读取 $_GET['page'] 并转成字符串 $name → 闭包 use($name) → page.php:3 include APP_ROOT.'/resources/views/'.$name.'.php'，路径中无中间目录限制；page() 在 bootstrap.php:59 调用 $body() 执行该闭包",
+      "dangerous_operation": "include 动态拼接路径，允许 ../ 穿越和包装器，最高可包含并执行 /var/lib/shop/vault/account.php",
+      "protection": "无：未调用 require_user，无 basename/realpath/白名单校验，仅做字符串类型转换",
+      "preconditions": [
+        "setup 已运行并在 /var/lib/shop/vault 生成 internal.txt 与 account.php；Web 进程对该路径可读。攻击无需登录。"
+      ],
+      "missing_context": [
+        "未能读取 app/public 之外的部署配置：php.ini 中的 allow_url_include、open_basedir 和 include_path；这些配置会影响远程包装器或路径穿越是否能成功，因此仅以已确认的本地文件包含为结论基础。"
+      ],
+      "poc": null,
+      "remediation": "将 include 目标改为白名单映射（如 page.php 中 home/shipping 到固定视图文件），禁止用户输入进入 include 路径；若必须动态选择，使用 basename 并基于 realpath 校验结果仍位于 resources/views 内。",
+      "validation_state": "candidate",
+      "validation_errors": [],
+      "verdict": null,
+      "created_at": "2026-11-08T12:34:55.508746+00:00",
+      "vulnerability_type": "lfi",
+      "primary_location": {
+        "path": "app/public/content/page.php",
+        "line": 3
+      },
+      "revision": 1,
+      "superseded_summary": [],
+      "derived_from_finding_id": null,
+      "disposition": "open",
+      "disposition_reason": null,
+      "disposition_by": null,
+      "disposition_at": null,
+      "project_finding_id": "c6f54f6654764ed98ad5901c9d1299c2",
+      "project_revision": 3,
+      "verification_status": "unverified",
+      "verification_verdict": null,
+      "cvss": {
+        "version": "3.1",
+        "score_basis": "Base",
+        "base_score": 9.1,
+        "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "metrics": {
+          "AV": "N",
+          "AC": "L",
+          "PR": "N",
+          "UI": "N",
+          "S": "U",
+          "C": "H",
+          "I": "H",
+          "A": "N"
+        },
+        "severity": "critical"
+      },
+      "cvss_assessment": {
+        "status": "scored",
+        "source": "auto",
+        "assessment_revision": 1,
+        "conclusion_revision": 1,
+        "engine_version": "cvss31-base-1",
+        "metric_details": {
+          "AV": {
+            "value": "N",
+            "rationale": "content/page.php 通过公开 HTTP 入口调用，page.php:2 未调用 require_user",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 1,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "AC": {
+            "value": "L",
+            "rationale": "只需构造 page 参数固定字符串遍历路径，无需并发或特殊条件",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 2,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "PR": {
+            "value": "N",
+            "rationale": "content/page.php:2 未调用 require_user，未认证即可请求",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 2,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "UI": {
+            "value": "N",
+            "rationale": "攻击者自行请求即可触发，无需他人操作",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 2,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "S": {
+            "value": "U",
+            "rationale": "仍在同一 PHP 进程与授权边界内读取/执行文件",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 2,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "C": {
+            "value": "H",
+            "rationale": "可包含任意可读文件，如 /var/lib/shop/vault/internal.txt（setup.php:34 写入含内部标记的文本）",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 3,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              },
+              {
+                "path": "app/src/setup.php",
+                "start_line": 34,
+                "end_line": 34,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "I": {
+            "value": "H",
+            "rationale": "可包含 /var/lib/shop/vault/account.php（setup.php:35 写入的 PHP 代码），实现执行任意已存在 PHP 代码",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 3,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              },
+              {
+                "path": "app/src/setup.php",
+                "start_line": 35,
+                "end_line": 35,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          },
+          "A": {
+            "value": "N",
+            "rationale": "源码未显示该路径删除或破坏持久数据",
+            "evidence": [
+              {
+                "path": "app/public/content/page.php",
+                "start_line": 3,
+                "end_line": 3,
+                "snapshot_id": "6318d3e653df455b960bb8ec2846ef89"
+              }
+            ],
+            "assumption": false,
+            "issues": []
+          }
+        },
+        "issues": [],
+        "created_at": "2026-11-08T12:34:55.508831+00:00",
+        "snapshot_id": "6318d3e653df455b960bb8ec2846ef89",
+        "run_id": "a403cb8c9efd48cfbba31337c5129842"
+      },
+      "legacy_severity": null,
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "直接命中外控 $_GET 输入流入 include 文件包含的完整数据流，并关联 setup.php 写入的 data_dir 文件，符合目标中追踪输入到危险操作的要求。",
+        "evidence": [
+          {
+            "path": "app/public/content/page.php",
+            "start_line": 1,
+            "end_line": 3
+          },
+          {
+            "path": "app/src/setup.php",
+            "start_line": 30,
+            "end_line": 35
+          },
+          {
+            "path": "app/src/bootstrap.php",
+            "start_line": 3,
+            "end_line": 9
+          }
+        ],
+        "supports": [
+          "dir_cedd5bc1809373fc8f1a464616a9c7f6"
+        ],
+        "chain": [
+          {
+            "kind": "input",
+            "evidence": {
+              "path": "app/public/content/page.php",
+              "start_line": 2,
+              "end_line": 2
+            },
+            "explanation": "$_GET['page'] 被读取并转成字符串"
+          },
+          {
+            "kind": "sink",
+            "evidence": {
+              "path": "app/public/content/page.php",
+              "start_line": 3,
+              "end_line": 3
+            },
+            "explanation": "字符串直接拼入 include 路径"
+          }
+        ]
+      },
+      "retest": "负例：GET /content/page.php?page=home 正常渲染；GET /content/page.php?page=../../../../var/lib/shop/vault/internal 应 404 或拒绝，不应回显 SHOP_INTERNAL_ 标记。回归：正常 home、shipping 页面与导航链接不受影响；未登录访问仍可展示内容页，但无法读取目标目录外文件。",
+      "capability_policy": "audit-capability-v1",
+      "verifications": [],
+      "verification_reviews": [],
+      "file_path": "app/public/content/page.php",
+      "symbol": "<project>",
+      "unit_start_line": 1,
+      "unit_end_line": 3,
+      "task_id": "bf2f28686bce472d929518526726d5ac",
+      "task_key": "content-page-include-lfi",
+      "line": 1
+    }
+  ],
+  "unmatched": [],
+  "diagnostics": [],
+  "missed_diagnostics": [
+    {
+      "truth_id": "02",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "06",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "07",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "08",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "09",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "10",
+      "reason": "type_mismatch",
+      "related_candidates": [
+        {
+          "finding_id": "038091d558db41a2b4c4a9c53610cfb3",
+          "reason": "type_mismatch",
+          "primary_location": {
+            "path": "app/public/ops/report.php",
+            "line": 3
+          },
+          "vulnerability_type": "sqli"
+        }
+      ],
+      "affects_score": false
+    },
+    {
+      "truth_id": "12",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "14",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "18",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "19",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    },
+    {
+      "truth_id": "24",
+      "reason": "no_related_candidate",
+      "related_candidates": [],
+      "affects_score": false
+    }
+  ],
+  "duplicate_statistics": {
+    "still_asserted": 1,
+    "resolved": 0
+  },
+  "excluded_invalid": [],
+  "false_positives": [
+    "内容中心 $_GET['page'] 未过滤拼接进 include，导致无需登录的 LFI/本地 PHP 执行"
+  ],
+  "missed": [
+    "02 到店欢迎反射型 XSS",
+    "06 远程模板预览远程文件包含",
+    "07 运营公式动态函数调用代码执行",
+    "08 继续访问开放重定向",
+    "09 数据库诊断异常与堆栈信息泄露",
+    "10 使用 MD5 存储密码",
+    "12 链接预览服务端请求伪造",
+    "14 邮箱设置跨站请求伪造",
+    "18 维护接口信任请求头认证绕过",
+    "19 下单信任客户端单价金额篡改",
+    "24 主机巡检跨文件命令注入"
+  ],
+  "missed_details": [
+    {
+      "id": "02",
+      "truth_id": "02",
+      "title": "到店欢迎反射型 XSS",
+      "class": "xss_r",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3,
+          "line_sha256": "bde78a4a7c32af2ebe76205dc9e9b804f18f85e1100ac40e0a15a5b79ab06b0b",
+          "rationale": "未编码的用户名称进入 HTML 文本输出。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/catalog/greeting.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "06",
+      "truth_id": "06",
+      "title": "远程模板预览远程文件包含",
+      "class": "rfi",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3,
+          "line_sha256": "9bd126053a56cceb5676fb20fed2c1aa9b0890297dbd456684a0f6cac0e44698",
+          "rationale": "用户提供的远程模板地址直接 include。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/template-preview.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "07",
+      "truth_id": "07",
+      "title": "运营公式动态函数调用代码执行",
+      "class": "code_execution",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3,
+          "line_sha256": "b19cc75cb9b92d69d482f8fe626389c836cb73d63bc563cdcb374148ac192812",
+          "rationale": "用户选择函数名并控制调用参数，缺少允许函数清单。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/formula.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "08",
+      "truth_id": "08",
+      "title": "继续访问开放重定向",
+      "class": "open_redirect",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3,
+          "line_sha256": "1f0b75a5fd28bf348d7394d0ddc7dc2fe0df29d01ba17ada286ab9304404afbf",
+          "rationale": "未校验目的域名的 next 直接进入 Location 响应头。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/auth/continue.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "09",
+      "truth_id": "09",
+      "title": "数据库诊断异常与堆栈信息泄露",
+      "class": "info_disclosure",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3,
+          "line_sha256": "e78884061f4c4b81c82941cb05fa6ad4522f0f1565fdec2bdffeae193a6e0fce",
+          "rationale": "异常类型、消息和完整堆栈直接拼入页面输出。"
+        },
+        {
+          "path": "app/public/ops/database.php",
+          "line": 4,
+          "line_sha256": "0a928e56e8e51b9557dc4c79294611f7c293246f1d7a42b73e79a56fc1617cc6",
+          "rationale": "页面输出未经隐藏处理的诊断异常消息和堆栈；HTML 转义不消除信息泄露。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/database.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "10",
+      "truth_id": "10",
+      "title": "使用 MD5 存储密码",
+      "class": "weak_crypto",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8,
+          "line_sha256": "a231629824f2b856423cfaf35a47e1af2b791b88241ac2d32ea979a3a4099923",
+          "rationale": "注册密码以无盐快速 MD5 形式写入 password_md5。"
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17,
+          "line_sha256": "e23345e7042ee9c9cee6290475dcebee0cac02f9d3a2852c2cd5ae8390045b8a",
+          "rationale": "初始化用户密码以无盐 MD5 形式写入用户表。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/auth/register.php",
+          "line": 8
+        },
+        {
+          "path": "app/src/setup.php",
+          "line": 17
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "12",
+      "truth_id": "12",
+      "title": "链接预览服务端请求伪造",
+      "class": "ssrf",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3,
+          "line_sha256": "7c71772702bac10d8d234b0d0a8dfc408153bc059dcef867254ba35f29cda6a9",
+          "rationale": "任意用户 URL 传入服务器 file_get_contents，无目标允许清单。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/url-preview.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "14",
+      "truth_id": "14",
+      "title": "邮箱设置跨站请求伪造",
+      "class": "csrf",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5,
+          "line_sha256": "53f409fd8b888dc72278f1bb483f4bb3a0097af02379243396b9bc2092248f29",
+          "rationale": "已认证用户邮箱更新操作缺失 CSRF 令牌检查。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/account/settings.php",
+          "line": 5
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "18",
+      "truth_id": "18",
+      "title": "维护接口信任请求头认证绕过",
+      "class": "auth_bypass",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3,
+          "line_sha256": "3df8df57413258463abaea08fa6fcce33fe128751d9848cf7962a2cc0a8f18d3",
+          "rationale": "仅依赖客户端 X-Admin 请求头决定维护服务授权。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/maintenance.php",
+          "line": 3
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "19",
+      "truth_id": "19",
+      "title": "下单信任客户端单价金额篡改",
+      "class": "price_manipulation",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3,
+          "line_sha256": "f8bca8b689b32a51ea0fa3eb226047c9a64c8eb9c8085b8211c31db263d9ebfd",
+          "rationale": "订单单价取自客户端 POST price 而非已读取的服务端商品记录。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5,
+          "line_sha256": "7b36f5f1102b5b2e73b185de7df3ea0bccf240d9ba391f88365b67cd0991f325",
+          "rationale": "直接以客户端单价计算订单总价。"
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 7,
+          "line_sha256": "2a1a65f646c4e6f459858146edc063f2d7e9a96a1127b71e98b2a27d6c23643a",
+          "rationale": "将客户端单价和据此计算的总价持久化为订单价格。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/orders/create.php",
+          "line": 3
+        },
+        {
+          "path": "app/public/orders/create.php",
+          "line": 5
+        }
+      ],
+      "primary_location": null
+    },
+    {
+      "id": "24",
+      "truth_id": "24",
+      "title": "主机巡检跨文件命令注入",
+      "class": "command_injection",
+      "detected": false,
+      "finding_id": null,
+      "scoring_locations": [
+        {
+          "path": "app/src/host_check.php",
+          "line": 2,
+          "line_sha256": "fa0699fdd4a540a46ac8bd99e7eea2771d121362ac5dfc6b561d4625372954fa",
+          "rationale": "公共巡检函数将调用方 host 直接拼入 shell_exec。"
+        }
+      ],
+      "location": [
+        {
+          "path": "app/public/ops/batch-check.php",
+          "line": 2
+        },
+        {
+          "path": "app/src/host_check.php",
+          "line": 2
+        }
+      ],
+      "primary_location": null
+    }
+  ],
+  "class_coverage": {
+    "sqli": {
+      "total": 3,
+      "detected": 3,
+      "missed": 0,
+      "detected_ids": [
+        "01",
+        "23",
+        "28"
+      ],
+      "missed_ids": []
+    },
+    "xss_r": {
+      "total": 2,
+      "detected": 1,
+      "missed": 1,
+      "detected_ids": [
+        "25"
+      ],
+      "missed_ids": [
+        "02"
+      ]
+    },
+    "command_injection": {
+      "total": 2,
+      "detected": 1,
+      "missed": 1,
+      "detected_ids": [
+        "03"
+      ],
+      "missed_ids": [
+        "24"
+      ]
+    },
+    "path_traversal": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "04"
+      ],
+      "missed_ids": []
+    },
+    "lfi": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "05"
+      ],
+      "missed_ids": []
+    },
+    "rfi": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "06"
+      ]
+    },
+    "code_execution": {
+      "total": 2,
+      "detected": 1,
+      "missed": 1,
+      "detected_ids": [
+        "29"
+      ],
+      "missed_ids": [
+        "07"
+      ]
+    },
+    "open_redirect": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "08"
+      ]
+    },
+    "info_disclosure": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "09"
+      ]
+    },
+    "weak_crypto": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "10"
+      ]
+    },
+    "xss_s": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "11"
+      ],
+      "missed_ids": []
+    },
+    "ssrf": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "12"
+      ]
+    },
+    "xxe": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "13"
+      ],
+      "missed_ids": []
+    },
+    "csrf": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "14"
+      ]
+    },
+    "insecure_deserialization": {
+      "total": 2,
+      "detected": 2,
+      "missed": 0,
+      "detected_ids": [
+        "15",
+        "27"
+      ],
+      "missed_ids": []
+    },
+    "idor": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "16"
+      ],
+      "missed_ids": []
+    },
+    "auth_bypass": {
+      "total": 3,
+      "detected": 2,
+      "missed": 1,
+      "detected_ids": [
+        "17",
+        "26"
+      ],
+      "missed_ids": [
+        "18"
+      ]
+    },
+    "price_manipulation": {
+      "total": 1,
+      "detected": 0,
+      "missed": 1,
+      "detected_ids": [],
+      "missed_ids": [
+        "19"
+      ]
+    },
+    "race_condition": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "20"
+      ],
+      "missed_ids": []
+    },
+    "session_fixation": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "21"
+      ],
+      "missed_ids": []
+    },
+    "weak_type_comparison": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "22"
+      ],
+      "missed_ids": []
+    },
+    "mass_assignment": {
+      "total": 1,
+      "detected": 1,
+      "missed": 0,
+      "detected_ids": [
+        "30"
+      ],
+      "missed_ids": []
+    }
+  },
+  "severity_evaluation": {
+    "checked": true,
+    "compared": 19,
+    "correct": 13,
+    "accuracy": 0.6842105263157895
+  },
+  "cvss_evaluation": {
+    "checked": true,
+    "compared": 19,
+    "scoring_coverage": 1.0,
+    "missing_truth": 0,
+    "missing_reported": 0,
+    "invalid_reported": 0,
+    "score_mae": 1.1421052631578947,
+    "score_accuracy": 0.3157894736842105,
+    "vector_compared": 19,
+    "vector_accuracy": 0.3157894736842105
+  },
+  "truth_file": "/home/zsh/桌面/llm-vuln-audit-main (4)/llm-vuln-audit-main/datasets/lab30-shop/ground_truth.json",
+  "truth_provenance": {
+    "repository": "https://github.com/Luchutong/llm-vuln-audit",
+    "ref": "feat/lab30-shop",
+    "commit": "30364ecd8f1c7c8c10e3f2e66107dfc38ecd1434",
+    "path": "answers/answers.json",
+    "answers_sha256": "839decac147362e43166fc4da742b9af2ea4c5c9f38ca8f8f2be45c9496c20ff",
+    "source_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+    "specification": "https://www.first.org/cvss/v3.1/specification-document"
+  }
+}

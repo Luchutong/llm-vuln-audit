@@ -1356,7 +1356,7 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                             "SELECT * FROM project_findings WHERE project_id=? AND fingerprint=?",
                             (project_id, finding["fingerprint"]),
                         ).fetchone()
-                if row is None:
+                if row is None and not finding.get("distinct_proposal"):
                     candidates = self._db.execute(
                         "SELECT * FROM project_findings WHERE project_id = ? AND file_path = ? AND symbol = ?",
                         (project_id, finding["file_path"], finding["symbol"]),
@@ -4017,6 +4017,23 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
                 reason = terminal_reason or str(stored_result.get("terminal_reason") or "")
                 from . import role_policy
                 frozen_task = _loads(self._db.execute("SELECT task_spec FROM runs WHERE id=?", (row["run_id"],)).fetchone()[0], {})
+                if not error and reason in {"", "completed"}:
+                    from .finding_reuse import validate_references
+                    try:
+                        references = validate_references(frozen_task, stored_result.get("finding_references"),
+                            self.list_findings(row["run_id"]),
+                            [(r["path"], r["start_line"], r["end_line"]) for r in seen or []], run_id=row["run_id"])
+                    except ValueError as exc:
+                        raise role_policy.WorkerAssessmentError(str(exc)) from exc
+                    if references:
+                        if outcome != "achieved":
+                            raise role_policy.WorkerAssessmentError("finding_references 须保持 achieved；已有漏洞佐证不能作为 no_evidence 反证")
+                        stored_result["finding_references"] = references
+                        self.append_event(row["run_id"], row["id"], "worker_findings_reused", {
+                            "task_id": row["id"], "task_key": row["task_key"], "attempt": attempt,
+                            "finding_ids": [r["finding_id"] for r in references], "references": len(references),
+                            "new_findings": len(stored_result.get("findings") or []),
+                            "reference_bytes": len(_dumps(references).encode())})
                 owned_candidates = []
                 if role_policy.enabled(frozen_task):
                     previous = _loads(row["result"], {}) or {}
@@ -4410,7 +4427,7 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
 
     def _insert_finding(self, finding: dict) -> dict:
         result = self._insert_finding_content(finding)
-        metadata = {key: finding[key] for key in ("focus", "dataflow", "retest", "capability_policy") if finding.get(key)}
+        metadata = {key: finding[key] for key in ("focus", "dataflow", "retest", "capability_policy", "novelty") if finding.get(key)}
         self._db.execute("UPDATE findings SET audit_metadata=? WHERE id=?", (_dumps(metadata), result["finding_id"]))
         return result
 

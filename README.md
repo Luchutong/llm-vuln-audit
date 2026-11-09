@@ -129,6 +129,7 @@ docker compose up --build
 | `LLM_BASE_URL` | 启动时生成或刷新只读环境变量档案的 OpenAI 兼容 API 根地址 |
 | `LLM_API_KEY` | 仅由服务端读取，供只读环境变量档案使用 |
 | `LLM_THINKING` | 默认 `disabled`；不采集或展示模型隐藏推理内容 |
+| `LLM_STRUCTURED_OUTPUT` | 默认 `compatible`；确认接口支持后可用 `json_object` 或严格 `json_schema`，能力随新运行冻结 |
 | `AUDIT_DATA_DIR` | 数据目录，默认 `./data`（`audit.db`、不可变快照、证据及本地模型凭据密钥文件） |
 | `AUDIT_PORT` / `WEB_PORT` | 本地一键启动或 Compose 的监听端口 |
 | `LAB30_SEED` | 默认 `1`；启动时把随仓库提供的 Lab30 源码包登记为可直接审计的项目，按归档摘要幂等。设为 `0` 保留空库 |

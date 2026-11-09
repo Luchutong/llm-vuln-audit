@@ -57,16 +57,7 @@ def test_failed_poc_has_a_real_read_and_publish_path_without_new_experiments(hos
     item = batch['items'][0]
     request = dict(goal_state='continue', basis_summary='有正常侧原文，攻击影响仍未证实。', review_batch_id=batch['id'],
                    review_decisions=decisions(batch, 'contested'))
-    body = f"""
-import json
-for part in {item['paged_fields']!r}:
-    offset = 0
-    while offset is not None:
-        page = json.loads(read_review_input({item['item_id']!r}, part['field'], offset))
-        print(page['text'])
-        offset = page['next_offset']
-"""
-    factory = ModelFactory([code(body), code(f'final_answer({request!r})')])
+    factory = ModelFactory([json.dumps(request, ensure_ascii=False)])
     monkeypatch.setattr(agent, 'build_code_model', factory)
     context = {**store.list_planner_context(run['id'], project_map=store.get_project_map(run['id'])), 'review_batch': batch}
     events = []
@@ -76,8 +67,9 @@ for part in {item['paged_fields']!r}:
         policy=AgentPolicy(request_seconds=.5), repository=repo, snapshot_id=run['snapshot_id'],
         allowed_paths=set(run['scope']), pins=store, run_id=run['id'], on_event=events.append))
     assert outcome['decision'], outcome
-    assert outcome['usage']['requests'] == 2
-    assert {e['tool'] for e in events if e['kind'] == 'tool_call'} == {'read_review_input'}
+    assert outcome['usage']['requests'] == 1
+    assert not [e for e in events if e['kind'] == 'tool_call']
+    assert store.active_review_batch(run['id'])['items'][0]['review_input_omitted'] is False
 
 
 def test_cross_file_chain_is_compared_but_shared_helpers_alone_do_not_match():

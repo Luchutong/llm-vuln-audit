@@ -1,0 +1,156 @@
+{
+  "scope": "Read-only production metrics plus real-model source-backed reference in a disposable SQLite continuation; no new POC or production mutations",
+  "metrics": [
+    {
+      "run_id": "588ca76c3b0045e5b1769f32e52ebc40",
+      "raw_findings": 23,
+      "dispositions": {
+        "duplicate": 11,
+        "open": 12
+      },
+      "existing_memory_bytes": 13287,
+      "compact_memory_bytes": 7236,
+      "global_index_bytes": 2721,
+      "compact_combined_bytes": 9957,
+      "confirmed_duplicate_payloads": 11,
+      "full_payload_bytes": 34602,
+      "reference_payload_bytes": 4128,
+      "duplicate_payload_reduction": 0.8807,
+      "notice": "UTF-8 payload-byte projection on already marked duplicates, not a measured token saving or an automatic coordinate-based deduplication verdict"
+    },
+    {
+      "run_id": "f1f9fa946dc350c7a611d90e67b5b463",
+      "raw_findings": 31,
+      "dispositions": {
+        "duplicate": 22,
+        "open": 9
+      },
+      "existing_memory_bytes": 17745,
+      "compact_memory_bytes": 5930,
+      "global_index_bytes": 2109,
+      "compact_combined_bytes": 8039,
+      "confirmed_duplicate_payloads": 22,
+      "full_payload_bytes": 61177,
+      "reference_payload_bytes": 7862,
+      "duplicate_payload_reduction": 0.8715,
+      "notice": "UTF-8 payload-byte projection on already marked duplicates, not a measured token saving or an automatic coordinate-based deduplication verdict"
+    }
+  ],
+  "live": {
+    "model": "deepseek-flash",
+    "seconds": 11.512,
+    "outcome": "achieved",
+    "terminal_reason": "completed",
+    "error": null,
+    "usage": {
+      "requests": 2,
+      "tool_calls": 0,
+      "input_tokens": 33212,
+      "output_tokens": 1944,
+      "model_attempts": 2,
+      "corrections": 1,
+      "elapsed_seconds": 11.503,
+      "phases": {
+        "task_prepare": {
+          "model_attempts": 0,
+          "tool_calls": 0
+        },
+        "task_publish": {
+          "model_attempts": 2,
+          "tool_calls": 0
+        }
+      },
+      "context": {
+        "peak_request_bytes": 96332,
+        "history_bytes": 393216,
+        "summary_requests": 0,
+        "summary_bytes": 0,
+        "compactions": 0,
+        "dropped_groups": 0,
+        "limit_hits": 0,
+        "sources": {},
+        "phases": {
+          "task_publish": {
+            "peak_request_bytes": 96332,
+            "requests": 2,
+            "summary_requests": 0,
+            "limit_hits": 0
+          }
+        }
+      }
+    },
+    "new_findings": 0,
+    "references": 4,
+    "visible_payload_shapes": [
+      {
+        "new_findings": 0,
+        "references": 4,
+        "observations": [
+          {
+            "kind": "security_boundary",
+            "evidence": "lab30-shop/app/public/ops/report.php:2-2; lab30-shop/app/src/bootstrap.php:6-6",
+            "finding_index": null,
+            "finding_id": "34e5ce212fae4ce1a0545dc120e78913",
+            "follow_up": false
+          },
+          {
+            "kind": "source_observation",
+            "evidence": "lab30-shop/app/src/bootstrap.php:6-6",
+            "finding_index": null,
+            "finding_id": "34e5ce212fae4ce1a0545dc120e78913",
+            "follow_up": false
+          }
+        ]
+      },
+      {
+        "new_findings": 0,
+        "references": 4,
+        "observations": []
+      }
+    ],
+    "reference_payload_bytes": 1406,
+    "errors": [
+      {
+        "kind": "agent_output_rejected",
+        "category": "invalid_output",
+        "hint": "observations[0].evidence 须实际读取并覆盖所关联根因 lab30-shop/app/public/ops/report.php:3；已有漏洞的理由和证据已在 finding_references 中，请省略重复 observations；独立风险用 pending 候选保留，不能删除未决 candidate_updates。"
+      }
+    ],
+    "committed": true,
+    "finding_count_unchanged": true,
+    "corroboration_in_review": true
+  },
+  "parent_hashes_unchanged": true,
+  "production_run_status": "paused",
+  "no_production_child": true,
+  "new_poc_executed": false,
+  "source_sha256": {
+    "backend/audit/actions.py": "e45fc68eb885acbebefe403189127daafa05ee41b0dfd1e95cb6baee36dc636e",
+    "backend/audit/agent.py": "0f46c0b855d0073989686f1c594e6cd5f8bc8b42c82c1649c3a9652c3abb22c0",
+    "backend/audit/app.py": "dc063418b8e35d7604037194a12c571ea1e022e402d79da6e8d0a4a4d96cc59d",
+    "backend/audit/codemodel.py": "c0fd2e2f5fbc5a82ad322b174502d563564919521bb2c44e94733bd1877dd681",
+    "backend/audit/config.py": "624ac60f54bca32c2ccd62b3ecfcb592105ca3f8e2ef73c2eb1338b81aab4bbb",
+    "backend/audit/continuations.py": "b81bcda41f7e1ca1fd7b86f2b6bd908d046954a7957657ebb30ae9132e2557a1",
+    "backend/audit/db.py": "7a58a98b9efac4f1ccccb481b1b6cfd894f97e5bd4bcd1d000cddfb855c26c65",
+    "backend/audit/execution_state.py": "33324265a8aa56424b312d8e1cfcb78082bbfcc0647809d7508b894782bcee5a",
+    "backend/audit/executor.py": "c5fdb82f35752577bf90adebfc063691d68fadfe66850cf39ad57c7c070d2d9e",
+    "backend/audit/final_review.py": "a6be571eb6b5f070e6e408920bb93fefeb67e2998717b79dae7eddf4f0b5c91c",
+    "backend/audit/finding_reuse.py": "b21ec4128ee357225a776887ea8ff028b08766f2dc98a1a4c52dd7441c44abd3",
+    "backend/audit/project_findings.py": "a73feb9063f3ab5ca6654501ab905c28c08fabd6d5f345c2ff628135cc9f9281",
+    "backend/audit/review_control.py": "70aee67170e25a953b529f0b193f040a9091d563e60d9f098bd5d50891524666",
+    "backend/audit/review_input.py": "9914d867114086e1ced7bb2d78f27b4423e5dc93e32e0710f4302564591635a8",
+    "backend/audit/review_policy.py": "0f1a01e92bd05b634be856f684e59892be7dbcb4f553f9a33939dccfaa745feb",
+    "backend/audit/review_store.py": "6250f3eb8cbbe0c8cad78b6341fe1e8d5bba6a6746a4703477ff55639f8e7cc9",
+    "backend/audit/review_transport.py": "226ede8d286d7f23fc83637281538926dcd26596ea1293f7f32d9ec85e22cda8",
+    "backend/audit/role_policy.py": "34a947b9948b27e2ab4cd241726ac23d485c0f53107692d059de31e7e14d01ce",
+    "backend/audit/runtime.py": "0d2fabe6cc6aaec91593fc64cef08c0a60de7a098b08591e89bb4c588c66ef9d",
+    "backend/audit/schemas.py": "2700becc0b8dde2f67f1185203f1902058eef9fbe8f3a98a536220de7f15bf45",
+    "backend/audit/structured_output.py": "3c1f6c525208e584eff61de24955bdfba87ba8f0b5ab2f1d4eca9d5f58c0d5e3",
+    "backend/audit/submission.py": "5cb891c758bf02f50fefe9029b503867fbf6ea64a1aa087b7e4e31aaaeedce26",
+    "backend/audit/toolkit.py": "11d683429e5adc899236e2bb4f771f59936e51fe09363c3151e5854cd2778163",
+    "backend/audit/worker.py": "3c08ba067ee0a68a2e5412be9d7f75b7e60028b14ee8af1726a7274af96121ff"
+  },
+  "checked_at": "2026-11-09T16:09:50.841335+00:00",
+  "base_commit": "ecd1d5e6e92e1315d3119a38bdc30a0f4dbd6855",
+  "isolated_setup": "SQLite backup only: paused sibling marked terminal in the copy to create a test child; other copied work deferred and unexecuted; no run was finalized by the benchmark"
+}

@@ -137,6 +137,8 @@ def exact_run_identity(finding: dict) -> str | None:
                 # ledger normalizer's 200-character cap is unsafe for exact identity.
                 **{key: str(finding.get(key) or "").strip() for key in
                    ("dangerous_operation", "input_source", "propagation", "protection")}}
+    if finding.get("novelty"):
+        identity["novelty"] = finding["novelty"]
     return hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
@@ -165,11 +167,13 @@ def pick_run_merge_candidate(finding: dict, candidates: list[dict]) -> dict | No
     similarity threshold. Input and precondition prose is retained as audit history,
     rather than adding a second text-equality gate to the coordinate identity.
     """
+    if finding.get("novelty"):
+        return None  # Explicitly distinct claims require independent semantic review.
     identity = run_identity_tier2(finding)
     if identity is None:
         return None
 
-    eligible = [item for item in candidates if run_identity_tier2(item) == identity]
+    eligible = [item for item in candidates if not item.get("novelty") and run_identity_tier2(item) == identity]
     return _pick_unique_sink_candidate(finding, eligible)
 
 

@@ -340,6 +340,8 @@ class TaskFinding(CvssCompatibleModel):
     """An actionable, source-backed vulnerability, separate from audit observations."""
 
     title: str = Field(min_length=3, max_length=240, description="Short, concrete result title")
+    related_finding_id: str | None = Field(default=None, max_length=160, description="Current finding at the same root coordinate to compare with; not an automatic duplicate decision")
+    novelty_reason: str = Field(default="", max_length=800, description="Specific input, operation or prerequisite difference proving this is a separate claim; title, score or payload wording is not novelty")
     kind: Literal["vulnerability"] = Field(
         description="Must explicitly identify an actionable vulnerability; neutral or safe facts belong in observations",
     )
@@ -448,9 +450,18 @@ class WorkerCandidateUpdate(BaseModel):
     missing_context: list[str] = Field(default_factory=list, max_length=8)
     next_step: str = Field(default="", max_length=1200)
     finding_index: int | None = Field(default=None, ge=0, le=15, strict=True)
+    finding_id: str | None = Field(default=None, max_length=160, description="For supported candidates, an existing finding also validated in finding_references; alternative to finding_index")
     disproof: WorkerDisproof | None = None
     blocked_on: Literal["source", "runtime", "environment"] | None = Field(default=None,
         description="Only for pending candidates with concrete missing_context: pause investigation until missing source/runtime/environment becomes available")
+
+
+class FindingReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    finding_id: str = Field(min_length=1, max_length=160)
+    revision: int = Field(ge=1, strict=True)
+    evidence: list[EvidenceRef] = Field(min_length=1, max_length=8)
+    rationale: str = Field(min_length=12, max_length=800)
 
 
 class GoalAssessment(BaseModel):
@@ -481,6 +492,8 @@ class GoalAssessment(BaseModel):
     # surface several independently cited vulnerabilities.
     finding: TaskFinding | None = None
     findings: list[TaskFinding] = Field(default_factory=list)
+    finding_references: list[FindingReference] = Field(default_factory=list, max_length=16,
+        description="Source-backed corroboration of existing current-run findings; no new finding or verification verdict is created")
     observations: list[TaskObservation] = Field(
         default_factory=list,
         description="Source facts, data flows, and security protections or ruled-out risks; these never satisfy the vulnerability goal",
@@ -497,7 +510,11 @@ class GoalAssessment(BaseModel):
 
     @model_validator(mode="after")
     def _outcome_has_the_required_payload(self) -> "GoalAssessment":
-        normalised = list(self.findings)
+        normalised = []
+        indexed = any(item.finding_index is not None for item in [*self.observations, *self.candidate_updates])
+        for item in self.findings:
+            if indexed or not any(old.model_dump() == item.model_dump() for old in normalised):
+                normalised.append(item)  # Exact repeats only; same-coordinate claims remain distinct.
         if self.finding is not None and not any(
             item.model_dump() == self.finding.model_dump() for item in normalised
         ):
@@ -507,10 +524,12 @@ class GoalAssessment(BaseModel):
         # result there while making the full collection authoritative for new code.
         self.finding = normalised[0] if normalised else None
 
-        if self.outcome == "achieved" and not normalised:
+        if self.outcome == "achieved" and not normalised and not self.finding_references:
             raise ValueError("achieved requires an evidence-backed vulnerability finding; observations cannot satisfy the goal")
         if self.outcome != "achieved" and normalised:
             raise ValueError("only achieved may attach a finding")
+        if self.outcome != "achieved" and self.finding_references:
+            raise ValueError("finding_references require achieved; existing vulnerabilities cannot be declared no_evidence")
         if self.outcome == "continue":
             _meaningful_text(self.next_focus, "next_focus")
         return self

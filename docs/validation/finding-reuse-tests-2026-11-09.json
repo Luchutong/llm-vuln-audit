@@ -1,0 +1,89 @@
+{
+  "scope": "Final code, complete collected backend suite partitioned by test file into four isolated Python processes",
+  "expected_tests": 2432,
+  "groups": [
+    {
+      "group": 0,
+      "returncode": 0,
+      "expected_tests": 609,
+      "files": 34,
+      "log": "/home/luchitong/work/vuln-audit/.run/finding-reuse-complete-tests-20261110/group-0.log",
+      "passed_tests": 609,
+      "warnings": 0,
+      "seconds": 113.02
+    },
+    {
+      "group": 1,
+      "returncode": 0,
+      "expected_tests": 607,
+      "files": 34,
+      "log": "/home/luchitong/work/vuln-audit/.run/finding-reuse-complete-tests-20261110/group-1.log",
+      "passed_tests": 607,
+      "warnings": 1,
+      "seconds": 88.41
+    },
+    {
+      "group": 2,
+      "returncode": 0,
+      "expected_tests": 608,
+      "files": 35,
+      "log": "/home/luchitong/work/vuln-audit/.run/finding-reuse-complete-tests-20261110/group-2.log",
+      "passed_tests": 608,
+      "warnings": 0,
+      "seconds": 134.94
+    },
+    {
+      "group": 3,
+      "returncode": 0,
+      "expected_tests": 608,
+      "files": 35,
+      "log": "/home/luchitong/work/vuln-audit/.run/finding-reuse-complete-tests-20261110/group-3.log",
+      "passed_tests": 608,
+      "warnings": 0,
+      "seconds": 90.23
+    }
+  ],
+  "passed": true,
+  "passed_tests": 2432,
+  "new_regressions": 19,
+  "source_sha256": {
+    "backend/audit/actions.py": "e45fc68eb885acbebefe403189127daafa05ee41b0dfd1e95cb6baee36dc636e",
+    "backend/audit/agent.py": "0f46c0b855d0073989686f1c594e6cd5f8bc8b42c82c1649c3a9652c3abb22c0",
+    "backend/audit/app.py": "dc063418b8e35d7604037194a12c571ea1e022e402d79da6e8d0a4a4d96cc59d",
+    "backend/audit/codemodel.py": "c0fd2e2f5fbc5a82ad322b174502d563564919521bb2c44e94733bd1877dd681",
+    "backend/audit/config.py": "624ac60f54bca32c2ccd62b3ecfcb592105ca3f8e2ef73c2eb1338b81aab4bbb",
+    "backend/audit/continuations.py": "b81bcda41f7e1ca1fd7b86f2b6bd908d046954a7957657ebb30ae9132e2557a1",
+    "backend/audit/db.py": "7a58a98b9efac4f1ccccb481b1b6cfd894f97e5bd4bcd1d000cddfb855c26c65",
+    "backend/audit/execution_state.py": "33324265a8aa56424b312d8e1cfcb78082bbfcc0647809d7508b894782bcee5a",
+    "backend/audit/executor.py": "c5fdb82f35752577bf90adebfc063691d68fadfe66850cf39ad57c7c070d2d9e",
+    "backend/audit/final_review.py": "a6be571eb6b5f070e6e408920bb93fefeb67e2998717b79dae7eddf4f0b5c91c",
+    "backend/audit/finding_reuse.py": "b21ec4128ee357225a776887ea8ff028b08766f2dc98a1a4c52dd7441c44abd3",
+    "backend/audit/project_findings.py": "a73feb9063f3ab5ca6654501ab905c28c08fabd6d5f345c2ff628135cc9f9281",
+    "backend/audit/review_control.py": "70aee67170e25a953b529f0b193f040a9091d563e60d9f098bd5d50891524666",
+    "backend/audit/review_input.py": "9914d867114086e1ced7bb2d78f27b4423e5dc93e32e0710f4302564591635a8",
+    "backend/audit/review_policy.py": "0f1a01e92bd05b634be856f684e59892be7dbcb4f553f9a33939dccfaa745feb",
+    "backend/audit/review_store.py": "6250f3eb8cbbe0c8cad78b6341fe1e8d5bba6a6746a4703477ff55639f8e7cc9",
+    "backend/audit/review_transport.py": "226ede8d286d7f23fc83637281538926dcd26596ea1293f7f32d9ec85e22cda8",
+    "backend/audit/role_policy.py": "34a947b9948b27e2ab4cd241726ac23d485c0f53107692d059de31e7e14d01ce",
+    "backend/audit/runtime.py": "0d2fabe6cc6aaec91593fc64cef08c0a60de7a098b08591e89bb4c588c66ef9d",
+    "backend/audit/schemas.py": "2700becc0b8dde2f67f1185203f1902058eef9fbe8f3a98a536220de7f15bf45",
+    "backend/audit/structured_output.py": "3c1f6c525208e584eff61de24955bdfba87ba8f0b5ab2f1d4eca9d5f58c0d5e3",
+    "backend/audit/submission.py": "5cb891c758bf02f50fefe9029b503867fbf6ea64a1aa087b7e4e31aaaeedce26",
+    "backend/audit/toolkit.py": "11d683429e5adc899236e2bb4f771f59936e51fe09363c3151e5854cd2778163",
+    "backend/audit/worker.py": "3c08ba067ee0a68a2e5412be9d7f75b7e60028b14ee8af1726a7274af96121ff"
+  },
+  "checked_at": "2026-11-09T16:13:50.929961+00:00",
+  "base_commit": "ecd1d5e6e92e1315d3119a38bdc30a0f4dbd6855",
+  "checks": {
+    "git_diff_check": "passed"
+  },
+  "test_sha256": {
+    "backend/tests/test_finding_reuse.py": "0b0d4417bb5833d2411a1c616971f57a788dc66c98a5fe47428e5ff0ca8b4487",
+    "backend/tests/test_host_review_protocol.py": "57873d055201009eff0c15ddead1268ff1ae048db32ba01a4e99ee40fdfc613f",
+    "backend/tests/test_partial_review_delivery.py": "2424c369f19c920c6c9945e8e04ba6c5f7c58442b44f962e7ef619a9238a268f",
+    "backend/tests/test_recent_closure_repair.py": "37ede2bc1e0b538bb73c5516bdd226450543889542e3257f8729b22973a86dc9",
+    "backend/tests/test_recent_final_review_repair.py": "e4428f8b45b75f75025277791c7fb3fa7fb40029b82364794a16992ea3714c04",
+    "backend/tests/test_review_input_repair.py": "7a3ae10fae065f109a4ba0ceb4d1c6ae3fd6ec51196afc312b5bc3d3ece59a1b",
+    "backend/tests/test_run_continuations.py": "12904980dfbe0898e66061f6988bc2544ed81677edc51fc4b1ea0c1d007440e6"
+  }
+}

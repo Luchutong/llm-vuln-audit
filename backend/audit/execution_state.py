@@ -125,11 +125,15 @@ class ExecutionStoreMixin:
             clock_started = self._active_clocks.get(run_id)
             try:
                 self.assert_execution_write(run_id)
-                batches = self.review_batches_pending(run_id, "final", repository)
+                batches = self.review_batches_pending(run_id, "final", repository, for_scheduling=True)
                 workers = int(self._row("SELECT COUNT(*) FROM planner_tasks WHERE run_id=? AND state='running'", (run_id,))[0]) + additional_workers
                 from .review_policy import batch_response_reserve
                 needed = sum(batch_response_reserve(batch) for batch in batches) + 6 * workers
-                seconds = 60 * (len(batches) + 2 * workers + 1)
+                from .review_transport import reading_work
+                reads = reading_work([item for batch in batches for item in batch])
+                # Reserve against remaining actual host pages, never two guessed model
+                # reading turns. This partitions, and never enlarges, the run deadline.
+                seconds = 60 * (len(batches) + 2 * workers + 1) + reads["pages"]
                 self._tick_execution_tx(run_id)
                 row = self._row("SELECT * FROM run_execution_state WHERE run_id=?", (run_id,))
                 value = json.loads(row["workflow"] or "{}")
@@ -162,6 +166,7 @@ class ExecutionStoreMixin:
                 value["review_reserve"] = {
                     "pending_items": sum(len(batch) for batch in batches), "estimated_batches": len(batches),
                     "workers": workers, "responses": needed, "seconds": seconds, "funded": funded,
+                    "reading_work": reads,
                     "poc_window_seconds": poc_window,
                     "upstream_allowed": funded and remaining_seconds > seconds + poc_window,
                     "poc_window_blocks": (funded and remaining_seconds > seconds

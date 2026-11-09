@@ -4,8 +4,9 @@ COMPARISON_POLICY = "explicit-peers-v1"
 
 
 def batch_response_reserve(items, *, corrections=2):
-    # Reader requests must leave room for the first publication and its corrections.
-    return 1 + min(2, max(0, corrections)) + (2 if any(i.get("paged_fields") for i in items) else 0)
+    # Exact-field pagination is host work and consumes no model requests. Semantic
+    # publication has one first attempt and at most two corrections across all rounds.
+    return 1 + min(2, max(0, corrections))
 
 
 def validate_peer_assessments(decisions, current):

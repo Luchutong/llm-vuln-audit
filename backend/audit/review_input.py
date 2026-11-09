@@ -82,6 +82,26 @@ def source_input(item, repository):
         except Exception as exc:
             result["evidence_complete"] = False
             result.setdefault("source_errors", []).append({"evidence_id": ref.get("evidence_id"), "error": type(exc).__name__})
+    corroboration = item["payload"].get("worker_references") or []
+    if corroboration:
+        from .role_policy import _read
+        snapshot_id = next((r.get("snapshot_id") for r in refs if r.get("snapshot_id")), None)
+        enriched = []
+        def spans():
+            return [(e["path"], e["start_line"], e["end_line"]) for e in result["source_excerpts"]]
+        for ref in corroboration:
+            missing = [r for r in ref["evidence"] if not _read(r, spans())]
+            errors = []
+            if missing:
+                read = source_input({"payload": {"evidence": [
+                    {"snapshot_id": snapshot_id, "path": r["path"], "range": {"start": r["start_line"], "end": r["end_line"]}}
+                    for r in missing]}}, repository)
+                result["source_excerpts"].extend(read["source_excerpts"])
+                errors = read.get("source_errors", [])
+            enriched.append({**ref, "source_field": "source_excerpts",
+                             "evidence_complete": all(_read(r, spans()) for r in ref["evidence"]),
+                             **({"source_errors": errors} if errors else {})})
+        result["payload"] = {**item["payload"], "worker_references": enriched}
     return result
 
 
@@ -114,19 +134,22 @@ def comparison_groups(items):
 
 def bounded_item(item, limit=32000):
     """Replace large fields by exact manifests, retaining IDs and useful inline facts."""
-    projected = {**item, "payload": dict(item.get("payload") or {})}
+    from .submission import reference_coordinates
+    projected = {**item, "payload": dict(item.get("payload") or {}),
+                 "reference_coordinates": reference_coordinates(item)}
     paged = []
     for field, value in sorted(field_values(item).items(), key=lambda pair: len(encode(pair[1]).encode()), reverse=True):
         if len(encode(projected).encode()) <= limit and field not in item.get("required_read_fields", []):
             continue
         text = encode(value)
-        paged.append({"field": field, "characters": len(text), "sha256": digest(text), "encoding": "json"})
+        paged.append({"field": field, "characters": len(text), "bytes": len(text.encode()),
+                      "sha256": digest(text), "encoding": "json"})
         if field.startswith("payload."):
             projected["payload"].pop(field.removeprefix("payload."))
         else:
             projected.pop(field)
         projected.update(paged_fields=paged, review_input_omitted=True,
-                         input_reader="read_review_input: follow next_offset to null for every paged field before acceptance")
+                         input_reader="host-managed: the host assembles every paged field before JSON publication")
     return projected
 
 

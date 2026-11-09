@@ -95,13 +95,14 @@ def sync_model_env(path: Path, model: "ModelConfig") -> None:
     if reason := model_unavailable_reason(model.model):
         raise ValueError(reason)
     values = dict(LLM_MODEL=model.model, LLM_BASE_URL=model.base_url,
-                  LLM_API_KEY=model.api_key, LLM_THINKING='true' if model.thinking == 'enabled' else 'false')
+                  LLM_API_KEY=model.api_key, LLM_THINKING='true' if model.thinking == 'enabled' else 'false',
+                  LLM_STRUCTURED_OUTPUT=model.structured_output)
     if not model.configured or any(any(ch in value for ch in '\r\n\x00') for value in values.values()):
         raise ValueError('档案未完整配置，或包含不支持的换行字符')
     original = path.read_text(encoding='utf-8') if path.exists() else ''
     lines, written = [], set()
     for line in original.splitlines(keepends=True):
-        match = re.match(r'^\s*(?:export\s+)?(LLM_MODEL|LLM_BASE_URL|LLM_API_KEY|LLM_THINKING)\s*=', line)
+        match = re.match(r'^\s*(?:export\s+)?(LLM_MODEL|LLM_BASE_URL|LLM_API_KEY|LLM_THINKING|LLM_STRUCTURED_OUTPUT)\s*=', line)
         if not match:
             lines.append(line)
         elif match[1] not in written:
@@ -137,6 +138,9 @@ class ModelConfig:
     base_url: str = ""
     api_key: str = ""
     thinking: str = "disabled"
+    # Explicit capability of this connection; compatible endpoints opt in only after
+    # confirming support. Never inferred from a model name or another saved profile.
+    structured_output: str = "compatible"
 
     @classmethod
     def from_environ(cls, environ: dict[str, str] | None = None) -> "ModelConfig":
@@ -147,6 +151,8 @@ class ModelConfig:
             base_url=_first(env, _BASE_KEYS).rstrip("/"),
             api_key=_first(env, _KEY_KEYS),
             thinking="enabled" if thinking in _TRUTHY else "disabled",
+            structured_output=(env.get("LLM_STRUCTURED_OUTPUT", "compatible")
+                               if env.get("LLM_STRUCTURED_OUTPUT") in {"json_schema", "json_object"} else "compatible"),
         )
 
     @property

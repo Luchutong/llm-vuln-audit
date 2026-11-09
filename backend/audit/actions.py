@@ -141,14 +141,44 @@ def extract_action(text: str, finish_reason: str | None = None,
     return blocks[0], counts, None
 
 
-def check_action(code: str, authorized_imports: list[str], diagnostics: dict) -> None:
+def check_action(code: str, authorized_imports: list[str], diagnostics: dict, *,
+                 max_bytes=None, max_lines=None, max_nodes=None, tool_names=(), tool_limit=None, text_tools=()) -> None:
     """Validate the entire block before any host tool can produce side effects."""
+    size, lines = len(code.encode()), len(code.splitlines())
+    if (max_bytes is not None and size > max_bytes) or (max_lines is not None and lines > max_lines):
+        raise ActionIssue("action_too_large", f"本动作 {size} 字节/{lines} 行超过执行上限 {max_bytes} 字节/{max_lines} 行；拆为短动作，每次只读取必要窗口。")
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:
         location = _record_syntax_issue(exc, diagnostics)
         raise ActionIssue("invalid_python", f"{location}。请重交完整 Python；循环必须含冒号和缩进体。") from None
-    for node in ast.walk(tree):
+    nodes = list(ast.walk(tree))
+    if max_nodes is not None and len(nodes) > max_nodes:
+        raise ActionIssue("action_too_complex", f"本动作语法节点超过 {max_nodes}；拆为短动作，避免大段脚本。")
+    calls = [n for n in nodes if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in tool_names]
+    if tool_limit is not None and len(calls) > tool_limit:
+        raise ActionIssue("action_tool_limit", f"单动作最多 {tool_limit} 次工具调用；请分批读取并查看实际结果。")
+    # Catch common deterministic format mistakes before preceding tool side effects.
+    # Track straight-line assignments only; arbitrary Python dataflow is not inferred.
+    text_names = set()
+    def plain_text(node):
+        return ((isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in text_tools)
+                or (isinstance(node, ast.Name) and node.id in text_names))
+    for statement in tree.body:
+        for node in ast.walk(statement):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and
+                    isinstance(node.func.value, ast.Name) and node.func.value.id == "json" and
+                    node.func.attr == "loads" and node.args and plain_text(node.args[0])):
+                raise ActionIssue("text_is_not_json", "该工具返回可直接阅读的文本，不能交给 json.loads；直接检查文本，只有标注 JSON 的工具才解析。")
+        if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    if plain_text(statement.value):
+                        text_names.add(target.id)
+                    else:
+                        text_names.discard(target.id)
+    for node in nodes:
         imports = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
         for module in imports:
             if not module or (isinstance(node, ast.ImportFrom) and node.level) or not check_import_authorized(module, authorized_imports):

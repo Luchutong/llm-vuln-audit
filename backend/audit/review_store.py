@@ -13,6 +13,8 @@ import uuid
 from collections import Counter
 from pathlib import Path
 from datetime import datetime, timezone
+from .review_control import ReviewControlMixin
+from .review_transport import ReviewTransportMixin
 
 _RELATED_STOP = {
     "that", "this", "with", "from", "have", "been", "will", "when", "where", "which",
@@ -245,7 +247,7 @@ def validate_batch(batch, decisions, *, current_items=None):
     return decisions
 
 
-class ReviewStoreMixin:
+class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
     def delivery_export(self, run_id, cache_key):
         row = self._row("SELECT d.content,d.content_hash FROM derived_run_reports d JOIN runs r ON r.id=d.run_id WHERE d.run_id=? AND d.cache_key=?", (run_id, cache_key))
         if row is None:
@@ -264,6 +266,8 @@ class ReviewStoreMixin:
 
     def _init_reviews(self):
         self._db.executescript(SCHEMA)
+        from .review_control import SCHEMA as CONTROL_SCHEMA
+        self._db.executescript(CONTROL_SCHEMA)
         columns = {row[1] for row in self._db.execute("PRAGMA table_info(frozen_run_reports)")}
         for name, kind in (("zip_blob", "BLOB"), ("json_export", "TEXT")):
             if name not in columns:
@@ -385,6 +389,8 @@ class ReviewStoreMixin:
                 "assessment_revision", "file_path", "primary_location", "summary", "input_source", "propagation",
                 "dangerous_operation", "protection", "preconditions", "missing_context", "remediation", "evidence",
                 "verification_status", "verification_id")}
+            if claim.get("novelty"):
+                payload["novelty"] = claim["novelty"]
             from .capability import enabled
             run = self.get_run(run_id) or {}
             if enabled(run):
@@ -418,6 +424,13 @@ class ReviewStoreMixin:
                           "payload": payload})
         if phase == "final":
             items.extend(self.risk_review_candidates(run_id))
+        from .finding_reuse import reference_index
+        references = reference_index(self, run_id)
+        for item in items:
+            refs = references.get(item.get("finding_id"), [])
+            if refs:
+                item["payload"]["worker_references"] = refs
+                item["revision"] = fingerprint({"base": item["revision"], "worker_references": refs})
         return items
 
     @staticmethod
@@ -446,6 +459,11 @@ class ReviewStoreMixin:
         groups, selected = [], []
         candidates = self._review_candidates(run_id, phase)
         pending = [i for i in candidates if (i["item_id"], i["revision"]) not in reviewed]
+        if for_scheduling:
+            ledger = self.review_allowances(run_id, phase)
+            pending = [i for i in pending if not (
+                ledger.get((i["item_id"], i["revision"]), {}).get("exhausted") or
+                ledger.get((i["item_id"], i["revision"]), {}).get("publications", 0) >= 3)]
         isolated = set()
         if phase == "final" and self.host_queue_enabled(run_id):
             row = self._row("SELECT claim_epoch FROM run_execution_state WHERE run_id=?", (run_id,))
@@ -475,24 +493,20 @@ class ReviewStoreMixin:
         soft_limit = 49152 if self.host_queue_enabled(run_id) else 24576
         from .review_policy import COMPARISON_POLICY
         policy_row = self._row("SELECT agent_policy,task_spec FROM runs WHERE id=?", (run_id,))
-        history_bytes = int((json.loads(policy_row[0] or "{}") if policy_row else {}).get("history_bytes") or 393216)
-        comparison_limit = min(131072, max(soft_limit, history_bytes // 2))
         atomic_comparisons = bool(policy_row and json.loads(policy_row[1] or "{}").get("comparison_policy") == COMPARISON_POLICY)
         for related in comparison_groups(pending):
             prepared = [bounded_item(enriched.get(i["item_id"], i) if phase == "final" else i)
                         for i in related]
-            if any((i["item_id"], i["revision"]) in isolated for i in related):
+            if (not atomic_comparisons or len(related) == 1) and any((i["item_id"], i["revision"]) in isolated for i in related):
                 if selected:
                     groups.append(selected)
                     selected = []
                 groups.extend([item] for item in prepared)
                 continue
-            # A main claim cannot be accepted while same-root peers outside its
-            # lease remain undecided. Keep a bounded comparison component atomic
-            # so the reviewer can retain one and explicitly dispose its peers in
-            # the same transaction. Oversized groups still use the normal bounds.
-            if (atomic_comparisons and phase == "final" and self.host_queue_enabled(run_id) and len(prepared) > 1
-                    and len(prepared) <= 8 and len(dump(prepared).encode()) <= comparison_limit):
+            # Related candidates are one semantic judgment. Host transport checks
+            # the complete context before publication; a component which cannot fit
+            # is deferred intact instead of splitting away the deciding peer facts.
+            if atomic_comparisons and phase == "final" and self.host_queue_enabled(run_id) and len(prepared) > 1:
                 if selected:
                     groups.append(selected)
                     selected = []
@@ -508,6 +522,8 @@ class ReviewStoreMixin:
                 selected.append(item)
         if selected:
             groups.append(selected)
+        for group in groups:
+            self.restore_review_cursors(run_id, phase, group)
         return groups
 
     def read_review_input(self, run_id, batch_id, item_id, field, offset=0, limit=1024, *, repository=None):
@@ -568,6 +584,14 @@ class ReviewStoreMixin:
             batch = self.active_review_batch(run_id)
             if not batch or batch["id"] != batch_id:
                 return
+            from .review_policy import COMPARISON_POLICY
+            from .submission import reference_coordinates
+            row = self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,))
+            ids = {item["item_id"] for item in batch["items"]}
+            related = any(peer["item_id"] in ids for item in batch["items"]
+                          for peer in reference_coordinates(item)["peers"])
+            if row and json.loads(row[0] or "{}").get("comparison_policy") == COMPARISON_POLICY and related:
+                split = False  # A host-side failure must not make an atomic group loop forever.
             status = "split" if split and len(batch["items"]) > 1 else "deferred"
             self._db.execute("UPDATE audit_review_batches SET status=?,finished_at=? WHERE id=? AND run_id=? AND status='pending'",
                              (status, stamp(), batch_id, run_id))
@@ -591,7 +615,19 @@ class ReviewStoreMixin:
                 candidates = self._review_candidates(run_id, phase)
                 current = {item["item_id"]: item for item in candidates}
                 active = self.active_review_batch(run_id, phase)
-                if active and (active["epoch"] != epoch or any(not same_input(i, current.get(i["item_id"])) for i in active["items"])):
+                if active:
+                    ledger = self.review_allowances(run_id, phase)
+                    exhausted = [i for i in active["items"] if (
+                        ledger.get((i["item_id"], i["revision"]), {}).get("exhausted") or
+                        ledger.get((i["item_id"], i["revision"]), {}).get("publications", 0) >= 3)]
+                    if exhausted:
+                        # Repack healthy items with their peer facts; no allowance is reset.
+                        self._db.execute("UPDATE audit_review_batches SET status='split',finished_at=? WHERE id=?", (stamp(), active["id"]))
+                        self.append_event(run_id, None, "review_items_deferred", {"batch_id": active["id"],
+                            "phase": phase, "item_ids": [i["item_id"] for i in exhausted], "reason": "persistent_correction_limit"})
+                        active = None
+                if active and (active["epoch"] != epoch or any(
+                        not same_input(i, current.get(i["item_id"])) or "reference_coordinates" not in i for i in active["items"])):
                     self._db.execute("UPDATE audit_review_batches SET status='stale',finished_at=? WHERE id=?", (stamp(), active["id"]))
                     active = None
                 if active:

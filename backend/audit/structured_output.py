@@ -18,6 +18,38 @@ from .codemodel import AuditCodeModel, OutputRejected, PhaseGate, finish_reason,
 from .runtime import StopAudit
 
 
+def native_response_format(model, gate):
+    mode = getattr(model, "structured_output", "compatible")
+    if mode == "json_schema" and gate.publication_schema:
+        return {"type": "json_schema", "json_schema": {
+            "name": "audit_publication", "strict": True, "schema": strict_schema(gate.publication_schema)}}
+    if mode == "json_object":
+        return {"type": "json_object"}
+    return None
+
+
+def strict_schema(schema):
+    """Require every declared field, retaining its actual nullable/default semantics."""
+    from copy import deepcopy
+    value = deepcopy(schema)
+    def visit(node):
+        if isinstance(node, list):
+            for part in node:
+                visit(part)
+        elif isinstance(node, dict):
+            node.pop("default", None)
+            if "const" in node:
+                node["enum"] = [node.pop("const")]
+            if node.get("type") == "object" or "properties" in node:
+                props = node.setdefault("properties", {})
+                node["required"] = list(props)
+                node["additionalProperties"] = False
+            for part in list(node.values()):
+                visit(part)
+    visit(value)
+    return value
+
+
 JSON_PUBLICATION_RULES = (
     "本阶段只发布结构化决策。只输出一个完整的 JSON 对象，可使用一个 json 代码围栏。"
     "不要输出 Python、XML、解释、推理或多个对象，不要调用 final_answer 或任何工具。"
@@ -111,9 +143,19 @@ async def drive_structured_phase(model: AuditCodeModel, gate: PhaseGate, system_
         ChatMessage(role="system", content=[{"type": "text", "text": system_prompt + "\n\n" + JSON_PUBLICATION_RULES}]),
         ChatMessage(role="user", content=[{"type": "text", "text": user_prompt}]),
     ]
+    if gate.publication_schema:
+        # Reserve measured envelope space for a correction and its exact reference
+        # example before admitting the first semantic request. Facts are never clipped.
+        from .codemodel import request_bytes
+        reserve = ChatMessage(role="user", content=[{"type": "text", "text":
+            "修正：" + "x" * 4608 + json.dumps(gate.correction_example or {}, ensure_ascii=False)}])
+        if request_bytes([*messages, reserve]) > gate.execution.policy.history_bytes:
+            gate.close()
+            raise StopAudit("review_input_too_large", "完整审查事实与纠错合同超过上下文窗口；保留关联组待审，不发布部分判决。")
     correction: str | None = None
     try:
         for step in range(1, max(0, max_steps) + 1):
+            gate.publication_reserved = False
             request_messages = list(messages)
             if correction:
                 example = ("\n# 当前引用的最小提交样板（只示范结构，须填写真实判读）\n" + json.dumps(gate.correction_example, ensure_ascii=False)) if gate.correction_example and step == 2 else ""
@@ -124,15 +166,19 @@ async def drive_structured_phase(model: AuditCodeModel, gate: PhaseGate, system_
                     # merged without its string-content assertion failing.
                     content=[{"type": "text", "text": "上一次发布被宿主拒绝：" + correction + "\n保留已确认事实与真实 ID，只重新提交完整 JSON 对象。" + example}],
                 ))
-            # Avoid native response_format/tool-choice requirements: compatible providers
-            # which serve the existing audit loop may not support those API extensions.
+            # Native enforcement is opt-in for this frozen provider profile. Compatible
+            # endpoints retain the same bounded JSON prompt and host validation.
             response = await asyncio.to_thread(
                 model.generate, request_messages, stop_sequences=None,
-                response_format=None, tools_to_call_from=None,
+                response_format=native_response_format(model, gate), tools_to_call_from=None,
             )
             try:
                 payload = parse_json_object(response.content, response_finish_reason=finish_reason(response))
             except StructuredOutputIssue as issue:
+                if gate.publication_error is not None:
+                    async def rejected_publication():
+                        gate.publication_error(issue, None)
+                    await asyncio.to_thread(gate._on_loop, rejected_publication)
                 await asyncio.to_thread(
                     gate.record_structured_error, step=step, category=issue.category,
                     hint=issue.hint, diagnostics=issue.diagnostics,
@@ -144,7 +190,7 @@ async def drive_structured_phase(model: AuditCodeModel, gate: PhaseGate, system_
             except OutputRejected as exc:
                 # _accept has already charged the rejection to this gate. Emitting the
                 # public diagnosis must not consume the same correction twice.
-                correction = str(exc)
+                correction = str(exc).encode()[:4096].decode("utf-8", errors="ignore")
                 await asyncio.to_thread(
                     gate.record_structured_error, step=step, category="invalid_output",
                     hint=correction, diagnostics={"response_format": "json"}, count_error=False,

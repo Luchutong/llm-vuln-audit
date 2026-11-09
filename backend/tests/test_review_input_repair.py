@@ -196,7 +196,7 @@ def test_a_coverage_stop_keeps_its_own_diagnosis():
     assert review_terminal_reason([], [], None)['code'] == 'audit_partial'
 
 
-def test_planner_can_retrieve_paged_input_and_publish_in_one_loop(hosted, monkeypatch):
+def test_host_delivers_paged_input_before_json_publication(hosted, monkeypatch):
     store, repo, run = hosted
     add_claim(store, run, 1)
     store._write('UPDATE findings SET summary=?', ('根因依据明确。' * 1800,))
@@ -205,16 +205,7 @@ def test_planner_can_retrieve_paged_input_and_publish_in_one_loop(hosted, monkey
     item = batch['items'][0]
     assert item.get('paged_fields')
     request = dict(goal_state='continue', basis_summary='读取完整字段后逐项终审。', review_batch_id=batch['id'], review_decisions=decisions(batch))
-    read_code = f"""
-import json
-for part in {item['paged_fields']!r}:
-    offset = 0
-    while offset is not None:
-        page = json.loads(read_review_input({item['item_id']!r}, part['field'], offset))
-        print(page['text'])
-        offset = page['next_offset']
-"""
-    factory = ModelFactory([code(read_code), code(f'final_answer({request!r})')])
+    factory = ModelFactory([json.dumps(request, ensure_ascii=False)])
     monkeypatch.setattr(agent, 'build_code_model', factory)
     def context():
         return {**store.list_planner_context(run['id'], project_map=store.get_project_map(run['id'])),
@@ -226,8 +217,9 @@ for part in {item['paged_fields']!r}:
         policy=AgentPolicy(request_seconds=.5), repository=repo, snapshot_id=run['snapshot_id'],
         allowed_paths=set(run['scope']), pins=store, run_id=run['id'], on_event=events.append))
     assert result['decision'], result
-    assert result['usage']['requests'] <= 3
-    assert any(e.get('tool') == 'read_review_input' and e['kind'] == 'tool_result' for e in events)
+    assert result['usage']['requests'] == 1
+    assert result['usage']['tool_calls'] == 0
+    assert store.active_review_batch(run['id'])['items'][0]['review_input_omitted'] is False
     plan = store.begin_planner_round(run['id'], store.get_planner_session(run['id'])['session_id'])
     value = result['decision']
     store.finish_planner_round(run['id'], plan['id'], goal_state='continue', basis_summary=value['basis_summary'],
@@ -252,7 +244,7 @@ def test_read_receipts_cannot_cross_a_pause_or_fill_unread_gaps(hosted):
         store.read_review_input(run['id'], batch['id'], item['item_id'], part['field'], 1024, repository=repo)
 
 
-def test_reading_and_fallback_publication_share_the_explicit_paged_batch_allowance(hosted, monkeypatch):
+def test_paged_review_does_not_retry_the_same_publication_error_in_new_rounds(hosted, monkeypatch):
     store, repo, run = hosted
     add_claim(store, run, 1)
     store._write('UPDATE findings SET summary=?', ('长字段原文。' * 2000,))
@@ -265,6 +257,7 @@ def test_reading_and_fallback_publication_share_the_explicit_paged_batch_allowan
         task=run['task_spec'], round_no=1, config=CONFIG, budgets={'responses': 12, 'tools': 100, 'seconds': 10},
         policy=AgentPolicy(request_seconds=.5), repository=repo, snapshot_id=run['snapshot_id'],
         allowed_paths=set(run['scope']), pins=store, run_id=run['id']))
-    assert result['decision'] is None and result['usage']['requests'] == 5
-    assert len(factory.phases) == 5
-    assert store.active_review_batch(run['id'])['status'] == 'pending'
+    assert result['decision'] is None and result['usage']['requests'] == 2
+    assert len(factory.phases) == 2
+    assert store.prepare_review_batch(run['id'], 'final', run['execution_epoch'], repo) is None
+    assert store.review_batches_pending(run['id'], 'final', repo)  # Honest unresolved report.

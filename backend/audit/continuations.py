@@ -152,7 +152,7 @@ class ContinuationStoreMixin:
 
             owned_refs = {'id', 'run_id', 'goal_id', 'task_id', 'origin_task_id', 'plan_id', 'session_id',
                           'finding_id', 'run_finding_id', 'verification_id', 'derived_from_finding_id', 'unit_id',
-                          'item_id', 'duplicate_of', 'distinct_from', 'supports'}
+                          'item_id', 'duplicate_of', 'distinct_from', 'supports', 'related_finding_id'}
             def remap(value, field=None):
                 if isinstance(value, dict):
                     return {k: v if k in {'continuation_source', 'job_results', 'normal_evidence', 'attack_evidence'} else remap(v, k)

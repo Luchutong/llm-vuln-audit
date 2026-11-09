@@ -16,17 +16,20 @@ from __future__ import annotations
 import asyncio
 import functools
 import uuid
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any, Callable
 
 import yaml
 from smolagents import CodeAgent
-from smolagents.local_python_executor import LocalPythonExecutor
+from smolagents.local_python_executor import LocalPythonExecutor, CodeOutput, ExecutionTimeoutError, evaluate_python_code
 from smolagents.memory import ActionStep
 from smolagents.monitoring import LogLevel
+from smolagents.tools import Tool
 
 from .codemodel import AuditCodeModel, PhaseGate, unwrap_failure
-from .actions import check_action
+from .actions import ActionIssue, check_action
 from .safe_encoding import FACADE_NAME, bind_encoding_imports, encoding_facade
 from .runtime import AgentPolicy
 from .toolkit import FinalAnswerTool, build_tools
@@ -49,11 +52,66 @@ class AuditPythonExecutor(LocalPythonExecutor):
         diagnostics = gate.action_diagnostics if gate is not None else {}
         if gate is not None and gate.action_issue is not None:
             raise gate.action_issue
-        check_action(code_action, self.authorized_imports, diagnostics)
+        policy = gate.execution.policy if gate is not None else None
+        original_tools = self.static_tools or {}
+        names = {name for name, value in original_tools.items() if isinstance(value, Tool)}
+        text_tools = {name for name, value in original_tools.items()
+                      if getattr(getattr(value, "spec", None), "output_format", None) == "text"}
+        try:
+            check_action(code_action, self.authorized_imports, diagnostics,
+                         max_bytes=policy.action_max_bytes if policy else None,
+                         max_lines=policy.action_max_lines if policy else None,
+                         max_nodes=policy.action_max_nodes if policy else None,
+                         tool_names=names, tool_limit=policy.action_tool_limit if policy else None, text_tools=text_tools)
+        except ActionIssue as issue:
+            if gate is not None and issue.category in {"action_too_large", "action_too_complex", "action_tool_limit", "text_is_not_json"}:
+                gate.action_issue = issue
+            raise
         # Explicit imports must not reintroduce the stdlib module's CLI helpers,
         # whose globals contain real sys.argv and open despite import restrictions.
         self.state[FACADE_NAME] = encoding_facade()
-        return super().__call__(bind_encoding_imports(code_action))
+        # evaluate_python_code copies this table before starting its timeout thread.
+        # Each closure owns this action's allowance; a timed-out thread cannot borrow
+        # the next action's counter or dispatch through the next phase's tool table.
+        lock = threading.Lock()
+        state = {"active": True, "calls": 0}
+        def bounded(tool):
+            def call(*args, **kwargs):
+                with lock:
+                    if not state["active"] or (gate is not None and gate.closed):
+                        raise ActionIssue("stale_action", "本代码动作已结束，不能继续调用工具。")
+                    if policy is not None and state["calls"] >= policy.action_tool_limit:
+                        issue = ActionIssue("action_tool_limit", f"单动作最多 {policy.action_tool_limit} 次工具调用；请分批读取。")
+                        gate.action_issue = issue
+                        raise issue
+                    state["calls"] += 1
+                return tool(*args, **kwargs)
+            return call
+        action_tools = {name: bounded(value) if name in names else value for name, value in original_tools.items()}
+        action_state, action_custom = dict(self.state), dict(self.custom_tools or {})
+        def execute():
+            output, final = evaluate_python_code(bind_encoding_imports(code_action),
+                static_tools=action_tools, custom_tools=action_custom, state=action_state,
+                authorized_imports=self.authorized_imports, max_print_outputs_length=self.max_print_outputs_length,
+                timeout_seconds=None)
+            return CodeOutput(output=output, logs=str(action_state['_print_outputs']), is_final_answer=final)
+        pool = ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(execute)
+        try:
+            # The library timeout uses a ThreadPoolExecutor context manager, whose
+            # __exit__ waits for the timed-out thread. Own shutdown explicitly so the
+            # wall-clock limit really ends the wait and fences subsequent tool calls.
+            result = future.result(timeout=self.timeout_seconds)
+            self.state, self.custom_tools = action_state, action_custom
+            return result
+        except FutureTimeout:
+            if future.done():
+                return future.result()
+            raise ExecutionTimeoutError(f"Code execution exceeded the maximum execution time of {self.timeout_seconds} seconds") from None
+        finally:
+            with lock:
+                state["active"] = False
+            pool.shutdown(wait=False, cancel_futures=True)
 
 
 @functools.lru_cache(maxsize=3)
@@ -189,6 +247,9 @@ def build_agent(*, model: AuditCodeModel, gate: PhaseGate, tools: dict, instruct
     token = uuid.uuid4().hex
     tags = (f"<audit_action_{token}>", f"</audit_action_{token}>")
     gate.action_tags = tags
+    instructions += (f"\n每个 Python 动作执行前受宿主限制：最多 {gate.execution.policy.action_max_bytes} 字节、"
+                     f"{gate.execution.policy.action_max_lines} 行、{gate.execution.policy.action_tool_limit} 次工具调用。"
+                     "请用短动作读取必要窗口，避免大段脚本；文本工具直接阅读，仅 JSON 工具返回值可 json.loads。")
     return CodeAgent(
         tools=list(tools.values()),
         model=model,

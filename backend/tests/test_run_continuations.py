@@ -341,19 +341,9 @@ def test_mandatory_reads_cannot_consume_the_publication_request(hosted, monkeypa
     store.set_workflow_stage(run['id'], 'review')
     batch = store.prepare_review_batch(run['id'], 'final', run['execution_epoch'], repo)
     item = batch['items'][0]
-    read = f"""
-import json
-for part in {item['paged_fields']!r}:
-    offset = 0
-    while offset is not None:
-        page = json.loads(read_review_input({item['item_id']!r}, part['field'], offset))
-        print(page['text'])
-        offset = page['next_offset']
-"""
     answer = dict(goal_state='continue', basis_summary='原作业存在，缺少完整攻击对照，明确保留存疑。',
                   review_batch_id=batch['id'], review_decisions=decisions(batch, 'contested'))
-    factory = ModelFactory({'planner_decision': [code(read), 'missing action block'],
-                            'planner_publish': [json.dumps(answer, ensure_ascii=False)]})
+    factory = ModelFactory([json.dumps(answer, ensure_ascii=False)])
     monkeypatch.setattr(agent, 'build_code_model', factory)
     context = {**store.list_planner_context(run['id'], project_map=store.get_project_map(run['id'])), 'review_batch': batch}
     result = asyncio.run(agent.plan_audit_frontier(project_map=store.get_project_map(run['id']), run_context=context,
@@ -361,7 +351,7 @@ for part in {item['paged_fields']!r}:
         policy=AgentPolicy(request_seconds=.5), repository=repo, snapshot_id=run['snapshot_id'],
         allowed_paths=set(run['scope']), pins=store, run_id=run['id']))
     assert result['decision'], result
-    assert result['usage']['requests'] == 3
+    assert result['usage']['requests'] == 1
     assert factory.phases[-1] == 'planner_publish'
     assert 'NORMAL_PAGE original body' in factory.prompts[-1]
 

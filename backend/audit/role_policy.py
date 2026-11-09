@@ -126,7 +126,7 @@ def validate_disproof(disproof, spans, *, paths=()):
     return proof
 
 
-def merge_candidates(previous, updates, findings, spans, file_lines):
+def merge_candidates(previous, updates, findings, spans, file_lines, *, referenced_findings=()):
     """Keep unresolved candidates even when the model omits them in the next pass."""
     from .schemas import WorkerCandidateUpdate
     journal = {item["candidate_id"]: dict(item) for item in previous or []}
@@ -149,7 +149,12 @@ def merge_candidates(previous, updates, findings, spans, file_lines):
             raise ValueError("blocked_on 只用于 pending，必须列出 missing_context 和具体 next_step")
         if item["status"] == "supported":
             index = item["finding_index"]
-            if index is None or index >= len(findings) or findings[index].get("primary_location") != location:
+            existing_id = item.get("finding_id")
+            existing = next((f for f in referenced_findings if f.get("id") == existing_id), None) if existing_id else None
+            if existing_id:
+                if index is not None or existing is None or existing.get("primary_location") != location:
+                    raise ValueError("supported 候选 finding_id 须唯一关联本次 finding_references 中同主定位的有效漏洞")
+            elif index is None or index >= len(findings) or findings[index].get("primary_location") != location:
                 raise ValueError("supported 候选须关联本次 findings 中同主定位的实际 finding_index")
         elif item["status"] == "excluded":
             item["disproof"] = validate_disproof(item.get("disproof"), spans, paths=[location["path"]])
@@ -207,7 +212,9 @@ def validate_assessment(task, result, seen, file_lines, *, previous=(), known_fi
         return []
     spans = [(r["path"], r["start_line"], r["end_line"]) for r in seen or []]
     findings = result.get("findings") or ([result["finding"]] if result.get("finding") else [])
-    if result.get("outcome") == "achieved" and not findings:
+    from .finding_reuse import validate_references
+    references = validate_references(task, result.get("finding_references"), known_findings, spans)
+    if result.get("outcome") == "achieved" and not findings and not references:
         raise ValueError("achieved 必须有实际发布的 finding；候选检查点不能替代漏洞结论")
     errors = []
     for index, finding in enumerate(findings):
@@ -226,7 +233,9 @@ def validate_assessment(task, result, seen, file_lines, *, previous=(), known_fi
             raise ValueError("dataflow 的 sink 节点必须覆盖本条 primary_location")
     if errors:
         raise ValueError("\n".join(errors[:6]))
-    journal = merge_candidates(previous, result.get("candidate_updates"), findings, spans, file_lines)
+    reference_ids = {r["finding_id"] for r in references}
+    journal = merge_candidates(previous, result.get("candidate_updates"), findings, spans, file_lines,
+        referenced_findings=[f for f in known_findings if f.get("id") in reference_ids])
     from .investigation import enabled as bounded, linked_observations
     linked = linked_observations(result, journal, known_findings, spans) if bounded(task) else set()
     proofs = 0

@@ -140,7 +140,7 @@ def claim_snapshot(finding: dict) -> dict:
         "verification_verdict": finding.get("verification_verdict") or "",
         "verification_id": str((verification or {}).get("id") or ""),
         "validation_errors": list(finding.get("validation_errors") or []),
-        **{key: finding[key] for key in ("focus", "dataflow", "retest") if finding.get(key)},
+        **{key: finding[key] for key in ("focus", "dataflow", "retest", "novelty") if finding.get(key)},
         **({"verified_compatible": finding["verified_compatible"]} if "verified_compatible" in finding else {}),
     }
 

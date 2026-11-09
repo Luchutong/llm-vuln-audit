@@ -61,20 +61,10 @@ def test_paged_reader_can_publish_and_correct_without_spending_its_last_request_
     store.set_workflow_stage(run['id'], 'review')
     batch = store.prepare_review_batch(run['id'], 'final', run['execution_epoch'], repo)
     item = batch['items'][0]
-    body = f"""
-import json
-for part in {item['paged_fields']!r}:
-    offset = 0
-    while offset is not None:
-        page = json.loads(read_review_input({item['item_id']!r}, part['field'], offset))
-        print(page['text'])
-        offset = page['next_offset']
-"""
     request = dict(goal_state='continue', basis_summary='完整读取保存作业后保留攻击影响存疑。', review_batch_id=batch['id'],
                    review_decisions=[dict(item_id=item['item_id'], revision=item['revision'], decision='contested',
                                           rationale='已读取实际正常侧作业，攻击影响仍缺少充分证据。')])
-    factory = ModelFactory({'planner_decision': [code("print('先检查批次中的真实字段和读取清单')"), code(body)],
-                            'planner_publish': [json.dumps({'basis_summary': '短'}), json.dumps(request, ensure_ascii=False)]})
+    factory = ModelFactory([json.dumps({'basis_summary': '短'}), json.dumps(request, ensure_ascii=False)])
     monkeypatch.setattr(agent, 'build_code_model', factory)
     context = {**store.list_planner_context(run['id'], project_map=store.get_project_map(run['id'])), 'review_batch': batch}
     outcome = asyncio.run(agent.plan_audit_frontier(
@@ -82,8 +72,8 @@ for part in {item['paged_fields']!r}:
         config=CONFIG, budgets={'responses':24, 'tools':96, 'seconds':10}, policy=AgentPolicy(request_seconds=.5),
         repository=repo, snapshot_id=run['snapshot_id'], allowed_paths=set(run['scope']), pins=store, run_id=run['id']))
     assert outcome['decision'], outcome
-    assert outcome['usage']['requests'] == 4
-    assert batch_response_reserve([item]) == 5
+    assert outcome['usage']['requests'] == 2
+    assert batch_response_reserve([item]) == 3
     assert batch_response_reserve([{'paged_fields': []}]) == 3
 
 

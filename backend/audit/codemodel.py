@@ -292,6 +292,12 @@ class PhaseGate:
     callback_abort: StopAudit | None = None
     correction_example: dict | None = None
     extend_exploration: Callable[[int], int] | None = None
+    normalize_payload: Callable[[Any], Any] | None = None
+    publication_start: Callable[[], Any] | None = None
+    publication_check: Callable[[], Any] | None = None
+    publication_error: Callable[[BaseException, Any], Any] | None = None
+    publication_schema: dict | None = None
+    publication_reserved: bool = False
 
     def _on_loop(self, callback: Callable[[], Awaitable]) -> Any:
         """Run one host callback on the event loop and wait for its answer.
@@ -547,6 +553,8 @@ class PhaseGate:
                 "invalid_output", "连续输出或代码纠正已用尽；最后一次拒绝：" + str(reason or "")[:300]
             ))
         try:
+            if self.publication_check is not None and not self.publication_reserved:
+                self.publication_check()
             if self.extend_exploration is not None and not correction and self.execution.attempts >= self.limit:
                 self.limit = max(self.limit, self.extend_exploration(self.limit))
             ceiling = self.execution.before_model(
@@ -554,6 +562,9 @@ class PhaseGate:
                 request_bytes=size, message_count=len(messages or ()), purpose="model",
                 compact=compact,
             )
+            if self.publication_start is not None and not self.publication_reserved:
+                self.publication_start()
+                self.publication_reserved = True
             if correction:
                 self.consecutive_corrections += 1
             return ceiling
@@ -700,6 +711,8 @@ class PhaseGate:
         try:
             value = self._typed(payload)
         except (ValidationError, ValueError) as exc:
+            if self.publication_error is not None:
+                self.publication_error(exc, payload)
             reason = rejection_reason(exc)
             self.pending_correction = reason
             self._count_error("evidence" if "证据" in reason or "evidence" in reason else "invalid_output")
@@ -708,6 +721,8 @@ class PhaseGate:
         return FINAL_ANSWER_ACCEPTED
 
     def _typed(self, payload: Any) -> Any:
+        if self.normalize_payload is not None:
+            payload = self.normalize_payload(payload)
         model = self.output_model
         if model is None:
             # A text phase (a POC write-up): the answer is the prose itself.
@@ -870,6 +885,7 @@ class AuditCodeModel(OpenAIModel):
         self.gate = gate
         self.max_tokens = max_tokens
         self.extra_body = config.extra_body()
+        self.structured_output = config.structured_output
         self.compactor = HistoryCompactor(gate.execution.policy)
 
     def attach(self, gate: PhaseGate) -> None:

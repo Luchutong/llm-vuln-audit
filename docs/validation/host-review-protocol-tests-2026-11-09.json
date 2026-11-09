@@ -1,0 +1,79 @@
+{
+  "scope": "Final code, complete collected backend suite partitioned by test file into four isolated Python processes",
+  "expected_tests": 2413,
+  "groups": [
+    {
+      "group": 0,
+      "returncode": 0,
+      "expected_tests": 603,
+      "files": 33,
+      "log": "/home/luchitong/work/vuln-audit/.run/host-review-protocol-complete-tests-20261109/group-0.log",
+      "passed_tests": 603,
+      "warnings": 0,
+      "seconds": 380.71
+    },
+    {
+      "group": 1,
+      "returncode": 0,
+      "expected_tests": 604,
+      "files": 35,
+      "log": "/home/luchitong/work/vuln-audit/.run/host-review-protocol-complete-tests-20261109/group-1.log",
+      "passed_tests": 604,
+      "warnings": 1,
+      "seconds": 407.73
+    },
+    {
+      "group": 2,
+      "returncode": 0,
+      "expected_tests": 604,
+      "files": 35,
+      "log": "/home/luchitong/work/vuln-audit/.run/host-review-protocol-complete-tests-20261109/group-2.log",
+      "passed_tests": 604,
+      "warnings": 0,
+      "seconds": 501.01
+    },
+    {
+      "group": 3,
+      "returncode": 0,
+      "expected_tests": 602,
+      "files": 34,
+      "log": "/home/luchitong/work/vuln-audit/.run/host-review-protocol-complete-tests-20261109/group-3.log",
+      "passed_tests": 602,
+      "warnings": 0,
+      "seconds": 308.0
+    }
+  ],
+  "passed": true,
+  "passed_tests": 2413,
+  "source_sha256": {
+    "backend/audit/actions.py": "e45fc68eb885acbebefe403189127daafa05ee41b0dfd1e95cb6baee36dc636e",
+    "backend/audit/agent.py": "310caf966e181dd16fc808d3b8ced133333d3968dfcfe9ff64c7a3d4e93b4c9f",
+    "backend/audit/app.py": "dc063418b8e35d7604037194a12c571ea1e022e402d79da6e8d0a4a4d96cc59d",
+    "backend/audit/codemodel.py": "c0fd2e2f5fbc5a82ad322b174502d563564919521bb2c44e94733bd1877dd681",
+    "backend/audit/config.py": "624ac60f54bca32c2ccd62b3ecfcb592105ca3f8e2ef73c2eb1338b81aab4bbb",
+    "backend/audit/execution_state.py": "33324265a8aa56424b312d8e1cfcb78082bbfcc0647809d7508b894782bcee5a",
+    "backend/audit/executor.py": "c5fdb82f35752577bf90adebfc063691d68fadfe66850cf39ad57c7c070d2d9e",
+    "backend/audit/review_control.py": "70aee67170e25a953b529f0b193f040a9091d563e60d9f098bd5d50891524666",
+    "backend/audit/review_input.py": "e6fe400760083334722af7426db37790b22978ef730c64ffa2fd8def44fdea74",
+    "backend/audit/review_policy.py": "0f1a01e92bd05b634be856f684e59892be7dbcb4f553f9a33939dccfaa745feb",
+    "backend/audit/review_store.py": "5d2500a1dae3d135954e5b90b3da0bb9cbb86fbfd6c5df40debc12efbcb72c03",
+    "backend/audit/review_transport.py": "226ede8d286d7f23fc83637281538926dcd26596ea1293f7f32d9ec85e22cda8",
+    "backend/audit/runtime.py": "0d2fabe6cc6aaec91593fc64cef08c0a60de7a098b08591e89bb4c588c66ef9d",
+    "backend/audit/structured_output.py": "3c1f6c525208e584eff61de24955bdfba87ba8f0b5ab2f1d4eca9d5f58c0d5e3",
+    "backend/audit/submission.py": "2f5ee2818fc08390f27a1cfb5ae451b639d63faebbe0372008c7ec99481766fc"
+  },
+  "base_commit": "ecd1d5e6e92e1315d3119a38bdc30a0f4dbd6855",
+  "checked_at": "2026-11-09T15:29:19.836075+00:00",
+  "checks": {
+    "git_diff_check": "passed",
+    "docker_compose_config_quiet": "passed"
+  },
+  "test_sha256": {
+    "backend/tests/test_partial_review_delivery.py": "2424c369f19c920c6c9945e8e04ba6c5f7c58442b44f962e7ef619a9238a268f",
+    "backend/tests/test_recent_closure_repair.py": "37ede2bc1e0b538bb73c5516bdd226450543889542e3257f8729b22973a86dc9",
+    "backend/tests/test_recent_final_review_repair.py": "e4428f8b45b75f75025277791c7fb3fa7fb40029b82364794a16992ea3714c04",
+    "backend/tests/test_review_input_repair.py": "7a3ae10fae065f109a4ba0ceb4d1c6ae3fd6ec51196afc312b5bc3d3ece59a1b",
+    "backend/tests/test_run_continuations.py": "12904980dfbe0898e66061f6988bc2544ed81677edc51fc4b1ea0c1d007440e6",
+    "backend/tests/test_host_review_protocol.py": "57873d055201009eff0c15ddead1268ff1ae048db32ba01a4e99ee40fdfc613f"
+  }
+}

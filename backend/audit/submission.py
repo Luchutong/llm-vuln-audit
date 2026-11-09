@@ -1,6 +1,78 @@
 """Host-owned references and examples. Never pre-author a semantic sign-off."""
 from __future__ import annotations
 
+from copy import deepcopy
+
+
+def reference_coordinates(item):
+    """Small host-owned coordinates survive paging; they grant no read receipts."""
+    if item.get("reference_coordinates") is not None:
+        return deepcopy(item["reference_coordinates"])
+    payload = item.get("payload") or {}
+    return {
+        "peers": [{key: peer.get(key) for key in ("item_id", "finding_id", "revision")}
+                  for peer in payload.get("comparison_candidates") or []],
+        "corroborations": [{key: ref.get(key) for key in ("finding_id", "revision", "task_key", "evidence")}
+                           for ref in payload.get("worker_references") or []],
+        "evidence": [{"path": ref.get("path"),
+                      "start_line": (ref.get("range") or {}).get("start", ref.get("start_line")),
+                      "end_line": (ref.get("range") or {}).get("end", ref.get("end_line"))}
+                     for ref in payload.get("evidence") or []],
+        "notice": "引用坐标不是源码或已读凭据；分页正文必须实际传送并审阅。",
+    }
+
+
+def allowed_review_decisions(item, phase):
+    if item["kind"] in {"direction", "risk"}:
+        required = ((item.get("payload") or {}).get("resolution_context") or {}).get("requirement") == "required"
+        return ["resolve", "needs_evidence"] if required else ["resolve", "needs_evidence", "skip"]
+    return (["accept", "needs_evidence", "contested", "duplicate", "withdraw"] if phase == "final" else
+            ["retain", "needs_evidence", "contested", "duplicate", "withdraw"])
+
+
+def bind_review_submission(payload, batch):
+    """Bind logistics to the lease, without supplying any semantic decision."""
+    if not isinstance(payload, dict):
+        raise ValueError("审查发布必须为一个 JSON 对象")
+    result = deepcopy(payload)
+    allowed = {"goal_state", "basis_summary", "review_batch_id", "review_decisions", "verification_reviews", "direction_updates"}
+    for key in set(result) - allowed:
+        if key in {"tasks", "updates", "project_updates", "coverage_review", "missing_context", "next_action", "report"} and not result[key]:
+            result.pop(key)
+        else:
+            raise ValueError(f"审查发布顶层不允许字段 {key}；verification_reviews 仅放在顶层")
+    if result.get("review_batch_id", batch["id"]) != batch["id"]:
+        raise ValueError("review_batch_id 不属于当前审查租约")
+    result["review_batch_id"] = batch["id"]
+    items = {item["item_id"]: item for item in batch["items"]}
+    values = result.get("review_decisions")
+    if not isinstance(values, list) or len(values) != len(items):
+        raise ValueError("review_decisions 必须对当前批次每项恰好提交一次")
+    for index, value in enumerate(values):
+        if not isinstance(value, dict):
+            raise ValueError("review_decisions 每项必须为对象")
+        value.setdefault("item_id", batch["items"][index]["item_id"])
+        if not isinstance(value["item_id"], str):
+            raise ValueError("review_decisions.item_id 必须是当前租约中的字符串 ID")
+        item = items.get(value["item_id"])
+        if not item or value.get("revision", item["revision"]) != item["revision"]:
+            raise ValueError("review_decisions 的 item_id/revision 不属于当前冻结版本")
+        value["revision"] = item["revision"]
+        if value.get("decision") not in allowed_review_decisions(item, batch["phase"]):
+            raise ValueError(f"review_decisions[{item['item_id']}].decision 只能为 "
+                             + ",".join(allowed_review_decisions(item, batch["phase"])))
+    refs = {r["finding_id"]: r for r in review_contract(batch)["verification_review_refs"]}
+    for value in result.get("verification_reviews") or []:
+        if not isinstance(value, dict):
+            raise ValueError("verification_reviews 每项必须为顶层数组中的对象")
+        ref = refs.get(value.get("finding_id")) if isinstance(value.get("finding_id"), str) else None
+        if not ref:
+            raise ValueError("verification_reviews 仅允许当前 final 批次中 verified 的 finding_id")
+        for key in ("revision", "verification_id"):
+            if value.get(key, ref[key]) != ref[key]:
+                raise ValueError(f"verification_reviews[{ref['finding_id']}].{key} 与冻结版本不符")
+            value[key] = ref[key]
+    return result
 
 def review_contract(batch):
     if not batch:
@@ -8,6 +80,10 @@ def review_contract(batch):
     items = batch.get("items") or []
     batch_ids = {item["item_id"] for item in items}
     return {
+        "field_hierarchy": {"top_level": ["goal_state", "basis_summary", "review_batch_id", "review_decisions", "verification_reviews"],
+                            "review_decisions[]": ["item_id", "revision", "decision", "rationale", "focus", "comparison_assessments", "distinct_from", "duplicate_of"],
+                            "verification_reviews[]": ["finding_id", "revision", "verification_id", "decision", "rationale_summary"],
+                            "notice": "verification_reviews 只在顶层，不能放入 review_decisions；宿主绑定当前 ID/版本，显式给出错误值仍会拒绝。"},
         "version": "review-submission/v1", "batch_id": batch["id"],
         "items": [{"item_id": item["item_id"], "revision": item["revision"], "kind": item["kind"],
                    **({"direction_resolution": item["payload"]["resolution_context"]}
@@ -15,13 +91,9 @@ def review_contract(batch):
                    "peer_comparison_contract": [{"item_id": peer["item_id"], "finding_id_alias": peer.get("finding_id"),
                        "in_current_batch": peer["item_id"] in batch_ids,
                        "relation": "same_root|distinct|unresolved", "rationale": "实际根因／危险操作／前提差异，至少12字"}
-                       for peer in item.get("payload", {}).get("comparison_candidates", [])],
-                   "focus_evidence_ranges": [{"path": ref.get("path"), "start_line": (ref.get("range") or {}).get("start"),
-                                              "end_line": (ref.get("range") or {}).get("end")} for ref in item.get("payload",{}).get("evidence") or []],
-                   "allowed_decisions": (["resolve", "needs_evidence"] if (item.get("payload", {}).get("resolution_context") or {}).get("requirement") == "required"
-                                         else ["resolve", "needs_evidence", "skip"]) if item["kind"] in {"direction", "risk"} else
-                   (["accept", "needs_evidence", "contested", "duplicate", "withdraw"] if batch["phase"] == "final" else
-                    ["retain", "needs_evidence", "contested", "duplicate", "withdraw"]),
+                       for peer in reference_coordinates(item)["peers"]],
+                   "focus_evidence_ranges": reference_coordinates(item)["evidence"],
+                   "allowed_decisions": allowed_review_decisions(item, batch["phase"]),
                    **({"verification_review_ref": {"finding_id": item["finding_id"], "revision": item["finding_revision"],
                                                     "verification_id": item.get("verification_id")},
                        "verification_review_required_fields": ["decision:confirmed|contested", "rationale_summary:真实双侧观测判读"]}
@@ -62,8 +134,52 @@ def review_schema(schema, batch, *, allow_direction_updates=False):
     if allow_direction_updates:
         names.add("direction_updates")
     schema["properties"] = {key: value for key, value in schema["properties"].items() if key in names}
-    schema["properties"]["goal_state"] = {"const": "continue"}
-    schema["properties"]["review_batch_id"] = {"const": batch["id"]}
+    schema["properties"]["goal_state"] = {"const": "continue", "type": "string"}
+    schema["properties"]["review_batch_id"] = {"const": batch["id"], "type": "string"}
+    schema["additionalProperties"] = False
+    schema["required"] = ["basis_summary", "review_decisions"]
+    # Share field definitions rather than duplicating the full decision schema for
+    # every item. Each branch still binds its own IDs, revision and legal actions.
+    def branch_from(name):
+        base = schema["$defs"][name]
+        properties = {}
+        for key, value in base["properties"].items():
+            ref = name + "_" + key
+            schema["$defs"].setdefault(ref, deepcopy(value))
+            properties[key] = {"$ref": "#/$defs/" + ref}
+        return {"type": "object", "properties": properties, "required": list(base.get("required", [])),
+                "additionalProperties": False}
+    branches = []
+    for item in batch["items"]:
+        branch = branch_from("PlannerBatchDecision")
+        branch["properties"]["item_id"] = {"const": item["item_id"], "type": "string"}
+        branch["properties"]["revision"] = {"const": item["revision"], "type": "string"}
+        branch["properties"]["decision"] = {"enum": allowed_review_decisions(item, batch["phase"]), "type": "string"}
+        peers = sorted({peer["item_id"] for peer in reference_coordinates(item)["peers"]})
+        assessment = deepcopy(schema["$defs"]["PeerAssessment"])
+        assessment["properties"]["item_id"] = {"type": "string", **({"enum": peers} if peers else {})}
+        branch["properties"]["comparison_assessments"] = {
+            "type": "array", "maxItems": len(peers), "items": assessment}
+        branch["properties"]["distinct_from"] = {
+            "type": "array", "maxItems": len(peers), "items": {"type": "string", **({"enum": peers} if peers else {})}}
+        targets = sorted(set(peers) | {i["item_id"] for i in batch["items"]
+                                     if i["kind"] == "finding" and i["item_id"] != item["item_id"]})
+        branch["properties"]["duplicate_of"] = ({"anyOf": [{"type": "string", "enum": targets}, {"type": "null"}]}
+                                                if targets else {"type": "null"})
+        branches.append(branch)
+    schema["properties"]["review_decisions"] = {
+        "type": "array", "minItems": len(branches), "maxItems": len(branches), "items": {"anyOf": branches}}
+    refs = review_contract(batch)["verification_review_refs"]
+    verification_branches = []
+    for ref in refs:
+        branch = branch_from("PlannerVerificationReview")
+        for key in ("finding_id", "revision", "verification_id"):
+            branch["properties"][key] = {"const": ref[key], "type": "integer" if key == "revision" else "string"}
+        verification_branches.append(branch)
+    schema["properties"]["verification_reviews"] = {
+        "type": "array", "maxItems": len(refs),
+        "items": {"anyOf": verification_branches} if refs else {"type": "object", "additionalProperties": False},
+    }
     if batch["phase"] != "final":
         schema["properties"]["verification_reviews"]["maxItems"] = 0
     definitions = schema.get("$defs", {})
@@ -89,13 +205,13 @@ def review_schema(schema, batch, *, allow_direction_updates=False):
 
 
 def review_example(batch):
-    return {"goal_state": "continue", "basis_summary": "逐项审查当前冻结输入；证据不足的项保留待审。", "tasks": [],
+    return {"goal_state": "continue", "basis_summary": "逐项审查当前冻结输入；证据不足的项保留待审。",
             "review_batch_id": batch["id"],
             "review_decisions": [{"item_id": item["item_id"], "revision": item["revision"],
                                   "decision": "needs_evidence", "rationale": "请替换为本项缺少的具体证据与下一步措施。",
                                   "comparison_assessments": [{"item_id": peer["item_id"], "relation": "unresolved",
                                       "rationale": "此处仅示范结构，须读取双方实际根因与操作后独立判读。"}
-                                      for peer in item.get("payload", {}).get("comparison_candidates", [])],
+                                      for peer in reference_coordinates(item)["peers"]],
                                   **({"focus": {"objective_ref": "objective-main", "relation": "unresolved",
                                                "rationale": "此处仅示范字段结构，须根据原始目标和本项源码独立判读。", "evidence": [], "supports": [], "chain": []}}
                                      if item["kind"] in {"finding", "risk"} else {}),

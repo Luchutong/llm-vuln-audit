@@ -210,7 +210,7 @@ def _normalise_task_findings(outcome: dict) -> dict:
         else:
             findings.append(payload)
     result.update(finding=findings[0] if findings else None, findings=findings, observations=observations)
-    if outcome.get("outcome") == "achieved" and not findings and observations:
+    if outcome.get("outcome") == "achieved" and not findings and observations and not result.get("finding_references"):
         result.update(outcome="no_evidence", terminal_reason="source_observations_only")
         # Preserve the model call's successful terminal reason for health accounting.
         return {**outcome, "outcome": "no_evidence", "result": result}
@@ -1370,7 +1370,8 @@ class AuditWorker:
                             allowed_paths=allowed_paths_for_run(run),
                             dependency_handoffs=dependency_handoffs,
                             known_findings=list((run.get("project_baseline") or [])[:8]),
-                            **({"current_findings": self.store.list_findings(run_id), "current_run_id": run_id} if discovery_first else {}),
+                            **({"current_findings": self.store.list_findings(run_id), "current_run_id": run_id,
+                                "current_findings_reader": lambda: self.store.list_findings(run_id)} if discovery_first else {}),
                             peer_trace_search=search_peer_traces,
                             peer_trace_read=get_peer_trace,
                             config=model_config,
@@ -1382,7 +1383,7 @@ class AuditWorker:
                     prepared_findings: list[dict] = []
                     if outcome["outcome"] == "achieved":
                         prepared_findings = self._build_planner_findings(run, planner_task, outcome)
-                        if not any(item["candidate"] for item in prepared_findings):
+                        if not any(item["candidate"] for item in prepared_findings) and not (outcome.get("result") or {}).get("finding_references"):
                             message = "Planner worker 未提交风险等级明确且通过证据校验的漏洞，不能满足目标"
                             outcome = {
                                 **outcome,
@@ -2246,6 +2247,11 @@ class AuditWorker:
             entry["file_path"], entry["symbol"], entry["dangerous_operation"],
             vulnerability_type=entry.get("vulnerability_type"),
         )
+        if record.get("novelty"):
+            # A worker's explicit distinction is a pending claim for final review,
+            # never permission for a fuzzy ledger merge to erase that distinction.
+            entry["fingerprint"] = hashlib.sha256((entry["fingerprint"] + "|distinct-claim:" + finding_id).encode()).hexdigest()[:32]
+            entry["distinct_proposal"] = True
         try:
             merged = self.store.merge_project_finding(project_id, run_id, entry)
             self.store.link_finding_project(
@@ -2820,6 +2826,9 @@ class AuditWorker:
                 "dataflow": payload.get("dataflow") or [],
                 "focus": payload.get("focus"),
                 "capability_policy": (run.get("task_spec") or {}).get("capability_policy"),
+                **({"novelty": {
+                    "related_finding_id": payload.get("related_finding_id"), "rationale": payload["novelty_reason"]}}
+                   if payload.get("novelty_reason") else {}),
                 "validation_state": "candidate" if candidate else ("invalid_evidence" if not evidence or location_errors else "invalid_finding"),
                 "validation_errors": problems,
                 "verdict": None,

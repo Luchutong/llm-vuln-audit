@@ -540,6 +540,17 @@ WORKER_NAVIGATION_TOOLS = tuple(
     for item in PLANNER_TOOLS if item.name in {"list_tree", "find_files", "source_relations"}
 )
 
+FINDING_LOOKUP_TOOLS: tuple[ToolSpec, ...] = (
+    spec("lookup_findings", "Query the current run's live canonical finding coordinates before writing a full report. "
+         "Equal coordinates require comparison, not automatic merging. This JSON index grants no source-read receipts.",
+         path=Arg("string", "可选快照文件或目录；空字符串返回运行全局索引。", ""),
+         line=Arg("any", "可选精确根因行号。", None, value_type="integer"),
+         vulnerability_type=Arg("string", "可选明确根因分类；空字符串不过滤。", ""),
+         offset=Arg("integer", "宿主 next_offset，默认 0。", 0, minimum=0),
+         limit=Arg("integer", "本页条数，最大 32。", 12, minimum=1, maximum=32),
+         output_format="json", output_fields=("items", "total", "next_offset", "index_sha256")),
+)
+
 PEER_TRACE_TOOLS: tuple[ToolSpec, ...] = (
     spec(
         "search_peer_traces",

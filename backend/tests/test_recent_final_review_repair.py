@@ -99,12 +99,12 @@ def test_paged_derived_related_claims_are_rebuilt_and_checked_against_the_origin
         store.read_review_input(run['id'], batch['id'], item['item_id'], part['field'], repository=repo)
 
 
-def test_oversized_comparison_components_keep_the_original_packing_limits(hosted):
+def test_larger_comparison_components_remain_atomic(hosted):
     store, repo, run = hosted
     run = peer_claims(store, run, 9)
     groups = store.review_batches_pending(run['id'], 'final', repo)
     assert sum(map(len, groups)) == 9
-    assert all(len(group) <= 8 and len(dump(group).encode()) <= 49152 for group in groups)
+    assert len(groups) == 1 and len(groups[0]) == 9
 
 
 def test_comparison_batch_keeps_headroom_for_a_smaller_frozen_context(hosted):
@@ -113,7 +113,12 @@ def test_comparison_batch_keeps_headroom_for_a_smaller_frozen_context(hosted):
     policy = {**run['agent_policy'], 'history_bytes': 131072}
     store._write('UPDATE runs SET agent_policy=? WHERE id=?', (json.dumps(policy), run['id']))
     groups = store.review_batches_pending(run['id'], 'final', repo)
-    assert len(groups) > 1 and all(len(dump(group).encode()) <= 65536 for group in groups)
+    assert len(groups) == 1 and len(groups[0]) == 4
+    batch = store.prepare_review_batch(run['id'], 'final', run['execution_epoch'], repo)
+    from audit.runtime import StopAudit
+    with pytest.raises(StopAudit, match='超过审查输入窗口'):
+        store.materialize_review_batch(run['id'], batch['id'], repository=repo, max_bytes=65536)
+    assert not any(i.get('read_ranges') for i in store.active_review_batch(run['id'])['items'])
 
 
 def test_review_schema_drops_scheduling_but_keeps_real_peer_and_verification_contract(hosted):
@@ -123,9 +128,12 @@ def test_review_schema_drops_scheduling_but_keeps_real_peer_and_verification_con
     full = PlannerDecision.model_json_schema()
     schema = review_schema(copy.deepcopy(full), batch)
     assert 'PlannerTaskProposal' not in schema['$defs']
-    assert 'PeerAssessment' in schema['$defs']
-    verification_type = schema['properties']['verification_reviews']['items']['$ref'].rsplit('/', 1)[-1]
-    assert verification_type in schema['$defs']
+    peer_schema = schema['properties']['review_decisions']['items']['anyOf'][0]['properties']['comparison_assessments']
+    assert peer_schema['maxItems'] == 1
+    assert peer_schema['items']['properties']['item_id']['enum'] == [batch['items'][1]['item_id']]
+    verification_branch = schema['properties']['verification_reviews']['items']['anyOf'][0]
+    assert verification_branch['properties']['finding_id']['const'] == 'claim-001'
+    assert verification_branch['properties']['verification_id']['const'] == 'verification-1'
     assert 'tasks' not in schema['properties'] and 'direction_updates' not in schema['properties']
     assert len(dump(schema)) < len(dump(full)) / 2
     contract = review_contract(batch)

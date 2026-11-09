@@ -166,6 +166,12 @@ class AgentPolicy:
     # action, recorded the way tool_call is, but a long reading loop is not worth the
     # whole event budget: the tool_call events it produces carry the substance.
     code_bytes: int = 4 * 1024
+    # Executable limits are separate from durable-log clipping above. Preflight the
+    # entire action, then bound runtime tool loops before each real dispatch.
+    action_max_bytes: int = 8192
+    action_max_lines: int = 80
+    action_max_nodes: int = 768
+    action_tool_limit: int = 8
     # File-set overlap at or above this marks a proposal as a duplicate of a settled
     # direction that already has an open finding.
     duplicate_overlap_threshold: float = 0.8

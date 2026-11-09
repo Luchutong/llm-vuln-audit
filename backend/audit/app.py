@@ -155,6 +155,7 @@ class Services:
             model=str(profile.get("model") or ""),
             base_url=str(profile.get("base_url") or "").rstrip("/"),
             api_key=api_key,
+            structured_output="compatible",
         )
 
     def model_config_for_run_profile(self, snapshot: dict):
@@ -177,7 +178,8 @@ class Services:
         config = self.model_config_for_profile(profile)
         if config.public_base_url() != base_url:
             return None
-        return replace(config, model=model)
+        return replace(config, model=model, structured_output=(snapshot.get("structured_output")
+            if snapshot.get("structured_output") in {"json_schema", "json_object"} else "compatible"))
 
     @property
     def health_key(self) -> str:
@@ -1123,6 +1125,8 @@ async def create_audit_run(state, payload: CreateRunRequest, *, worker_strategy:
     }
     if worker_strategy is not None:
         model_profile["thinking"] = str(getattr(active_model, "thinking", "disabled"))
+    if getattr(active_model, "structured_output", "compatible") != "compatible":
+        model_profile["structured_output"] = active_model.structured_output
     # Store freezes the requested ledger policy in the run-creation transaction.
     # A fresh run does not inherit old conclusions and never deletes the shared ledger.
     # A concurrent clear either runs first or sees this pending audit and refuses.
@@ -1322,6 +1326,8 @@ async def continue_run(request: Request, run_id: str, payload: ContinueRunReques
                 raise ValueError('所选模型档案未完整配置，请先检查模型、服务地址和 API Key')
             snapshot = dict(profile_id=profile['id'] if profile else '', model=config.model,
                             base_url=config.public_base_url(), thinking=config.thinking)
+            if config.structured_output != "compatible":
+                snapshot["structured_output"] = config.structured_output
         run = state.store.create_continuation(run_id, payload.model_dump(), model_profile=snapshot)
     except KeyError:
         raise HTTPException(status_code=404, detail="Run does not exist") from None

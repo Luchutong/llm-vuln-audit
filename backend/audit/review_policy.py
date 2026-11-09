@@ -10,6 +10,7 @@ def batch_response_reserve(items, *, corrections=2):
 
 def validate_peer_assessments(decisions, current):
     by_id = {decision["item_id"]: decision for decision in decisions}
+    problems = []
     for decision in decisions:
         if decision["decision"] not in {"accept", "duplicate"}:
             continue
@@ -17,19 +18,27 @@ def validate_peer_assessments(decisions, current):
         peers = {peer["item_id"] for peer in item.get("payload", {}).get("comparison_candidates", [])}
         assessments = decision.get("comparison_assessments") or []
         supplied = [a["item_id"] for a in assessments]
+        field = f"review_decisions[{decision['item_id']}].comparison_assessments"
         if len(supplied) != len(set(supplied)) or set(supplied) - peers:
-            raise ValueError("comparison_assessments 只能逐项引用本项 comparison_candidates 的规范 item_id，不能使用运行 finding_id 或重复项")
-        if any(a.get("relation") not in {"same_root", "distinct", "unresolved"}
-               or len(str(a.get("rationale") or "").strip()) < 12 for a in assessments):
-            raise ValueError("comparison_assessments 每项须有合法关系和至少12字的实际根因／操作／前提判读")
+            problems.append(f"{field} 只能逐项引用本项 comparison_candidates 的规范 item_id，不能使用运行 finding_id 或重复项；"
+                            f"允许的 item_id：{','.join(sorted(peers))}")
+        for assessment in assessments:
+            if (assessment.get("relation") not in {"same_root", "distinct", "unresolved"}
+                    or len(str(assessment.get("rationale") or "").strip()) < 12):
+                problems.append(f"{field}[{assessment['item_id']}] 须填写 relation=same_root|distinct|unresolved，"
+                                "以及 rationale（至少12字的实际根因／操作／前提判读）；没有 relation_note 字段")
         judged = {a["item_id"]: a for a in assessments}
         if decision["decision"] == "duplicate":
             target = decision.get("duplicate_of")
             if target not in judged or judged[target]["relation"] != "same_root":
-                raise ValueError("duplicate 须对 duplicate_of 的规范 item_id 明确提交 same_root 判读和实际根因依据")
+                problems.append(f"{field}[{target}]：duplicate 须对 duplicate_of 的规范 item_id 明确提交 "
+                                "relation=same_root 与 rationale，说明实际根因依据")
             continue
         retained = {peer for peer in peers if by_id.get(peer, {}).get("decision") not in {"duplicate", "withdraw"}}
-        if any(peer not in judged or judged[peer]["relation"] != "distinct" for peer in retained):
-            raise ValueError("accept 须逐项说明保留对照的 distinct 根因／操作／前提差异；same_root 应 duplicate，unresolved 应 needs_evidence，不能只填 distinct_from")
-        if any(len(str(judged[peer].get("rationale") or "").strip()) < 12 for peer in retained):
-            raise ValueError("每项 distinct 判读须说明实际根因／危险操作／利用前提差异，评分与 POC 状态不同不构成差异")
+        for peer in sorted(retained):
+            if peer not in judged or judged[peer]["relation"] != "distinct":
+                problems.append(f"{field}[{peer}]：accept 须提交 {{item_id:{peer},relation:distinct,rationale:具体差异至少12字}}；"
+                                "不能只填 distinct_from。same_root 应 duplicate 并选保留主结论；本批其他项可指向该主结论，"
+                                "未决应 needs_evidence，不能为接受捏造 distinct")
+    if problems:
+        raise ValueError("候选对照逐项要求：" + "；".join(problems))

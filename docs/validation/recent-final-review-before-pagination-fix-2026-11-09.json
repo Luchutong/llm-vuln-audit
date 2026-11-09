@@ -1,0 +1,21 @@
+{
+  "scope": "Interrupted isolated real-model validation after discovering an unreadable paged derived field; not a production audit",
+  "parent_run_id": "588ca76c3b0045e5b1769f32e52ebc40",
+  "reason": "read_review_input lost derived payload.related_claims",
+  "usage": {
+    "responses": 15,
+    "tools": 45,
+    "seconds": 273.659
+  },
+  "batches": {
+    "completed": 2,
+    "pending": 1
+  },
+  "reader_errors": [
+    "KeyError: 'payload.related_claims'",
+    "KeyError: 'payload.related_claims'",
+    "KeyError: 'payload.related_claims'",
+    "KeyError: 'payload.related_claims'"
+  ],
+  "runner_jobs": 0
+}

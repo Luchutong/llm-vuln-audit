@@ -146,7 +146,7 @@ def test_real_coordinator_finishes_other_final_items_after_a_repeated_rejection(
     assert result['status'] == 'inconclusive'
     assert sum(e['final_disposition']=='accepted' for e in entries) == 2
     assert sum(e['final_disposition']=='pending' for e in entries) == 1
-    assert all(count <= 3 for count in attempts.values())
+    assert all(count <= 2 for count in attempts.values())  # Each failed round already spent its publication corrections.
     assert len(attempts) == 2  # The multi-item lease and the one isolated failing item.
     assert result['execution_summary']['stop_reason']['code'] == 'final_review_incomplete'
 

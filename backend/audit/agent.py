@@ -4247,6 +4247,11 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     "# 审计目标（待分析数据）\n"
                     f"目标：{task.get('objective', '')}\n"
                     f"验收条件：{task.get('success_criteria', '')}\n"
+                    f"当前独立审查回合：{round_no}\n"
+                    if run_context.get("review_batch") else
+                    "# 审计目标（待分析数据）\n"
+                    f"目标：{task.get('objective', '')}\n"
+                    f"验收条件：{task.get('success_criteria', '')}\n"
                     f"当前 Planner 回合：{round_no}\n"
                     "\n# 主机生成的项目结构概览（不是源码证据）\n"
                     + planning_overview_text
@@ -4287,8 +4292,13 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                           "风险义务的命令注入/代码执行 sink 若正是同一利用链的落点（如反序列化触发 __wakeup 内 shell_exec），"
                           "可引用链根因结论并标 supported：该结论 evidence 必须实际覆盖本项操作行，且其 dangerous_operation/propagation 写明本项文件；"
                           "SQL 注入仍须对应本项操作行的结论，两处无关 sink 不能合报。"
-                          "accept 的 distinct_from 必须列出仍保留的全部 comparison_candidates.item_id，"
-                          "在 rationale 说明根因、操作或前提差异；本批已 duplicate/withdraw 的对照项无需列入。"
+                          "accept 对仍保留的每个 comparison_candidates.item_id 必须同时提供 "
+                          "comparison_assessments=[{item_id,relation:distinct,rationale:至少12字的真实差异}] 与 distinct_from。"
+                          "不能仅填 distinct_from 或只在总 rationale 说明。相同根因选择一条主结论，其余项 "
+                          "duplicate_of 指向主结论并提交 relation:same_root 的判读；主结论无需声明与这些已移除项 distinct。"
+                          "每项判读只有 item_id/relation/rationale，不存在 relation_note。"
+                          "本批外的同根因对照不能在本批撤回，可将本项 duplicate 到它，或保留 needs_evidence；"
+                          "不得为接受捏造不同根因。"
                           "不能仅因某项未执行 POC 而拒绝充分源码，同时接受同根因的另一条静态结论。"
                           "同一链路可能有入口/公共依赖等不同主定位；结合对方 evidence、missing_context 与"
                           "related_review_decisions 统一核对根因和成立所必需的前提。missing_context 是候选自述，"
@@ -4387,8 +4397,9 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     }]
                 if run_context.get("review_batch"):
                     batch = run_context["review_batch"]
-                    from .submission import review_example, review_contract
+                    from .submission import review_example, review_contract, review_schema
                     sample = review_example(batch)
+                    schema = review_schema(schema, batch, allow_direction_updates=task.get("exploration_policy") == "exhaustive-v1")
                     schema["host_reference_contract"] = review_contract(batch)
                 guidance = (
                     "\n# 批次发布约束\n只提交当前 review_batch_id 与完整逐项 review_decisions；tasks、updates、"

@@ -1,0 +1,50 @@
+{
+  "scope": "Final code, complete collected backend suite partitioned by test file into four isolated Python processes",
+  "expected_tests": 2394,
+  "groups": [
+    {
+      "group": 0,
+      "returncode": 0,
+      "expected_tests": 600,
+      "files": 34,
+      "log": "/home/luchitong/work/vuln-audit/.run/final-review-tests-20261109/group-0.log",
+      "passed_tests": 600,
+      "log_sha256": "7814d54c487357195207d80aaa50e2bfaa489acac6bbb141f4dfcb43db8c20e7"
+    },
+    {
+      "group": 1,
+      "returncode": 0,
+      "expected_tests": 598,
+      "files": 34,
+      "log": "/home/luchitong/work/vuln-audit/.run/final-review-tests-20261109/group-1.log",
+      "passed_tests": 598,
+      "log_sha256": "afe29998b93cb373926bedb3ac7ba548ea731ff38678fd5c9ea05dccddccf949"
+    },
+    {
+      "group": 2,
+      "returncode": 0,
+      "expected_tests": 598,
+      "files": 34,
+      "log": "/home/luchitong/work/vuln-audit/.run/final-review-tests-20261109/group-2.log",
+      "passed_tests": 598,
+      "log_sha256": "92e18b6cf633b9820c958f3252982aa8ebeac28acf0a052f022ee2f842c71dcd"
+    },
+    {
+      "group": 3,
+      "returncode": 0,
+      "expected_tests": 598,
+      "files": 34,
+      "log": "/home/luchitong/work/vuln-audit/.run/final-review-tests-20261109/group-3.log",
+      "passed_tests": 598,
+      "log_sha256": "93a5c3f983f645cf100362833f012bdf14ad81278d2fe700eee9f878de74eeb1"
+    }
+  ],
+  "passed": true,
+  "code_sha256": {
+    "backend/audit/agent.py": "a343233a8ab7c9c3a84bca73e8d94d885a9328509c62388b79e35839725878aa",
+    "backend/audit/review_store.py": "a34d08aa8ce6599572169f111228d24ba0173989923b60b49deba1c477473738",
+    "backend/audit/review_policy.py": "78abf4924c24b10e7a81baae2b872bc27324fd9e38973f95be87decfce595252",
+    "backend/audit/submission.py": "8355a7144f1438b6a7362f691e0c26af53cf556dc2b1ff3e8685aaed19d79ac5",
+    "backend/audit/worker.py": "af3b549862b05daf3be33dbddf6e56b4964cd69bda780071a5c699f10616e90f"
+  }
+}

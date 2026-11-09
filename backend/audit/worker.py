@@ -1839,7 +1839,7 @@ class AuditWorker:
                 batch_rounds += 1
                 stalls, failure, stalled = final_review_stall(
                     stall_state, completed=response == "batch_completed",
-                    failure=last_planner_failure or response, limit=stall_limit)
+                    failure=last_planner_failure or response, limit=min(2, stall_limit) if hosted else stall_limit)
                 stall_state = (stalls, failure)
                 if response in {"stage_exhausted", "no_round", "closed"}:
                     return

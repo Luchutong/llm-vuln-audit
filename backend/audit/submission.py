@@ -6,12 +6,14 @@ def review_contract(batch):
     if not batch:
         return {}
     items = batch.get("items") or []
+    batch_ids = {item["item_id"] for item in items}
     return {
         "version": "review-submission/v1", "batch_id": batch["id"],
         "items": [{"item_id": item["item_id"], "revision": item["revision"], "kind": item["kind"],
                    **({"direction_resolution": item["payload"]["resolution_context"]}
                       if (item.get("payload") or {}).get("resolution_context") else {}),
                    "peer_comparison_contract": [{"item_id": peer["item_id"], "finding_id_alias": peer.get("finding_id"),
+                       "in_current_batch": peer["item_id"] in batch_ids,
                        "relation": "same_root|distinct|unresolved", "rationale": "实际根因／危险操作／前提差异，至少12字"}
                        for peer in item.get("payload", {}).get("comparison_candidates", [])],
                    "focus_evidence_ranges": [{"path": ref.get("path"), "start_line": (ref.get("range") or {}).get("start"),
@@ -25,7 +27,14 @@ def review_contract(batch):
                        "verification_review_required_fields": ["decision:confirmed|contested", "rationale_summary:真实双侧观测判读"]}
                       if item.get("requires_verification_review") else {})} for item in items],
         "fill_in": ["独立处置与具体 rationale", "目标关联 focus（新任务）", "需要时的正常/攻击判读 rationale_summary",
-                    "实际候选差异 distinct_from（不能自动全选）"],
+                    "逐项 comparison_assessments（item_id、relation、rationale），真实不同才写入 distinct_from"],
+        "verification_review_refs": [{"item_id": item["item_id"], "finding_id": item["finding_id"],
+            "revision": item["finding_revision"], "verification_id": item["verification_id"],
+            "required_for_accept": bool(item.get("requires_verification_review"))}
+            for item in items if batch["phase"] == "final" and item.get("verification_status") == "verified" and item.get("verification_id")],
+        "verification_review_policy": "verification_reviews 只能引用 verification_review_refs 的 finding_id/revision/verification_id；"
+            "inconclusive/unverified 不在此列表，禁止为其提交 confirmed/contested 动态复核。"
+            "有原作业但没有完整双侧结论时可独立静态审查，不能补造动态确认。",
         "focus_contract": {"objective_ref": "objective-main", "relation": "relevant|supporting|incidental|unresolved",
                            "rationale": "独立判断目标与实际源码操作的关系，至少12字",
                            "evidence_format": {"path": "逐项复制本 item payload.evidence 内实际路径", "start_line": "区间内原始起始行", "end_line": "区间内原始结束行"},
@@ -41,6 +50,42 @@ def review_contract(batch):
                        "accept 对保留对照须同时提交 comparison_assessments=[{item_id,relation:distinct,rationale}] 与 distinct_from，逐项说明真实差异；"
                        "同根因须 duplicate 并选主结论，未决用 needs_evidence。评分／POC 差别不是根因差别。",
     }
+
+
+def review_schema(schema, batch, *, allow_direction_updates=False):
+    """Advertise only review actions and their reachable field definitions.
+
+    Validation still uses the full PlannerDecision and the Store's exact-version
+    checks. Removing unrelated scheduling examples leaves room for actual facts.
+    """
+    names = {"goal_state", "basis_summary", "review_batch_id", "review_decisions", "verification_reviews"}
+    if allow_direction_updates:
+        names.add("direction_updates")
+    schema["properties"] = {key: value for key, value in schema["properties"].items() if key in names}
+    schema["properties"]["goal_state"] = {"const": "continue"}
+    schema["properties"]["review_batch_id"] = {"const": batch["id"]}
+    if batch["phase"] != "final":
+        schema["properties"]["verification_reviews"]["maxItems"] = 0
+    definitions = schema.get("$defs", {})
+    used = set()
+
+    def visit(value):
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            ref = value.get("$ref", "")
+            if ref.startswith("#/$defs/"):
+                name = ref.removeprefix("#/$defs/")
+                if name not in used:
+                    used.add(name)
+                    visit(definitions[name])
+            for item in value.values():
+                visit(item)
+
+    visit(schema["properties"])
+    schema["$defs"] = {key: value for key, value in definitions.items() if key in used}
+    return schema
 
 
 def review_example(batch):

@@ -420,6 +420,20 @@ class ReviewStoreMixin:
             items.extend(self.risk_review_candidates(run_id))
         return items
 
+    @staticmethod
+    def _review_source_inputs(candidates, repository):
+        """One deterministic fact projection for packing and subsequent page reads."""
+        from .review_input import source_input
+        source_items = [item for item in candidates if item["kind"] in {"finding", "risk"}
+                        and item.get("disposition") not in {"withdrawn", "duplicate", "retracted", "superseded"}]
+        enriched = {item["item_id"]: source_input(item, repository) for item in source_items}
+        findings = [enriched[item["item_id"]] for item in source_items if item["kind"] == "finding"]
+        for item in findings:
+            facts = related_claim_facts(item, findings)
+            if facts:
+                item["payload"] = {**item["payload"], "related_claims": facts}
+        return enriched
+
     def review_batches_pending(self, run_id, phase, repository=None, *, for_scheduling=False):
         """Pure packing used by both budget estimates and actual leases."""
         reviewed = {(r["item_id"], r["revision"]) for r in self._rows(
@@ -428,7 +442,7 @@ class ReviewStoreMixin:
             for batch in self.list_review_batches(run_id):
                 if batch["phase"] == phase and batch["status"] == "deferred":
                     reviewed.update((i["item_id"], i["revision"]) for i in batch["items"])
-        from .review_input import source_input, bounded_item, comparison_groups, same_input
+        from .review_input import bounded_item, comparison_groups, same_input
         groups, selected = [], []
         candidates = self._review_candidates(run_id, phase)
         pending = [i for i in candidates if (i["item_id"], i["revision"]) not in reviewed]
@@ -452,21 +466,18 @@ class ReviewStoreMixin:
             # The corroboration pool is every current claim, not only the unreviewed
             # ones: a write-path claim accepted in an earlier batch is still the fact
             # that proves a later second-order injection's source column.
-            source_items = [i for i in candidates if i["kind"] in {"finding", "risk"}
-                            and i.get("disposition") not in {"withdrawn", "duplicate", "retracted", "superseded"}]
-            for i in source_items:
-                enriched[i["item_id"]] = source_input(i, repository)
-            findings = [enriched[i["item_id"]] for i in source_items if i["kind"] == "finding"]
-            for item in findings:
-                facts = related_claim_facts(item, findings)
-                if facts:
-                    item["payload"] = {**item["payload"], "related_claims": facts}
+            enriched = self._review_source_inputs(candidates, repository)
         # A single finding payload is ~15-20 KB after corroboration excerpts; at 32 KB
         # the packer fell back to one item per final batch in a real run (56 of 80
         # batches), which spent the whole wall-clock budget on round-trip latency while
         # half the obligations stayed unreviewed. 48 KB packs 2-3 findings (or 4-6 small
         # risk items) per batch without changing any per-item bound or decision contract.
         soft_limit = 49152 if self.host_queue_enabled(run_id) else 24576
+        from .review_policy import COMPARISON_POLICY
+        policy_row = self._row("SELECT agent_policy,task_spec FROM runs WHERE id=?", (run_id,))
+        history_bytes = int((json.loads(policy_row[0] or "{}") if policy_row else {}).get("history_bytes") or 393216)
+        comparison_limit = min(131072, max(soft_limit, history_bytes // 2))
+        atomic_comparisons = bool(policy_row and json.loads(policy_row[1] or "{}").get("comparison_policy") == COMPARISON_POLICY)
         for related in comparison_groups(pending):
             prepared = [bounded_item(enriched.get(i["item_id"], i) if phase == "final" else i)
                         for i in related]
@@ -475,6 +486,17 @@ class ReviewStoreMixin:
                     groups.append(selected)
                     selected = []
                 groups.extend([item] for item in prepared)
+                continue
+            # A main claim cannot be accepted while same-root peers outside its
+            # lease remain undecided. Keep a bounded comparison component atomic
+            # so the reviewer can retain one and explicitly dispose its peers in
+            # the same transaction. Oversized groups still use the normal bounds.
+            if (atomic_comparisons and phase == "final" and self.host_queue_enabled(run_id) and len(prepared) > 1
+                    and len(prepared) <= 8 and len(dump(prepared).encode()) <= comparison_limit):
+                if selected:
+                    groups.append(selected)
+                    selected = []
+                groups.append(prepared)
                 continue
             if selected and (len(selected + prepared) > 8 or len(dump(selected + prepared).encode()) > soft_limit):
                 groups.append(selected)
@@ -507,11 +529,15 @@ class ReviewStoreMixin:
             manifest = next((p for p in (item or {}).get("paged_fields", []) if p["field"] == field), None)
             if not manifest:
                 raise ValueError("只能读取当前批次清单中的 item_id 与 paged_fields.field")
-            full = next((i for i in self._review_candidates(run_id, batch["phase"]) if i["item_id"] == item_id), None)
+            candidates = self._review_candidates(run_id, batch["phase"])
+            full = next((i for i in candidates if i["item_id"] == item_id), None)
             if not same_input(item, full):
                 raise ValueError("结论版本已变化，旧页不能作为审查依据")
             if batch["phase"] == "final" and full["kind"] in {"finding", "risk"}:
-                full = source_input(full, repository)
+                # Only this derived field needs the complete corroboration pool.
+                # Large raw POC fields must not reread every peer on every page.
+                full = (self._review_source_inputs(candidates, repository)[item_id]
+                        if field == "payload.related_claims" else source_input(full, repository))
             text = dump(field_values(full)[field])
             if digest(text) != manifest["sha256"] or len(text) != manifest["characters"]:
                 raise ValueError("被审原文已变化，请重新领取批次")
@@ -606,18 +632,33 @@ class ReviewStoreMixin:
         if reviews and not (self.host_queue_enabled(run_id) and batch["phase"] == "final"):
             raise ValueError("本批次不能提交动态复核")
         reviewed = {}
+        review_errors = []
         for review in reviews:
             item = next((i for i in batch["items"] if i.get("finding_id") == review.get("finding_id")), None)
             observations = current.get((item or {}).get("item_id"), {}).get("payload", {}).get("verification_observations") or {}
-            if (not item or item.get("verification_status") != "verified" or item.get("review_input_omitted")
-                    or item.get("finding_revision") != review.get("revision")
-                    or item.get("verification_id") != review.get("verification_id")
-                    or review.get("finding_id") in reviewed
-                    or review.get("decision") not in {"confirmed", "contested"}
-                    or len(str(review.get("rationale_summary") or "").strip()) < 3
-                    or not observations.get("normal_observation") or not observations.get("attack_observation")):
-                raise ValueError("动态复核必须对应当前 final 批次的精确版本和完整正常／攻击观测")
+            errors = []
+            if not item:
+                errors.append("finding_id 不属于本批次；使用 verification_review_refs 的运行 finding_id")
+            else:
+                if item.get("verification_status") != "verified":
+                    errors.append(f"当前 verification_status={item.get('verification_status')}，须省略该项 verification_reviews，"
+                                  "不能为未决实验提交动态 confirmed/contested；独立静态处置写入 review_decisions")
+                if item.get("review_input_omitted"):
+                    errors.append("须先完整读取该项 paged_fields")
+                if item.get("finding_revision") != review.get("revision") or item.get("verification_id") != review.get("verification_id"):
+                    errors.append(f"须使用 revision={item.get('finding_revision')}、verification_id={item.get('verification_id')}")
+                if not observations.get("normal_observation") or not observations.get("attack_observation"):
+                    errors.append("缺少完整正常／攻击观测，不能补造动态复核")
+            if review.get("finding_id") in reviewed:
+                errors.append("同一 finding_id 不得重复提交")
+            if review.get("decision") not in {"confirmed", "contested"} or len(str(review.get("rationale_summary") or "").strip()) < 3:
+                errors.append("须填写 decision=confirmed|contested 与具体 rationale_summary")
+            if errors:
+                review_errors.append(f"verification_reviews[{review.get('finding_id')}]：" + "；".join(errors))
+                continue
             reviewed[review["finding_id"]] = review["decision"]
+        if review_errors:
+            raise ValueError("动态复核必须对应当前 final 批次的精确版本和完整正常／攻击观测：" + "；".join(review_errors))
         validated_items = []
         for item in batch["items"]:
             decision = reviewed.get(item.get("finding_id"))

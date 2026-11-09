@@ -1,0 +1,390 @@
+{
+  "scope": "Real selected-model review of an isolated database continuation; no production run or POC jobs created",
+  "parent_run_id": "588ca76c3b0045e5b1769f32e52ebc40",
+  "model": "deepseek-flash",
+  "run_limits": {
+    "responses": 64,
+    "tools": 1024,
+    "seconds": 900
+  },
+  "status": "inconclusive",
+  "stop_reason": {
+    "code": "continuation",
+    "message": "审计与终审已结束，未完成的源码方向及运行限制保留在阶段报告中。"
+  },
+  "usage": {
+    "responses": 13,
+    "tools": 69,
+    "seconds": 291.982
+  },
+  "initial_batch_sizes": [
+    4,
+    2,
+    4,
+    2
+  ],
+  "initial_batch_bytes": [
+    104879,
+    55130,
+    116284,
+    36502
+  ],
+  "counts": {
+    "accepted": 5,
+    "canonical": 5,
+    "contested": 0,
+    "pending": 0,
+    "raw_records": 23,
+    "valid_records": 5,
+    "withdrawn": 18
+  },
+  "review_pending": 0,
+  "rejection_hints": {
+    "review_decisions.1.revision: String should have at most 64 characters": 1,
+    "动态复核必须对应当前 final 批次的精确版本和完整正常／攻击观测：verification_reviews[18275da2c8774f74932654fefe0dca4a]：须先完整读取该项 paged_fields": 2
+  },
+  "runner_jobs": 0,
+  "parent_frozen_hashes_before": [
+    "54be4ee5f64d244ba944b9060bf4fa6311ca8131d7338c6e852cfa7ad2fcbf57",
+    "77a6fc46db5a4b981c9dea8b1487217e153fb722505481e2dad9ea8e527cb783",
+    "f6c11b863336b8d323c11afafb6c6f6df17e8c257e46485052e53405f81ad7c1",
+    "1d5fc8d09f24124ecc74f60b383df53964bf7dbf2065efb45408a15aa0a4e2cd"
+  ],
+  "parent_frozen_hashes_after": [
+    "54be4ee5f64d244ba944b9060bf4fa6311ca8131d7338c6e852cfa7ad2fcbf57",
+    "77a6fc46db5a4b981c9dea8b1487217e153fb722505481e2dad9ea8e527cb783",
+    "f6c11b863336b8d323c11afafb6c6f6df17e8c257e46485052e53405f81ad7c1",
+    "1d5fc8d09f24124ecc74f60b383df53964bf7dbf2065efb45408a15aa0a4e2cd"
+  ],
+  "quality_result": {
+    "failed_checks": [],
+    "failed_objects": [],
+    "layers": {
+      "evidence": [
+        {
+          "check": "evidence_entries_present",
+          "detail": "证据引用没有对应的宿主观测条目",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "source_excerpts_readable",
+          "detail": "源码片段未能在快照中读取；正文标注为不可用，报告降级为阶段报告",
+          "objects": [],
+          "ok": true,
+          "severity": "degraded"
+        },
+        {
+          "check": "source_excerpts_nonempty",
+          "detail": "读取成功但片段为空",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "claims_have_evidence",
+          "detail": "结论没有原始源码证据引用",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "claim_verification_refs",
+          "detail": "结论引用的验证记录缺失或版本不符",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "accepted_have_full_verification",
+          "detail": "已接受结论缺少正常侧、攻击侧证据或作业记录",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "ratings_carry_host_provenance",
+          "detail": "评分缺少宿主引擎来源或文本",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        }
+      ],
+      "interpretation": [
+        {
+          "check": "conflicts_disclosed",
+          "detail": "存在冲突但仍被当成确定结论",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "accepted_have_confirmed_review",
+          "detail": "已接受结论缺少同版本正式复核确认",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "duplicates_disclosed",
+          "detail": "疑似重复未同时出现在附录与补证动作中",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "comparison_candidates_adjudicated",
+          "detail": "已接受结论尚缺关联候选的根因判读",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "narrative_within_facts",
+          "detail": "叙述声称的数量超过已接受漏洞数",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "rendered_counts_present",
+          "detail": "正文缺少可复算的数量行",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "rendered_counts_match_facts",
+          "detail": "正文数量与事实包不一致",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "no_dict_repr",
+          "detail": "正文出现 Python 字典 repr",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "required_sections_present",
+          "detail": "缺少必要章节",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "unavailable_excerpts_labelled",
+          "detail": "不可用片段没有在正文说明",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        }
+      ],
+      "structure": [
+        {
+          "check": "schema_version",
+          "detail": "schema=final-review/v2",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "provenance_run_id",
+          "detail": "run_id 缺失",
+          "objects": [
+            "bca7b63e4a765545b05af1b12c7be0e3"
+          ],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "provenance_snapshot_id",
+          "detail": "snapshot_id 缺失",
+          "objects": [
+            "bca7b63e4a765545b05af1b12c7be0e3"
+          ],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "provenance_source_hash",
+          "detail": "source_hash 缺失",
+          "objects": [
+            "bca7b63e4a765545b05af1b12c7be0e3"
+          ],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "provenance_input_hash",
+          "detail": "input_hash 缺失",
+          "objects": [
+            "bca7b63e4a765545b05af1b12c7be0e3"
+          ],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "provenance_renderer_version",
+          "detail": "renderer_version 缺失",
+          "objects": [
+            "bca7b63e4a765545b05af1b12c7be0e3"
+          ],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "provenance_template_hash",
+          "detail": "template_hash 缺失",
+          "objects": [
+            "bca7b63e4a765545b05af1b12c7be0e3"
+          ],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "canonical_ids_unique",
+          "detail": "重复：[]",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "evidence_ids_unique",
+          "detail": "重复：[]",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "verification_ids_unique",
+          "detail": "重复：[]",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "review_ids_unique",
+          "detail": "重复：[]",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "record_mapping_closed",
+          "detail": "每条规范结论必须恰有一个当前记录",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "valid_records_mapped",
+          "detail": "映射 5 条，有效记录 5 条",
+          "objects": [
+            "269655bcc8714e859d6d6ddffa66c4ca"
+          ],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "appendix_owner_complete",
+          "detail": "附录记录缺少规范归属",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "counts_recomputable",
+          "detail": "数量无法从规范清单复算",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "coverage_counts_agree",
+          "detail": "覆盖节与汇总节数量不一致",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "verification_denominator",
+          "detail": "验证分母与规范结论数不一致",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "review_batch_items_match",
+          "detail": "批次项与规范结论集合不一致",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "review_batch_complete",
+          "detail": "尚有未逐项提交终审处置的结论，报告保持阶段性",
+          "objects": [],
+          "ok": true,
+          "severity": "degraded"
+        },
+        {
+          "check": "review_batch_ids_unique",
+          "detail": "重复：[]",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "review_refs_current",
+          "detail": "复核引用未指向当前记录版本或已有验证",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "action_items_sourced",
+          "detail": "补证动作引用了不存在的规范结论",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        },
+        {
+          "check": "open_items_have_action",
+          "detail": "存在未接受但没有补证动作的结论",
+          "objects": [],
+          "ok": true,
+          "severity": "fatal"
+        }
+      ]
+    },
+    "publishability": "releasable_partial",
+    "recomputed": {
+      "canonical": 5,
+      "dispositions": {
+        "accepted": 5,
+        "contested": 0,
+        "pending": 0
+      }
+    },
+    "report_kind": "stage",
+    "statistics": {
+      "accepted": 5,
+      "action_items": 2,
+      "canonical": 5,
+      "contested": 0,
+      "observations": 0,
+      "pending": 0,
+      "raw_records": 23,
+      "reviews": 9,
+      "source_evidence": 14,
+      "valid_records": 5,
+      "verification_attempts": 10,
+      "withdrawn": 18
+    },
+    "version": "report-quality/v1"
+  }
+}

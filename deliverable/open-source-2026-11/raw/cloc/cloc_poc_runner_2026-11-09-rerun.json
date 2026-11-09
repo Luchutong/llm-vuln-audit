@@ -1,0 +1,29 @@
+
+{"header" : {
+  "cloc_url"           : "github.com/AlDanial/cloc",
+  "cloc_version"       : "1.82",
+  "elapsed_seconds"    : 0.0117599964141846,
+  "n_files"            : 6,
+  "n_lines"            : 1819,
+  "files_per_second"   : 510.20423720223,
+  "lines_per_second"   : 154676.917911809},
+"Python" :{
+  "nFiles": 4,
+  "blank": 211,
+  "comment": 143,
+  "code": 1326},
+"Markdown" :{
+  "nFiles": 1,
+  "blank": 18,
+  "comment": 0,
+  "code": 74},
+"Dockerfile" :{
+  "nFiles": 1,
+  "blank": 8,
+  "comment": 10,
+  "code": 29},
+"SUM": {
+  "blank": 237,
+  "comment": 153,
+  "code": 1429,
+  "nFiles": 6} }

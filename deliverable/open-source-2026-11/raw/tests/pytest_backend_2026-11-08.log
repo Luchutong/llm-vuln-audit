@@ -1,0 +1,188 @@
+........................................................................ [  3%]
+........................................................................ [  6%]
+..................................F..................................... [  9%]
+........................................................................ [ 12%]
+........................................................................ [ 15%]
+........................................................................ [ 19%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 28%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 38%]
+........................................................................ [ 41%]
+........................................................................ [ 44%]
+........................................................................ [ 47%]
+........................................................F..F............ [ 50%]
+........................................................................ [ 53%]
+........................................................................ [ 57%]
+........................................................................ [ 60%]
+........................................................................ [ 63%]
+........................................................................ [ 66%]
+........................................................................ [ 69%]
+........................................................................ [ 73%]
+........................................................................ [ 76%]
+........................................................................ [ 79%]
+........................................................................ [ 82%]
+........................................................................ [ 85%]
+........................................................................ [ 88%]
+........................................................................ [ 92%]
+........................................................................ [ 95%]
+........................................................................ [ 98%]
+....................................                                     [100%]
+=================================== FAILURES ===================================
+______ test_cli_process_removes_inherited_provider_routes_and_credentials ______
+
+tmp_path = PosixPath('/tmp/pytest-of-zsh/pytest-0/test_cli_process_removes_inher0')
+
+    def test_cli_process_removes_inherited_provider_routes_and_credentials(tmp_path):
+        fake = tmp_path / "fake-cli"
+        fake.write_text(f"#!{sys.executable}\nimport json, os, sys\n"
+                        "print(json.dumps({'args':sys.argv[1:], 'keys':sorted(os.environ), "
+                        "'gateway':os.environ.get('ANTHROPIC_BASE_URL')}))\n")
+        fake.chmod(0o700)
+        wrapper = Path(__file__).parents[1] / "audit/runtimes/claude_cli.py"
+        env = {
+            "PATH": "/usr/bin:/bin", "AUDIT_POC_CLAUDE_REAL_CLI": str(fake),
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1/mock-gateway", "ANTHROPIC_AUTH_TOKEN": "fake-capability",
+            "ANTHROPIC_API_KEY": "fake-provider-key", "ANTHROPIC_CUSTOM_HEADERS": "fake-header",
+            "CLAUDE_CODE_OAUTH_TOKEN": "fake-oauth", "CLAUDE_CODE_USE_BEDROCK": "1",
+            "AWS_ACCESS_KEY_ID": "fake-cloud-key", "HTTPS_PROXY": "http://unused-proxy",
+        }
+>       result = subprocess.run([sys.executable, str(wrapper), "--version"], env=env,
+                                capture_output=True, text=True, timeout=5, check=True)
+
+tests/test_claude_poc_preparation.py:35: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = True, timeout = 5, check = True
+popenargs = (['/home/zsh/桌面/llm-vuln-audit-main (4)/llm-vuln-audit-main/backend/.venv/bin/python', '/home/zsh/桌面/llm-vuln-audit-main (4)/llm-vuln-audit-main/backend/audit/runtimes/claude_cli.py', '--version'],)
+kwargs = {'env': {'PATH': '/usr/bin:/bin', 'AUDIT_POC_CLAUDE_REAL_CLI': '/tmp/pytest-of-zsh/pytest-0/test_cli_process_removes_i...p://127.0.0.1/mock-gateway', 'ANTHROPIC_AUTH_TOKEN': 'fake-capability', ...}, 'text': True, 'stdout': -1, 'stderr': -1}
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['/home/zsh/桌面/llm-vuln-audit-main (4)/llm-vuln-audit-main/backend/.venv/bin/python', '/home/zsh/桌面/llm-vuln-audit-main (4)/llm-vuln-audit-main/backend/audit/runtimes/claude_cli.py', '--version']' returned non-zero exit status 1.
+
+/home/zsh/.local/share/uv/python/cpython-3.12.16-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError
+________ test_a_successful_reset_happens_before_the_context_is_created _________
+
+tmp_path = PosixPath('/tmp/pytest-of-zsh/pytest-0/test_a_successful_reset_happen0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f1d209f1310>
+
+    def test_a_successful_reset_happens_before_the_context_is_created(tmp_path, monkeypatch):
+        async def fake_agent(*, finding, deps, config, on_event=None):
+            return PocVerificationResult(status="inconclusive", summary="x"), "completed"
+    
+        monkeypatch.setattr(poc, "run_poc_agent", fake_agent)
+        client = FakeClient()
+        store, bus = FakeStore(), FakeBus()
+        script = tmp_path / "reset_seed.py"
+        script.write_text(
+            "import json\n"
+            "print(json.dumps({'ok': True, 'accounts': [{'username': 'alice'}]}))\n",
+            encoding="utf-8",
+        )
+        verifier = make_reset_verifier(tmp_path, store, bus, client, f"{sys.executable} {script}")
+        asyncio.run(verifier.verify_standing("run-1", [FINDING, FINDING_TWO], {}, model_config=CONFIG))
+    
+        kinds = bus.kinds()
+>       assert kinds.count("poc_target_reset") == 2
+E       AssertionError: assert 0 == 2
+E        +  where 0 = <built-in method count of list object at 0x7f1d2090dd40>('poc_target_reset')
+E        +    where <built-in method count of list object at 0x7f1d2090dd40> = ['poc_agent_phase', 'poc_target_reset_failed', 'poc_verification_recorded'].count
+
+tests/test_poc_agent.py:1040: AssertionError
+______________ test_a_reset_that_times_out_is_killed_and_reported ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-zsh/pytest-0/test_a_reset_that_times_out_is0')
+
+    def test_a_reset_that_times_out_is_killed_and_reported(tmp_path):
+        store, bus = FakeStore(), FakeBus()
+        verifier = PocVerifier(store=store, bus=bus, settings=settings(tmp_path),
+                               client_factory=lambda: FakeClient())
+        policy = PocPolicy(mode="auto", enabled=True, reset_between_findings=True,
+                           reset_command=f"{sys.executable} -c \"import time; time.sleep(10)\"",
+                           reset_timeout=1)
+        started = time.monotonic()
+        ok, detail = asyncio.run(verifier._reset_target(store.run, FINDING, policy))
+>       assert ok is False and "未完成" in detail["message"]
+E       AssertionError: assert (False is False and '未完成' in '复位命令无法启动：FileNotFoundError')
+
+tests/test_poc_agent.py:1090: AssertionError
+=============================== warnings summary ===============================
+tests/test_source.py::test_import_rejects_path_collisions[files3]
+  /home/zsh/.local/share/uv/python/cpython-3.12.16-linux-x86_64-gnu/lib/python3.12/zipfile/__init__.py:1650: UserWarning: Duplicate name: 'dup.php'
+    return self._open_to_write(zinfo, force_zip64=force_zip64)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_claude_poc_preparation.py::test_cli_process_removes_inherited_provider_routes_and_credentials
+FAILED tests/test_poc_agent.py::test_a_successful_reset_happens_before_the_context_is_created
+FAILED tests/test_poc_agent.py::test_a_reset_that_times_out_is_killed_and_reported
+3 failed, 2265 passed, 1 warning in 273.42s (0:04:33)
+PYTEST_EXIT=1

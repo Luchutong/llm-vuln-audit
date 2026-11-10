@@ -61,7 +61,8 @@ def test_the_template_carries_every_key_the_library_requires():
 
 
 def test_the_prompt_states_the_format_the_parser_implements(prompt):
-    assert "<audit_action_" in prompt and "</audit_action_" in prompt
+    assert "<code>" in prompt and "</code>" in prompt
+    assert "<audit_action_" not in prompt  # private dependency transport is not model syntax
     assert "Observation" in prompt
     assert "print(" in prompt
     assert "final_answer" in prompt
@@ -106,9 +107,8 @@ def test_the_prompt_lists_the_phase_tools_and_nothing_else():
 def test_the_navigation_example_can_run_against_the_declared_json_contract():
     from audit.actions import extract_action
     prompt = prompt_for().split("导航示例", 1)[1].split("Observation:", 1)[0]
-    import re
-    marker = re.search(r"<audit_action_([a-f0-9]+)>", prompt).group(1)
-    example, _, _ = extract_action(prompt, transport_tags=(f"<audit_action_{marker}>", f"</audit_action_{marker}>"))
+    example, _, issue = extract_action(prompt)
+    assert issue is None
     host = Host({
         "list_tree": '{"files_here":[]}',
         "find_files": '{"matches":[{"path":"src/upload.php"}]}',

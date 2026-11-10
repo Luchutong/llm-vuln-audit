@@ -1,0 +1,112 @@
+{
+  "date": "2026-11-10",
+  "synthetic_source_only": true,
+  "production_database": "read-only credential selection; no audit/resume/POC or production writes",
+  "model": "deepseek-flash",
+  "base_url": "https://api.deepseek.com",
+  "requests_limit": 3,
+  "per_request_max_output_tokens": 1024,
+  "elapsed_seconds": 13.511,
+  "results": [
+    {
+      "outcome": "continue",
+      "terminal_reason": "invalid_output",
+      "finding_references": 0,
+      "new_findings": 0,
+      "usage": {
+        "requests": 1,
+        "tool_calls": 0,
+        "input_tokens": 8634,
+        "output_tokens": 354
+      },
+      "prompt_cache": [
+        {
+          "input_tokens": 8634,
+          "cache_read_tokens": 1152,
+          "cache_write_tokens": null,
+          "source": "deepseek"
+        }
+      ]
+    },
+    {
+      "outcome": "continue",
+      "terminal_reason": "invalid_output",
+      "finding_references": 0,
+      "new_findings": 0,
+      "usage": {
+        "requests": 1,
+        "tool_calls": 0,
+        "input_tokens": 8629,
+        "output_tokens": 365
+      },
+      "prompt_cache": [
+        {
+          "input_tokens": 8629,
+          "cache_read_tokens": 7680,
+          "cache_write_tokens": null,
+          "source": "deepseek"
+        }
+      ]
+    },
+    {
+      "outcome": "achieved",
+      "terminal_reason": "completed",
+      "finding_references": 1,
+      "new_findings": 0,
+      "usage": {
+        "requests": 1,
+        "tool_calls": 0,
+        "input_tokens": 8635,
+        "output_tokens": 260
+      },
+      "prompt_cache": [
+        {
+          "input_tokens": 8635,
+          "cache_read_tokens": 7680,
+          "cache_write_tokens": null,
+          "source": "deepseek"
+        }
+      ]
+    }
+  ],
+  "prompt_cache": {
+    "version": "prompt-cache-v1",
+    "usage_records": 3,
+    "reported_records": 3,
+    "hit_records": 3,
+    "known_input_tokens": 25898,
+    "reported_input_tokens": 25898,
+    "known_cache_read_tokens": 16512,
+    "known_cache_write_tokens": 0,
+    "write_reported_records": 0,
+    "cache_read_tokens": 16512,
+    "cache_write_tokens": null,
+    "cache_hit_ratio": 0.6375781913661287,
+    "record_coverage": 1.0,
+    "complete": true,
+    "by_role": {
+      "worker": {
+        "usage_records": 3,
+        "reported_records": 3,
+        "hit_records": 3,
+        "known_input_tokens": 25898,
+        "reported_input_tokens": 25898,
+        "known_cache_read_tokens": 16512,
+        "known_cache_write_tokens": 0,
+        "write_reported_records": 0,
+        "cache_read_tokens": 16512,
+        "cache_write_tokens": null,
+        "cache_hit_ratio": 0.6375781913661287,
+        "record_coverage": 1.0,
+        "complete": true
+      }
+    }
+  },
+  "scope": "Three independent source Worker publication attempts; no full audit or paired cost-savings benchmark.",
+  "semantic_validation": {
+    "accepted": 1,
+    "rejected": 2,
+    "correction_requests": 0,
+    "notes": "The first two outputs were rejected by the existing host validator with a one-response budget; the third published one reference. All paid responses are included in cache accounting. The trial did not persist model prose or diagnose the two individual rejections."
+  }
+}

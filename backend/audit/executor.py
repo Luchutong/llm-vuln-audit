@@ -245,6 +245,9 @@ def build_agent(*, model: AuditCodeModel, gate: PhaseGate, tools: dict, instruct
     executor = build_executor(gate.execution.policy)
     executor.gate_reader = lambda: model.gate
     token = uuid.uuid4().hex
+    # A private random delimiter protects the dependency parser. Public templates
+    # advertise stable <code> tags; PhaseGate canonicalizes them before parsing, so
+    # this per-invocation nonce never breaks the common system prompt prefix.
     tags = (f"<audit_action_{token}>", f"</audit_action_{token}>")
     gate.action_tags = tags
     instructions += (f"\n每个 Python 动作执行前受宿主限制：最多 {gate.execution.policy.action_max_bytes} 字节、"

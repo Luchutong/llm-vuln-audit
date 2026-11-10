@@ -1,0 +1,56 @@
+{
+  "date": "2026-11-10",
+  "baseline_commit": "d639143139624b3f34b5b521df2f8cc8ab177493",
+  "measurement": "common UTF-8 bytes of actual cleaned SDK message JSON; not provider tokens/cache hits",
+  "synthetic_source_only": true,
+  "results": {
+    "baseline": {
+      "worker_publication": {
+        "common_prefix_bytes": 14306,
+        "request_bytes": [
+          39154,
+          39151
+        ],
+        "system_bytes": [
+          16961,
+          16959
+        ]
+      },
+      "code_exploration": {
+        "common_prefix_bytes": 1756,
+        "request_bytes": [
+          6823,
+          6823
+        ],
+        "system_bytes": [
+          6747,
+          6747
+        ]
+      }
+    },
+    "optimized": {
+      "worker_publication": {
+        "common_prefix_bytes": 35926,
+        "request_bytes": [
+          39167,
+          39164
+        ],
+        "system_bytes": [
+          30705,
+          30705
+        ]
+      },
+      "code_exploration": {
+        "common_prefix_bytes": 6659,
+        "request_bytes": [
+          6659,
+          6659
+        ],
+        "system_bytes": [
+          6583,
+          6583
+        ]
+      }
+    }
+  }
+}

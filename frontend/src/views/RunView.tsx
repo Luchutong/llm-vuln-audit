@@ -23,6 +23,7 @@ import { CompactText } from '../components/CompactText';
 import { Disclosure } from '../components/Disclosure';
 import { RunResult } from '../components/RunResult';
 import { RunSnapshot } from '../components/RunSnapshot';
+import { PromptCacheUsage } from '../components/PromptCacheUsage';
 import '../runPage.css';
 import { useFinalReview } from '../useFinalReview';
 import { resultStatus } from '../runPresentation';
@@ -130,6 +131,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
         </div></article>
         <article className="assistant-message"><div className="assistant-avatar"><ShieldCheck size={20} /></div><div className="assistant-body"><div className="message-label"><BrandWordmark compact /> <span>源码审计助手</span></div>
           <ExecutionStatus detail={detail} compact />
+          <PromptCacheUsage stats={run.usage.prompt_cache} />
           <ActivityStream events={events} detail={detail} connected={connected} reconnects={reconnects} onOpenLogs={() => openDetails('logs')} onInspect={() => { follow.current = false; }} />
           {streamError && <div className="error-box" role="alert">轨迹读取失败：{streamError} <button className="text-button" onClick={retry}>重新读取</button></div>}
           {error && <div className="error-box" role="alert">{error}</div>}

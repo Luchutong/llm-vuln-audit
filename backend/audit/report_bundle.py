@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from typing import Any
 
 from . import final_review
@@ -236,6 +237,8 @@ def _appendix(bundle: dict, all_records: list[dict], canonical: list[dict], fact
             "context": execution.get("context") or {},
             "poc": execution.get("poc") or {},
             "workflow": execution.get("workflow") or {},
+            **({"prompt_cache": deepcopy(bundle["run"]["usage"]["prompt_cache"])}
+               if (bundle.get("run", {}).get("usage") or {}).get("prompt_cache") else {}),
         },
         "artifacts": {
             "json": "result.json（含本事实包与质量结果）",

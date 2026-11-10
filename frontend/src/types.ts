@@ -331,7 +331,14 @@ export interface HostFinalSummary {
   execution?: Partial<ExecutionSummary>;
   limitations: string[];
 }
-export interface Usage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number }
+export interface PromptCacheStats {
+  usage_records: number; reported_records: number; hit_records: number;
+  known_input_tokens: number; reported_input_tokens: number;
+  cache_read_tokens: number | null; cache_write_tokens: number | null;
+  cache_hit_ratio: number | null; record_coverage: number | null; complete: boolean;
+  by_role?: Record<string, PromptCacheStats>;
+}
+export interface Usage { requests: number; tool_calls: number; input_tokens: number; output_tokens: number; prompt_cache?: PromptCacheStats }
 export interface FileRecord {
   path: string;
   sha256: string;

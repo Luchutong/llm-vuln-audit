@@ -321,7 +321,9 @@ def test_planner_store_tracks_dependencies_attempts_and_total_usage(store, repos
     assert queue["active"] == 0 and queue["counts"]["completed"] == 2
     refreshed = store.get_run(run["id"])
     assert refreshed is not None
-    assert refreshed["usage"] == {"requests": 4, "tool_calls": 1, "input_tokens": 19, "output_tokens": 10}
+    assert {key: refreshed["usage"][key] for key in ("requests", "tool_calls", "input_tokens", "output_tokens")} == {
+        "requests": 4, "tool_calls": 1, "input_tokens": 19, "output_tokens": 10}
+    assert refreshed["usage"]["prompt_cache"]["cache_hit_ratio"] is None
 
 
 def test_planner_worker_replans_after_dependency_aware_multiworker_wave(store, repository, monkeypatch):

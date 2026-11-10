@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-RENDERER_VERSION = "final-report/v2"
+RENDERER_VERSION = "final-report/v3"
 SECTION_TITLES = (
     "1. 执行与终审摘要",
     "2. 范围和方法",
@@ -532,6 +532,8 @@ def _appendix(facts: dict) -> list[str]:
                   f"{_cell(task.get('error'), 120)} |" for task in tasks[:40]]
         lines.append("")
     usage = appendix.get("usage") or {}
+    from .prompt_cache import cache_markdown
+    lines += cache_markdown(usage.get("prompt_cache"))
     if usage.get("run_limits") or usage.get("run_usage"):
         def _pair(value: object) -> str:
             if not isinstance(value, dict):

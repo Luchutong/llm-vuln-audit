@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 from .db import Store
+from .prompt_cache import PromptCacheStats
 
 
 def _all_events(store: Store, run_id: str) -> list[dict]:
@@ -54,6 +55,7 @@ class LiveStats:
         self.complete_responses = 0
         self.known_input = 0
         self.known_output = 0
+        self.prompt_cache = PromptCacheStats()
 
     def consume(self, events: list[dict]) -> None:
         for event in events:
@@ -66,6 +68,7 @@ class LiveStats:
             payload = event.get("payload")
             if not isinstance(payload, dict):
                 continue
+            self.prompt_cache.consume(event.get("kind"), payload)
             if event.get("kind") == "model_response":
                 self.response_count += 1
                 self.complete_responses += (payload.get("token_usage_complete") is True
@@ -102,6 +105,7 @@ class LiveStats:
             "known_input_tokens": self.known_input, "known_output_tokens": self.known_output,
             "known_total_tokens": self.known_input + self.known_output,
             "token_usage_complete": complete,
+            "prompt_cache": self.prompt_cache.view(),
         }
 
     def coverage(self) -> dict:

@@ -8,6 +8,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 
 from .context_config import env_flag, env_int
+from .prompt_cache import PromptCacheStats
 
 
 @dataclass
@@ -23,6 +24,7 @@ class Usage:
     requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    prompt_cache: PromptCacheStats = field(default_factory=PromptCacheStats)
 
     def add(self, *, requests: int = 0, input_tokens: int = 0, output_tokens: int = 0) -> None:
         self.requests += requests
@@ -433,6 +435,7 @@ class Execution:
             "tool_calls": self.tools,
             "input_tokens": self.usage.input_tokens,
             "output_tokens": self.usage.output_tokens,
+            "prompt_cache": self.usage.prompt_cache.view(),
             "model_attempts": self.attempts,
             "corrections": self.corrections,
             "elapsed_seconds": round(time.monotonic() - self.started, 3),

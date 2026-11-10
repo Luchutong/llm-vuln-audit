@@ -35,6 +35,7 @@ from .context_budget import MIN_SUMMARY_CHARS, HistoryCompactor, message_bytes, 
 from .context_config import env_float, env_int
 from .health import TRANSIENT_STATUS
 from .runtime import Execution, StopAudit
+from .prompt_cache import message_cache_usage
 from .tool_errors import ToolFailure, note_tool_result, public_value
 
 # How long a single phase waits for the loop to answer a host callback.  The loop only
@@ -634,6 +635,14 @@ class PhaseGate:
             input_tokens=getattr(usage, "input_tokens", 0) or 0,
             output_tokens=getattr(usage, "output_tokens", 0) or 0,
         )
+        cached = message_cache_usage(message)
+        execution.usage.prompt_cache.add(cached, "history_summary")
+        execution.emit({"kind": "model_response", "purpose": "history_summary",
+                        "input_tokens": getattr(usage, "input_tokens", None),
+                        "output_tokens": getattr(usage, "output_tokens", None),
+                        "token_usage_complete": (getattr(usage, "input_tokens", None) is not None
+                                                 and getattr(usage, "output_tokens", None) is not None),
+                        "prompt_cache": cached, "usage": execution.snapshot()})
         policy = execution.policy
         text = message_text(message).strip()
         reason = ""
@@ -746,6 +755,10 @@ class PhaseGate:
             input_tokens=getattr(usage, "input_tokens", 0) or 0,
             output_tokens=getattr(usage, "output_tokens", 0) or 0,
         )
+        cached = message_cache_usage(message)
+        role = ("reviewer" if self.publication_schema else
+                "worker" if self.execution.phase.startswith("task_") else self.execution.phase.partition("_")[0])
+        self.execution.usage.prompt_cache.add(cached, role)
         content = message.content if isinstance(message.content, str) else str(message.content or "")
         self.request_tool_errors = {}
         if self.response_format == "json":
@@ -772,6 +785,8 @@ class PhaseGate:
             "output_bytes": len(content.encode("utf-8")),
             "output_tokens": getattr(usage, "output_tokens", 0) or 0,
             "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "prompt_cache": cached,
+            "cache_role": role,
             "token_usage_complete": (usage is not None
                                      and getattr(usage, "input_tokens", None) is not None
                                      and getattr(usage, "output_tokens", None) is not None),

@@ -21,7 +21,7 @@ system_prompt: |-
 
   宿主允许的导入模块由解释器生成：{{ authorized_imports }}。json 已预载，可直接调用 json.loads；base64 只用于内存编码。整个动作在执行前检查语法及导入；每次回复只提交一个完整代码块，多块或不完整动作不会自动补齐。
 
-  每一步按 Thought / Code / Observation 推进：先用一句话说明这一步要做什么，然后在 {{code_block_opening_tag}} 与 {{code_block_closing_tag}} 之间写 Python 代码；代码执行后会返回 Observation。要结束本阶段时，用 `final_answer(...)` 交回结果。
+  每一步按 Thought / Code / Observation 推进：先用一句话说明这一步要做什么，然后在 <code> 与 </code> 之间写 Python 代码；代码执行后会返回 Observation。要结束本阶段时，用 `final_answer(...)` 交回结果。
 
   这些代码是**动作**：你可以写循环、把中间结果留在变量里、用正则筛行、把多次工具调用拼在一次里。需要看什么就用 `print()` 打印出来——印出的内容会作为 Observation 回到你这里。一次请求里做完一串读取，比一次次请求去读要快得多。
 
@@ -32,7 +32,7 @@ system_prompt: |-
 
   {% if 'list_tree' in tools and 'find_files' in tools %}
   导航示例（返回值是 JSON 字符串，不是 Python 列表；列出的路径仍须读取源码才能用作证据）：
-  {{code_block_opening_tag}}
+  <code>
   import json
   entries = json.loads(list_tree(path="", depth=2))
   print(entries)
@@ -40,7 +40,7 @@ system_prompt: |-
   if not targets.get("error"):
       for target in targets["matches"]:
           print(target["path"])
-  {{code_block_closing_tag}}
+  </code>
   Observation: 目录与匹配文件路径（省略）。
   {% endif %}
 
@@ -56,7 +56,7 @@ system_prompt: |-
   {% endfor %}
 
   必须遵守的规则：
-  1. 每一步都要有 Code 序列，用 {{code_block_opening_tag}} 开始、{{code_block_closing_tag}} 结束，否则这一步没有动作。
+  1. 每一步都要有 Code 序列，用 <code> 开始、</code> 结束，否则这一步没有动作。
   2. 只用你自己定义过的变量；不要凭空使用没赋值的变量。
   3. 调用工具用它声明的参数名，例如 `read_source(path="a.php", start=1, end=50)`；不要把参数包成一个字典传进去。
   4. 参数写错（少传、名字拼错）会得到一条 TypeError 的 Observation：按报错改正即可。

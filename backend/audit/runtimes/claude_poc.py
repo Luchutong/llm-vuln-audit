@@ -1614,11 +1614,14 @@ def _known(value: Any) -> int | None:
 def _usage_from_result(message: Any) -> dict:
     raw = getattr(message, "usage", None)
     raw = raw if isinstance(raw, dict) else {}
+    from ..prompt_cache import normalize_usage
+    prompt_cache = normalize_usage(raw, anthropic=True)
     return {
         "input_tokens": _known(raw.get("input_tokens")),
         "output_tokens": _known(raw.get("output_tokens")),
-        "cache_read_tokens": _known(raw.get("cache_read_input_tokens") or raw.get("cache_read_tokens")),
-        "cache_write_tokens": _known(raw.get("cache_creation_input_tokens") or raw.get("cache_write_tokens")),
+        "cache_read_tokens": prompt_cache["cache_read_tokens"],
+        "cache_write_tokens": prompt_cache["cache_write_tokens"],
+        "prompt_cache": prompt_cache,
         "turns": _known(getattr(message, "num_turns", None)),
         "cost_usd": _known_float(getattr(message, "total_cost_usd", None)),
     }

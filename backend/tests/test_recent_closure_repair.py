@@ -179,7 +179,7 @@ def test_report_preserves_failed_poc_job_facts_without_inventing_a_conclusion():
                     'job_results': [http_job()], 'reason': 'sdk_cleanup_timeout',
                     'usage': {'execute_reason': 'sdk_cleanup_timeout'}})
     facts, markdown = render(bundle([finding('f1', status='inconclusive', verdict='uncertain', verifications=[v])]))
-    assert facts['provenance']['renderer_version'] == 'final-report/v2'
+    assert facts['provenance']['renderer_version'] == 'final-report/v3'
     attempt = facts['verification_attempts'][0]
     assert attempt['context_id'] == 'ctx-1'
     assert attempt['job_refs'] == []  # Saved facts are not promoted to supporting references.

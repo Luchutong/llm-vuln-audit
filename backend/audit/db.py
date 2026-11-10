@@ -26,6 +26,7 @@ from .cvss_assessment import normalise_record
 from .directions import DirectionStoreMixin
 from .review_store import ReviewStoreMixin
 from .continuations import ContinuationStoreMixin
+from .prompt_cache import PromptCacheStoreMixin
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -828,9 +829,10 @@ def build_verification_records(list_verifications, findings: list[dict]) -> list
 from .risk_coverage import RiskCoverageMixin
 
 
-class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
+class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, DirectionStoreMixin, CvssStoreMixin, PocStoreMixin, ExecutionStoreMixin):
     def __init__(self, path: Path | str):
         self.path = str(path)
+        self._readonly = False
         self._lock = threading.RLock()
         self._db = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
@@ -841,6 +843,7 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
             self._init_cvss()
             self._init_execution_state()
             self._init_reviews()
+            self._init_prompt_cache()
 
     # Additive migrations so a database written by an earlier build keeps working.
     _ADDED_COLUMNS = {
@@ -972,6 +975,8 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
         path = Path(path).resolve(strict=True)
         value = cls.__new__(cls)
         value.path = str(path)
+        value._readonly = True
+        value._prompt_cache_memory = {}
         value._lock = threading.RLock()
         wal = path.with_name(path.name + "-wal")
         # A closed archive needs no SQLite coordination files. An active WAL must
@@ -1794,6 +1799,7 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
             "tool_calls": int(usage["tool_calls"] or 0) if usage else 0,
             "input_tokens": int(usage["input_tokens"] or 0) if usage else 0,
             "output_tokens": int(usage["output_tokens"] or 0) if usage else 0,
+            "prompt_cache": self.prompt_cache_usage(run["id"]),
         }
         run["execution_summary"] = self.execution_summary(run["id"])
         run["execution_epoch"] = (run["execution_summary"] or {}).get("claim_epoch")
@@ -5438,6 +5444,7 @@ class Store(RiskCoverageMixin, ContinuationStoreMixin, ReviewStoreMixin, Directi
     # ``verifications`` is not in this list: it keys off ``finding_id``, which we
     # collect first so the IN-clause is explicit.
     _RUN_CASCADE_TABLES: tuple[tuple[str, str], ...] = (
+        ("run_prompt_cache", "run_id"),
         ("derived_run_reports", "run_id"),
         ("frozen_run_reports", "run_id"),
         ("audit_review_items", "run_id"),

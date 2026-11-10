@@ -1,0 +1,98 @@
+{
+  "date": "2026-11-10",
+  "backend_full_suite": {
+    "status": "passed",
+    "expected_tests": 2454,
+    "new_regressions": 22,
+    "logs": ".run/prompt-cache-tests-20261110-final/group-{0..3}.log",
+    "passed_tests": 2454,
+    "groups": [
+      {
+        "group": 0,
+        "files": 34,
+        "returncode": 0,
+        "passed_tests": 613,
+        "warnings": 0,
+        "seconds": 564.92,
+        "log": ".run/prompt-cache-tests-20261110-final/group-0.log"
+      },
+      {
+        "group": 1,
+        "files": 35,
+        "returncode": 0,
+        "passed_tests": 530,
+        "warnings": 0,
+        "seconds": 676.45,
+        "log": ".run/prompt-cache-tests-20261110-final/group-1.log"
+      },
+      {
+        "group": 2,
+        "files": 35,
+        "returncode": 0,
+        "passed_tests": 617,
+        "warnings": 1,
+        "seconds": 325.69,
+        "log": ".run/prompt-cache-tests-20261110-final/group-2.log"
+      },
+      {
+        "group": 3,
+        "files": 35,
+        "returncode": 0,
+        "passed_tests": 694,
+        "warnings": 0,
+        "seconds": 496.03,
+        "log": ".run/prompt-cache-tests-20261110-final/group-3.log"
+      }
+    ],
+    "elapsed_seconds": 677.627
+  },
+  "frontend": {
+    "tests_passed": 129,
+    "build_passed": true,
+    "known_warning": "Vite generated chunk > 500 kB"
+  },
+  "browser": {
+    "passed": true,
+    "cases": 10,
+    "widths": [
+      1440,
+      390
+    ],
+    "api_traffic": "all mocked",
+    "script": "scripts/ui_prompt_cache_smoke.py"
+  },
+  "source_sha256": {
+    "backend/audit/agent.py": "f0cde1d4a640eb3d789984ec539ccb133c52829dfe1502b60396c647585c642e",
+    "backend/audit/codemodel.py": "d0f710b96080ae405b398b845bf47e153ff356dd8ecd4c5774617146fd8396bc",
+    "backend/audit/comparison_results.py": "857bb7ea18df45e0cefabd855dfdb427dc22d7157eba7016112607db59b58e60",
+    "backend/audit/db.py": "bf55a1007c7a7740f1d9575fae81bec24f97b322a831707699a6fea479db75c6",
+    "backend/audit/executor.py": "843c1f3e48adb3d6eaf8806a5cd5e54626a5ec2877a935eea6fc14a87f76ec47",
+    "backend/audit/prompt_cache.py": "29d329c3941b2bb1e59f110218f6b78697df7d4796b8af2da07b060bbdec66cc",
+    "backend/audit/prompts/code_agent.yaml": "f6f9b6623791d6e1063926478f284b38e1704bfa490a69aeeaf3d17523bd585a",
+    "backend/audit/prompts/code_agent_poc.yaml": "6f2fe55a382cacf8ce6b88e0a36b29ad27cc1b3b6903a507087854208973a7cc",
+    "backend/audit/prompts/code_agent_poc_conclude.yaml": "b99ecb05017cfe3fe4d6cbc358374ef4287a56507b50d8264472cd677b97e4b2",
+    "backend/audit/report.py": "817c271b0c0aa45e3abf340f41e9ac5aaa13105aa3d4b38893cf338d7d73256a",
+    "backend/audit/report_bundle.py": "55e457148295bffc972bdd51d1184e30247a5fcae64e44a06732901477005338",
+    "backend/audit/report_final.py": "fb7477c523fab750c9270203764976b88d23edb896d563cd514398fc8787705e",
+    "backend/audit/runtime.py": "a1d353a5d4c7967b8f8361af1516e3d143db9ca067e7df681617aeb6d5885ff5",
+    "backend/audit/runtimes/claude_poc.py": "a070b821ea126957cd53d20ff8faa6b8b05ccdd065513c314ee927a0a2e98204",
+    "backend/tests/test_code_prompt.py": "f3810744a41422d565086b8b4af50f37234731824d7643699a29869b0f8c1033",
+    "backend/tests/test_goal_tasks.py": "173b9d244883caa7e73235ecd5cd7ee3e8fa363bb35bc7114ac006978c1f72c2",
+    "backend/tests/test_prompt_cache.py": "fdee58bc04a17d9ab4cf901cdf22cc14d318a3c3cdeff9daf3116d271bc811c0",
+    "backend/tests/test_recent_closure_repair.py": "15beeea3e78dc7cbbb1e484fb511abf706dc2fa03987141e96560c518e9f435a",
+    "frontend/src/components/PromptCacheUsage.tsx": "2ee3dd33a4fcd07e1722f505230eb266401ff84096a6fa94f3a3e088e1916f9e",
+    "frontend/src/promptCache.ts": "0a6adb21749a236e9c1ac064f222f53ee2e0ef3d27673dba325ce333f3ed1ed6",
+    "frontend/src/types.ts": "16c0436a3879955990e0c7f3cecaf19e7b83e909ad980d953ecf54fbb9ebca27",
+    "frontend/src/views/RunView.tsx": "cb4d8eb28d040862dbce9c7aba1ebbb36f2e80a0a4a7b2099c3b9fd579bc7ea3",
+    "frontend/tests/promptCache.test.mjs": "55534986f381a53ffc2b35232fd5f1296f8688c87aace83d1b921f9d2a0cdeaa",
+    "scripts/ui_prompt_cache_smoke.py": "489b6c22ab34d817e1dae5df53872d0325091e7a92bba6708c093c3e32850bb8"
+  },
+  "production": {
+    "latest_run_id": "f1f9fa946dc350c7a611d90e67b5b463",
+    "status": "paused",
+    "new_projection_table_present": false,
+    "service_restarted": false,
+    "model_calls": "only three isolated synthetic Worker requests; no production audit or POC"
+  },
+  "diff_check_passed": true
+}

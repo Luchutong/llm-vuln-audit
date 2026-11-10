@@ -1120,8 +1120,10 @@ def _context_section(run: dict) -> list[str]:
     """
     context = ((run.get("execution_summary") or {}).get("context")) or {}
     limit = int(context.get("history_bytes") or 0)
+    from .prompt_cache import cache_markdown
+    cached = cache_markdown((run.get("usage") or {}).get("prompt_cache"))
     if not limit:
-        return []
+        return cached
     lines = [
         "### 上下文控制",
         "",
@@ -1157,7 +1159,7 @@ def _context_section(run: dict) -> list[str]:
         f"丢弃最旧步骤组 {int(context.get('dropped_groups') or 0)} 组；请求上限 {_report_bytes(limit)}。",
         "",
     ]
-    return lines
+    return cached + lines
 
 
 def _render_legacy_task_markdown(bundle: dict) -> str:

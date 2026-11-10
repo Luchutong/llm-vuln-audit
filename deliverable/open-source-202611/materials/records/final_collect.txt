@@ -1,0 +1,28 @@
+﻿########## S-C01: Lab30 container status ##########
+NAMES                         STATUS                    PORTS
+vuln-audit-poc-runner-dev-1   Up 53 minutes (healthy)   127.0.0.1:18089->8080/tcp
+vuln-audit-poc-runner-1       Up 53 minutes             
+vuln-audit-lab30-1            Up 53 minutes (healthy)   127.0.0.1:18880->80/tcp
+vuln-audit-lab30-fixtures-1   Up 53 minutes (healthy)   
+vuln-audit-lab30-db-1         Up 53 minutes (healthy)   
+
+########## S-C04: clean web startup log (last boot) ##########
+[Sun Nov 08 16:13:46.991763 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 16:13:46.991792 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+172.22.0.1 - - [08/Nov/2026:16:13:53 +0000] "GET /assets/public/styles.css HTTP/1.1" 200 545019 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:13:53 +0000] "GET /setup/ HTTP/1.1" 200 24383 "-" "curl/7.68.0"
+
+########## S-C06: reachability probes ##########
+GET http://127.0.0.1:18090/                                 -> HTTP 302
+GET http://127.0.0.1:18090/admin/                           -> HTTP 302
+GET http://127.0.0.1:18090/setup/                           -> HTTP 200
+GET http://127.0.0.1:18090/assets/public/styles.css         -> HTTP 200
+GET http://127.0.0.1:18880/                                 -> HTTP 200
+
+########## S-C07: freeze archives + recomputed sha256 ##########
+total 39964
+-rw-r--r-- 1 aurora aurora    42147 Nov  8 22:52 lab30-app-audit.zip
+-rw-r--r-- 1 aurora aurora 40877272 Nov  8 22:18 phpmyfaq-4.1.1-audit.zip
+--- sha256sum (recomputed live) ---
+d899d8fc85454a5c778fc45f645c12dd8b2e76c6910d508e3fb44481cf8d8bef  /home/aurora/part-c-work/freeze/lab30-app-audit.zip
+14ce89e56c68d07909d8cb60e2a4ea1c5e37dd3a460af7624ce2e2116ac1b02f  /home/aurora/part-c-work/freeze/phpmyfaq-4.1.1-audit.zip

@@ -1,0 +1,44 @@
+﻿======================================================================
+FILE: snapshot_full.json
+======================================================================
+id           = 77521680704c4c3bbdc6ca58dd7249ae
+name         = phpmyfaq-4.1.1-audit.zip
+created_at   = 2026-11-08T14:46:06.204476+00:00
+archive_sha  = 14ce89e56c68d07909d8cb60e2a4ea1c5e37dd3a460af7624ce2e2116ac1b02f
+profile      = unknown
+files (raw)  = 13181
+units        = 69305
+warnings     = 31
+excluded     = 200
+skipped      = 0
+--- stats ---
+files                  = 13181
+text_files             = 12974
+binary_files           = 207
+php_files              = 9221
+dependency_tree_files  = 15
+languages:
+  php          8926
+  text         1762
+  markdown     517
+  yaml         447
+  xml          286
+  binary       207
+  typescript   200
+  rst          183
+  json         163
+  template     159
+  config       122
+  html         108
+  scss         34
+  shell        31
+  css          15
+  javascript   12
+  csv          2
+  python       2
+  ruby         2
+  toml         2
+  c            1
+skipped_count          = 0
+excluded_count         = 3970
+

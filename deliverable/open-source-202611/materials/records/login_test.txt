@@ -1,0 +1,38 @@
+﻿after login url: http://127.0.0.1:18880/
+title: 让每一份日常，都值得期待 · 拾光商城
+contains '退出': True
+contains '注销': False
+contains 'alice': True
+contains '登录': False
+contains '我的': True
+top links:
+   拾
+拾光商城
+SHIGUANG  -> /
+   工作台 -> /
+   商品目录 -> /catalog/index.php
+   订单中心 -> /orders/index.php
+   我的钱包 -> /wallet/index.php
+   账户与会员 -> /account/index.php
+   客服与帮助 -> /support/index.php
+   内容中心 -> /content/page.php
+   拾光商城 -> /
+   我的账户 -> /account/index.php
+   退出 -> /auth/logout.php
+   探索本季好物 → -> /catalog/index.php
+   选购好物 ↗
+
+浏览本季目录，查 -> /catalog/index.php
+   追踪订单 ↗
+
+查看订单金额、配 -> /orders/index.php
+   联系服务 ↗
+
+留言、查阅帮助， -> /support/index.php
+   会员账户 ↗
+
+管理资料、兑换权 -> /account/index.php
+
+WALLET url: http://127.0.0.1:18880/wallet/index.php
+WALLET title: 我的钱包 · 拾光商城
+wallet body head: 拾 | 拾光商城 | SHIGUANG COMMERCE | 工作台 | 商品目录 | 订单中心 | 我的钱包 | 账户与会员 | 客服与帮助 | 内容中心 | 本地演示商城 | 数据可通过重置命令恢复 | 商城工作空间 / 我的钱包 | poc_alice | 我的账户 | 退出 | SHIGUANG WORKSPACE | 我的钱包 | ¥100.00 | 可用余额 | 0 | 提现记录 | 申请提现 | 提现金额 | 确认提现 | 资金流水 | 流水号	金额	时间 | 暂无记录，完成相关业务操作后将在这里显示。 | 拾光商城 · 会员、订单与运营协作平台 | 版本 1.0.0

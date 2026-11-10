@@ -1,0 +1,5 @@
+﻿direct github x4:
+try 1 -> 000 time=12.007868s
+try 2 -> 200 time=12.008837s
+try 3 -> 000 time=12.001645s
+try 4 -> 000 time=12.013132s

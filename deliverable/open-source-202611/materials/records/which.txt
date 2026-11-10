@@ -1,0 +1,5 @@
+593  phpmyfaq/src/libs/ezimuel/ringphp/tests/Future/CompletedFutureValueTest.php  size=1182
+594  phpmyfaq/src/libs/ezimuel/ringphp/tests/Future/FutureArrayTest.php  size=1576
+595  phpmyfaq/src/libs/ezimuel/ringphp/tests/Future/FutureValueTest.php  size=2927
+596  phpmyfaq/src/libs/ezimuel/ringphp/tests/bootstrap.php  size=217
+597  phpmyfaq/src/libs/guzzlehttp/guzzle/.php-cs-fixer.dist.php  size=812

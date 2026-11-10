@@ -1,0 +1,7 @@
+﻿proxy port:
+False
+github direct status:
+200
+
+gh-proxy status:
+200

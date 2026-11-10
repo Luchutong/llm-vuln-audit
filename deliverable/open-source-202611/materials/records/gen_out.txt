@@ -1,0 +1,11 @@
+﻿saved S-C02 (1920, 1174)
+saved S-C03 (1920, 1174)
+saved S-C05 (1920, 1174)
+saved C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\deliverable\open-source-202611\environments\S-C01_7.1_Lab30容器状态_2026-11-08.png (1760, 273)
+saved C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\deliverable\open-source-202611\environments\S-C04_9.3_phpMyFAQ部署日志_2026-11-08.png (1760, 678)
+saved C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\deliverable\open-source-202611\environments\S-C06_9.3_可达性校验_2026-11-08.png (1760, 246)
+saved C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\deliverable\open-source-202611\environments\S-C07_9.3_源码冻结哈希_2026-11-08.png (1760, 273)
+saved C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\deliverable\open-source-202611\environments\S-C08_9.3_快照导入摘要_2026-11-08.png (1760, 408)
+saved C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\deliverable\open-source-202611\runs\S-C09_4_预处理索引统计_2026-11-08.png (1760, 624)
+
+ALL DONE.

@@ -1,0 +1,31 @@
+﻿HOMEPAGE LINKS:
+   拾
+拾光商城
+SHIGUANG COMM -> /
+   工作台 -> /
+   商品目录 -> /catalog/index.php
+   订单中心 -> /orders/index.php
+   我的钱包 -> /wallet/index.php
+   账户与会员 -> /account/index.php
+   客服与帮助 -> /support/index.php
+   内容中心 -> /content/page.php
+   拾光商城 -> /
+   登录 -> /auth/login.php
+   注册 -> /auth/register.php
+   探索本季好物 → -> /catalog/index.php
+   选购好物 ↗
+
+浏览本季目录，查看商品详 -> /catalog/index.php
+   追踪订单 ↗
+
+查看订单金额、配送备注与 -> /orders/index.php
+   联系服务 ↗
+
+留言、查阅帮助，下载配送 -> /support/index.php
+   会员账户 ↗
+
+管理资料、兑换权益、查看 -> /account/index.php
+
+LOGIN URL: http://127.0.0.1:18880/auth/login.php
+INPUTS: [{'name': 'username', 'type': 'text', 'id': '', 'placeholder': ''}, {'name': 'password', 'type': 'password', 'id': '', 'placeholder': ''}]
+FORMS: [{'action': 'http://127.0.0.1:18880/auth/login.php', 'method': 'post'}]

@@ -1,0 +1,20 @@
+﻿=== current WSL time (CST) ===
+2026-11-09 00:20:31 CST
+
+=== freeze archive timestamps (local time) ===
+total 39964
+-rw-r--r-- 1 aurora aurora    42147 2026-11-08 22:52:35 lab30-app-audit.zip
+-rw-r--r-- 1 aurora aurora 40877272 2026-11-08 22:18:10 phpmyfaq-4.1.1-audit.zip
+
+=== container started-at (docker inspect, local time) ===
+phpmyfaq-web : 2026-11-08T16:13:46.928147484Z (UTC)
+phpmyfaq-db : 2026-11-08T15:20:46.330681152Z (UTC)
+vuln-audit-lab30-1 : 2026-11-08T15:20:46.624182793Z (UTC)
+
+=== deploy dir created/modified ===
+total 8
+-rw-r--r-- 1 aurora aurora 3021 2026-11-08 22:00:45 Dockerfile
+-rw-r--r-- 1 aurora aurora 1642 2026-11-08 21:01:47 docker-compose.yml
+
+=== source extraction dir ===
+drwxr-xr-x 13 aurora aurora 4096 2026-11-09 00:11:44 /home/aurora/part-c-work/phpMyFAQ-4.1.1

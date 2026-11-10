@@ -1,0 +1,145 @@
+﻿=== restart web container (filesystem preserved) ===
+phpmyfaq-web
+waiting for apache...
+phpmyfaq-web  Up 6 seconds  127.0.0.1:18090->80/tcp
+
+=== clean startup logs ===
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:03:03.771556 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:03:03.771593 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:03:44.862414 2026] [php:error] [pid 17:tid 17] [client 172.22.0.1:54718] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:14:03:44 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:14:03:44 +0000] "GET /setup/index.php HTTP/1.1" 200 24383 "-" "curl/7.68.0"
+[Sun Nov 08 14:03:44.924668 2026] [php:error] [pid 19:tid 19] [client 172.22.0.1:54740] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:14:03:44 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+[Sun Nov 08 14:04:14.997894 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:14:45.646307 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:14:45.646341 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:15:02.000970 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:15:52.588643 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:15:52.588672 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:16:46.144165 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:17:01.011774 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:17:01.011803 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:17:16.960775 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:18:05.007557 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:18:05.007586 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:18:47.890008 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:20:08.473152 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:20:08.473189 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:20:35.545055 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:20:54.926919 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:20:54.926951 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:21:27.457358 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:49:52.253210 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:49:52.253368 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:51:42.521589 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 14:52:34.769026 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 14:52:34.769059 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 14:53:05.747547 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:06:43.954129 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:06:43.954162 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:07:13.193330 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:10:59.962839 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:10:59.962874 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:11:11.477988 2026] [php:error] [pid 17:tid 17] [client 172.22.0.1:37038] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:11:11 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+[Sun Nov 08 15:11:26.555505 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:11:56.601919 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:11:56.601958 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:12:12.453661 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:19:01.476854 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:19:01.476883 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:19:19.519395 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:20:07.994841 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:20:07.994879 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:20:34.384202 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:20:46.613035 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:20:46.613067 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:21:17.464979 2026] [php:error] [pid 17:tid 17] [client 172.22.0.1:51934] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:21:17 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/8.21.0"
+[Sun Nov 08 15:22:04.564283 2026] [php:error] [pid 18:tid 18] [client 172.22.0.1:44190] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:22:04 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/8.21.0"
+[Sun Nov 08 15:53:16.879323 2026] [php:error] [pid 19:tid 19] [client 172.22.0.1:45548] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:53:16 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+[Sun Nov 08 15:53:16.891660 2026] [php:error] [pid 20:tid 20] [client 172.22.0.1:45562] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:53:16 +0000] "GET /admin/ HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+[Sun Nov 08 16:03:54.730789 2026] [php:error] [pid 21:tid 21] [client 172.22.0.1:39958] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:16:03:54 +0000] "HEAD / HTTP/1.1" 302 401 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:03:54 +0000] "HEAD /setup/ HTTP/1.1" 200 580 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:03:54 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+[Sun Nov 08 16:03:54.874054 2026] [php:error] [pid 18:tid 18] [client 172.22.0.1:39978] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:16:03:54 +0000] "GET /setup/ HTTP/1.0" 200 24383 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:04:19 +0000] "GET /setup/ HTTP/1.1" 200 24383 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:04:49 +0000] "GET /setup/ HTTP/1.1" 200 4536 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+[Sun Nov 08 16:04:50.003212 2026] [php:error] [pid 17:tid 17] [client 172.22.0.1:38238] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59, referer: http://127.0.0.1:18090/setup/
+[Sun Nov 08 16:04:50.003335 2026] [php:error] [pid 18:tid 18] [client 172.22.0.1:38250] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59, referer: http://127.0.0.1:18090/setup/
+[Sun Nov 08 16:04:50.003612 2026] [php:error] [pid 19:tid 19] [client 172.22.0.1:38264] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59, referer: http://127.0.0.1:18090/setup/
+172.22.0.1 - - [08/Nov/2026:16:04:50 +0000] "GET /assets/public/styles.css HTTP/1.1" 302 1254 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:04:50 +0000] "GET /assets/public/setup.js HTTP/1.1" 302 1254 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:04:50 +0000] "GET /assets/public/update.js HTTP/1.1" 302 1254 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+[Sun Nov 08 16:04:50.006358 2026] [core:error] [pid 20:tid 20] [client 172.22.0.1:38280] AH00124: Request exceeded the limit of 10 internal redirects due to probable configuration error. Use 'LimitInternalRecursion' to increase the limit if necessary. Use 'LogLevel debug' to get a backtrace., referer: http://127.0.0.1:18090/setup/
+172.22.0.1 - - [08/Nov/2026:16:04:50 +0000] "GET /assets/public/setup/ HTTP/1.1" 500 871 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+[Sun Nov 08 16:04:50.070135 2026] [core:error] [pid 21:tid 21] [client 172.22.0.1:38282] AH00124: Request exceeded the limit of 10 internal redirects due to probable configuration error. Use 'LimitInternalRecursion' to increase the limit if necessary. Use 'LogLevel debug' to get a backtrace., referer: http://127.0.0.1:18090/setup/
+172.22.0.1 - - [08/Nov/2026:16:04:50 +0000] "GET /assets/public/setup/ HTTP/1.1" 500 871 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+[Sun Nov 08 16:04:50.072636 2026] [core:error] [pid 17:tid 17] [client 172.22.0.1:38292] AH00124: Request exceeded the limit of 10 internal redirects due to probable configuration error. Use 'LimitInternalRecursion' to increase the limit if necessary. Use 'LogLevel debug' to get a backtrace., referer: http://127.0.0.1:18090/setup/
+172.22.0.1 - - [08/Nov/2026:16:04:50 +0000] "GET /assets/public/setup/ HTTP/1.1" 500 871 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:04:50 +0000] "GET /assets/images/favicon.ico HTTP/1.1" 200 40557 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+[Sun Nov 08 16:06:05.377734 2026] [php:error] [pid 18:tid 18] [client 172.22.0.1:39336] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:16:06:05 +0000] "GET /assets/public/styles.css HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:06:05 +0000] "GET /assets/public/setup.js HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+[Sun Nov 08 16:06:05.385563 2026] [php:error] [pid 20:tid 20] [client 172.22.0.1:39342] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:16:08:30 +0000] "GET /assets/public/test.txt HTTP/1.1" 200 413 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:08:30 +0000] "GET /assets/public/test.txt HTTP/1.1" 200 413 "-" "curl/7.68.0"
+[Sun Nov 08 16:08:30.690830 2026] [php:error] [pid 22:tid 22] [client 172.22.0.1:36040] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:16:08:30 +0000] "GET /assets/public/nope.css HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:12:15 +0000] "GET /assets/public/styles.css HTTP/1.1" 200 545019 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:12:15 +0000] "GET /assets/public/setup.js HTTP/1.1" 200 3614 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:12:15 +0000] "GET /assets/public/bootstrap-icons.css HTTP/1.1" 200 100041 "-" "curl/7.68.0"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /setup/ HTTP/1.1" 200 4536 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/public/setup.js HTTP/1.1" 200 1664 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/public/update.js HTTP/1.1" 200 1714 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/public/styles.css HTTP/1.1" 200 94894 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/public/assets/theme-switcher--vV5z1WW.js HTTP/1.1" 200 1349 "http://127.0.0.1:18090/assets/public/setup.js" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/public/assets/password-BXfI06Ub.js HTTP/1.1" 200 1357 "http://127.0.0.1:18090/assets/public/setup.js" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/public/assets/bootstrap-DiRCdOSa.js HTTP/1.1" 200 24053 "http://127.0.0.1:18090/assets/public/setup.js" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/public/fonts/bootstrap-icons.woff2?24e3eb84d0bcaf83d77f904c78ac1f47 HTTP/1.1" 200 134546 "http://127.0.0.1:18090/assets/public/styles.css" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+172.22.0.1 - - [08/Nov/2026:16:12:26 +0000] "GET /assets/images/favicon.ico HTTP/1.1" 200 40556 "http://127.0.0.1:18090/setup/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+[Sun Nov 08 16:13:45.385721 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 16:13:46.991763 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 16:13:46.991792 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+
+=== confirm built assets still served after restart ===
+styles.css -> 200
+setup page -> 200

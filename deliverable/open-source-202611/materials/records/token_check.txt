@@ -1,0 +1,20 @@
+﻿.git-credentials exists: False
+GITHUB_TOKEN env: False
+GH_TOKEN env: False
+GCM config store:
+--- all generic creds in manager ---
+
+    Target: MicrosoftAccount:target=SSO_POP_User:user=764335733@qq.com
+    Target: LegacyGeneric:target=XboxLive
+    Target: MicrosoftAccount:target=SSO_POP_Device
+    Target: LegacyGeneric:target=pcassistant.lenovo.com
+    Target: LegacyGeneric:target=lenovoid_compatible_flag
+    Target: LegacyGeneric:target=lenovoid_history
+    Target: LegacyGeneric:target=MicrosoftAccount:user=764335733@qq.com
+    Target: LegacyGeneric:target=Doubao/ComputerUse/PIPSession
+    Target: LegacyGeneric:target=lenovoid_group_history
+    Target: WindowsLive:target=virtualapp/didlogical
+    Target: LegacyGeneric:target=10346513981
+    Target: LegacyGeneric:target=Microsoft OneDrive Generic Data - Personal Vault VHD Info
+
+

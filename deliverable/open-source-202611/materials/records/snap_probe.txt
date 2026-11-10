@@ -1,0 +1,118 @@
+top keys: id, schema_version, name, created_at, archive_sha256, source, content_key, target_profile, files, units, warnings, immutable, import_limits, stats, excluded_files, skipped_files
+files n=13181 units n=69305
+--- one file ---
+{
+ "path": ".browserslistrc",
+ "sha256": "432edb64036432eec8e295c574bef11c08c1dbf975ea5c34a9ccb19c78cd8f55",
+ "size": 53,
+ "line_count": 1,
+ "excluded": true,
+ "exclude_reason": "Not a PHP source file",
+ "is_php": false,
+ "kind": "text",
+ "language": "text",
+ "dependency_tree": false,
+ "parse_errors": []
+}
+--- one unit ---
+{
+ "id": "3c746964fa419058cc4df28228ba5780",
+ "snapshot_id": "77521680704c4c3bbdc6ca58dd7249ae",
+ "file_path": "phpmyfaq/src/libs/tecnickcom/tcpdf/tests/compare_runs.php",
+ "start_line": 253,
+ "end_line": 451,
+ "start_column": 0,
+ "end_column": 33,
+ "start_byte": 8906,
+ "end_byte": 15268,
+ "symbol": "<top-level>",
+ "kind": "top_level",
+ "class_name": null,
+ "priority": 50,
+ "slice_index": 2,
+ "slice_count": 3,
+ "parent_start_byte": 3435,
+ "parent_end_byte": 15827,
+ "cleaned_lines": [
+  {
+   "number": 253,
+   "text": "echo \"< $referenceDir\" . PHP_EOL;",
+   "start_column": 0,
+   "end_column": 33
+  },
+  {
+   "number": 254,
+   "text": "echo \"> $compareDir\" . PHP_EOL;",
+   "start_column": 0,
+   "end_column": 31
+  },
+  {
+   "number": 256,
+   "text": "$separator = '----------------------------------';",
+   "start_column": 0,
+   "end_column": 50
+  },
+  {
+   "number": 258,
+   "text": "$testRunner = new TestRunner($exampleDir);",
+   "start_column": 0,
+   "end_column": 42
+  },
+  {
+   "number": 260,
+   "text": "$differences = array();",
+   "start_column": 0,
+   "end_column": 23
+  },
+  {
+   "number": 261,
+   "text": "$ignored = array();",
+   "start_column": 0,
+   "end_column": 19
+  },
+  {
+   "number": 262,
+   "text": "$comparisons = 0;",
+   "start_column": 0,
+   "end_column": 17
+  },
+  {
+   "number": 263,
+   "text": "$bitByBitComparisons = 0;",
+   "start_column": 0,
+   "end_column": 25
+  },
+  {
+   "number": 265,
+   "text": "$testFiles = $testRunner",
+   "start_column": 0,
+   "end_column": 24
+  },
+  {
+   "number": 266,
+   "text": "    ->filterByGroup($groups)",
+   "start_column": 0,
+   "end_column": 28
+  },
+  {
+   "number": 267,
+   "text": "    ->getTestFiles()",
+   "start_column": 0,
+   "end_column": 20
+  },
+  {
+   "number": 268,
+   "text": ";",
+   "start_column": 0,
+   "end_column": 1
+  },
+  {
+   "number": 269,
+   "text": "foreach ($testFiles as $file => $type) {",
+   "start_column": 0,
+   "end_column": 40
+  },
+  {
+   "number": 270,
+   "text": "    ++$comparisons;",
+   "sta

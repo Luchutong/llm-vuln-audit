@@ -1,0 +1,9 @@
+﻿=== github direct x3 ===
+try 1 -> 000
+try 2 -> 000
+try 3 -> 000
+=== ghfast -> github API x2 ===
+try 1 -> 403
+try 2 -> 403
+=== proxy port 65532 ===
+False

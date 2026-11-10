@@ -2,7 +2,8 @@
 
 > **执行年月**：2026-11（目录 `open-source-202611`）
 > **负责人**：成员 C（第 4 章预处理索引 + 7.1 环境 + 9.2/9.3 靶标 + 9.6 真值）
-> **分支**：`feat/part-c-env-target`（基于 `main`，未直接提交主干）
+> **当前分支**：`feat/part-c-full-materials`（基于 `main`，未直接提交主干；含全部截图、数据与原始材料）
+> **历史分支**：`feat/part-c-env-target`（首批截图与数据）
 > **冻结靶标**：**phpMyFAQ 4.1.1**（PHP 8.4.27 / Apache 2.4.68 / MariaDB 11.4）
 
 ---
@@ -31,6 +32,18 @@
 | D-C02 | `review/D-C02_真值集.json` | T1（CVE-2026-46364）与 T2（4 个核心模块白盒）分列，审计前冻结 |
 | D-C03 | `runs/D-C03_清洗切片统计.md` / `.json` + 2 张直方图 | 清洗前后 token 对比、切片分布，Lab30 与 phpMyFAQ 各一次 |
 | D-C04 | `environments/D-C04_执行时间回填.md` | 9.3.2 实际起止时间（2026-11-08 21:01 → 2026-11-09 00:13） |
+
+### 原始材料与脚本（`materials/`，74 个文件，约 68 MiB）
+
+> 详见 `materials/README.md`。响应"补齐原始文件和脚本、所有材料交齐"的要求。
+
+| 子目录 | 内容 |
+| --- | --- |
+| `materials/deploy/` | 部署原始文件：Dockerfile、docker-compose.yml、两级 TCP 转发脚本 |
+| `materials/scripts/` | 28 个采集、渲染、导入、分析、校验 Python 脚本 |
+| `materials/archives/` | 冻结源码 ZIP（剥离 `.git`），含完整 13,181 文件 |
+| `materials/snapshots/` | 完整导入快照（gzip，可无损还原）与 Lab30 快照 |
+| `materials/records/` | 37 个过程日志与逐文件统计 |
 
 ---
 

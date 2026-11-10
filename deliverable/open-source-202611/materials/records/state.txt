@@ -1,0 +1,3 @@
+﻿GCM pids: 301836
+proxy open: True
+git procs: 6

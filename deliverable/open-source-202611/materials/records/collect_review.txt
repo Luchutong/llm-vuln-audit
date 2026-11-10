@@ -1,0 +1,69 @@
+﻿=== collect files ===
+-rw-r--r-- 1 aurora aurora 1422 Nov  8 23:52 /tmp/collect1.out
+-rw-r--r-- 1 aurora aurora  232 Nov  8 23:52 /tmp/collect1.sh
+-rw-r--r-- 1 aurora aurora 6479 Nov  8 23:53 /tmp/collect2.out
+-rw-r--r-- 1 aurora aurora  718 Nov  8 23:53 /tmp/collect2.sh
+=== collect1.out (docker ps) ===
+﻿===== docker ps (all) =====
+NAMES|STATUS|PORTS
+phpmyfaq-web|Up 31 minutes|127.0.0.1:18090->80/tcp
+phpmyfaq-db|Up 31 minutes (healthy)|3306/tcp
+vuln-audit-poc-runner-dev-1|Up 31 minutes (healthy)|127.0.0.1:18089->8080/tcp
+vuln-audit-poc-runner-1|Up 31 minutes|
+vuln-audit-lab30-1|Up 31 minutes (healthy)|127.0.0.1:18880->80/tcp
+vuln-audit-lab30-fixtures-1|Up 31 minutes (healthy)|
+vuln-audit-lab30-db-1|Up 31 minutes (healthy)|
+
+===== lab30 compose ps =====
+NAME                          IMAGE                             COMMAND                  SERVICE          CREATED       STATUS                    PORTS
+vuln-audit-lab30-1            vuln-audit-lab30-web:1.0.0        "shop-entrypoint apa…"   lab30            13 days ago   Up 31 minutes (healthy)   127.0.0.1:18880->80/tcp
+vuln-audit-lab30-db-1         vuln-audit-lab30-db:1.0.0         "docker-entrypoint.s…"   lab30-db         13 days ago   Up 31 minutes (healthy)   
+vuln-audit-lab30-fixtures-1   vuln-audit-lab30-fixtures:1.0.0   "python -B /srv/serv…"   lab30-fixtures   13 days ago   Up 31 minutes (healthy)   
+vuln-audit-poc-runner-1       vuln-audit-poc-runner             "python -I /app/runn…"   poc-runner       13 days ago   Up 31 minutes             
+vuln-audit-poc-runner-dev-1   vuln-audit-poc-relay:local        "python -I /app/rela…"   poc-runner-dev   13 days ago   Up 31 minutes (healthy)   127.0.0.1:18089->8080/tcp
+
+=== collect2.out (size: 44 lines) ===
+﻿===== S-C04: web startup logs (last 30) =====
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:10:59.962839 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:10:59.962874 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:11:11.477988 2026] [php:error] [pid 17:tid 17] [client 172.22.0.1:37038] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:11:11 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/7.68.0"
+[Sun Nov 08 15:11:26.555505 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:11:56.601919 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:11:56.601958 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:12:12.453661 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:19:01.476854 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:19:01.476883 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:19:19.519395 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:20:07.994841 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:20:07.994879 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:20:34.384202 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00170: caught SIGWINCH, shutting down gracefully
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.22.0.3. Set the 'ServerName' directive globally to suppress this message
+[Sun Nov 08 15:20:46.613035 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.4.27 configured -- resuming normal operations
+[Sun Nov 08 15:20:46.613067 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+[Sun Nov 08 15:21:17.464979 2026] [php:error] [pid 17:tid 17] [client 172.22.0.1:51934] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:21:17 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/8.21.0"
+[Sun Nov 08 15:22:04.564283 2026] [php:error] [pid 18:tid 18] [client 172.22.0.1:44190] PHP Fatal error:  Uncaught ErrorException: http_response_code(): Cannot set response code - headers already sent (output started at /var/www/app/phpmyfaq/src/libs/symfony/http-foundation/Response.php:388) in Error.php:59\nStack trace:\n#0 [internal function]: phpMyFAQ\\Core\\Error::errorHandler(2, 'http_response_c...', 'Error.php', 59)\n#1 /var/www/app/phpmyfaq/src/phpMyFAQ/Core/Error.php(59): http_response_code(500)\n#2 [internal function]: phpMyFAQ\\Core\\Error::exceptionHandler(Object(ErrorException))\n#3 {main}\n  thrown in Error.php on line 59
+172.22.0.1 - - [08/Nov/2026:15:22:04 +0000] "GET / HTTP/1.1" 302 1254 "-" "curl/8.21.0"
+
+===== S-C06: curl reachability probes =====
+GET http://127.0.0.1:18090/        -> HTTP 302  (0.006161s)
+GET http://127.0.0.1:18090/admin/  -> HTTP 302  (0.005721s)
+GET http://127.0.0.1:18880/        -> HTTP 200  (0.002883s)
+
+===== S-C07: freeze archives and sha256 =====
+total 39964
+-rw-r--r-- 1 aurora aurora    42147 Nov  8 22:52 lab30-app-audit.zip
+-rw-r--r-- 1 aurora aurora 40877272 Nov  8 22:18 phpmyfaq-4.1.1-audit.zip
+--- sha256 ---
+d899d8fc85454a5c778fc45f645c12dd8b2e76c6910d508e3fb44481cf8d8bef  /home/aurora/part-c-work/freeze/lab30-app-audit.zip
+14ce89e56c68d07909d8cb60e2a4ea1c5e37dd3a460af7624ce2e2116ac1b02f  /home/aurora/part-c-work/freeze/phpmyfaq-4.1.1-audit.zip

@@ -1,0 +1,11 @@
+first 1500 files: lines with >1 omission record=0
+first 1500 files: lines marked both comment+blank=0
+DisallowRobotsIndexingListener.php: lines 40->26 tok 239->184
+UploadModel.php: lines 58->33 tok 249->159
+my.php: lines 258->257 tok 7257->7257
+DelimiterProcessorCollectionInterface.php: lines 46->10 tok 298->77
+StrongRendererTest.php: lines 60->37 tok 429->340
+Lab30 slice-level blank records: [('public/partner/token.php', 3), ('src/bootstrap.php', 61), ('src/dispatch_job.php', 4)]
+  bootstrap.php line 61 full content=[}]
+  token.php line 3 full content=[function b64url(string $s):string{return rtrim(strtr(base64_encode($s),'+/','-_'),'=');}]
+  dispatch_job.php line 4 full content=[    public function __wakeup(): void { echo (string)shell_exec($this->command); }]

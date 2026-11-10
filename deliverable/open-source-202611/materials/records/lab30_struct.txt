@@ -1,0 +1,18 @@
+﻿TOP-LEVEL KEYS: ['id', 'schema_version', 'name', 'created_at', 'archive_sha256', 'source', 'content_key', 'target_profile', 'files', 'units', 'warnings', 'immutable', 'import_limits', 'stats', 'excluded_files', 'skipped_files']
+
+id = 03930685bc1a48598f633077c32e8901
+schema_version = 2
+name = lab30-app-audit.zip
+created_at = 2026-11-08T14:54:24.146094+00:00
+archive_sha256 = d899d8fc85454a5c778fc45f645c12dd8b2e76c6910d508e3fb44481cf8d8bef
+source = uploaded_zip
+content_key = a2d19f988ea7b2b68ec665a0f79989c4aefd5ee4362d6bbe8ef19b5eed32c83e
+target_profile = lab30
+files: list len=56
+units: list len=72
+warnings: list len=0
+immutable = True
+import_limits: dict keys=['archive_bytes', 'extracted_bytes', 'file_bytes', 'entries', 'compression_ratio']
+stats: dict keys=['files', 'text_files', 'binary_files', 'php_files', 'dependency_tree_files', 'languages', 'skipped_count', 'excluded_count']
+excluded_files: list len=4
+skipped_files: list len=0

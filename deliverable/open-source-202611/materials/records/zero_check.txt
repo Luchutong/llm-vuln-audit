@@ -1,0 +1,14 @@
+zero_line_slices=11471
+  Client.php <top-level> bytes=22205->25463 rule=unit_end
+  ClientEndpointsTrait.php <top-level> bytes=18727->23419 rule=unit_end
+  ClientEndpointsTrait.php <top-level> bytes=33884->36400 rule=unit_end
+  ClientEndpointsTrait.php <top-level> bytes=95682->102964 rule=unit_end
+  ClientEndpointsTrait.php <top-level> bytes=124432->129431 rule=unit_end
+  Client.php <top-level> bytes=31209->36957 rule=unit_end
+  Client.php <top-level> bytes=47241->49822 rule=unit_end
+  Client.php <top-level> bytes=118656->124790 rule=unit_end
+  KnnNamespace.php <top-level> bytes=3135->9779 rule=unit_end
+  ClientEndpointsTrait.php <top-level> bytes=8515->11315 rule=unit_end
+zero_byte_range_slices=1
+slices_at_200_lines=1789
+slices_at_16KB=920

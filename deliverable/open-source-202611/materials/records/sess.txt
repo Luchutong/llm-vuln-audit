@@ -1,0 +1,13 @@
+﻿
+    Id ProcessName            SessionId
+    -- -----------            ---------
+311600 git                           22
+301836 git-credential-manager        22
+306860 git-remote-https              22
+263780 git                           22
+285440 git                           22
+303116 git                           22
+
+
+
+current session id: 22

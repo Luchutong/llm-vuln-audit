@@ -1,0 +1,62 @@
+# ============================================================================
+# phpMyFAQ 4.1.1 local audit stack
+#
+# Both images resolve against the local Docker cache:
+#   - mariadb:11.4 is already pulled (the Lab30 stack uses the same image)
+#   - web is built locally from Dockerfile.audit on top of php:8.4-apache
+# Nothing is pulled from Docker Hub, so the stack works on the isolated network.
+#
+# Usage (from this directory):
+#   docker compose up -d --build
+#   docker compose ps
+#   docker compose logs -f web
+# ============================================================================
+name: phpmyfaq-audit
+
+services:
+  db:
+    image: mariadb:11.4
+    container_name: phpmyfaq-db
+    environment:
+      MARIADB_ROOT_PASSWORD: pmf-root-password
+      MARIADB_DATABASE: phpmyfaq
+      MARIADB_USER: phpmyfaq
+      MARIADB_PASSWORD: pmf-password
+    volumes:
+      - pmf-db-data:/var/lib/mysql
+    networks:
+      - pmf-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../phpMyFAQ-4.1.1
+      dockerfile: Dockerfile.audit
+    image: phpmyfaq-audit-web:4.1.1
+    container_name: phpmyfaq-web
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PMF_DB_HOST: db
+      PMF_DB_NAME: phpmyfaq
+      PMF_DB_USER: phpmyfaq
+      PMF_DB_PASS: pmf-password
+      PMF_DB_TYPE: mysqli
+    ports:
+      - "127.0.0.1:18090:80"
+    networks:
+      - pmf-net
+    restart: unless-stopped
+
+networks:
+  pmf-net:
+    driver: bridge
+
+volumes:
+  pmf-db-data:

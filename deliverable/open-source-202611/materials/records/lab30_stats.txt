@@ -1,0 +1,28 @@
+﻿======================================================================
+FILE: snapshot_lab30.json
+======================================================================
+id           = 03930685bc1a48598f633077c32e8901
+name         = lab30-app-audit.zip
+created_at   = 2026-11-08T14:54:24.146094+00:00
+archive_sha  = d899d8fc85454a5c778fc45f645c12dd8b2e76c6910d508e3fb44481cf8d8bef
+profile      = lab30
+files (raw)  = 56
+units        = 72
+warnings     = 0
+excluded     = 4
+skipped      = 0
+--- stats ---
+files                  = 56
+text_files             = 56
+binary_files           = 0
+php_files              = 52
+dependency_tree_files  = 0
+languages:
+  php          52
+  css          1
+  javascript   1
+  text         1
+  xml          1
+skipped_count          = 0
+excluded_count         = 4
+

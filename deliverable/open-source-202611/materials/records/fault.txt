@@ -1,0 +1,13 @@
+﻿python : Windows fatal exception: access violation
+所在位置 行:1 字符: 1
++ python -X faulthandler "C:\Users\Aurora\Doubao\chats\2026-11-08\new-c ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Windows fatal e...ccess violation:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Current thread 0x00042e50 (most recent call first):
+  File "C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\backend\audit\source.py", line 190 in _offsets
+  File "C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\backend\audit\source.py", line 627 in _index
+  File "C:\Users\Aurora\Doubao\chats\2026-11-08\new-chat\llm-vuln-audit\data\part-c-import\index_worker.py", line 31 in
+ <module>

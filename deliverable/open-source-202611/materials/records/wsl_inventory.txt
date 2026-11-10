@@ -1,0 +1,38 @@
+﻿=== tree (depth 2, dirs) ===
+.
+./C:UsersAurora
+./C:UsersAurora/bin
+./deploy
+./freeze
+./phpMyFAQ-4.1.1
+./phpMyFAQ-4.1.1/.docker
+./phpMyFAQ-4.1.1/.github
+./phpMyFAQ-4.1.1/.husky
+./phpMyFAQ-4.1.1/.pnpm-store
+./phpMyFAQ-4.1.1/bin
+./phpMyFAQ-4.1.1/docs
+./phpMyFAQ-4.1.1/kubernetes-deploy
+./phpMyFAQ-4.1.1/node_modules
+./phpMyFAQ-4.1.1/phpmyfaq
+./phpMyFAQ-4.1.1/scripts
+./phpMyFAQ-4.1.1/tests
+
+=== deploy/freeze/root files ===
+deploy:
+total 16
+drwxr-xr-x 2 aurora aurora 4096 Nov  8 21:01 .
+drwxr-xr-x 6 aurora aurora 4096 Nov  8 23:19 ..
+-rw-r--r-- 1 aurora aurora 3021 Nov  8 22:00 Dockerfile
+-rw-r--r-- 1 aurora aurora 1642 Nov  8 21:01 docker-compose.yml
+
+freeze:
+total 39972
+drwxr-xr-x 2 aurora aurora     4096 Nov  8 22:52 .
+drwxr-xr-x 6 aurora aurora     4096 Nov  8 23:19 ..
+-rw-r--r-- 1 aurora aurora    42147 Nov  8 22:52 lab30-app-audit.zip
+-rw-r--r-- 1 aurora aurora 40877272 Nov  8 22:18 phpmyfaq-4.1.1-audit.zip
+
+=== key scripts ===
+-rw-r--r-- 1 aurora aurora 1696 Nov  8 23:12 relay_tcp.py
+
+=== /tmp part-c scripts ===

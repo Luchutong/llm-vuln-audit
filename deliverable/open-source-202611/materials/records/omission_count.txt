@@ -1,0 +1,4 @@
+omission_events=315095
+unique_lines_with_omission=315093
+lines_with_multiple_events=2
+sample_multi=[(('phpmyfaq/src/libs/symfony/http-client/Response/CurlResponse.php', 311), 2), (('phpmyfaq/src/libs/twig/twig/tests/TemplateTest.php', 102), 2)]

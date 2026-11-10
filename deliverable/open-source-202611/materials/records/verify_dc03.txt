@@ -1,0 +1,15 @@
+is_php=9221 excluded_among_php=10
+  EXC: phpmyfaq/src/libs/phpseclib/phpseclib/build/php-cs-fixer.php | Default dependency/generated directory: build
+  EXC: phpmyfaq/src/libs/twig/twig/src/Cache/CacheInterface.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/src/Cache/ChainCache.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/src/Cache/FilesystemCache.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/src/Cache/NullCache.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/src/Cache/ReadOnlyFilesystemCache.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/src/Cache/RemovableCacheInterface.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/tests/Cache/ChainTest.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/tests/Cache/FilesystemTest.php | Default dependency/generated directory: Cache
+  EXC: phpmyfaq/src/libs/twig/twig/tests/Cache/ReadOnlyFilesystemTest.php | Default dependency/generated directory: Cache
+files_with_multiple_units=7009 cleaned_text_conflicts=1264
+line_count checked=2000 mismatch=0
+lab30 omission reasons (with overlap, raw): {"blank_line": 3}
+phpmyfaq units with overlap>0 = 4177

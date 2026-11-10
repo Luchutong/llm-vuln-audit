@@ -1,0 +1,3 @@
+matplotlib=False
+numpy=True
+tiktoken=False

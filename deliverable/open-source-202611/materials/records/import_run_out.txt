@@ -1,0 +1,35 @@
+﻿snapshot_id= 367c20cdb3d6400bbc32fa1031d22e31
+archive_sha256= 14ce89e56c68d07909d8cb60e2a4ea1c5e37dd3a460af7624ce2e2116ac1b02f
+stats= {"files": 13181, "text_files": 12974, "binary_files": 207, "php_files": 9221, "dependency_tree_files": 15, "languages": {"php": 8926, "text": 1762, "markdown": 517, "yaml": 447, "xml": 286, "binary": 207, "typescript": 200, "rst": 183, "json": 163, "template": 159, "config": 122, "html": 108, "scss": 34, "shell": 31, "css": 15, "javascript": 12, "csv": 2, "python": 2, "ruby": 2, "toml": 2, "c": 1}, "skipped_count": 0, "excluded_count": 3970}
+warnings_count= 31
+  WARN: phpmyfaq/src/libs/elasticsearch/elasticsearch/util/template/test/unit-test-oss: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/elasticsearch/elasticsearch/util/template/test/unit-test-skipped: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/elasticsearch/elasticsearch/util/template/test/unit-test-xpack: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/league/uri-interfaces/IPv4/Converter.php: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/masterminds/html5/test/HTML5/Fixtures/encoding/windows-1252.html: display decoding contains replacement characters
+  WARN: phpmyfaq/src/libs/paragonie/constant_time_encoding/tests/Base32HexTest.php: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/phpseclib/phpseclib/phpseclib/Math/BinaryField.php: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/phpseclib/phpseclib/phpseclib/Math/PrimeField.php: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/symfony/config/Tests/Fixtures/ParseError.php: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/symfony/console/Tests/phpt/alarm/command_exit.phpt: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/symfony/console/Tests/phpt/signal/command_exit.phpt: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/symfony/console/Tests/phpt/uses_stdin_as_interactive_input.phpt: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/symfony/dependency-injection/Tests/Fixtures/php/services8.php: display decoding contains replacement characters
+  WARN: phpmyfaq/src/libs/symfony/error-handler/Tests/phpt/decorate_exception_handler.phpt: PHP parse errors; indexed units require context review
+  WARN: phpmyfaq/src/libs/symfony/http-client/Tests/HttpClientTraitTest.php: PHP parse errors; indexed units require context review
+units_count= 69305
+excluded_files_listed= 200
+skipped_files= []
+files_with_parse_errors= 29
+  PARSE: phpmyfaq/src/libs/elasticsearch/elasticsearch/util/template/test/unit-test-oss
+  PARSE: phpmyfaq/src/libs/elasticsearch/elasticsearch/util/template/test/unit-test-skipped
+  PARSE: phpmyfaq/src/libs/elasticsearch/elasticsearch/util/template/test/unit-test-xpack
+  PARSE: phpmyfaq/src/libs/league/uri-interfaces/IPv4/Converter.php
+  PARSE: phpmyfaq/src/libs/paragonie/constant_time_encoding/tests/Base32HexTest.php
+  PARSE: phpmyfaq/src/libs/phpseclib/phpseclib/phpseclib/Math/BinaryField.php
+  PARSE: phpmyfaq/src/libs/phpseclib/phpseclib/phpseclib/Math/PrimeField.php
+  PARSE: phpmyfaq/src/libs/symfony/config/Tests/Fixtures/ParseError.php
+  PARSE: phpmyfaq/src/libs/symfony/console/Tests/phpt/alarm/command_exit.phpt
+  PARSE: phpmyfaq/src/libs/symfony/console/Tests/phpt/signal/command_exit.phpt
+dependency_tree_flagged= 15
+php_files_under_libs= 8454

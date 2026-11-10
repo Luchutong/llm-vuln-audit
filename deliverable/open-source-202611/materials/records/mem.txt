@@ -1,0 +1,14 @@
+psutil=True
+i=0 rss_mib=35.4
+i=50 rss_mib=38.2
+i=100 rss_mib=42.9
+i=150 rss_mib=43.1
+i=200 rss_mib=45.3
+i=250 rss_mib=45.4
+i=300 rss_mib=45.4
+i=350 rss_mib=45.4
+i=400 rss_mib=45.2
+i=450 rss_mib=44.1
+i=500 rss_mib=44.3
+i=550 rss_mib=44.4
+final rss_mib=44.4

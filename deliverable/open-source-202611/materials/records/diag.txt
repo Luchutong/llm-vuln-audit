@@ -1,0 +1,4 @@
+tree_sitter=0.26.0
+lang_type=<class 'PyCapsule'>
+abi_version=n/a
+stress_200=ok

@@ -1,0 +1,509 @@
+{
+  "observed_at": "2026-11-10T09:52:15.148906+00:00",
+  "parent_run_id": "eb67cbf8636b54a39cad67fc3753aa03",
+  "root_retest_run_id": "8a035cfcda5254238742ea8af118f869",
+  "run_id": "1995ca42dc1959488aadb74da515fbee",
+  "url": "http://127.0.0.1:5173/#run/1995ca42dc1959488aadb74da515fbee",
+  "created_at": "2026-11-10T09:44:16.135602+00:00",
+  "mode": "review",
+  "poc_mode": "off",
+  "native_format": "json_object",
+  "run_limits": {
+    "responses": 152,
+    "tools": 0,
+    "seconds": 2974
+  },
+  "previous_continuation_requests": 22,
+  "validation_requests": 2,
+  "total_model_request_limit": 176,
+  "total_active_seconds_limit": 3600,
+  "inherited_findings": 28,
+  "inherited_verified": 20,
+  "inherited_resolved_risks": 37,
+  "risk_by_state": {
+    "supported": 25,
+    "no_evidence": 53,
+    "not_applicable": 5,
+    "blocked": 0,
+    "pending": 5
+  },
+  "parent_unchanged": true,
+  "live_status": "inconclusive",
+  "terminal_reason": {
+    "code": "final_review_incomplete",
+    "message": "审计已结束，仍有 1 项未完成终审；已保存事实和阶段报告。"
+  },
+  "usage": {
+    "responses": 15,
+    "tools": 0,
+    "seconds": 399.656
+  },
+  "total_requests_with_previous_and_validation": 39,
+  "total_production_active_seconds": 1024.961,
+  "final_dispositions": {
+    "accepted": 28
+  },
+  "verified": 20,
+  "pending_dynamic_reviews": 0,
+  "pending_risks": 5,
+  "pending_risk_details": [
+    {
+      "id": "risk-40a2ee5e36295f838561",
+      "path": "lab30-shop/app/public/partner/portal.php",
+      "line": 4,
+      "operation": "query",
+      "risk": "sqli",
+      "state": "pending",
+      "review": {
+        "comparison_assessments": [],
+        "comparison_policy": "explicit-peers-v1",
+        "decision": "needs_evidence",
+        "distinct_from": [],
+        "duplicate_of": null,
+        "finding_ids": [],
+        "focus": {
+          "chain": [],
+          "evidence": [
+            {
+              "end_line": 6,
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 1
+            }
+          ],
+          "objective_ref": "objective-main",
+          "rationale": "portal.php:4 为常量查询，无输入到 SQL 操作的链路，本义务当前无对应源码证据。",
+          "relation": "unresolved",
+          "supports": []
+        },
+        "input_policy": "paged-facts-v2",
+        "item_id": "risk-40a2ee5e36295f838561",
+        "rationale": "本项操作行指 partner/portal.php:4。原文第4行为常量字符串 'SELECT order_no,total FROM orders ORDER BY id'，无任何用户输入拼接，故本项 sqli 义务在源码层面不成立；而 finding 7018dee5aba14a488f94484fa2d09b90 主定位在 portal.php:3、根因是未验签 JWT 授权绕过，属另一处操作，不能硬贴到第4行结清。本项应保留待审：需明确第4行是否存在任何变量拼接（当前未见），或由宿主将义务归入授权绕过链再判。",
+        "revision": "9bd4ebc4f585083cdc238de04037949c667e227c3c1a023a706f956fdf5ac2cc",
+        "risk_outcome": "pending"
+      }
+    },
+    {
+      "id": "risk-8f9c89045a4d08d44de3",
+      "path": "lab30-shop/app/public/partner/token.php",
+      "line": 4,
+      "operation": "query",
+      "risk": "sqli",
+      "state": "pending",
+      "review": {
+        "comparison_assessments": [],
+        "comparison_policy": "explicit-peers-v1",
+        "decision": "needs_evidence",
+        "distinct_from": [],
+        "duplicate_of": null,
+        "finding_ids": [],
+        "focus": {
+          "chain": [],
+          "evidence": [
+            {
+              "end_line": 6,
+              "path": "lab30-shop/app/public/partner/token.php",
+              "start_line": 1
+            }
+          ],
+          "objective_ref": "objective-main",
+          "rationale": "token.php:4 的 SELECT 为常量字面量，未见输入拼接，本项注入义务缺乏源码支撑。",
+          "relation": "unresolved",
+          "supports": []
+        },
+        "input_policy": "paged-facts-v2",
+        "item_id": "risk-8f9c89045a4d08d44de3",
+        "rationale": "本项操作行指 partner/token.php:4。原文第4行 SQL 为常量 \"SELECT value FROM settings WHERE `key`='generation'\"，无用户可控字符串进入；token 生成部分 hash_hmac 使用该密钥并输出经 h() 转义（第6行），未见注入。第4行不满足 sqli 义务；partner 授权绕过 finding 主定位在 portal.php:3，不能作为本行注入证据。保留待审以确认是否存在其它变量进入 SQL 的路径。",
+        "revision": "e87ed15618e30daa729bbe11d7166c024449079291af717c70eabdf99d68a738",
+        "risk_outcome": "pending"
+      }
+    },
+    {
+      "id": "risk-1919d228d9d2704ddae6",
+      "path": "lab30-shop/app/src/bootstrap.php",
+      "line": 42,
+      "operation": "state_change_origin_review",
+      "risk": "csrf",
+      "state": "pending",
+      "review": null
+    },
+    {
+      "id": "risk-853fb01245a43bf28cc3",
+      "path": "lab30-shop/app/src/bootstrap.php",
+      "line": 59,
+      "operation": "dynamic_call",
+      "risk": "code_execution",
+      "state": "pending",
+      "review": {
+        "comparison_assessments": [],
+        "comparison_policy": "explicit-peers-v1",
+        "decision": "needs_evidence",
+        "distinct_from": [],
+        "duplicate_of": null,
+        "finding_ids": [],
+        "focus": {
+          "chain": [
+            {
+              "evidence": {
+                "end_line": 59,
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "start_line": 59
+              },
+              "explanation": "render() 在页面骨架拼接后直接执行回调参数 $body()，本行本身未从请求读取或拼装函数名。",
+              "kind": "root_cause"
+            },
+            {
+              "evidence": {
+                "end_line": 59,
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "start_line": 59
+              },
+              "explanation": "若 $body 可被外部控制为任意可调用名则构成代码执行；当前证据未展示该控制关系。",
+              "kind": "sink"
+            }
+          ],
+          "evidence": [
+            {
+              "end_line": 67,
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 51
+            }
+          ],
+          "objective_ref": "objective-main",
+          "rationale": "第59行动态回调本身没有使用外部输入；是否构成代码执行取决于未在本证据窗口内出现的 $body 构造与实际调用方传入方式，尚不能判定与目标漏洞的关系。",
+          "relation": "unresolved",
+          "supports": []
+        },
+        "input_policy": "paged-facts-v2",
+        "item_id": "risk-853fb01245a43bf28cc3",
+        "rationale": "分页原文显示 render() 第59行调用 $body()，这是视图中传入的回调参数，不是 $_GET/$_POST 等外部可决定的函数名字符串；51-67 行内看不到 $body 的来源构造点，也没有把用户输入绑定为回调的逻辑。payload.findings 为空，运行内无覆盖本操作行（bootstrap.php:59）主定位的代码执行结论；ops 目录 eval/动态函数/反序列化结论均针对各自 sink，不能合并认定本行。因此当前缺少 input→函数名/回调的传播证据或明确的可控调用方，无法接受为 code_execution；也不足以反证安全，保留待补证。",
+        "revision": "8521449ee698aa48c30b6e55358885dace931cf66bc89a8ffd0cf7416717ef25",
+        "risk_outcome": "pending"
+      }
+    },
+    {
+      "id": "risk-22eb3fb114ea909f91ce",
+      "path": "lab30-shop/app/src/member_lookup.php",
+      "line": 3,
+      "operation": "query",
+      "risk": "sqli",
+      "state": "pending",
+      "review": {
+        "comparison_assessments": [],
+        "comparison_policy": "explicit-peers-v1",
+        "decision": "needs_evidence",
+        "distinct_from": [],
+        "duplicate_of": null,
+        "finding_ids": [],
+        "focus": {
+          "chain": [],
+          "evidence": [
+            {
+              "end_line": 4,
+              "path": "lab30-shop/app/src/member_lookup.php",
+              "start_line": 1
+            }
+          ],
+          "objective_ref": "objective-main",
+          "rationale": "sink 行已明确拼接执行，但 $term 是否来自请求、由哪个入口调用尚未取证，利用链待补。",
+          "relation": "unresolved",
+          "supports": []
+        },
+        "input_policy": "paged-facts-v2",
+        "item_id": "risk-22eb3fb114ea909f91ce",
+        "rationale": "分页原文 member_lookup.php:3 将参数 $term 直接拼接进 LIKE '%...%' SQL 并 db()->query() 执行，未用 prepare 占位符，若存在外部调用入口则构成 SQL 注入。但本项 payload.findings 为空，当前运行无覆盖该操作行的有效结论；任务摘要仅涉及 ops/users.php、withdraw.php 等其它 sink，不能合报。缺少 member_lookup() 实际 HTTP 调用者与 $term 数据来源的源码证据，无法确认利用链成立，故保留待审。",
+        "revision": "47582181ae5533ee67c895aa599e31472855ab9c4d8f7927b2a3fbf67377a848",
+        "risk_outcome": "pending"
+      }
+    }
+  ],
+  "direction_summary": {
+    "version": "audit-directions-v1",
+    "total": 46,
+    "pending_total": 3,
+    "assigned_total": 0,
+    "resolved_total": 17,
+    "skipped_total": 0,
+    "unsettled_total": 30,
+    "complete": false,
+    "items": [
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T03:49:27.146086+00:00",
+        "id": "dir_04889c1a2946a406d460efb73b8f1970",
+        "origin_task_id": "2be30461a93944d686116c5ec5cd02f2",
+        "origin_task_key": "bootstrap-db-injection",
+        "paths": [],
+        "requirement": "required",
+        "review_reason": "方向文本要求核对 auth/login.php 与 auth/continue.php 是否把用户可控 SID 传给 start_session()，但提供的唯一 worker_result 为 needs_evidence，明确说明未读取这两处 start_session 调用，因此会话固定方向本身既无入口读取证据、也无受害者认证后令牌是否轮换的观测，不能结清。register.php 侧的注册 CSRF 虽证据充分（register.php:4-8 POST 分支未调用 check_csrf，第 10 行表单无 csrf 字段，bootstrap.php:38-40 提供该辅助），但那是另一主定位的结论 de8e769b00914e28903e3c2461f053ef，不能用来结清本方向的 start_session 问题。需要后续回合实读 login.php/continue.php 的 SID 投递、认证后 ID 轮换与攻击者复用前提后再判。",
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "state": "pending",
+        "text": "核对 auth/login.php、auth/continue.php 是否把用户可控 SID 传给 start_session()，判定会话固定可利用性",
+        "unknown_paths": []
+      },
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T03:55:36.191157+00:00",
+        "id": "dir_08af80c9f6a6a5a52fd4db62c21773af",
+        "origin_task_id": "8485290f7a4649ff92444cbcf44a1b3d",
+        "origin_task_key": "account-settings-redeem-partner",
+        "paths": [],
+        "requirement": "advisory",
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "state": "pending",
+        "text": "settings.php 第3-5行邮箱更新 POST 未见 csrf_field()/check_csrf()，需确认是否构成 CSRF 及 SameSite=Lax 下的实际可利用性（bootstrap.php:16,40）。",
+        "unknown_paths": []
+      },
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T05:21:04.014009+00:00",
+        "id": "dir_0a16105ae8f375e9237c8fcfd12119fb",
+        "origin_task_id": "0f0fb78aa20f49b69c7dca419dd03a01",
+        "origin_task_key": "content-page-lfi",
+        "paths": [
+          "lab30-shop/app/resources/views/home.php",
+          "lab30-shop/app/resources/views/shipping.php"
+        ],
+        "requirement": "advisory",
+        "review_evidence": [
+          {
+            "end_line": 1,
+            "path": "lab30-shop/app/resources/views/home.php",
+            "start_line": 1
+          },
+          {
+            "end_line": 1,
+            "path": "lab30-shop/app/resources/views/shipping.php",
+            "start_line": 1
+          }
+        ],
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "source_kind": "observation",
+        "state": "pending",
+        "text": "views 目录只有两个固定模板：resources/views 下仅 home.php 与 shipping.php 两个纯 HTML 片段；代码中不存在允许值白名单。",
+        "unknown_paths": []
+      },
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T05:11:41.687800+00:00",
+        "id": "dir_1ee5806aef5f85283e6af3a58f7a09f4",
+        "origin_task_id": "4005e851b31f4794968a2fd7462fc3c3",
+        "origin_task_key": "wallet-debit-catalog",
+        "paths": [
+          "lab30-shop/app/public/catalog/greeting.php"
+        ],
+        "requirement": "required",
+        "review_evidence": [
+          {
+            "end_line": 3,
+            "path": "lab30-shop/app/public/catalog/greeting.php",
+            "start_line": 2
+          }
+        ],
+        "review_reason": "direction 的文本与 reasoning 主张的是 content/page.php:1-3 将 $_GET['page'] 未校验拼入 include APP_ROOT.\"/resources/views/\".$name.\".php\" 形成 LFI（与既有 c107bf04a5f84bdaa1f4ac0b40e9b05f 同坐标复用），但 worker_results 的 rationale 仅记录实际读取 greeting.php:1-3 并指向既有 xss_r 4adca77ebde64278bc14789c410efdc4，未给出 content/page.php:3 本轮的读取与 include 拼接确认，主目标 sink 的当前 worker 证据缺位。因此不能以 greeting 的 XSS 复用冒充对 content/page LFI 方向的结清，保留 needs_evidence，待实际读取 content/page.php 操作行并核对与既有 LFI 结论同根因后另行判读。",
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "source_kind": "observation",
+        "state": "pending",
+        "text": "greeting.php 未编码输出已落库 xss_r：greeting.php:3 将 (string)$_GET['name'] 直接拼接进 HTML 输出，未调用 h()；根因与已落库 ff3a62ff96234032b41275b57ae958f2 一致，不重复主张。",
+        "unknown_paths": []
+      }
+    ],
+    "candidate_pending_total": 1,
+    "worker_candidates": [
+      {
+        "task_key": "wallet-debit-catalog",
+        "candidate_id": "order-price-tampering",
+        "primary_location": {
+          "line": 3,
+          "path": "lab30-shop/app/public/orders/create.php"
+        },
+        "next_step": "读取 orders/create.php 与支付/结算逻辑，确认篡改后的 unit_price/total 是否影响实际扣款或发货。"
+      }
+    ],
+    "triage_pending_total": 26,
+    "omitted_leads": 0,
+    "unsettled_required_total": 3,
+    "advisory_total": 26,
+    "required_total": 20,
+    "advisory_items": [
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T03:51:28.200767+00:00",
+        "id": "dir_6304657497d482df663dfab97db1ebbd",
+        "origin_task_id": "9afe0b5895a94a44af5f375b98a37caa",
+        "origin_task_key": "profile-backup-readpath",
+        "paths": [
+          "lab30-shop/app/public/account/settings.php"
+        ],
+        "requirement": "advisory",
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "state": "pending",
+        "text": "lab30-shop/app/public/account/settings.php 与 redeemd.php 的输入校验与输出编码",
+        "unknown_paths": [
+          "redeemd.php"
+        ]
+      },
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T03:51:28.200963+00:00",
+        "id": "dir_9011df42fa12f4b7afe3e33f6fb06114",
+        "origin_task_id": "9afe0b5895a94a44af5f375b98a37caa",
+        "origin_task_key": "profile-backup-readpath",
+        "paths": [
+          "lab30-shop/app/public/auth/continue.php"
+        ],
+        "requirement": "advisory",
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "state": "pending",
+        "text": "lab30-shop/app/public/auth/continue.php 开放重定向",
+        "unknown_paths": []
+      },
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T03:55:36.191157+00:00",
+        "id": "dir_08af80c9f6a6a5a52fd4db62c21773af",
+        "origin_task_id": "8485290f7a4649ff92444cbcf44a1b3d",
+        "origin_task_key": "account-settings-redeem-partner",
+        "paths": [],
+        "requirement": "advisory",
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "state": "pending",
+        "text": "settings.php 第3-5行邮箱更新 POST 未见 csrf_field()/check_csrf()，需确认是否构成 CSRF 及 SameSite=Lax 下的实际可利用性（bootstrap.php:16,40）。",
+        "unknown_paths": []
+      },
+      {
+        "assigned_task_key": null,
+        "created_at": "2026-11-10T05:11:41.669558+00:00",
+        "id": "dir_ab3a04ac3f8bdab728617b749212541c",
+        "origin_task_id": "3850ecbcad874c16a87aa4f9b8d5cd45",
+        "origin_task_key": "auth-login-continue",
+        "paths": [
+          "lab30-shop/app/public/auth/login.php"
+        ],
+        "requirement": "advisory",
+        "review_evidence": [
+          {
+            "end_line": 7,
+            "path": "lab30-shop/app/public/auth/login.php",
+            "start_line": 6
+          }
+        ],
+        "run_id": "1995ca42dc1959488aadb74da515fbee",
+        "source_kind": "observation",
+        "state": "pending",
+        "text": "登录凭据使用 hash_equals 常量时间比较：login.php:6 参数化查询用户名，第 7 行 hash_equals 比较 MD5 口令哈希，未见弱比较；口令存储为 MD5 属弱哈希配置风险，但本行仅证明比较方式。",
+        "unknown_paths": []
+      }
+    ],
+    "omitted": 25,
+    "next_cursor": 4
+  },
+  "event_counts": {
+    "model_request": 15,
+    "model_response": 15,
+    "agent_output_rejected": 5,
+    "review_batch_completed": 10,
+    "planner_round_failed": 1
+  },
+  "exports": {
+    "markdown": {
+      "bytes": 241383,
+      "sha256": "6f3826f5c1430d0de3a26882bbe24a69de0d7f342126a3e3b6352677ea4b7d26",
+      "etag": "\"c63c72c7d6bd43bc025454f45aa9ba813bb0f461ae3ff5e0499d65a56a735f14\"",
+      "repeat_identical": true,
+      "restart_identical": true
+    },
+    "json": {
+      "bytes": 13254170,
+      "sha256": "27d062982d444f833ae34f944ab8d24c4269ba0c073ef0ec85cb52e27f252977",
+      "etag": "\"c63c72c7d6bd43bc025454f45aa9ba813bb0f461ae3ff5e0499d65a56a735f14\"",
+      "repeat_identical": true
+    },
+    "zip": {
+      "bytes": 2798886,
+      "sha256": "17686235de453e5a83641f90c49a32a317e52b8e72f7d5ad7033b9add2d4918c",
+      "etag": "\"c63c72c7d6bd43bc025454f45aa9ba813bb0f461ae3ff5e0499d65a56a735f14\"",
+      "repeat_identical": true
+    }
+  },
+  "frozen_input_hash": "e605ff00a0c176876dfa934c1612c0682cabb772166ff7a2fde2f9bffab89fe7",
+  "frozen_output_hash": "c63c72c7d6bd43bc025454f45aa9ba813bb0f461ae3ff5e0499d65a56a735f14",
+  "run_outcome": {
+    "audit_complete": false,
+    "coverage_complete": true,
+    "dimensions": {
+      "delivery_readiness": {
+        "basis": "材料填写完整性检查，不代替修复正确性与回归有效性的独立复核。",
+        "complete": false,
+        "gaps": [
+          {
+            "canonical_id": "85e0c4fd0de74f398345de4b20b42898",
+            "items": [
+              "修复后复测步骤与回归条件待补充"
+            ]
+          }
+        ]
+      },
+      "dynamic_verification": {
+        "mode": "off",
+        "pending": 7,
+        "policy": "不设动态通过数量门槛",
+        "requirement_met": true,
+        "verified": 20
+      },
+      "execution_status": "inconclusive",
+      "final_review_complete": true,
+      "focus_complete": true,
+      "risk_obligations_complete": false,
+      "source_review_complete": false
+    },
+    "directions_complete": false,
+    "focus": {
+      "complete": true,
+      "goal_supporting_ids": [
+        "0a74ebc83d204eb9bbafdf036e928c07",
+        "13915e80b8b640bfb01bb4de36c9e504",
+        "1b620cdcb79e48ed8a59e883d04db24a",
+        "35cb594a16274ac79907a659717056d0",
+        "3d7bcd8666c149e884a6533f109c96f2",
+        "41b2a8e9f49a4f269c0441a5ecd26c00",
+        "494423ddc5fb4859bd074dca9235a8c5",
+        "4e0065cfe91c40d9aeebef121f483a35",
+        "4e35ce72f856430faf590095346c382a",
+        "4ff114fb7c314acea2f3c0414f005f7f",
+        "56c0464441f246508577af40015970db",
+        "5a1f8b8736b246b9ae6d081c49f50198",
+        "5f8a819f26e14990a4204f0220c29672",
+        "63b82922f003437a85edbdf1c0f4815d",
+        "65c06b0d6aa24d67926ac7d86879ee5c",
+        "693c196a65ed4310a7e9920b5b67d9f3",
+        "73419c0522394598a05cc859fe11c9b4",
+        "7905401b64084de6956b3ecd7b67e0a9",
+        "84652dd95a814ae4b7d93fcd84a65de5",
+        "85e0c4fd0de74f398345de4b20b42898",
+        "8d1beca3984c43dc999fa20e24225a23",
+        "9a66a667a5f046388568cfa10ff63cfe",
+        "bfd1580e14754964a21945d15907d435",
+        "c75a2af277c24086a450dc46dad72708",
+        "dafa534249ef40879b910c24604d8f38",
+        "ea00d30987c6424db9190e1366b09b88",
+        "eb9e892b5be7452a82879af9db51ec46",
+        "fd7b2de1f92542ed9e05b5d2de82edc1"
+      ],
+      "incidental": 0,
+      "relevant": 28,
+      "supporting": 0,
+      "unresolved": 0,
+      "version": "audit-focus/v1"
+    },
+    "policy_version": "audit-capability-v1",
+    "status": "inconclusive",
+    "stop_reason": {
+      "code": "final_review_incomplete",
+      "message": "审计已结束，仍有 1 项未完成终审；已保存事实和阶段报告。"
+    },
+    "verification_complete": true
+  },
+  "unused_model_requests": 137,
+  "service_restart_verified": true,
+  "continued_review_available": true
+}

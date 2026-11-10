@@ -92,7 +92,8 @@ class ExhaustiveMixin:
         result["host_omitted_leads"] = sorted(omitted)
 
     def _triage_exhaustive_lead(self, run_id, record, update):
-        if not self.exhaustive_enabled(run_id) or record.get("requirement") != "advisory":
+        from .role_policy import triage_allowed
+        if not triage_allowed(self.get_run(run_id)['task_spec'], record):
             raise ValueError("triage is only available for advisory leads in exhaustive-v1")
         choice = update.get("triage_outcome")
         if choice not in {"investigate", "covered", "no_evidence", "out_of_scope", "blocked"}:

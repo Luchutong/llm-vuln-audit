@@ -1,0 +1,40 @@
+{
+  "elapsed_seconds": 418.4346870810041,
+  "results": [
+    {
+      "group": 0,
+      "exit_code": 0,
+      "files": 36,
+      "log": "/home/luchitong/work/vuln-audit/.run/completion-gap-tests-20261110/group-0.log"
+    },
+    {
+      "group": 1,
+      "exit_code": 0,
+      "files": 37,
+      "log": "/home/luchitong/work/vuln-audit/.run/completion-gap-tests-20261110/group-1.log"
+    },
+    {
+      "group": 2,
+      "exit_code": 0,
+      "files": 37,
+      "log": "/home/luchitong/work/vuln-audit/.run/completion-gap-tests-20261110/group-2.log"
+    },
+    {
+      "group": 3,
+      "exit_code": 0,
+      "files": 37,
+      "log": "/home/luchitong/work/vuln-audit/.run/completion-gap-tests-20261110/group-3.log"
+    }
+  ],
+  "test_counts": [
+    596,
+    754,
+    557,
+    661
+  ],
+  "total_passed": 2568,
+  "targeted_after_current_revision_fix": 61,
+  "final_gap_assertions_passed": 5,
+  "test_scope": "Offline; full suite preceded final current-revision statistics change, subsequently covered by targeted regressions.",
+  "observed_at": "2026-11-10T12:35:20.789582+00:00"
+}

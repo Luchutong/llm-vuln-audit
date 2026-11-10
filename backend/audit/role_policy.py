@@ -24,7 +24,15 @@ def separate_root(task):
     return (task or {}).get("role_policy") == POLICY
 
 
+def triage_allowed(task, record=None):
+    return (task or {}).get("exploration_policy") == "exhaustive-v1" and (
+        record is None or record.get("requirement") == "advisory")
+
+
 def validate_planner_actions(task, updates=(), project_updates=(), direction_updates=(), directions=None, tasks=None, *, coverage_updates=()):
+    for update in direction_updates or []:
+        if update.get("action") == "triage" and not triage_allowed(task, (directions or {}).get(update.get("direction_id"), {})):
+            raise ValueError("必做方向不能 triage；triage 仅用于 exhaustive-v1 的 advisory 方向；当前方向请 assign 领取或引用 worker_results 用 resolve 结算")
     if enabled(task) and (project_updates or any(
         item.get("action") in {"retract", "duplicate"} for item in updates or [])):
         raise ValueError("Planner 仅调度；撤回/判重须交独立审查批次，不能直接处置 worker 发现")
@@ -49,18 +57,21 @@ def validate_planner_actions(task, updates=(), project_updates=(), direction_upd
 
 
 def candidate_context(journal):
-    return {"pending": [{k: v for k, v in c.items() if k != "source_attempt"}
+    return {"pending": [{k: v for k, v in c.items() if k not in {"source_attempt", "anchor_history"}}
                         for c in journal if c["status"] == "pending"],
             "settled": [{k: c[k] for k in ("candidate_id", "status", "primary_location")}
                         for c in journal if c["status"] != "pending"]}
 
 
-def planner_schema(schema, *, full_scope=False):
+def planner_schema(schema, *, full_scope=False, exhaustive=False):
     """Do not advertise semantic disposition buttons to the scheduler."""
     schema["properties"]["project_updates"]["maxItems"] = 0
     if full_scope:
         schema["properties"]["coverage_review"]["maxItems"] = 0
     schema["$defs"]["PlannerTaskUpdate"]["properties"]["action"]["enum"] = ["cancel", "defer", "reprioritize", "reopen"]
+    if not exhaustive:
+        action = schema["$defs"]["PlannerDirectionUpdate"]["properties"]["action"]
+        action["enum"] = [value for value in action["enum"] if value != "triage"]
     for option in schema["$defs"]["PlannerDirectionUpdate"]["properties"]["triage_outcome"].get("anyOf", []):
         if "enum" in option:
             option["enum"] = [choice for choice in option["enum"] if choice != "no_evidence"]
@@ -71,11 +82,13 @@ WORKER_CONTRACT = """# Worker 取证职责
 你负责当前工作项的源码判断，不把具体风险的成立性交给 Planner 猜测。Planner 只安排任务和预算；独立终审复核你的证据。
 每条 finding 的 dataflow 至少有 input 和 sink 两个节点，各自引用本次真正读过的源码；sink 节点须覆盖 primary_location。按独立危险操作形成结论，不把两处独立 sink 合报。
 维护少量 candidate_updates（至多16个）：candidate_id 在同一任务内稳定，primary_location 为候选操作行；status=pending 时写 hypothesis、missing_context 和具体 next_step。尚未证实的假设保留 pending，不能为交付编造利用链。
+同一 pending 假设经过补证需要更正根因定位时，显式提供 reanchor_from=上次 primary_location、reanchor_reason（至少12字），evidence 同时引用本次实际读过的新旧定位；宿主保存更正历史。已结算候选不能移动，不同风险须使用不同 ID。
 局部候选由当前worker继续调查，不把同一候选重复抄进remaining_work或交给Planner重建近义任务；只有超出当前工作项的具体问题才交回调度。
 status=supported 必须用 finding_index（本次 findings 的零起始序号）关联实际发布且同主定位的结论；status=excluded 必须给 disproof。未在本轮更新的候选不会消失，宿主保留它并继续计入待办。
 disproof={basis:effective_protection|unreachable|not_applicable,rationale:具体防护/不可达依据,evidence:[{path,start_line,end_line}]}。排除一个风险不代表排除同文件其他风险。direction_results.outcome=no_evidence、observation.follow_up=false 也须有这种已读源码反证。
 没有反证不能因为缺 finding、阶段结束、影响有限或同伴说安全而排除；用 needs_evidence/pending 并说明下一步。确认一个漏洞后继续检查当前任务中不同的候选；单次发布是检查点，不是全项目终止。
 CSRF 必须核对浏览器凭据、请求来源及替代防护；登录CSRF也可能发生于未认证入口。缺 token 或 SameSite 值本身都不足以自动接受/排除。无动态观测只报告静态依据与条件，不自标 verified。
+会话固定须分别核对 SID 投递、受害者认证、攻击者复用及认证后 SID 轮换。源码接受 URL SID 时，检查受害者访问链接后在站内登录的链路；不能把跨站 POST 登录当成所有会话固定路径的必要步骤。按真实链路判断防护，诱导访问仍须作为前提记录。
 """
 
 WORKER_CONTRACT_V2 = WORKER_CONTRACT.replace(
@@ -93,6 +106,8 @@ def worker_contract(task):
 
 PLANNER_CONTRACT = """# Planner 调度职责
 你负责范围、优先级、依赖、领取方向与预算，不代替 worker 作源码否定判断。
+每个必读文件须用实际 source_refs 或已存在的符号选中，目录和 query_hints 仅供导航。不能猜测 src/lib 等未在冻结项目图出现的路径。
+completed 任务只可按额度用 updates.reopen 重读原范围；不能在 tasks 中重新定义。改变 blocked 任务范围须同回合提交同 task_key 的 tasks 与 updates.reopen，保留其 pending 候选。
 具体源码线索用 investigate 派给窄任务，或 covered 引用真实同根因 finding。no_evidence 由领取该方向的 worker 提交带源码反证的 direction_results，再引用对应任务结算；不得用 triage no_evidence 绕过取证。
 全量任务内已知源码路径不能因未读、缺 finding、当前阶段禁止派工或预算不足而 out_of_scope/skip；这些都是未决覆盖缺口。源码不在快照的线索可明确记录范围限制。
 全量任务也不能用 coverage_review skip 绕过范围内源码的读取；派工读取或保留覆盖缺口。
@@ -103,6 +118,7 @@ REVIEWER_CONTRACT = """# 独立审查职责
 本回合只审查当前冻结小批的精确版本。不得派工、扩大范围或改写原始worker证据。
 质疑与接受都说明具体源码/实验依据；证据不足保留needs_evidence，不能把无法补证转换为安全或范围排除。
 核对独立根因、输入到操作链及worker反证；发现、反证、规范版本和你的处置分别留存。静态接受不能冒充动态验证。
+会话固定分别核对 SID 投递、受害者站内认证、认证后轮换与攻击者复用；URL SID 路径不必依赖跨站 POST 登录。只把实际利用链上的防护作为反证；诱导访问、令牌有效性等前提须明确，仍由当前证据判读。
 """
 
 
@@ -139,8 +155,19 @@ def merge_candidates(previous, updates, findings, spans, file_lines, *, referenc
         ids.add(ident)
         if not 1 <= location["line"] <= file_lines.get(location["path"], 0):
             raise ValueError("候选主定位必须属于冻结源码原始行")
-        if ident in journal and journal[ident]["primary_location"] != location:
-            raise ValueError("同一 candidate_id 不能悄悄更换根因位置；为不同操作建立不同候选")
+        previous_item = journal.get(ident)
+        moved = previous_item is not None and previous_item["primary_location"] != location
+        if moved:
+            old = previous_item["primary_location"]
+            if (previous_item["status"] != "pending" or item.get("reanchor_from") != old
+                    or len(item.get("reanchor_reason", "").strip()) < 12):
+                raise ValueError("同一 candidate_id 不能悄悄更换根因位置；同一 pending 假设补证后定位更正须提供 reanchor_from=原主定位、reanchor_reason(至少12字)及新旧定位证据；不同风险建立新候选")
+            if any(not _read({"path": anchor["path"], "start_line": anchor["line"], "end_line": anchor["line"]},
+                             [(ref["path"], ref["start_line"], ref["end_line"]) for ref in item["evidence"]])
+                   for anchor in (old, location)):
+                raise ValueError("候选定位更正必须同时引用本次实际读过的新旧主定位源码")
+        elif item.get("reanchor_from") is not None:
+            raise ValueError("reanchor_from 仅用于更正既有 pending 候选的主定位")
         if any(not _read(ref, spans) for ref in item["evidence"]):
             raise ValueError("候选证据必须来自本次实际读取的源码")
         if item["status"] != "pending" and item["missing_context"]:
@@ -160,6 +187,11 @@ def merge_candidates(previous, updates, findings, spans, file_lines, *, referenc
             item["disproof"] = validate_disproof(item.get("disproof"), spans, paths=[location["path"]])
         elif not item["next_step"].strip():
             raise ValueError("pending 候选必须写出具体 next_step，不能静默丢弃")
+        history = list((previous_item or {}).get("anchor_history") or [])
+        if moved:
+            history.append(dict(primary_location=previous_item["primary_location"], reason=item["reanchor_reason"]))
+        if history:
+            item["anchor_history"] = history
         journal[ident] = item
     if len(journal) > MAX_CANDIDATES:
         raise ValueError("当前任务候选账本已达16项；先发布/排除已有候选，将额外具体方向交回 Planner")

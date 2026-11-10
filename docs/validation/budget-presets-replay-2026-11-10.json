@@ -1,0 +1,23 @@
+{
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "mode": "isolated SQLite backup; no production grant, model requests or runner jobs",
+  "budget_before": {
+    "responses": 156,
+    "tools": 4051,
+    "seconds": 6510
+  },
+  "budget_after": {
+    "responses": 284,
+    "tools": 5075,
+    "seconds": 10110
+  },
+  "usage_unchanged": {
+    "responses": 72,
+    "tools": 50,
+    "seconds": 2919.321
+  },
+  "resume_stage": "discovery",
+  "shared_remaining_requests": 212,
+  "review_allowances_unchanged": true,
+  "observed_at": "2026-11-10T15:11:17.977160+00:00"
+}

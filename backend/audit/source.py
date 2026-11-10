@@ -1307,10 +1307,12 @@ class SourceRepository:
         max_bytes: int = 64 * 1024,
         *,
         workflow_policy: str = "legacy",
+        preload_named_sources: bool = False,
     ) -> dict:
         """Prepare a bounded, multi-file source bundle for one planner task.
 
-        The host selects only planner-validated paths and symbols.  The result is
+        The host selects planner-validated paths and symbols; recovery may also
+        preload unambiguous frozen files explicitly named by the task. The result is
         still fed into the worker ledger line-by-line, so visible source and eligible
         evidence always remain the same set.  This method never executes code or
         resolves a dynamic include.
@@ -1358,6 +1360,20 @@ class SourceRepository:
 
         for path in requested_paths:
             requests.append((path, 1, min(int(all_files[path].get("line_count") or 1), 160), "planner_selected_file"))
+
+        if discovery_first and preload_named_sources:
+            from .task_contract import named_source_paths
+            named,missing=named_source_paths(task,scope)
+            unresolved.extend(missing)
+            selected={ref[0] for ref in requests}
+            for path in named:
+                if path in selected:
+                    continue
+                if len(selected)>=16:
+                    unresolved.append(dict(path=path,reason='named source exceeds the bounded 16-file context; split this task'))
+                    continue
+                requests.append((path,1,min(int(all_files[path].get('line_count') or 1),MAX_READ_LINES),'task_named_source'))
+                selected.add(path)
 
         # Query hints are navigation aids, not source claims.  Resolve them against
         # high-confidence entry candidates first, then named symbols and calls.  This

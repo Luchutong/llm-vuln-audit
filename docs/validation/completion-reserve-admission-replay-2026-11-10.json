@@ -1,0 +1,19 @@
+{
+  "run_id": "566a1c802c1e5ef19b153cb5529b1446",
+  "scope": "Isolated SQLite copy; no model calls and no production writes",
+  "quiet_discovery_remaining": 6,
+  "prospective_workers": 1,
+  "gated_discovery_remaining": 0,
+  "gated_limits": {
+    "discovery": 98,
+    "poc": 56,
+    "review": 102
+  },
+  "used": {
+    "discovery": 98,
+    "poc": 4,
+    "review": 0
+  },
+  "usage_unchanged": true,
+  "observed_at": "2026-11-10T10:43:05.286489+00:00"
+}

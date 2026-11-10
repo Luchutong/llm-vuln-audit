@@ -1,0 +1,20 @@
+{
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "status": "paused",
+  "phase": "paused",
+  "stage": "discovery",
+  "limits": {
+    "responses": 56,
+    "tools": 3951,
+    "seconds": 2810
+  },
+  "usage": {
+    "responses": 35,
+    "tools": 34,
+    "seconds": 1165.304
+  },
+  "budget_endpoint_loaded": true,
+  "source_stage_awaiting_explicit_grant": true,
+  "observed_at": "2026-11-10T14:05:49.740314+00:00",
+  "final_service_reload_verified": true
+}

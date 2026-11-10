@@ -1,0 +1,40 @@
+{
+  "observed_at": "2026-11-10T10:53:08.891571+00:00",
+  "regression_tests_passed": 87,
+  "tests": [
+    "test_review_closure_repair.py",
+    "test_run_continuations.py",
+    "test_high_recall_continuation.py"
+  ],
+  "scope": "Audit, POC+review and review continuations; legacy and changed-input rejection; later fact changes reopen carried risks.",
+  "model_requests": 0,
+  "runner_jobs": 0,
+  "source_sha256": {
+    "backend/audit/continuations.py": "c4ea0aaf263c63a3bd6af65d7d8de72077f8b4dcd4d6e05acfbec5a8e1e6175d",
+    "backend/tests/test_review_closure_repair.py": "1cd0db0f00870407075b91300befb78714a7216cca6a51818d4d385d87f3fcf4",
+    "backend/audit/db.py": "179e177531da42c72b73858a61b285690bf1a9365b2819ccfc3fb078d9845e8d",
+    "backend/audit/agent.py": "7d14966bb21a13688ef68eb336738641c85ea7adee98c7be8c0e254fc351f178",
+    "backend/tests/test_continuation_reopen_allowance.py": "2b5279e51a31fb8bf5ddf549f10d257a2e106ea561de84b2ca5a8b19f0727f37",
+    "backend/audit/worker.py": "773fd60874c3f4032568dd9969adad46dcc7481c5fad3bed097177fac21e8366",
+    "backend/tests/test_worker_reserve_admission.py": "31543173b60e0fa1f5ba99d046d967db76d7e625e742b44a06e3b48bd71dc90e",
+    "backend/audit/poc_store.py": "cce7e2eeb8ccf9d67104df1623975f0f695e06cd2cf66e9aa1bada4c51163233",
+    "backend/tests/test_poc_credential_recovery.py": "82e8ab70978d2ae5c6c95ec856fe5e5d24ce12a07fb22cb5e70cde47c7dadd34"
+  },
+  "recovery_regression_tests_passed": 122,
+  "recovery_tests": [
+    "test_continuation_reopen_allowance.py",
+    "test_run_continuations.py",
+    "test_planner_revision.py",
+    "test_high_recall_continuation.py",
+    "test_review_closure_repair.py",
+    "test_blocker_progress_recovery.py"
+  ],
+  "reserve_admission_regression_tests_passed": 57,
+  "reserve_admission_tests": [
+    "test_worker_reserve_admission.py",
+    "test_host_queue.py",
+    "test_discovery_workflow.py",
+    "test_execution_stability.py"
+  ],
+  "credential_recovery_regression_tests_passed": 34
+}

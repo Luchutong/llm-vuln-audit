@@ -607,7 +607,8 @@ def test_verifier_persists_jobs_and_artifacts(tmp_path, monkeypatch):
     assert store.jobs and store.jobs[0]["job_id"] == "job-1"
     assert "poc_agent_phase" in bus.kinds()
     assert "poc_verification_started" in bus.kinds()
-    assert bus.kinds()[-1] == "poc_verification_recorded"
+    assert bus.kinds()[-1] == 'poc_context_closed'
+    assert bus.kinds().index('poc_verification_recorded') < bus.kinds().index('poc_context_closed')
 
 
 # --- tool contract, phase assembly and durable pairing -----------------------------

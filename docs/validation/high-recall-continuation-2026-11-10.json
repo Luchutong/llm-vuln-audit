@@ -1,0 +1,157 @@
+{
+  "parent_run_id": "7150ee45e16a49ad935ed62ab194be99",
+  "mode": "isolated_sqlite_backup_no_model_or_runner_jobs",
+  "original_frozen_unchanged": true,
+  "original_frozen_fingerprints": {
+    "run_id": "1a96d93056b0aff425022fdd5978fbb78d209fda20b682874ecb89fbbaedc0c1",
+    "input_hash": "4ba15bfffa3abeac795f3446887ec41e90d29f16e03fb414091d5b21d39ea057",
+    "input_json": "ec928ecdec7c306768e1003b8cdf3fd7222ac1277524f04c8f20cd2c8d12714e",
+    "created_at": "b3d1fbee63e8695aa51b763f52e12af74ce7d6bfab465d2111bc7ef24eac4952",
+    "facts_json": "26ecbe8aa0dc7550c7ee0e2832419639e5a19994010946607a6e7933252b2431",
+    "markdown": "084a89c5ef1085bd20a01c1c729d48dea714d84ef4f28967216ad09be6234cb2",
+    "output_hash": "ebe80453021edd0360b59f378129b1ba838d53e21e8dcbcd7eef2c1011a98391",
+    "zip_blob": "713217f9d76416947a1ee1d88cca538562301546db5290fa84ce19afd630ad24",
+    "json_export": "fbda54ab251d2931bc0391a959472031b52ca683b06bdadac59a343e3e96eeb5"
+  },
+  "reattached_original_decisions": {
+    "accepted": 22,
+    "pending": 1
+  },
+  "inherited_findings": 23,
+  "selected_retests": 23,
+  "reactivated_tasks": [
+    "wallet-debit-catalog",
+    "orders-settlement-final",
+    "wallet-withdraw-flow-final",
+    "content-page-include",
+    "config-runtime-secrets",
+    "wallet-orders-logic",
+    "partner-portal-authz"
+  ],
+  "child_states": {
+    "completed": 21,
+    "ready": 7
+  },
+  "policy": {
+    "focus_scope": "all",
+    "exploration_policy": "exhaustive-v1",
+    "risk_coverage_policy": "bounded-v2",
+    "completion_policy": "coverage_review",
+    "stop_on_achieved": false
+  },
+  "risk_signals": 36,
+  "risk_obligations": 88,
+  "risk_obligations_omitted": 0,
+  "inherited_advisory_leads": 7,
+  "initial_usage": {
+    "responses": 0,
+    "tools": 0,
+    "seconds": 0.0
+  },
+  "poc_mode": "required",
+  "live_continuation": {
+    "parent_run_id": "7150ee45e16a49ad935ed62ab194be99",
+    "run_id": "e06a8b4849815d2f894b420e354a6bfd",
+    "status": "running",
+    "created_at": "2026-11-10T05:11:41.585782+00:00",
+    "url": "http://127.0.0.1:5173/#run/e06a8b4849815d2f894b420e354a6bfd",
+    "run_limits": {
+      "responses": 512,
+      "tools": 4096,
+      "seconds": 7200
+    },
+    "audit_policy": "exhaustive-v1",
+    "focus_scope": "all",
+    "risk_obligations": 88,
+    "inherited_findings": 23,
+    "selected_retests": 23,
+    "poc_mode": "required",
+    "phase": "discovery"
+  },
+  "runtime_preflight": {
+    "available": true,
+    "reason": "ready",
+    "message": "隔离 POC runner 已就绪。",
+    "checked_at": "2026-11-10T05:02:34.040392+00:00",
+    "mode": "auto",
+    "target_profile": "lab30",
+    "target": "lab30",
+    "capabilities": {
+      "supported_targets": [
+        "lab30"
+      ],
+      "php": true,
+      "python": true,
+      "browser": true,
+      "verification_contexts": true,
+      "identity_preconditions": true,
+      "idempotent_jobs": true,
+      "idempotent_http_jobs": true,
+      "idempotent_browser_jobs": true
+    },
+    "health_attempts": 1,
+    "health_history": [
+      {
+        "reason": "ready",
+        "diagnostic": null
+      }
+    ]
+  },
+  "parent_frozen_unchanged_after_live_start": true,
+  "live_observation": {
+    "checked_at": "2026-11-10T05:17:01.187509+00:00",
+    "status": "running",
+    "stage": "discovery",
+    "usage": {
+      "responses": 51,
+      "tools": 62,
+      "seconds": 315.628
+    },
+    "task_states": {
+      "completed": 27,
+      "blocked": 1
+    },
+    "finding_count": 23,
+    "event_counts": {
+      "run_continuation_created": 1,
+      "run_started": 1,
+      "planner_session_started": 1,
+      "workflow_budget_reallocated": 5,
+      "planner_task_started": 8,
+      "planner_context_prepared": 8,
+      "role_contract_bound": 9,
+      "investigation_contract_bound": 8,
+      "worker_knowledge_bound": 8,
+      "worker_finding_registry_prepared": 8,
+      "worker_current_findings_prepared": 8,
+      "agent_phase": 23,
+      "model_request": 51,
+      "model_response": 50,
+      "audit_progress": 27,
+      "tool_call": 62,
+      "tool_result": 62,
+      "agent_code": 27,
+      "task_exploration_stopped": 5,
+      "worker_prompt_layout": 5,
+      "agent_output_rejected": 6,
+      "model_retry": 17,
+      "agent_parse_error": 13,
+      "agent_error_summary": 9,
+      "task_assessment": 7,
+      "task_agent_terminal": 8,
+      "worker_findings_reused": 6,
+      "worker_investigation_paused": 1,
+      "worker_candidate_checkpoint": 2,
+      "planner_task_blocked": 1,
+      "worker_exploration_extended": 4,
+      "planner_task_completed": 6,
+      "planner_task_requeued": 1,
+      "coverage_review_requested": 1,
+      "planner_round_started": 1,
+      "planner_overview_prepared": 1,
+      "planner_coverage_prepared": 1,
+      "planner_situational_prepared": 1
+    },
+    "scope": "Early live observation only; this is not a completed audit or recall measurement."
+  }
+}

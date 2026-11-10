@@ -1,0 +1,264 @@
+{
+  "observed_at": "2026-11-10T11:52:05.002220+00:00",
+  "run_id": "566a1c802c1e5ef19b153cb5529b1446",
+  "backend_passed": 2561,
+  "backend_groups": [
+    590,
+    746,
+    551,
+    674
+  ],
+  "backend_seconds": 216.4774571809976,
+  "current_risk_contract_tests_passed": 9,
+  "targeted_review_regressions_passed": 99,
+  "model_requests_in_regressions": 0,
+  "runner_jobs_in_regressions": 0,
+  "paused_checkpoint_unchanged_after_restart": true,
+  "checkpoint_hashes": {
+    "findings": "7a3019a0b2bddfbb993aa27bcb46084c5865fa0f97fc8d275b45a1611d0762d6",
+    "verifications": "fbc6c549b790b94536fa44912435d10825257f624da338ec5602f209456cb308",
+    "audit_review_items": "ef768ef61569b74bdf3e0071238812de0acaa7397aa52a38aef804213ea7c57e",
+    "audit_review_allowances": "52cfa8c3507a4090d6e28a476af85044797e7bc4c1b91ebec04b628692e00e23",
+    "run_execution_state": "6406245003483201e1e5cf3f1c3266822863257720375215e6cbbeb9e6759dbd"
+  },
+  "usage": {
+    "responses_used": 196,
+    "tools_used": 145,
+    "active_elapsed_ms": 4237644
+  },
+  "remaining_limits": {
+    "responses": 60,
+    "tools": 3951,
+    "seconds": 1162.3559999999998
+  },
+  "prior_json_errors": [
+    {
+      "event_id": 85265,
+      "category": "invalid_json",
+      "finish_reason": "stop",
+      "output_tokens": 1003,
+      "output_chars": 2336
+    },
+    {
+      "event_id": 85287,
+      "category": "invalid_json",
+      "finish_reason": "stop",
+      "output_tokens": 1482,
+      "output_chars": 3372
+    },
+    {
+      "event_id": 85453,
+      "category": "invalid_json",
+      "finish_reason": "stop",
+      "output_tokens": 989,
+      "output_chars": 2187
+    },
+    {
+      "event_id": 85523,
+      "category": "invalid_json",
+      "finish_reason": "stop",
+      "output_tokens": 1543,
+      "output_chars": 3468
+    },
+    {
+      "event_id": 85678,
+      "category": "invalid_json",
+      "finish_reason": "stop",
+      "output_tokens": 1166,
+      "output_chars": 2528
+    }
+  ],
+  "prior_exhausted": [
+    {
+      "item_id": "risk-1919d228d9d2704ddae6",
+      "revision": "9082df032d9e234282623e90f180c7eadee3a03a733443c71742ae76e6eefe00",
+      "publications": 3,
+      "errors": {
+        "contract:focus": 1
+      },
+      "reason": "publication_limit"
+    },
+    {
+      "item_id": "risk-22eb3fb114ea909f91ce",
+      "revision": "7f748e713d044f8a9f931b0621d8b581ec38a181b0f79210854fe157f4ac058f",
+      "publications": 2,
+      "errors": {
+        "contract:focus": 2
+      },
+      "reason": "repeated_error:contract:focus"
+    },
+    {
+      "item_id": "risk-d7cba7608b2a22b81746",
+      "revision": "70d8e321e7d2162fa5fbbb46c38c1da6d9304924ec7fd5ec88372b164a73242b",
+      "publications": 2,
+      "errors": {
+        "contract:focus": 2
+      },
+      "reason": "repeated_error:contract:focus"
+    },
+    {
+      "item_id": "risk-dfb4b2ce3f788b5963d4",
+      "revision": "1ca2b470635bd618b0e010ee35fe372b2ce0e604a9300fef8c15558451a43800",
+      "publications": 3,
+      "errors": {
+        "contract:focus": 1,
+        "invalid_json": 1
+      },
+      "reason": "publication_limit"
+    }
+  ],
+  "source_sha256": {
+    "backend/audit/submission.py": "08743aff18768d20ca67edbb573ffb0548d0fea94fb561a899d047ff2d7fc34f",
+    "backend/audit/capability.py": "fa81a07662044a76fbefa018dc0536debb39ead9a035fe1985c3230e3615c36d",
+    "backend/audit/review_store.py": "0940d25d342e76c1462f84cf8ab4c21da6cef7701945f71321fffffe78b2de6d",
+    "backend/audit/review_control.py": "7c030d5f03db4c3e11ac7d3060aa41bb311d7bfc45b7fd3e1d293615a2542b10",
+    "backend/audit/worker.py": "0ccd8be8470854efd1b343c3ecf475cc4506630120596c9123e370ecdc3705d2",
+    "backend/tests/test_risk_review_contract.py": "7133355db53cd1effa4ce5138e1d664495680596e90c1957b1e8428a1c1018f6"
+  },
+  "live_after_repair": {
+    "observed_at": "2026-11-10T11:54:22.283496+00:00",
+    "status": "running",
+    "phase": "planner_publish",
+    "usage": {
+      "responses": 200,
+      "tools": 145,
+      "seconds": 4364.031
+    },
+    "final_dispositions": {
+      "accepted": 30,
+      "pending": 1
+    },
+    "risk_by_state": {
+      "supported": 26,
+      "no_evidence": 45,
+      "not_applicable": 11,
+      "blocked": 0,
+      "pending": 6
+    },
+    "completed_batches": 3,
+    "model_requests": 4,
+    "model_responses": 3,
+    "parser_errors": 0,
+    "publication_rejections": 0,
+    "planner_round_failures": 0,
+    "batches": [
+      {
+        "batch_id": "538a4f47b57b400aa96ea6a6c8c584a7",
+        "items": [
+          {
+            "item_id": "risk-9908ffca28353b8ed4b7",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-8634cc423652f100274b",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-e54471344efa2d346965",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-f5baa70d37a9bc099645",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-28f06c995c086809efc4",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          }
+        ]
+      },
+      {
+        "batch_id": "9d49c2938f5149cb84f022e75432df85",
+        "items": [
+          {
+            "item_id": "risk-1e56891a324a39b3ad1c",
+            "decision": "resolve",
+            "risk_outcome": "no_evidence",
+            "relation": "relevant"
+          },
+          {
+            "item_id": "risk-caab841b8416c0df6813",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "relevant"
+          },
+          {
+            "item_id": "risk-82a5bf903fd39d876f05",
+            "decision": "resolve",
+            "risk_outcome": "no_evidence",
+            "relation": "relevant"
+          },
+          {
+            "item_id": "risk-6d85231514027de3b496",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "relevant"
+          },
+          {
+            "item_id": "risk-0fa484676668dffee541",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "relevant"
+          },
+          {
+            "item_id": "risk-b1cb9f531688591b9f29",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "relevant"
+          }
+        ]
+      },
+      {
+        "batch_id": "0bb34cf6c28c42a5bc13a6462e9b04e1",
+        "items": [
+          {
+            "item_id": "risk-71dd55ee2c8cfc5c3b0b",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-4d645e36008b6ec68dbe",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-c7484367d381a816bcd6",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-81f0ec68541a4e9b63e0",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-7ca8800d9fa3ea1b674c",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          },
+          {
+            "item_id": "risk-6091734ab4ef342cb3bf",
+            "decision": "resolve",
+            "risk_outcome": "not_applicable",
+            "relation": "incidental"
+          }
+        ]
+      }
+    ]
+  }
+}

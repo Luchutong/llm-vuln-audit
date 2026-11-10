@@ -36,6 +36,7 @@ from .schemas import (
     AttributionRequest,
     CreateRunRequest,
     ContinueRunRequest,
+    BudgetGrantRequest,
     ModelProfileCreateRequest,
     ModelProfileUpdateRequest,
     PromptCreateRequest,
@@ -1328,6 +1329,16 @@ async def continue_run(request: Request, run_id: str, payload: ContinueRunReques
                             base_url=config.public_base_url(), thinking=config.thinking)
             if config.structured_output != "compatible":
                 snapshot["structured_output"] = config.structured_output
+        continuation_id = uuid.uuid5(uuid.NAMESPACE_URL, f'audit-continuation:{run_id}:{payload.request_id}').hex
+        if payload.require_dynamic and state.store.get_run(continuation_id) is None:
+            from .poc import PocVerifier
+            parent = state.store.get_run(run_id)
+            readiness_run = {**parent, 'poc_policy': {**parent.get('poc_policy', {}),
+                                                    'enabled': True, 'mode': 'required', 'required': True}}
+            readiness = await PocVerifier(store=state.store, bus=state.bus, settings=state.settings,
+                                          repository=state.repository).preflight(readiness_run)
+            if not readiness['available']:
+                raise HTTPException(status_code=409, detail={'code': 'poc_not_ready', **readiness})
         run = state.store.create_continuation(run_id, payload.model_dump(), model_profile=snapshot)
     except KeyError:
         raise HTTPException(status_code=404, detail="Run does not exist") from None
@@ -1423,6 +1434,24 @@ async def resume_run(request: Request, run_id: str) -> dict:
     # the pause left it rather than from a fresh plan.
     state.worker.notify()
     state.bus.emit(run_id, None, "run_resumed", {"reason": "user_resumed"})
+    return state.store.get_run(run_id)
+
+
+@app.post('/api/runs/{run_id}/budget')
+async def grant_run_budget(request: Request, run_id: str, payload: BudgetGrantRequest) -> dict:
+    from .budget_checkpoints import grant
+    state = services(request)
+    if state.store.get_run(run_id) is None:
+        raise HTTPException(404, 'Run does not exist')
+    try:
+        await asyncio.to_thread(grant, state.store, run_id, payload.model_dump())
+        if payload.resume and (state.store.get_run(run_id) or {}).get('status') == 'paused':
+            if not state.store.resume_run(run_id):
+                raise ValueError('预算已保存；运行暂时不能恢复，请检查关联任务或在途执行')
+            state.bus.emit(run_id, None, 'run_resumed', {'reason': 'budget_granted'})
+            state.worker.notify()
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return state.store.get_run(run_id)
 
 

@@ -96,7 +96,10 @@ def validate_references(task, references, findings, spans, *, run_id=""):
         refs = value["evidence"]
         if not refs or not all(_read(ref, spans) for ref in refs) or not any(
                 ref["path"] == point.get("path") and ref["start_line"] <= point.get("line", 0) <= ref["end_line"] for ref in refs):
-            raise ValueError("finding_references.evidence 须本次实际读取并覆盖所引用漏洞根因；可附带已读的新来源链证据")
+            unread=[f"{r['path']}:{r['start_line']}-{r['end_line']}" for r in refs if not _read(r,spans)]
+            raise ValueError(f"finding_references.evidence 须本次实际读取并覆盖所引用漏洞根因；本项 finding_id={ident}，"
+                             f"根因={point.get('path')}:{point.get('line')}；未读引用={unread[:3]}。"
+                             "请补读并引用根因的实际行，或省略该引用并保留未决；不能移动根因或扩大已读范围。")
         values.append(value)
     return values
 
@@ -137,7 +140,7 @@ def reference_index(store, run_id):
     """Only committed, validated attempts contribute corroboration to final review."""
     result = {}
     seen = set()
-    revisions = {f["id"]: int(f.get("revision") or 1) for f in store.list_findings(run_id)}
+    revisions = {f['id']: int(f['revision'] or 1) for f in store._rows('SELECT id,revision FROM findings WHERE run_id=?', (run_id,))}
     for row in store._rows("SELECT t.task_key,a.result FROM planner_task_attempts a JOIN planner_tasks t ON t.id=a.task_id"
                            " WHERE a.run_id=? AND a.attempt>0 ORDER BY a.created_at,a.id", (run_id,)):
         value = json.loads(row["result"] or "{}")

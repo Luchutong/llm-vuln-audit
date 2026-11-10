@@ -1,0 +1,96 @@
+{
+  "observed_at": "2026-11-10T07:37:45.843776+00:00",
+  "parent_run_id": "e06a8b4849815d2f894b420e354a6bfd",
+  "run_id": "8a035cfcda5254238742ea8af118f869",
+  "created_at": "2026-11-10T07:33:14.651720+00:00",
+  "status": "pending",
+  "url": "http://127.0.0.1:5173/#run/8a035cfcda5254238742ea8af118f869",
+  "mode": "poc_review",
+  "run_limits": {
+    "responses": 332,
+    "tools": 3937,
+    "seconds": 5427
+  },
+  "inherited_findings": 28,
+  "selected_retests": 27,
+  "poc_mode": "required",
+  "reused_verified_parent_ids": [
+    "35c66f03f2774cdfbc2965d67e19eb98"
+  ],
+  "live_status": "running",
+  "parent_frozen_unchanged": true,
+  "verified_first_finding_reused": true,
+  "run_caps_within_parent_unspent": true,
+  "live_usage": {
+    "responses": 14,
+    "tools": 15,
+    "seconds": 254.071
+  },
+  "note": "The linked continuation is running; verification and final recall remain to be measured.",
+  "queue_counts": {
+    "reused": 1,
+    "completed": 1,
+    "running": 1,
+    "pending": 25
+  },
+  "verified_count": 2,
+  "first_handoff_verified": true,
+  "first_handoff": [
+    {
+      "id": 80586,
+      "kind": "poc_target_reset",
+      "created_at": "2026-11-10T07:34:01.423673+00:00",
+      "finding_id": "480a680d59274cf7a167233abd21a8d2"
+    },
+    {
+      "id": 80588,
+      "kind": "poc_queue_item_started",
+      "created_at": "2026-11-10T07:34:01.522435+00:00",
+      "finding_id": "480a680d59274cf7a167233abd21a8d2",
+      "context_id": "38b27ece406a40308241075cc024b994"
+    },
+    {
+      "id": 80703,
+      "kind": "poc_queue_item_published",
+      "created_at": "2026-11-10T07:36:30.681882+00:00",
+      "finding_id": "480a680d59274cf7a167233abd21a8d2",
+      "context_id": "38b27ece406a40308241075cc024b994",
+      "status": "verified"
+    },
+    {
+      "id": 80710,
+      "kind": "poc_context_closed",
+      "created_at": "2026-11-10T07:36:46.203188+00:00",
+      "finding_id": "480a680d59274cf7a167233abd21a8d2",
+      "context_id": "38b27ece406a40308241075cc024b994",
+      "state": "closed",
+      "active": 0,
+      "pending_jobs": 0,
+      "close_attempts": 1,
+      "status_attempts": 0,
+      "elapsed_ms": 18
+    },
+    {
+      "id": 80711,
+      "kind": "poc_target_reset",
+      "created_at": "2026-11-10T07:37:01.771018+00:00",
+      "finding_id": "04408d9582924a8cac669006199a651b"
+    },
+    {
+      "id": 80713,
+      "kind": "poc_queue_item_started",
+      "created_at": "2026-11-10T07:37:01.828085+00:00",
+      "finding_id": "04408d9582924a8cac669006199a651b",
+      "context_id": "fc18737ccdd34561b1083a3ec236fe84"
+    }
+  ],
+  "sdk_interrupt_classifications": [
+    {
+      "is_error": true,
+      "terminal_reason": "aborted_streaming",
+      "host_interrupt": "published",
+      "expected_interrupt": true,
+      "item_published": true
+    }
+  ]
+}

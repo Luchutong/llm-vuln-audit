@@ -1,0 +1,42 @@
+{
+  "elapsed_seconds": 674.7748659069985,
+  "results": [
+    {
+      "group": 0,
+      "exit_code": 0,
+      "files": 37,
+      "log": "/home/luchitong/work/vuln-audit/.run/incremental-budget-tests-20261110/group-0.log"
+    },
+    {
+      "group": 1,
+      "exit_code": 0,
+      "files": 37,
+      "log": "/home/luchitong/work/vuln-audit/.run/incremental-budget-tests-20261110/group-1.log"
+    },
+    {
+      "group": 2,
+      "exit_code": 0,
+      "files": 37,
+      "log": "/home/luchitong/work/vuln-audit/.run/incremental-budget-tests-20261110/group-2.log"
+    },
+    {
+      "group": 3,
+      "exit_code": 0,
+      "files": 37,
+      "log": "/home/luchitong/work/vuln-audit/.run/incremental-budget-tests-20261110/group-3.log"
+    }
+  ],
+  "test_counts": [
+    598,
+    610,
+    579,
+    793
+  ],
+  "total_passed": 2580,
+  "final_boundary_tests_passed": 26,
+  "frontend_tests_passed": 131,
+  "browser": "ui_budget_checkpoint_smoke.py: passed; all API calls intercepted",
+  "build": "TypeScript and Vite passed",
+  "notes": "After the full suite started, original provenance ID handling and explicit grant admission received the final dedicated boundary regressions (26 passed). No model or runner jobs were used for validation.",
+  "observed_at": "2026-11-10T14:05:15.366969+00:00"
+}

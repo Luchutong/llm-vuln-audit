@@ -162,6 +162,14 @@ def test_reference_commit_survives_to_final_review_without_new_finding_or_poc(bo
     assert corroboration['finding_id']==item['id'] and corroboration['task_key']=='corroborate-existing'
     assert store._row('SELECT COUNT(*) FROM poc_verification_jobs WHERE run_id=?',(run['id'],))[0]==0
     assert store.has_event(run['id'],'worker_findings_reused')
+    # Regression: reference-aware revisions used to be computed only by batch
+    # creation, so a committed accept silently disappeared during report attachment.
+    from tests.test_host_queue import submit
+    submit(store, run, batch)
+    attached, _ = canonical_groups(store.attach_final_decisions(run['id'], store.list_findings(run['id'])))
+    assert attached[0]['final_disposition'] == 'accepted'
+    assert attached[0]['final_batch_review']['revision'] == root['revision']
+    assert not any(i.get('finding_id') == item['id'] for b in store.review_batches_pending(run['id'], 'final', repo) for i in b)
 
 
 def test_host_rechecks_reference_version_inside_the_commit_transaction(bounded):

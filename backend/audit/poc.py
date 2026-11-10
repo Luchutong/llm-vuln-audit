@@ -239,6 +239,17 @@ class PocVerifier:
         # The most recent verification context per target.  A reset is only safe once
         # that context reports closed; the runner keeps the target lease until then.
         self._last_context: dict[str, str] = {}
+        self._context_closures: dict[str, dict] = {}
+
+    async def preflight(self, run):
+        policy = PocPolicy.from_run(run, self.settings)
+        readiness = await self.readiness.check_for_execution(str(run.get('target_profile') or 'unknown'),
+                                                             mode=policy.mode, target=policy.target)
+        if readiness['available'] and policy.runtime == 'claude_sdk':
+            sdk = self._sdk_readiness(policy)
+            if not sdk.get('ready'):
+                readiness = {**readiness, 'available': False, 'reason': sdk['reason'], 'message': sdk['message']}
+        return readiness
 
     def _allowed(self, run_id: str, epoch=None) -> bool:
         check = getattr(self.store, "execution_write_allowed", None)
@@ -284,19 +295,27 @@ class PocVerifier:
         observation the job is about to report, so a context that will not close blocks
         the reset instead of being ignored.
         """
-        deadline = time.monotonic() + timeout
-        while True:
-            try:
-                status = await asyncio.wait_for(client.context_status(context_id), timeout=5)
-            except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError):
-                return False
-            closed = (str(status.get("state") or "") == "closed"
-                      and not status.get("active") and not status.get("pending_jobs"))
-            if closed:
-                return True
-            if time.monotonic() >= deadline:
-                return False
-            await asyncio.sleep(0.25)
+        from .poc_context import confirm_closed
+        result = await confirm_closed(client, context_id, timeout=timeout, request_close=False)
+        self._context_closures[context_id] = result
+        return result['state'] == 'closed'
+
+    async def _close_finding_context(self, run, finding, policy, client, context_id):
+        # One owned cleanup task, with no orphaned shielded HTTP request. A lost
+        # DELETE ack can be recovered by GET or a repeated idempotent DELETE.
+        from .poc_context import confirm_closed
+        cleanup = asyncio.create_task(confirm_closed(client, context_id))
+        try:
+            result = await asyncio.shield(cleanup)
+        except BaseException:
+            cleanup.cancel()
+            await asyncio.gather(cleanup, return_exceptions=True)
+            raise
+        self._context_closures[context_id] = result
+        closed = result['state'] == 'closed'
+        self._reset_event(run, finding, policy, 'poc_context_closed' if closed else 'poc_context_close_unconfirmed', result)
+        if closed and self._last_context.get(policy.target) == context_id:
+            self._last_context.pop(policy.target, None)
 
     def _reset_event(self, run: dict, finding: dict, policy: PocPolicy, kind: str, payload: dict) -> None:
         run_id = str(run.get("id") or "")
@@ -406,13 +425,19 @@ class PocVerifier:
         """Reset the target between findings; ``None`` means the context may be created."""
         previous = self._last_context.get(policy.target)
         if previous and not await self._wait_context_closed(client, previous):
-            message = "上一条验证上下文仍未关闭，未复位靶场。"
+            closure = self._context_closures.get(previous, {})
+            message = ("上一条验证上下文仍有作业或租约占用，未复位靶场。" if closure.get('state') in {'busy', 'unresolved'}
+                       else "无法确认上一条验证上下文已关闭，未复位靶场。")
             self._reset_event(run, finding, policy, "poc_target_reset_failed", {
                 "reason": "target_reset_blocked", "message": message,
-                "context_id": previous,
+                "context_id": previous, 'context_closure': closure,
             })
             return self._reset_failure(run, finding, policy, "target_reset_blocked", message,
                                        attempt_key=attempt_key, target_key=target_key)
+        if previous:
+            self._reset_event(run, finding, policy, 'poc_context_closed', self._context_closures.get(previous, {
+                'context_id': previous, 'state': 'closed'}))
+            self._last_context.pop(policy.target, None)
         ok, detail = await self._reset_target(run, finding, policy)
         if not ok:
             return self._reset_failure(run, finding, policy, "target_reset_failed",
@@ -541,7 +566,7 @@ class PocVerifier:
                     raise StopAudit("environment_unavailable", sdk_readiness.get("message", "SDK runtime unavailable"))
                 return finished_summary()
         profile = str(run.get("target_profile") or "unknown")
-        readiness = await self.readiness.check(profile, mode=policy.mode, target=policy.target)
+        readiness = await self.readiness.check_for_execution(profile, mode=policy.mode, target=policy.target)
         if not policy.enabled and policy.mode != "off":
             readiness = {**readiness, "available": False, "reason": "disabled",
                          "message": "该运行冻结策略未开放自动执行 POC。"}
@@ -623,6 +648,7 @@ class PocVerifier:
                     allowance = int((workflow.get("remaining") or {}).get("poc", 0))
                     if (workflow.get("stage") != "poc" or allowance < (2 if policy.queued else 4)
                             or workflow.get("stage_remaining_seconds", 1) <= 0):
+                        summary['stop_reason'] = 'stage_budget_exhausted'
                         self.bus.emit(run_id, finding.get("id"), "poc_verification_deferred", {
                             "reason": "stage_budget_reserved", "responses_remaining": allowance,
                             "required_responses": 2 if policy.queued else 4,
@@ -697,15 +723,20 @@ class PocVerifier:
                             finish(attempt_key, "unavailable", epoch)
                         break
                 except StopAudit as exc:
-                    if exc.reason == "stage_budget_exhausted" and attempt_key:
+                    if exc.reason in {"stage_budget_exhausted", 'budget'} and attempt_key:
                         finish = getattr(self.store, "finish_poc_attempt_without_result", None)
                         if finish is not None:
                             finish(attempt_key, "interrupted", epoch)
+                    if exc.reason == 'budget' and workflow:
+                        raise StopAudit('stage_budget_exhausted', str(exc)) from exc
                     raise
                 verified_for[key] = revision
                 summary["processed_findings"].append({"finding_id": finding["id"], "ledger_id": key,
                     "revision": revision, "status": result.status})
                 summary[result.status if result.status in summary else "inconclusive"] += 1
+                if reason in {'quota_exhausted','quota_refused','run_budget_exhausted','stage_budget_exhausted','budget'}:
+                    summary['stop_reason'] = 'stage_budget_exhausted'
+                    break
                 outcome_status = record.get("execution_status") if isinstance(record, dict) else ""
                 if outcome_status in {"authentication_failed", "state_mismatch"}:
                     summary[outcome_status] += 1
@@ -765,6 +796,7 @@ class PocVerifier:
         context_id = uuid.uuid4().hex
         deadline = time.monotonic() + policy.max_seconds
         run_id = str(run.get("id") or "")
+        creation_attempted = False
         try:
             # Between findings the target goes back to its seed.  This runs before the
             # new context is created, so the reset can never race a job of this finding.
@@ -782,6 +814,9 @@ class PocVerifier:
                 if remaining <= 0:
                     raise TimeoutError("等待独占验证环境的预算已用尽")
                 try:
+                    # Preserve ownership even if CREATE times out before its reply.
+                    self._last_context[policy.target] = context_id
+                    creation_attempted = True
                     await asyncio.wait_for(client.create_context(
                         target=policy.target, run_id=run_id, finding_id=str(finding.get("id") or ""),
                         context_id=context_id,
@@ -809,10 +844,8 @@ class PocVerifier:
         finally:
             # A closing context retains its lease until every accepted runner job ends.
             # Shield cleanup against cancellation; it never authorizes another action.
-            try:
-                await asyncio.wait_for(asyncio.shield(client.close_context(context_id)), timeout=5)
-            except (Exception, asyncio.CancelledError):
-                pass
+            if creation_attempted:
+                await self._close_finding_context(run, finding, policy, client, context_id)
 
     @staticmethod
     def _source_record(deps) -> dict:

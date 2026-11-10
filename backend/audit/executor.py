@@ -28,7 +28,7 @@ from smolagents.memory import ActionStep
 from smolagents.monitoring import LogLevel
 from smolagents.tools import Tool
 
-from .codemodel import AuditCodeModel, PhaseGate, unwrap_failure
+from .codemodel import AuditCodeModel, PhaseGate, HostPublication, HostPublicationRejected, FINAL_ANSWER_ACCEPTED, unwrap_failure
 from .actions import ActionIssue, check_action
 from .safe_encoding import FACADE_NAME, bind_encoding_imports, encoding_facade
 from .runtime import AgentPolicy
@@ -215,6 +215,8 @@ def step_recorder(model: AuditCodeModel) -> Callable[[ActionStep], None]:
     """
 
     def record(step: ActionStep) -> None:
+        if model.gate.terminal_rejected:
+            return  # Already validated, counted and diagnosed by the host.
         if model.gate.action_issue is not None and (step.code_action or type(step.error).__name__ == "AgentParsingError"):
             model.gate.record_parse_error(step=step.step_number, error=model.gate.action_issue)
             return
@@ -337,7 +339,16 @@ async def drive_phase(agent: CodeAgent, gate: PhaseGate, task: str, *,
     removed, so the driver's failure taxonomy keeps reading the real class name.
     """
     try:
-        return await asyncio.to_thread(agent.run, task, reset=reset, max_steps=max_steps)
+        while True:
+            try:
+                return await asyncio.to_thread(agent.run, task, reset=reset, max_steps=max_steps)
+            except HostPublicationRejected as rejection:
+                # Keep the same gate, request/correction ceilings and deadline. The
+                # rejected object never enters the interpreter or gets counted twice.
+                task = '上次结构化提交未通过宿主校验，请按字段纠正：' + str(rejection)
+                reset = False
+    except HostPublication:
+        return FINAL_ANSWER_ACCEPTED
     except BaseException as exc:
         failure = unwrap_failure(exc)
         if failure is exc:

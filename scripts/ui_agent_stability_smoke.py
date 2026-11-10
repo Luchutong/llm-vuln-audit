@@ -43,7 +43,10 @@ def diagnostic_events():
             frame(13, "poc_http_observed", role="poc", phase="poc_execute", method="GET", path="/account/me.php", http_status=401),
             frame(14, "poc_job_started", role="poc", phase="poc_execute", job_kind="http", context_id="context-bob", identity="bob", jobs_used=8, max_jobs=8, jobs_remaining=0),
             frame(15, "poc_job_finished", role="poc", phase="poc_execute", job_kind="http", context_id="context-bob", identity="bob", jobs_used=8, max_jobs=8, jobs_remaining=0, http_status=403, exit_code=0, duration_ms=12),
-            frame(16, "poc_job_rejected", role="poc", phase="poc_execute", job_kind="browser", context_id="context-bob", identity="bob", jobs_used=8, max_jobs=8, jobs_remaining=0, reason="job_limit")]
+            frame(16, "poc_job_rejected", role="poc", phase="poc_execute", job_kind="browser", context_id="context-bob", identity="bob", jobs_used=8, max_jobs=8, jobs_remaining=0, reason="job_limit"),
+            frame(24, "poc_context_closed", role="poc", state="closed", active=0, pending_jobs=0),
+            frame(25, "poc_context_close_unconfirmed", role="poc", state="unknown"),
+            frame(26, "poc_stage_stopped", role="poc", reason="target_reset_blocked")]
 
 
 def run_checks(page, base, api, checks, screenshots):
@@ -87,6 +90,10 @@ def run_checks(page, base, api, checks, screenshots):
     expand_process(page)
     for summary in page.locator(".activity-message-details > summary").all():
         summary.click()
+    expect(page.locator('.activity-message[data-event-kind="poc_context_closed"]')).to_contain_text('活动作业和待处理作业均为零')
+    expect(page.locator('.activity-message[data-event-kind="poc_context_close_unconfirmed"]')).to_contain_text('暂时无法确认')
+    expect(page.locator('.activity-message[data-event-kind="poc_stage_stopped"]')).to_contain_text('自动验证停止，进入终审')
+    checks.passed('POC cleanup separates confirmed release, unknown state and final-review handoff')
     script = page.locator('.activity-tool[data-tool="run_poc"]')
     expect(script).to_have_attribute("data-status", "warning")
     expect(script).to_contain_text("脚本执行失败 · 退出码 2")
@@ -175,14 +182,14 @@ def run_checks(page, base, api, checks, screenshots):
     # still contribute to request diagnostics and retain inspectable recovery.
     context = {"role": "planner", "phase": "planner_publish", "agent_invocation_id": "planner-json"}
     api.event_overrides[COMPLETED_ID].extend([
-        event(COMPLETED_ID, 17, "model_response", {**context, "request_index": 1, "content_empty": True, "finish_reason": "length"}),
-        event(COMPLETED_ID, 18, "agent_parse_error", {**context, "request_index": 1, "category": "empty_response", "hint": "只提交最小完整 JSON 对象"}),
-        event(COMPLETED_ID, 19, "model_retry", {**context, "request_index": 1}),
-        event(COMPLETED_ID, 20, "model_response", {**context, "request_index": 2, "response_format": "json"}),
-        event(COMPLETED_ID, 21, "agent_output_rejected", {**context, "request_index": 2, "error_code": "invalid_output", "hint": "任务路径不在冻结快照内"}),
-        event(COMPLETED_ID, 22, "model_retry", {**context, "request_index": 2}),
-        event(COMPLETED_ID, 23, "model_response", {**context, "request_index": 3, "response_format": "json"}),
-        event(COMPLETED_ID, 24, "planner_agent_terminal", {**context, "request_index": 3, "reason": "completed"}),
+        event(COMPLETED_ID, 27, "model_response", {**context, "request_index": 1, "content_empty": True, "finish_reason": "length"}),
+        event(COMPLETED_ID, 28, "agent_parse_error", {**context, "request_index": 1, "category": "empty_response", "hint": "只提交最小完整 JSON 对象"}),
+        event(COMPLETED_ID, 29, "model_retry", {**context, "request_index": 1}),
+        event(COMPLETED_ID, 30, "model_response", {**context, "request_index": 2, "response_format": "json"}),
+        event(COMPLETED_ID, 31, "agent_output_rejected", {**context, "request_index": 2, "error_code": "invalid_output", "hint": "任务路径不在冻结快照内"}),
+        event(COMPLETED_ID, 32, "model_retry", {**context, "request_index": 2}),
+        event(COMPLETED_ID, 33, "model_response", {**context, "request_index": 3, "response_format": "json"}),
+        event(COMPLETED_ID, 34, "planner_agent_terminal", {**context, "request_index": 3, "reason": "completed"}),
     ])
     page.set_viewport_size({"width": 1440, "height": 900})
     goto(page, base, f"#run/{COMPLETED_ID}")

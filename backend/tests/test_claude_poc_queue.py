@@ -347,6 +347,10 @@ def test_host_ends_post_publication_narration_and_continues_same_client(tmp_path
     assert first.reason == second.reason == 'completed'
     assert len(saved) == 2 and sdk.interrupts == 2
     assert len(sdk.clients) == 1 and not rt._query_failed
+    usage = [e for e in events if e['kind'] == 'poc_runtime_usage']
+    assert len(usage) == 2
+    assert all(e['is_error'] and e['expected_interrupt'] and e['item_published']
+               and e['terminal_reason'] == 'aborted_streaming' and e['host_interrupt'] == 'published' for e in usage)
 
 
 def test_real_sdk_interactive_transport_reuses_mcp_and_publishes_each_item_offline(tmp_path):

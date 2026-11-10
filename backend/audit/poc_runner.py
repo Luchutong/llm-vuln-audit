@@ -98,6 +98,10 @@ class PocRunnerClient:
             await self._client.aclose()
             self._client = None
 
+    async def reset_connection(self) -> None:
+        """Drop only our own idle transport after a lifecycle request fails."""
+        await self.aclose()
+
     async def __aenter__(self) -> "PocRunnerClient":
         return self
 
@@ -209,7 +213,12 @@ class PocRunnerClient:
         return await self._json("POST", "/v1/verification-contexts", payload=payload)
 
     async def close_context(self, context_id: str) -> dict:
-        return await self._json("DELETE", f"/v1/verification-contexts/{quote(_segment(context_id, 'context id'))}")
+        result = await self._json("DELETE", f"/v1/verification-contexts/{quote(_segment(context_id, 'context id'))}")
+        # Older runners acknowledge an unknown-id cancellation tombstone without
+        # pending_jobs. No context was created, hence no job can belong to it.
+        if result.get('was_unknown') is True and result.get('state') == 'closed' and result.get('active') == 0:
+            result.setdefault('pending_jobs', 0)
+        return result
 
     async def context_status(self, context_id: str) -> dict:
         """Read one context without changing it.
@@ -222,7 +231,7 @@ class PocRunnerClient:
             return await self._json("GET", f"/v1/verification-contexts/{quote(ident)}", timeout=min(self.timeout, 10.0))
         except PocRunnerError as exc:
             if exc.status_code == 404:
-                return {"context_id": ident, "state": "closed", "pending_jobs": 0, "was_unknown": True}
+                return {"context_id": ident, "state": "closed", "active": 0, "pending_jobs": 0, "was_unknown": True}
             raise
 
     async def prepare_target(

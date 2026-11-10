@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
+import json
 
 
 def reference_coordinates(item):
@@ -23,11 +25,22 @@ def reference_coordinates(item):
 
 
 def allowed_review_decisions(item, phase):
+    context = ((item.get('payload') or {}).get('resolution_context') or {})
+    if item['kind'] == 'direction' and context.get('can_resolve') is False:
+        return ['needs_evidence']
     if item["kind"] in {"direction", "risk"}:
         required = ((item.get("payload") or {}).get("resolution_context") or {}).get("requirement") == "required"
         return ["resolve", "needs_evidence"] if required else ["resolve", "needs_evidence", "skip"]
     return (["accept", "needs_evidence", "contested", "duplicate", "withdraw"] if phase == "final" else
             ["retain", "needs_evidence", "contested", "duplicate", "withdraw"])
+
+
+def focus_references(item):
+    from .capability import focus_evidence_ranges
+    ranges = focus_evidence_ranges({'evidence': reference_coordinates(item)['evidence']})
+    return [dict(reference_id='src_' + hashlib.sha256(json.dumps(
+        [item['item_id'], item['revision'], ref], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16], **ref)
+        for ref in ranges]
 
 
 def bind_review_submission(payload, batch):
@@ -58,6 +71,38 @@ def bind_review_submission(payload, batch):
         if not item or value.get("revision", item["revision"]) != item["revision"]:
             raise ValueError("review_decisions 的 item_id/revision 不属于当前冻结版本")
         value["revision"] = item["revision"]
+        if item['kind'] == 'direction':
+            for field in ('risk_outcome','focus','duplicate_of','distinct_from','comparison_assessments'):
+                if value.get(field) not in (None, [], {}):
+                    raise ValueError(f"review_decisions[{item['item_id']}].{field}：direction 不允许此字段；只提交当前项的合法动作与依据")
+                value.pop(field, None)
+        focus = value.get('focus')
+        if isinstance(focus, dict) and focus.get('supports'):
+            if not isinstance(focus['supports'], list) or any(not isinstance(ident, str) for ident in focus['supports']):
+                raise ValueError(f"review_decisions[{item['item_id']}].focus：supports 必须为当前目标 ID 列表")
+            targets = item.get('focus_target_refs') or []
+            aliases = {}
+            for ref in targets:
+                for alias in (ref['item_id'], ref['finding_id']):
+                    aliases.setdefault(alias, set()).add(ref['item_id'])
+            if any(len(aliases.get(ident, ())) > 1 for ident in focus['supports']):
+                raise ValueError(f"review_decisions[{item['item_id']}].focus：supports 别名不唯一，请使用规范 item_id")
+            focus['supports'] = [next(iter(aliases[ident])) if len(aliases.get(ident, ())) == 1 else ident
+                                 for ident in focus['supports']]
+        if isinstance(focus, dict) and 'evidence_refs' in focus:
+            ids = focus.pop('evidence_refs')
+            refs = {ref['reference_id']: {k:v for k,v in ref.items() if k != 'reference_id'} for ref in focus_references(item)}
+            if not isinstance(ids, list) or any(not isinstance(ident, str) or ident not in refs for ident in ids):
+                raise ValueError(f"review_decisions[{item['item_id']}].focus.evidence_refs 只能引用当前项当前版本的 focus_evidence_refs")
+            bound = [refs[ident] for ident in dict.fromkeys(ids)]
+            if ids and focus.get('evidence') and focus['evidence'] != bound:
+                raise ValueError('focus.evidence 与 evidence_refs 不一致；请选择一种引用格式')
+            if ids or not focus.get('evidence'):
+                focus['evidence'] = bound
+        if item['kind'] == 'risk' and value.get('risk_outcome') not in {
+                'supported', 'no_evidence', 'not_applicable', 'blocked', 'pending'}:
+            raise ValueError(f"review_decisions[{item['item_id']}].risk_outcome：必须明确填写 supported/no_evidence/not_applicable/blocked/pending；"
+                             '这是风险处置结果，不能填 focus.relation 的 relevant/supporting/incidental/unresolved')
         if value.get("decision") not in allowed_review_decisions(item, batch["phase"]):
             raise ValueError(f"review_decisions[{item['item_id']}].decision 只能为 "
                              + ",".join(allowed_review_decisions(item, batch["phase"])))
@@ -81,9 +126,13 @@ def review_contract(batch):
     batch_ids = {item["item_id"] for item in items}
     return {
         "field_hierarchy": {"top_level": ["goal_state", "basis_summary", "review_batch_id", "review_decisions", "verification_reviews"],
-                            "review_decisions[]": ["item_id", "revision", "decision", "rationale", "focus", "comparison_assessments", "distinct_from", "duplicate_of"],
+                            "review_decisions[]": ["item_id", "revision", "decision", "rationale", "focus", "risk_outcome", "finding_ids", "comparison_assessments", "distinct_from", "duplicate_of"],
                             "verification_reviews[]": ["finding_id", "revision", "verification_id", "decision", "rationale_summary"],
                             "notice": "verification_reviews 只在顶层，不能放入 review_decisions；宿主绑定当前 ID/版本，显式给出错误值仍会拒绝。"},
+        'fields_by_kind': {
+            'direction': ['item_id','revision','decision','rationale','finding_ids'],
+            'finding': ['item_id','revision','decision','rationale','focus','comparison_assessments','distinct_from','duplicate_of'],
+            'risk': ['item_id','revision','decision','rationale','focus','risk_outcome','finding_ids']},
         "version": "review-submission/v1", "batch_id": batch["id"],
         "items": [{"item_id": item["item_id"], "revision": item["revision"], "kind": item["kind"],
                    **({"direction_resolution": item["payload"]["resolution_context"]}
@@ -93,7 +142,19 @@ def review_contract(batch):
                        "relation": "same_root|distinct|unresolved", "rationale": "实际根因／危险操作／前提差异，至少12字"}
                        for peer in reference_coordinates(item)["peers"]],
                    "focus_evidence_ranges": reference_coordinates(item)["evidence"],
+                   "focus_evidence_refs": focus_references(item),
+                   "focus_target_refs": item.get('focus_target_refs') or [],
                    "allowed_decisions": allowed_review_decisions(item, batch["phase"]),
+                   **({'required_fields': ['decision', 'rationale', 'risk_outcome'],
+                       'risk_outcome_contract': {
+                           'supported': '须由本项实际操作对应的 finding_ids 支持；仍独立判断 focus 目标关系。',
+                           'no_evidence': '已核对本项操作的防护或反证，给出具体依据。',
+                           'not_applicable': '索引信号不构成该类危险操作，给出具体源码依据。',
+                           'pending|blocked': '未结算或缺补证，明确缺口；允许 focus.unresolved。'},
+                       'focus_relation_notice': 'risk_outcome=supported 不等于 focus.relation=supporting。'
+                           '后者只用于另一目标的必要依赖，必须 supports 和带源码的 input→sink chain；'
+                           '本项自身处于审计目标内时独立判断 relevant；结算结果不能配 unresolved。'}
+                      if item['kind'] == 'risk' else {}),
                    **({"verification_review_ref": {"finding_id": item["finding_id"], "revision": item["finding_revision"],
                                                     "verification_id": item.get("verification_id")},
                        "verification_review_required_fields": ["decision:confirmed|contested", "rationale_summary:真实双侧观测判读"]}
@@ -110,7 +171,10 @@ def review_contract(batch):
         "focus_contract": {"objective_ref": "objective-main", "relation": "relevant|supporting|incidental|unresolved",
                            "rationale": "独立判断目标与实际源码操作的关系，至少12字",
                            "evidence_format": {"path": "逐项复制本 item payload.evidence 内实际路径", "start_line": "区间内原始起始行", "end_line": "区间内原始结束行"},
-                           "notice": "不是 evidence_id/range 对象。支持 relevant/supporting 必须给出区间，不能复制另一项的引用。"},
+                           "preferred_evidence": "evidence_refs:[当前 item 的 focus_evidence_refs.reference_id]；宿主绑定坐标，省略 evidence。",
+                           "supports_format": "supporting 必须用 focus_target_refs.item_id 引用目标，并给出 input→sink 必要依赖链；"
+                               "表中的 finding_id 是其运行别名，宿主仅在无歧义时转换。直接属于本次目标的风险独立判断 relevant，无需 supports。",
+                           "notice": "证据可引用本项已校验连续区间的并集，不能跨未读空隙、扩大到正文上下文或引用同伴证据。宿主只绑定坐标，不代填目标关系或判决。"},
         "read_policy": "引用不是读取凭据；先完整读取本项分页字段及实际源码。宿主不预填完整读取、接受、确认或差异判读。",
         "risk_support_policy": "全量探索的 risk_outcome=supported 须提供实际 finding_ids，只能取自本项 payload.findings 的当前有效结论；"
                                "SQL 注入必须由以本项操作行（主定位或明确执行行）为准的结论支持；"
@@ -155,6 +219,61 @@ def review_schema(schema, batch, *, allow_direction_updates=False):
         branch["properties"]["item_id"] = {"const": item["item_id"], "type": "string"}
         branch["properties"]["revision"] = {"const": item["revision"], "type": "string"}
         branch["properties"]["decision"] = {"enum": allowed_review_decisions(item, batch["phase"]), "type": "string"}
+        if item['kind'] == 'direction':
+            fields = {'item_id','revision','decision','rationale','finding_ids'}
+            branch['properties'] = {k:v for k,v in branch['properties'].items() if k in fields}
+            branches.append(branch)
+            continue
+        focus = deepcopy(schema['$defs']['FocusAssessment'])
+        refs = focus_references(item)
+        focus['properties']['evidence_refs'] = dict(type='array', maxItems=len(refs),
+            items={'type':'string', **({'enum':[ref['reference_id'] for ref in refs]} if refs else {})},
+            description='优先选当前项的 focus_evidence_refs.reference_id；宿主还原为 evidence 坐标，省略 evidence。')
+        if refs:
+            focus['properties']['evidence'] = {'type':'array','maxItems':16,'items':{'anyOf':[
+                {'type':'object','additionalProperties':False,'required':['path','start_line','end_line'],
+                 'properties':{'path':{'type':'string','const':ref['path']},
+                               'start_line':{'type':'integer','minimum':ref['start_line'],'maximum':ref['end_line']},
+                               'end_line':{'type':'integer','minimum':ref['start_line'],'maximum':ref['end_line']}}} for ref in refs]}}
+        branch['properties']['focus'] = {'anyOf':[focus,{'type':'null'}]}
+        if item['kind'] == 'risk':
+            fields = {'item_id', 'revision', 'decision', 'rationale', 'focus', 'risk_outcome', 'finding_ids'}
+            branch['properties'] = {k:v for k,v in branch['properties'].items() if k in fields}
+            branch['required'] = list(dict.fromkeys([*branch['required'], 'risk_outcome']))
+            branch['properties']['risk_outcome'] = dict(type='string',
+                enum=['supported','no_evidence','not_applicable','blocked','pending'])
+            ids = sorted({r['finding_id'] for r in item.get('focus_target_refs') or []})
+            branch['properties']['finding_ids'] = dict(type='array',maxItems=min(8,len(ids)),
+                items=dict(type='string', **({'enum':ids} if ids else {})))
+            # Shared property definitions keep the explicit relation branches small.
+            focus_fields = {}
+            for name,spec in focus['properties'].items():
+                key = 'ReviewFocus_' + item['item_id'] + '_' + name
+                schema['$defs'][key] = spec
+                focus_fields[name] = {'$ref':'#/$defs/' + key}
+            relations = []
+            targets = sorted({r['item_id'] for r in item.get('focus_target_refs') or []})
+            for relation in ['relevant','supporting','incidental','unresolved']:
+                props = {**focus_fields,'relation':{'type':'string','const':relation}}
+                required = list(focus.get('required') or [])
+                if relation == 'supporting':
+                    props['supports'] = dict(type='array',minItems=1,maxItems=16,
+                        items=dict(type='string',**({'enum':targets} if targets else {})))
+                    props['chain'] = dict(type='array',minItems=2,maxItems=24,
+                        items={'$ref':'#/$defs/FlowNode'},description='必须包含 input 和 sink，逐节点引用本项已读源码。')
+                    required.extend(['supports','chain'])
+                relations.append(dict(type='object',additionalProperties=False,properties=props,required=required))
+            branch['properties']['focus'] = {'anyOf':[*relations,{'type':'null'}]}
+            settled = deepcopy(branch)
+            settled['properties']['risk_outcome']['enum'] = ['supported','no_evidence','not_applicable']
+            settled['properties']['focus'] = {'anyOf':relations[:3]}
+            settled['required'] = [*settled['required'],'focus']
+            pending = deepcopy(branch)
+            pending['properties']['risk_outcome']['enum'] = ['pending','blocked']
+            # Every alternative is a complete object, also valid for strict providers.
+            branch['anyOf'] = [settled,pending]
+            branches.append(branch)
+            continue
         peers = sorted({peer["item_id"] for peer in reference_coordinates(item)["peers"]})
         assessment = deepcopy(schema["$defs"]["PeerAssessment"])
         assessment["properties"]["item_id"] = {"type": "string", **({"enum": peers} if peers else {})}
@@ -209,9 +328,9 @@ def review_example(batch):
             "review_batch_id": batch["id"],
             "review_decisions": [{"item_id": item["item_id"], "revision": item["revision"],
                                   "decision": "needs_evidence", "rationale": "请替换为本项缺少的具体证据与下一步措施。",
-                                  "comparison_assessments": [{"item_id": peer["item_id"], "relation": "unresolved",
+                                  **({"comparison_assessments": [{"item_id": peer["item_id"], "relation": "unresolved",
                                       "rationale": "此处仅示范结构，须读取双方实际根因与操作后独立判读。"}
-                                      for peer in reference_coordinates(item)["peers"]],
+                                      for peer in reference_coordinates(item)["peers"]]} if item['kind']=='finding' else {}),
                                   **({"focus": {"objective_ref": "objective-main", "relation": "unresolved",
                                                "rationale": "此处仅示范字段结构，须根据原始目标和本项源码独立判读。", "evidence": [], "supports": [], "chain": []}}
                                      if item["kind"] in {"finding", "risk"} else {}),

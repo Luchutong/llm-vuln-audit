@@ -752,6 +752,7 @@ def _model_profile_snapshot(value: object) -> dict:
         "model": model,
         "base_url": base_url,
         **({"thinking": str(value["thinking"])} if "thinking" in value else {}),
+        **({'structured_output': value['structured_output']} if value.get('structured_output') in {'json_object','json_schema'} else {}),
     }
 
 
@@ -1910,6 +1911,16 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                     # owner can be queued. A quick resume cannot overlap generations.
                     self._db.execute("ROLLBACK")
                     return False
+                checkpoint = self._db.execute('SELECT workflow FROM run_execution_state WHERE run_id=?', (run_id,)).fetchone()
+                if checkpoint and (_loads(checkpoint[0], {}) or {}).get('budget_pause'):
+                    from .budget_checkpoints import reuse_source_balance_tx
+                    if not reuse_source_balance_tx(self,run_id,_loads(checkpoint[0], {})):
+                        self._db.execute('ROLLBACK')
+                        return False
+                if self._db.execute("SELECT 1 FROM runs WHERE status IN ('pending','running','paused')"
+                        " AND json_extract(task_spec,'$.continuation.parent_run_id')=? LIMIT 1", (run_id,)).fetchone():
+                    self._db.execute('ROLLBACK')
+                    return False
                 goal = self._db.execute(
                     "SELECT status FROM task_goals WHERE run_id = ?", (run_id,)
                 ).fetchone()
@@ -1932,6 +1943,8 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                     (row["id"], row["status"])
                     for row in self._db.execute(
                         "SELECT id, status FROM runs WHERE status IN ('running','paused')"
+                        " AND NOT (status='paused' AND EXISTS(SELECT 1 FROM run_execution_state e"
+                        " WHERE e.run_id=runs.id AND e.phase='paused'))"
                     )
                 ]
                 if stale:
@@ -1943,11 +1956,9 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                         f" WHERE id IN ({marks}) AND status = 'running'",
                         (now(), *stale_ids),
                     )
-                    # A paused run is interrupted too, and for the same reason: the pause
-                    # flag lives in the worker's memory, so nothing on this server will
-                    # ever resume it.  It is a different sentence for the reader, though --
-                    # "in flight" would be a lie about a run that had deliberately stopped,
-                    # and its frontier is intact rather than half-executed.
+                    # Only pauses that never reached their durable boundary are stale.
+                    # Quiescent phase=paused checkpoints were excluded above and may
+                    # resume or supply a review-only continuation after restart.
                     self._db.execute(
                         f"UPDATE runs SET status = 'interrupted', finished_at = ?,"
                         f" error = 'Server restarted while this run was paused'"
@@ -3260,6 +3271,7 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
         """Return the compact, durable state a new Planner round may inspect."""
         goal = self.get_task_goal(run_id)
         tasks = self.list_tasks(run_id, include_attempts=False)
+        reopen_baselines = self.task_reopen_baselines(run_id)
         compact_tasks = []
         for task in tasks:
             result = task.get("result") or {}
@@ -3286,6 +3298,7 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                 "attempts": task["attempts"],
                 "max_attempts": task["max_attempts"],
                 "revisions": int(task.get("revisions") or 0),
+                "reopens_this_run": max(0, int(task.get("revisions") or 0) - reopen_baselines.get(task['task_key'], 0)),
                 "dependencies": task["dependencies"],
                 "context_spec": task["context_spec"],
                 "files": sorted({path for path in declared if path})[:MAX_TASK_FILES],
@@ -3689,7 +3702,7 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                 validate_planner_actions(role_task, updates, tasks={t["task_key"]: t for t in
                     self.list_tasks(run_id, include_attempts=False)} if worker_owned(role_task) else {},
                     coverage_updates=coverage_review)
-                active_batch = self.active_review_batch(run_id) if self.batch_review_enabled(run_id) else None
+                active_batch = self.active_review_batch(run_id, batch_id=review_batch_id) if self.batch_review_enabled(run_id) else None
                 if active_batch and not error and (review_batch_id or not self.host_queue_enabled(run_id)):
                     if tasks or updates or direction_updates or coverage_review:
                         raise ValueError("当前必须先逐项整合批次，不得同时派发任务或绕过批次结算")
@@ -3735,6 +3748,7 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                     from .runtime import policy_from_snapshot
                     run_row = self._db.execute("SELECT agent_policy FROM runs WHERE id = ?", (run_id,)).fetchone()
                     policy = policy_from_snapshot(_loads(run_row["agent_policy"], {}) if run_row else {})
+                    reopen_baselines = self.task_reopen_baselines(run_id)
                     if type(reopen_attempts) is not int or reopen_attempts < 1:
                         raise ValueError("Planner reopen_attempts must be a positive integer")
                     if int(session["task_reopens"] or 0) + len(reopen_keys) > int(policy.run_reopens):
@@ -3743,7 +3757,7 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                         prior = existing.get(key)
                         if prior is None or prior["state"] not in REOPENABLE_TASK_STATES:
                             raise ValueError(f"Planner task cannot be reopened: {key}")
-                        if int(prior["revisions"] or 0) >= int(policy.task_reopens):
+                        if max(0, int(prior["revisions"] or 0) - reopen_baselines.get(key, 0)) >= int(policy.task_reopens):
                             raise ValueError(f"Planner task reopen allowance exhausted: {key}")
                 proposed_keys = {str(item.get("task_key") or "") for item in tasks}
                 if len(proposed_keys) != len(tasks):

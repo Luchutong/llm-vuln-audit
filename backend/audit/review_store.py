@@ -150,15 +150,19 @@ def fingerprint(value):
     return hashlib.sha256(dump(value).encode()).hexdigest()
 
 
-def finding_fact_revision(entry, record):
+def finding_fact_revision(entry, record, worker_references=None, *, task=None, peers=()):
     """Review outputs must never invalidate their own input revision."""
     from .final_review import latest_verification
+    from .incremental_review import enabled, finding_facts
+    if enabled(task):
+        return fingerprint(finding_facts(entry, record, peers))
     verification = latest_verification(record) or {}
-    return fingerprint({"version": "review-facts-v2", "claim": entry["frozen_claim"],
+    base = fingerprint({"version": "review-facts-v2", "claim": entry["frozen_claim"],
                         "cvss": entry.get("frozen_cvss_assessment"),
                         "sources": entry["source_record_refs"],
                         "verification": verification,
                         "conflicts": [c for c in entry["conflicts"] if c.get("kind") != "review_contested"]})
+    return fingerprint({"base": base, "worker_references": worker_references}) if worker_references else base
 
 
 def stamp():
@@ -216,7 +220,7 @@ def validate_batch(batch, decisions, *, current_items=None):
         if item["kind"] == "risk":
             outcome = decision.get("risk_outcome")
             if outcome not in {"supported", "no_evidence", "not_applicable", "blocked", "pending"}:
-                raise ValueError("风险义务须明确 risk_outcome，不能以文件读过或任务已分配代替结算")
+                raise ValueError(f"review_decisions[{item['item_id']}].risk_outcome：风险义务须明确 risk_outcome，不能以文件读过或任务已分配代替结算")
             if outcome in {"supported", "no_evidence"} and not item.get("operation_read"):
                 raise ValueError("尚无 worker 实际读取敏感操作区间的凭据，不能结清风险义务")
             if outcome in {"supported", "no_evidence", "not_applicable"} and (not item.get("evidence_complete") or item.get("review_input_omitted")):
@@ -283,10 +287,10 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
             return None
         return {**dict(row), "items": json.loads(row["items"]), "decisions": json.loads(row["decisions"])}
 
-    def active_review_batch(self, run_id, phase=None):
+    def active_review_batch(self, run_id, phase=None, *, batch_id=None):
         row = self._row("SELECT * FROM audit_review_batches WHERE run_id=? AND status='pending'"
-                        + (" AND phase=?" if phase else "") + " ORDER BY created_at,id LIMIT 1",
-                        (run_id, phase) if phase else (run_id,))
+                        + (" AND phase=?" if phase else "") + (' AND id=?' if batch_id else '') + " ORDER BY created_at,id LIMIT 1",
+                        (run_id,) + ((phase,) if phase else ()) + ((batch_id,) if batch_id else ()))
         return self._review_row(row)
 
     def list_review_batches(self, run_id):
@@ -330,7 +334,9 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
         from .final_review import canonical_groups, comparison_candidates
         from .review_input import compact_observations
         items = []
-        tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
+        row = self._row('SELECT task_spec FROM runs WHERE id=?', (run_id,))
+        run = dict(id=run_id, task_spec=json.loads(row[0] or '{}') if row else {})
+        tasks = {task["task_key"]: task for task in self.list_tasks(run_id, include_attempts=False)}
         hosted = self.host_queue_enabled(run_id)
         if (phase == "integration" or hosted) and self.discovery_first(run_id):
             for direction in self._audit_direction_records(run_id).values():
@@ -350,16 +356,24 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                 basis["read_ranges"] = [ref for attempt in (self.list_task_attempts(task["id"]) if task else [])
                                         for ref in (attempt.get("seen") or [])][:32]
                 from .investigation import enabled as bounded
-                if bounded((self.get_run(run_id) or {}).get("task_spec")):
+                if bounded(run['task_spec']) or run['task_spec'].get('budget_exhaustion_policy') == 'pause-v1':
                     basis["resolution_context"] = self.direction_resolution_context(run_id, direction, tasks=tasks)
-                items.append({"kind": "direction", "item_id": direction["id"], "revision": fingerprint(basis),
+                revision_basis = dict(basis)
+                if basis.get('resolution_context'):
+                    # Interface eligibility reflects existing evidence; adding a
+                    # derived hint must not reset the object's error allowance.
+                    revision_basis['resolution_context'] = {k:v for k,v in basis['resolution_context'].items()
+                        if k not in {'can_resolve','resolution_blocker'}}
+                items.append({"kind": "direction", "item_id": direction["id"], "revision": fingerprint(revision_basis),
                               "task_key": task.get("task_key"), "payload": basis})
         records = self._review_records(run_id, self.list_findings(run_id))
         by_finding = {record["id"]: record for record in records}
+        from .finding_reuse import reference_index
+        references = reference_index(self, run_id)
         canonical, _ = canonical_groups(records)
         peers = comparison_candidates(canonical, inclusion_family=self.exhaustive_enabled(run_id))
         from .capability import enabled
-        capability_run = self.get_run(run_id) or {}
+        capability_run = run
         # Same typed coordinates nominate comparisons before POC. Prose phrasing
         # must not suppress review; the host still never infers sameness or merges.
         early_peers = set()
@@ -368,7 +382,9 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                 for peer in peers.get(entry["canonical_id"], []):
                     if peer.get("basis_kind") == "same_anchor":
                         early_peers.update((entry["canonical_id"], peer["item_id"]))
-        revisions = {e["canonical_id"]: finding_fact_revision(e, by_finding[e["frozen_claim"]["finding_id"]])
+        revisions = {e["canonical_id"]: finding_fact_revision(e, by_finding[e["frozen_claim"]["finding_id"]],
+                        references.get(e["frozen_claim"]["finding_id"], []), task=run['task_spec'],
+                        peers=peers.get(e['canonical_id'], []))
                      for e in canonical} if hosted else {}
         prior_reviews = {r["item_id"]: json.loads(r["decision"]) for r in self._rows(
             "SELECT item_id,revision,decision FROM audit_review_items WHERE run_id=? AND phase='final'", (run_id,))
@@ -392,7 +408,6 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
             if claim.get("novelty"):
                 payload["novelty"] = claim["novelty"]
             from .capability import enabled
-            run = self.get_run(run_id) or {}
             if enabled(run):
                 payload.update({key: claim.get(key) for key in ("focus", "dataflow", "retest")})
                 payload["audit_focus"] = (run.get("task_spec") or {}).get("audit_focus")
@@ -410,13 +425,13 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
             if phase == "final":
                 integration = self._row("SELECT decision,batch_id FROM audit_review_items"
                                         " WHERE run_id=? AND phase='integration' AND item_id=? AND revision=?",
-                                        (run_id, entry["canonical_id"], finding_fact_revision(entry, raw) if hosted else fingerprint(entry)))
+                                        (run_id, entry["canonical_id"], revisions[entry["canonical_id"]] if hosted else fingerprint(entry)))
                 if integration:
                     payload["integration_review"] = {**json.loads(integration["decision"]),
                                                      "batch_id": integration["batch_id"]}
             items.append({"kind": "finding", "item_id": entry["canonical_id"],
                           "disposition": raw.get("disposition") or entry.get("final_disposition"),
-                          "revision": finding_fact_revision(entry, raw) if hosted else fingerprint(entry), "finding_id": claim["finding_id"],
+                          "revision": revisions[entry["canonical_id"]] if hosted else fingerprint(entry), "finding_id": claim["finding_id"],
                           "finding_revision": claim["revision"], "verification_id": claim.get("verification_id"),
                           "verification_status": claim.get("verification_status"), "conflicts": entry["conflicts"],
                           "requires_verification_review": claim.get("verification_status") == "verified" and not current_review(raw),
@@ -424,13 +439,15 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                           "payload": payload})
         if phase == "final":
             items.extend(self.risk_review_candidates(run_id))
-        from .finding_reuse import reference_index
-        references = reference_index(self, run_id)
+        claim_targets = {entry['frozen_claim']['finding_id']: dict(item_id=entry['canonical_id'],
+            finding_id=entry['frozen_claim']['finding_id']) for entry in canonical}
         for item in items:
+            related = item.get('payload', {}).get('findings') or []
+            item['focus_target_refs'] = [claim_targets[ref['finding_id']] for ref in related
+                                         if ref.get('finding_id') in claim_targets]
             refs = references.get(item.get("finding_id"), [])
             if refs:
                 item["payload"]["worker_references"] = refs
-                item["revision"] = fingerprint({"base": item["revision"], "worker_references": refs})
         return items
 
     @staticmethod
@@ -536,7 +553,7 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 1024:
             raise ValueError("分页 offset/limit 必须是有效整数，limit 最大 1024")
         with self._lock:
-            batch = self.active_review_batch(run_id)
+            batch = self.active_review_batch(run_id, batch_id=batch_id)
             run = self._row("SELECT status FROM runs WHERE id=?", (run_id,))
             if (not run or run[0] != "running" or not batch or batch["id"] != batch_id
                     or not self.execution_write_allowed(run_id, batch["epoch"])):
@@ -581,7 +598,7 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
     def defer_review_batch(self, run_id, batch_id, reason, *, split=False):
         with self._lock:
             self.assert_execution_write(run_id)
-            batch = self.active_review_batch(run_id)
+            batch = self.active_review_batch(run_id, batch_id=batch_id)
             if not batch or batch["id"] != batch_id:
                 return
             from .review_policy import COMPARISON_POLICY
@@ -703,12 +720,13 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                 "conflicts": item.get("conflicts", []) + ([{"kind": "review_contested"}] if decision == "contested" else [])})
         decisions = validate_batch({**batch, "items": validated_items}, decisions, current_items=current.values())
         from .review_policy import COMPARISON_POLICY, validate_peer_assessments
-        if batch["phase"] == "final" and (self.get_run(run_id).get("task_spec") or {}).get("comparison_policy") == COMPARISON_POLICY:
+        row = self._row('SELECT task_spec FROM runs WHERE id=?', (run_id,))
+        run = dict(id=run_id, task_spec=json.loads(row[0] or '{}') if row else {})
+        if batch["phase"] == "final" and run['task_spec'].get("comparison_policy") == COMPARISON_POLICY:
             validate_peer_assessments(decisions, current)
         from .capability import enabled, validate_focus
-        run = self.get_run(run_id) or {}
         if enabled(run) and batch["phase"] == "final":
-            all_ids = {item["item_id"] for item in self._review_candidates(run_id, "final") if item["kind"] == "finding"}
+            all_ids = {item["item_id"] for item in current.values() if item["kind"] == "finding"}
             focus_errors = []
             for decision in decisions:
                 item = current[decision["item_id"]]
@@ -754,13 +772,15 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                              + "；".join(problems) + "。")
         tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
         directions = self._audit_direction_records(run_id)
+        risk_problems = []
         for decision in decisions:
             item = current[decision["item_id"]]
             if self.exhaustive_enabled(run_id) and item["kind"] == "risk" and decision.get("risk_outcome") == "supported":
                 obligation = item["payload"]["obligation"]
                 ids = decision.get("finding_ids") or []
                 if not ids:
-                    raise ValueError("supported 风险义务须引用实际 finding_ids；观察或合报描述不能替代独立结论")
+                    risk_problems.append(f"review_decisions[{item['item_id']}].finding_ids：supported 风险义务须引用实际 finding_ids；观察或合报描述不能替代独立结论")
+                    continue
                 for ident in ids:
                     finding = self.get_finding(ident)
                     location = (finding or {}).get("primary_location") or {}
@@ -781,14 +801,18 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                         or finding.get("disposition") in {"duplicate", "retracted", "superseded"}
                         or finding.get("verification_status") == "rejected" or not cited
                         or (obligation["risk"] in {"command_injection", "code_execution", "sqli"} and not exact and not chain_sink)):
-                        raise ValueError("supported 须有当前有效且对应实际危险操作的 finding；两处独立 sink 不能仅用共同证据合报")
+                        risk_problems.append(f"review_decisions[{item['item_id']}].finding_ids：supported 须有当前有效且对应实际危险操作的 finding；"
+                            f"本项操作={obligation['path']}:{obligation['line']}，当前引用={ident}，其主定位={location}；"
+                            "两处独立 sink 不能仅用共同证据合报。无匹配结论时保留 pending/blocked，不把其它操作的 finding 硬贴到本项。")
             if item["kind"] == "direction" and decision["decision"] == "resolve":
                 self._validate_direction_resolution_tx(run_id, directions[item["item_id"]],
                     {"task_key": item["task_key"], "finding_ids": decision.get("finding_ids") or []}, tasks)
+        if risk_problems:
+            raise ValueError("；".join(risk_problems))
         return decisions
 
     def _commit_review_batch_tx(self, run_id, batch_id, decisions, plan_id, verification_reviews=None):
-        batch = self.active_review_batch(run_id)
+        batch = self.active_review_batch(run_id, batch_id=batch_id)
         if not batch or batch["id"] != batch_id or not self.execution_write_allowed(run_id, batch["epoch"]):
             raise ValueError("批次已经失效、提交过或不属于当前执行")
         current = {i["item_id"]: i for i in self._review_candidates(run_id, batch["phase"])}
@@ -853,14 +877,20 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
 
     def attach_final_decisions(self, run_id, records):
         from .final_review import canonical_groups
+        from .finding_reuse import reference_index
         records = self._review_records(run_id, records)
+        references = reference_index(self, run_id)
         canonical, _ = canonical_groups(records)
+        from .final_review import comparison_candidates
+        spec = json.loads(self._row('SELECT task_spec FROM runs WHERE id=?',(run_id,))[0] or '{}')
+        peers = comparison_candidates(canonical, inclusion_family=self.exhaustive_enabled(run_id))
         current = {item["canonical_id"]: item for item in canonical}
         accepted = {}
         for row in self._rows("SELECT * FROM audit_review_items WHERE run_id=? AND phase='final'", (run_id,)):
             item = current.get(row["item_id"])
             raw = next((r for r in records if item and r["id"] == item["current_claim_ref"]["finding_id"]), None)
-            revision = finding_fact_revision(item, raw) if item and self.host_queue_enabled(run_id) else fingerprint(item)
+            revision = finding_fact_revision(item, raw, references.get(raw["id"], []), task=spec,
+                        peers=peers.get(item['canonical_id'], [])) if item and raw and self.host_queue_enabled(run_id) else fingerprint(item)
             if item and revision == row["revision"]:
                 accepted[item["current_claim_ref"]["finding_id"]] = {
                     **json.loads(row["decision"]), "batch_id": row["batch_id"], "source": "planner_final_batch"}

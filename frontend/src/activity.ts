@@ -356,6 +356,21 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       title = '自动验证环境不可用';
       message = text(payload.error) || text(payload.reason) || '隔离靶场不可用，相关结论保留为未验证。';
       tone = 'neutral';
+    } else if (kind === 'poc_context_closed') {
+      title = '本项验证环境已释放';
+      message = '已确认验证上下文关闭，活动作业和待处理作业均为零，可继续下一项。';
+      tone = 'progress';
+    } else if (kind === 'poc_context_close_unconfirmed') {
+      title = '验证环境释放尚未确认';
+      const state = text(payload.state);
+      message = state === 'busy' || state === 'unresolved'
+        ? '上一项仍有作业或租约占用，暂不复位靶场。'
+        : '暂时无法确认上下文已关闭，宿主会重新核对，期间不复位靶场。';
+      tone = 'warning';
+    } else if (kind === 'poc_stage_stopped') {
+      title = '自动验证停止，进入终审';
+      message = text(payload.message) || '验证环境未满足要求，剩余 POC 保留未决，继续审查已保存的源码和实验结果。';
+      tone = 'warning';
     } else if (kind === 'poc_target_reset') {
       title = '靶场已复位';
       const accounts = Array.isArray(payload.accounts) ? payload.accounts.length : 0;
@@ -427,6 +442,11 @@ export function projectActivity(events: AuditEvent[], detail: RunDetail | null):
       title = '本轮排查已结算'; message = text(payload.summary) || text(payload.terminal_reason) || '本方向的执行额度已用尽，结果保留为未决。'; tone = 'warning';
     } else if (kind === 'run_paused') {
       message = '审计已暂停，已完成的排查与执行位置已保存。';
+    } else if (kind === 'run_budget_paused') {
+      title = payload.code === 'source_evidence_required' ? '取证未完成，运行已暂停' : '预算不足，运行已暂停';
+      message = text(payload.message) || '阶段预算不足，已保存检查点；追加预算后继续当前记录。';
+    } else if (kind === 'run_budget_granted') {
+      title = '已追加预算'; message = '新增预算已保存，累计用量与原结论继续保留。';
     } else if (kind === 'run_resumed') {
       message = '审计已继续，将从保存的任务前沿接着执行。'; tone = 'progress';
     } else if (kind === 'run_cancelled' || kind === 'run_interrupted') {

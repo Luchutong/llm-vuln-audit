@@ -1,0 +1,40 @@
+{
+  "backend_full_passed": 2473,
+  "backend_groups": [
+    551,
+    609,
+    605,
+    708
+  ],
+  "elapsed_seconds": 613.798563463999,
+  "additional_new_api_test_passed": 1,
+  "latest_contract_replay_passed": 75,
+  "frontend_passed": 129,
+  "browser_checks_passed": 48,
+  "frontend_build": "passed",
+  "build_note": "Existing Vite chunk size advisory remains; no TypeScript/build errors.",
+  "provider_calls_in_tests": 0,
+  "runner_jobs_in_tests": 0,
+  "source_sha256": {
+    "backend/audit/actions.py": "1b986f1346209e4ecac7f29959c9c7d0e9fe0ebc36399be0e3d5725414ed20b9",
+    "backend/audit/agent.py": "a62089ceaae01115c07ec0406e535871b4f7eb7638022aee1021d30051732b21",
+    "backend/audit/app.py": "4adc8156ba86bc7fb2df27cde32dea46301efc965c84b27bccf8fc10b99e5ed0",
+    "backend/audit/codemodel.py": "bd1dd8214fc5ffc4453e86ab0f648ca4b6347643fcf3d9318fbc71f532ac856d",
+    "backend/audit/continuations.py": "fb453aeb14e45d8e51fb871994925422d5aba3d038df951fcaf15f49a37be84e",
+    "backend/audit/execution_state.py": "21303672c091b2e1f1bebeb6cea9df8f79af873fdc1bbecd0d6dbb39a5ec5a4d",
+    "backend/audit/executor.py": "d48324b2f4fa9fcc330752eb6646f534f56345c522d214585366f9e6349832e2",
+    "backend/audit/exhaustive.py": "5f1c5f578689644857b77cb5f9c817d01f198cf5e05d266d563b81d5e92a9b97",
+    "backend/audit/poc.py": "f79b863d8d827206add19a9d135b09be1ba9b7b505361085a778f48b4cb5e881",
+    "backend/audit/poc_agent.py": "f17d8e4d717419cb6a4f233666d7683905b3da609b5df80aef281177c67ed179",
+    "backend/audit/poc_readiness.py": "1f359bca6516be652108839fc7f5323ac4c81c8bd0a51b8f18a3886313c542f2",
+    "backend/audit/review_store.py": "c4883b6642d813c8e3f0887c423f8ad8f2a1dd88a1745fe0ee8f8e89a3a6a7b0",
+    "backend/audit/role_policy.py": "a4b737543d17bc65d5303a091bbb8d96917510e52e6c6031abe5f4ae9e21e398",
+    "backend/audit/schemas.py": "837ee928a668381a56ec8f17254ee2604ade9a5a15f0e41efc56257245cd4f49",
+    "backend/audit/worker.py": "ae0748f1721ad1393a50c03c17b588f29e98b3393e8f92a0a44a152815e65cbe",
+    "backend/tests/test_finding_reuse.py": "40809826c66f514605954c9991a8d688b2c8e84a67b4598f14f2f12d70a72364",
+    "frontend/src/components/ContinueAudit.tsx": "c51aa5d02c420e9ca5e48a53f7ba326bb077587bd3117c873a95c30746c4e60d",
+    "scripts/ui_host_queue_smoke.py": "66002343516459bb6b63ceaac8d88e7c7c203cb51cd8dc612fead507fb7fbea0",
+    "backend/tests/test_high_recall_continuation.py": "10653d18fcabc9dab4bed164d3f0bd9011cc35073af8018d071498cd1a0f04a8"
+  },
+  "note": "The new API preflight regression was added after full-suite collection; its entire 20-test module and the latest 75-test contract replay passed separately."
+}

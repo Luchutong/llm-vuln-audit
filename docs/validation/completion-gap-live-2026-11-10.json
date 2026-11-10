@@ -1,0 +1,187 @@
+{
+  "parent_run_id": "566a1c802c1e5ef19b153cb5529b1446",
+  "child_run_id": "3b50dbaf45955d989aacf47162e47967",
+  "budget": {
+    "responses": 56,
+    "tools": 3951,
+    "seconds": 1010
+  },
+  "parent_usage": {
+    "responses": 200,
+    "tools": 145,
+    "seconds": 4389.215
+  },
+  "parent_frozen_hashes": {
+    "run_id": "8f882b7c454c878c578e355d7339f192aa803f13b489e301c53e663899200e8a",
+    "input_hash": "634ea1af03f7354112f732b1e2dcef3244022634845f9f093d93a3f19acd7cc5",
+    "input_json": "223bbde6bdcb05b60523cfd8428a6a7d49523c7a48d61c190c8fc182152ac6ee",
+    "created_at": "c75ab37bcdeba200e69b5d159b1e2cf19928e58a27babf24201d5417a9ee7598",
+    "facts_json": "bb6f1674d9fc30daabeba9fa5bc786de44302fedc947d8e275ef1c328e0e7d48",
+    "markdown": "0fe72c80e378f71b1b08a885852c4914a94d995ee6d8c2e48c266eb03e84ea82",
+    "output_hash": "e6d525f6d42e6ca2641b47f77ff6e13b33836da0aee1eaf8a0c7f3e9bcbdd5f7",
+    "zip_blob": "a8b58d0339a1f0a3cd20afa7b38a1b9f21777531f393c651eab73a1637c1cb05",
+    "json_export": "bf56152f98f7f2c5be4e51eaf9b7fbc3d77a6099b8df0e1b86857e21e4d603fe"
+  },
+  "parent_frozen_unchanged": true,
+  "manifest": [
+    {
+      "candidate_owner": true,
+      "direction_ids": [
+        "dir_296e5efb6e4a4cae8480eb6af0633170",
+        "dir_6efcb72d2a40924d315fbaf981cd0e24",
+        "dir_82a57e2a706543e66f1e9949340d1722",
+        "dir_a646af4ba17559ee805a4a3925ee48fb",
+        "dir_a8d22f767c8060e71b7504fb0964ebec",
+        "dir_b3244fe74eb67cddf12bb4b1daa3555e",
+        "dir_b3eb6b097d957279201300b2fcd565b2",
+        "dir_bd13a218d22ffb9b711f0474ff6359bc",
+        "dir_e56501ee43b48ac4df58ac7dd1762c4e",
+        "dir_ec6c4dddc88dcc0963209cde2e6c705e",
+        "dir_f407e0f6dee4ad0f20162ed78e00f366",
+        "dir_f48ebc006a58b147c3d233f40cafd3c5"
+      ],
+      "obligation_ids": [],
+      "source_paths": [
+        "lab30-shop/app/public/orders/create.php",
+        "lab30-shop/app/public/orders/detail.php",
+        "lab30-shop/app/public/orders/index.php",
+        "lab30-shop/app/public/wallet/index.php",
+        "lab30-shop/app/src/bootstrap.php"
+      ],
+      "task_key": "wallet-debit-catalog"
+    },
+    {
+      "candidate_owner": false,
+      "direction_ids": [
+        "dir_00626e243b8b0abea29a384816f84fc7",
+        "dir_04889c1a2946a406d460efb73b8f1970",
+        "dir_767612216bcf6e04f4a9f9d696ab1819",
+        "dir_9011df42fa12f4b7afe3e33f6fb06114",
+        "dir_a7a351d52bb3807d0d9a522eefc945ed",
+        "dir_adde5c388cd047ba163ba58450c70e0e",
+        "dir_f14b89747c30177b686f93260b250bdb"
+      ],
+      "obligation_ids": [
+        "risk-1919d228d9d2704ddae6"
+      ],
+      "source_paths": [
+        "lab30-shop/app/public/auth/continue.php",
+        "lab30-shop/app/public/auth/login.php",
+        "lab30-shop/app/public/auth/register.php",
+        "lab30-shop/app/src/bootstrap.php"
+      ],
+      "task_key": "close-283cf5ad272e5ec1"
+    },
+    {
+      "candidate_owner": false,
+      "direction_ids": [
+        "dir_08af80c9f6a6a5a52fd4db62c21773af",
+        "dir_3e4db0fde5ecd5037899ab601eced2b3",
+        "dir_6304657497d482df663dfab97db1ebbd"
+      ],
+      "obligation_ids": [],
+      "source_paths": [
+        "lab30-shop/app/public/account/profile.php",
+        "lab30-shop/app/public/account/settings.php",
+        "lab30-shop/app/public/catalog/index.php",
+        "lab30-shop/app/public/ops/report.php",
+        "lab30-shop/app/src/bootstrap.php"
+      ],
+      "task_key": "close-d69bef0483b4e725"
+    },
+    {
+      "candidate_owner": false,
+      "direction_ids": [
+        "dir_0a16105ae8f375e9237c8fcfd12119fb",
+        "dir_a23322e95b7cacabb203c4492a89cfc3",
+        "dir_f9d5e8561ccab7e312907601665aa1fe"
+      ],
+      "obligation_ids": [],
+      "source_paths": [
+        "lab30-shop/app/resources/views/home.php",
+        "lab30-shop/app/resources/views/shipping.php",
+        "lab30-shop/app/src/bootstrap.php",
+        "lab30-shop/docker/entrypoint.sh",
+        "lab30-shop/docker/php.ini"
+      ],
+      "task_key": "close-f2402241b0048ce6"
+    },
+    {
+      "candidate_owner": false,
+      "direction_ids": [
+        "dir_1ee5806aef5f85283e6af3a58f7a09f4",
+        "dir_355494754e00d2eaaeda650a5ef3b93f",
+        "dir_5086d4271086dacea90fa633e20d7deb",
+        "dir_88735bce132bb87c9f3773e2e8131ee6",
+        "dir_920befb12edf692f2424ae07ef555025"
+      ],
+      "obligation_ids": [],
+      "source_paths": [
+        "lab30-shop/app/public/catalog/detail.php",
+        "lab30-shop/app/public/catalog/greeting.php",
+        "lab30-shop/app/public/content/page.php",
+        "lab30-shop/app/public/wallet/withdraw.php",
+        "lab30-shop/app/src/bootstrap.php"
+      ],
+      "task_key": "close-c528899221181cc8"
+    },
+    {
+      "candidate_owner": false,
+      "direction_ids": [
+        "dir_3aa6088866250d43993296901ba08a50",
+        "dir_5433f426d0ab6e10ad288f7f2eacf0ce",
+        "dir_6d1746f8e6ff941c10f1d5e81795dd17",
+        "dir_bc72fcacd1adb785701e28f3bfd4770c",
+        "dir_bd82e68c0e9d4021219d855aecb7bde1",
+        "dir_c122fb1d532fd4fb2c927976d3320cfa",
+        "dir_dbb83ab99fcd8fe12460df0200dd1daa",
+        "dir_e7054e87895bd639bf2b174d8d501852",
+        "dir_f3a03e5a517738fc5cc1b04979c8c89d"
+      ],
+      "obligation_ids": [
+        "risk-1e94506c1eab4e159476",
+        "risk-d7cba7608b2a22b81746",
+        "risk-22eb3fb114ea909f91ce"
+      ],
+      "source_paths": [
+        "lab30-shop/app/public/ops/audit-log.php",
+        "lab30-shop/app/public/ops/batch-check.php",
+        "lab30-shop/app/public/ops/database.php",
+        "lab30-shop/app/public/ops/jobs.php",
+        "lab30-shop/app/public/ops/maintenance.php",
+        "lab30-shop/app/public/ops/members.php",
+        "lab30-shop/app/public/ops/ping.php",
+        "lab30-shop/app/public/ops/template-preview.php",
+        "lab30-shop/app/public/ops/url-preview.php",
+        "lab30-shop/app/public/ops/xml-import.php",
+        "lab30-shop/app/src/bootstrap.php",
+        "lab30-shop/app/src/dispatch_job.php",
+        "lab30-shop/app/src/host_check.php",
+        "lab30-shop/app/src/member_lookup.php",
+        "lab30-shop/fixtures/server.py"
+      ],
+      "task_key": "close-71ea09007c34b9fd"
+    },
+    {
+      "candidate_owner": false,
+      "direction_ids": [
+        "dir_f5d097e4764f7ba70ef49ca79790c610",
+        "dir_fbd4862e8d00293e1880480e4de837b6"
+      ],
+      "obligation_ids": [
+        "risk-dfb4b2ce3f788b5963d4"
+      ],
+      "source_paths": [
+        "lab30-shop/app/public/orders/create.php",
+        "lab30-shop/app/public/orders/detail.php",
+        "lab30-shop/app/public/orders/index.php",
+        "lab30-shop/app/public/wallet/withdraw.php",
+        "lab30-shop/app/src/bootstrap.php"
+      ],
+      "task_key": "close-6bdcbe6748eb3ef1"
+    }
+  ],
+  "selected_pocs": 7,
+  "created_at": "2026-11-10T12:34:19.210122+00:00",
+  "observed_at": "2026-11-10T12:34:29.348618+00:00"
+}

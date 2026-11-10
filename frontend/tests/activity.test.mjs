@@ -25,6 +25,43 @@ const messages = (items) => items.filter((item) => item.type === 'message');
 const tools = (items) => items.filter((item) => item.type === 'tool');
 const textOf = (items) => messages(items).map((item) => `${item.text} ${item.secondary || ''}`).join('\n');
 
+test('budget pause and grant describe continuing the same record without a terminal result', () => {
+  const result = messages(projectActivity([
+    event(1, 'run_budget_paused', { message: 'POC 阶段预算不足，已暂停' }),
+    event(2, 'run_budget_granted', { request: { stage: 'poc', responses: 20 } }),
+  ], detail('paused')));
+  assert.equal(result.length, 2);
+  assert.equal(result[0].title, '预算不足，运行已暂停');
+  assert.match(result[0].text, /POC 阶段预算不足/);
+  assert.equal(result[1].title, '已追加预算');
+  assert.match(result[1].text, /累计用量与原结论继续保留/);
+});
+
+test('missing source evidence is not described as exhausted budget', () => {
+  const result = messages(projectActivity([
+    event(1, 'run_budget_paused', { code: 'source_evidence_required', message: '仍有未完成源码取证，剩余额度保留。' }),
+  ], detail('paused')));
+  assert.equal(result[0].title, '取证未完成，运行已暂停');
+  assert.match(result[0].text, /剩余额度保留/);
+  assert.doesNotMatch(result[0].title, /预算不足|耗尽/);
+});
+
+test('POC cleanup distinguishes unknown state from busy and preserves review progress after environment failure', () => {
+  const items = messages(projectActivity([
+    event(1, 'poc_context_closed', { role: 'poc', state: 'closed', active: 0, pending_jobs: 0 }),
+    event(2, 'poc_context_close_unconfirmed', { role: 'poc', state: 'unknown' }),
+    event(3, 'poc_context_close_unconfirmed', { role: 'poc', state: 'busy', active: 1 }),
+    event(4, 'poc_stage_stopped', { role: 'poc', reason: 'target_reset_blocked' }),
+  ], detail('inconclusive')));
+  assert.equal(items.length, 4);
+  assert.equal(items[0].tone, 'progress');
+  assert.match(items[0].text, /活动作业和待处理作业均为零/);
+  assert.match(items[1].text, /无法确认/);
+  assert.match(items[2].text, /仍有作业或租约占用/);
+  assert.equal(items[3].title, '自动验证停止，进入终审');
+  assert.match(items[3].text, /剩余 POC 保留未决/);
+});
+
 test('progress and interleaved tool calls retain chronological order while results update their original rows', () => {
   const start = [
     event(1, 'audit_progress', { message: '先核对上传入口的文件名处理。' }),

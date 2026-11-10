@@ -73,6 +73,68 @@ def poc_target_key(run: dict, policy, settings) -> str:
 
 
 class PocStoreMixin:
+    def requeue_unstarted_poc_attempts(self, run_id, finding_ids, *, credential_revision=None,
+                                       recovery_reason='credential'):
+        """Explicit recovery, once per credential version and twice total; no submissions."""
+        if recovery_reason not in {'credential', 'pause'} or (recovery_reason == 'pause' and credential_revision is not None):
+            raise ValueError('恢复原因和凭据版本不一致')
+        if credential_revision is not None and not re.fullmatch(r'[0-9a-f]{64}', credential_revision):
+            raise ValueError('凭据恢复版本必须是宿主绑定的摘要')
+        with self._lock:
+            self._db.execute('BEGIN IMMEDIATE')
+            try:
+                state = self._row('SELECT r.status,e.phase FROM runs r JOIN run_execution_state e ON e.run_id=r.id WHERE r.id=?', (run_id,))
+                if (not state or state['status'] != 'paused' or state['phase'] != 'paused'
+                        or run_id in self._active_clocks):
+                    raise ValueError('重试要求静止的暂停检查点')
+                queued = []
+                for ident in dict.fromkeys(finding_ids):
+                    row = self._row('SELECT a.*,v.agent,v.status AS result_status,f.verification_status AS current_status '
+                        'FROM poc_attempts a JOIN verifications v ON v.id=a.verification_id '
+                        'JOIN findings f ON f.id=a.finding_id WHERE a.run_id=? AND a.finding_id=?', (run_id, ident))
+                    agent = json.loads(row['agent'] or '{}') if row else {}
+                    if (not row or row['state'] != 'completed' or row['result_status'] != 'inconclusive'
+                            or row['current_status'] != 'inconclusive' or row['runner_job_id']
+                            or agent.get('jobs') or agent.get('job_results')
+                            or agent.get('reason') not in {'sdk_api_error', 'stream_connection_error', 'authentication_error'}):
+                        raise ValueError('只能重试尚未提交任何实验的 SDK/认证失败')
+                    if (self._row("SELECT 1 FROM poc_verification_jobs WHERE run_id=? AND finding_id=?"
+                            " AND (verification_id=? OR (verification_id='' AND created_at>=?))",
+                            (run_id, ident, row['verification_id'], row['created_at']))
+                            or self._row("SELECT 1 FROM events WHERE run_id=? AND kind='poc_job_started' AND json_extract(payload,'$.finding_id')=?", (run_id, ident))):
+                        raise ValueError('存在已提交或状态未知的实验，不能重放')
+                    closed = self._row("SELECT payload FROM events WHERE run_id=? AND kind='poc_context_closed' AND json_extract(payload,'$.context_id')=? ORDER BY id DESC LIMIT 1", (run_id, agent.get('context_id')))
+                    closure = json.loads(closed[0]) if closed else {}
+                    if closure.get('state') != 'closed' or closure.get('active') != 0 or closure.get('pending_jobs') != 0:
+                        raise ValueError('上下文尚未确认无活动或排队作业')
+                    if recovery_reason == 'pause':
+                        pause = self._row("SELECT id FROM events WHERE run_id=? AND kind='run_pause_requested' AND created_at>=? ORDER BY id DESC LIMIT 1", (run_id, row['created_at']))
+                        failure = self._row("SELECT id FROM events WHERE run_id=? AND kind='poc_runtime_error' AND json_extract(payload,'$.context_id')=? AND json_extract(payload,'$.http_status')=401 ORDER BY id DESC LIMIT 1", (run_id, agent.get('context_id')))
+                        if not pause or not failure or pause['id'] >= failure['id']:
+                            raise ValueError('缺少该 POC 在暂停后发生认证中断的证据')
+                    prior = self._rows("SELECT payload FROM events WHERE run_id=? AND kind='poc_unstarted_retry_queued' AND json_extract(payload,'$.attempt_key')=?", (run_id, row['key']))
+                    if len(prior) >= 2 or any(
+                            (json.loads(p[0]).get('reason') == 'pause_interruption_zero_submissions'
+                             if recovery_reason == 'pause' else
+                             json.loads(p[0]).get('credential_revision') == credential_revision)
+                            for p in prior):
+                        raise ValueError('每个凭据版本仅允许一次恢复，本项累计最多两次')
+                    recovery = dict(attempt_key=row['key'], finding_id=ident,
+                        previous_verification_id=row['verification_id'], context_id=agent['context_id'],
+                        reason=('pause_interruption_zero_submissions' if recovery_reason == 'pause'
+                                else 'credential_recovery_zero_submissions'))
+                    if credential_revision is not None:
+                        recovery['credential_revision'] = credential_revision
+                    self._db.execute("UPDATE poc_attempts SET state='claimed',verification_id=NULL,updated_at=? WHERE key=?", (_now(), row['key']))
+                    self.append_event(run_id, None, 'poc_unstarted_retry_queued', recovery)
+                    queued.append(recovery)
+                self._db.execute('COMMIT')
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute('ROLLBACK')
+                raise
+        return queued
+
     def poc_queue_view(self, run_id):
         """Read the queue from current finding versions and durable attempts."""
         row = self._row("SELECT poc_policy,task_spec,status FROM runs WHERE id=?", (run_id,))

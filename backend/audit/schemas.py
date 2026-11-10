@@ -238,6 +238,8 @@ class TaskSpec(BaseModel):
     """A user-defined white-box vulnerability target, frozen with its run."""
 
     objective: str = Field(min_length=8, max_length=2000, description="Vulnerability risks the agents should investigate in the selected source")
+    budget_exhaustion_policy: Literal['pause-v1', 'terminal-v1'] = 'pause-v1'
+    review_reuse_policy: Literal['incremental-v1', 'legacy'] = 'incremental-v1'
     success_criteria: str = Field(
         default="在所选源码中找到至少一处由原始行号证据支撑、具有明确触发条件的目标相关漏洞风险。提供 CVSS 3.1 基础指标与依据，信息不足时保留待评分状态。",
         min_length=8,
@@ -446,6 +448,8 @@ class WorkerCandidateUpdate(BaseModel):
     status: Literal["pending", "supported", "excluded"]
     hypothesis: str = Field(min_length=8, max_length=1200)
     primary_location: PrimaryLocation
+    reanchor_from: PrimaryLocation | None = Field(default=None, description="Explicit correction of the same pending hypothesis: exact previous anchor, with both old and new read evidence")
+    reanchor_reason: str = Field(default="", max_length=800, description="At least 12 characters explaining why evidence changes this pending hypothesis's root location; different risks need new IDs")
     evidence: list[EvidenceRef] = Field(default_factory=list, max_length=12)
     missing_context: list[str] = Field(default_factory=list, max_length=8)
     next_step: str = Field(default="", max_length=1200)
@@ -944,6 +948,28 @@ class RunLimits(BaseModel):
     seconds: int = Field(default=1800, ge=30, le=14400)
 
 
+class BudgetGrantRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    request_id: str = Field(min_length=8, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    stage: Literal['auto', 'discovery', 'poc', 'review'] = 'auto'
+    responses: int = Field(default=0, ge=0, le=4096)
+    tools: int = Field(default=0, ge=0, le=32768)
+    seconds: int = Field(default=0, ge=0, le=14400)
+    transfer_responses: int = Field(default=0, ge=0, le=4096)
+    transfer_from: Literal['discovery', 'poc', 'review'] | None = None
+    resume: bool = True
+
+    @model_validator(mode='after')
+    def _nonempty(self):
+        if not (self.responses or self.tools or self.seconds or self.transfer_responses):
+            raise ValueError('请填写新增预算或明确调拨尚未使用的阶段请求')
+        if self.transfer_responses and (not self.transfer_from or self.transfer_from == self.stage):
+            raise ValueError('调拨须指定不同的来源阶段')
+        if self.stage == 'auto' and self.transfer_responses:
+            raise ValueError('自动接续无需指定阶段调拨')
+        return self
+
+
 class RetestPocLimits(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     session_policy: Literal['session-queue-v1', 'staged-v1'] = 'session-queue-v1'
@@ -958,6 +984,10 @@ class ContinueRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_id: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
     mode: Literal['poc_review', 'review', 'audit'] = 'poc_review'
+    audit_policy: Literal['inherit', 'exhaustive-v1'] = 'inherit'
+    close_unresolved: bool = False
+    require_dynamic: bool = False
+    structured_output: Literal['compatible', 'json_object', 'json_schema'] | None = None
     model_profile_id: str = Field(default='current', min_length=1, max_length=100)
     finding_ids: list[str] | None = Field(default=None, max_length=400)
     run_limits: RunLimits = Field(default_factory=RunLimits)
@@ -965,6 +995,12 @@ class ContinueRunRequest(BaseModel):
 
     @model_validator(mode='after')
     def _room_to_finish(self):
+        if self.close_unresolved and self.mode != 'audit':
+            raise ValueError('逐项收尾需要继续源码审计模式')
+        if self.audit_policy != 'inherit' and self.mode != 'audit':
+            raise ValueError('高召回策略仅适用于继续源码审计')
+        if self.require_dynamic and self.mode == 'review':
+            raise ValueError('仅终审模式不能要求新动态验证')
         if self.run_limits.responses < (3 if self.mode == 'review' else 8):
             raise ValueError('新增请求预算不足以完成验证和终审')
         return self

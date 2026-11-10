@@ -30,7 +30,7 @@ from pydantic import BaseModel, ValidationError
 from smolagents.models import ChatMessage, OpenAIModel
 
 from .config import ModelConfig, model_unavailable_reason
-from .actions import ActionIssue, extract_action
+from .actions import ActionIssue, extract_action, terminal_payload
 from .context_budget import MIN_SUMMARY_CHARS, HistoryCompactor, message_bytes, message_text
 from .context_config import env_float, env_int
 from .health import TRANSIENT_STATUS
@@ -181,6 +181,14 @@ class HostStop(BaseException):
         self.audit = audit
 
 
+class HostPublication(BaseException):
+    """A validated terminal object; bypass the interpreter and library retries."""
+
+
+class HostPublicationRejected(BaseException):
+    """Carry one counted rejection to the host-controlled phase loop."""
+
+
 class ModelCallFailed(Exception):
     """A model request that failed, labelled the way this run's accounting expects.
 
@@ -299,6 +307,8 @@ class PhaseGate:
     publication_error: Callable[[BaseException, Any], Any] | None = None
     publication_schema: dict | None = None
     publication_reserved: bool = False
+    accept_terminal_object: bool = False
+    terminal_rejected: bool = False
 
     def _on_loop(self, callback: Callable[[], Awaitable]) -> Any:
         """Run one host callback on the event loop and wait for its answer.
@@ -760,6 +770,7 @@ class PhaseGate:
                 "worker" if self.execution.phase.startswith("task_") else self.execution.phase.partition("_")[0])
         self.execution.usage.prompt_cache.add(cached, role)
         content = message.content if isinstance(message.content, str) else str(message.content or "")
+        self.terminal_rejected = False
         self.request_tool_errors = {}
         if self.response_format == "json":
             action = None
@@ -800,6 +811,21 @@ class PhaseGate:
         if finish := finish_reason(message):
             event["finish_reason"] = finish
         self.execution.emit(event)
+
+        if self.accept_terminal_object and self.response_format == 'code':
+            payload = terminal_payload(content, finish_reason(message), self.action_tags)
+            if payload is not None:
+                try:
+                    await self._accept(payload)
+                except OutputRejected as exc:
+                    self.terminal_rejected = True
+                    self.action_issue = None
+                    self.execution.emit({'kind': 'terminal_publication_rejected', 'phase': self.execution.phase,
+                                         'hint': str(exc)[:800], 'usage': self.execution.snapshot()})
+                    raise HostPublicationRejected(str(exc)) from None
+                self.execution.emit({'kind': 'terminal_publication_accepted', 'phase': self.execution.phase,
+                                     'transport': 'host_object', 'usage': self.execution.snapshot()})
+                raise HostPublication()
 
     async def _emit_parse_error(self, *, step: int, category: str) -> None:
         # A callback can already be queued when the phase is closed; a parse error then

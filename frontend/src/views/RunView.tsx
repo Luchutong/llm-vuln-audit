@@ -7,6 +7,7 @@ import { Timeline } from '../components/Timeline';
 import { ActivityStream } from '../components/ActivityStream';
 import { LongContent } from '../components/LongContent';
 import { Overlay } from '../components/Overlay';
+import { BudgetGrantButton } from '../components/BudgetGrant';
 import { DeleteRunButton } from '../components/RecordActions';
 import { BrandWordmark } from '../components/BrandWordmark';
 import { scopeFileCount, scopeLabel } from '../types';
@@ -101,6 +102,7 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
   const paused = run.status === 'paused';
   const summary = executionSummary(detail);
   const pauseSettling = paused && summary !== null && summary.phase !== 'paused';
+  const evidencePaused = summary?.workflow?.budget_pause?.code === 'source_evidence_required';
   const executing = run.status === 'running' || run.status === 'pending';
   const statusLabel = resultStatus(detail, finalFacts);
   const statusTone = statusLabel === '审计未完成' || statusLabel === '执行已结束' ? 'inconclusive' : run.status;
@@ -108,7 +110,8 @@ export function RunView({ runId, onNewTask, onChanged }: { runId: string; onNewT
   return <section className="run-workspace" data-run-id={run.id}>
     <header className="conversation-header"><div className="conversation-heading"><h1 title={run.task_spec?.objective}>{run.task_spec?.objective ?? run.snapshot_name}</h1><div className="conversation-meta"><span className={`chip chip-${statusTone}`}><span className={`status-dot status-${statusTone}`} />{pauseSettling ? '正在暂停' : statusLabel}</span>{run.project_id ? <a href={sourceHref(run.project_id)}>{detail.project?.name ?? run.project_name ?? run.snapshot_name}</a> : <span>{run.snapshot_name}</span>}</div></div><div className="conversation-actions">
       {executing && <button className="btn" disabled={busy} onClick={() => void control('pause')}><Pause size={13} />暂停运行</button>}
-      {paused && <button className="btn btn-primary" disabled={busy || pauseSettling} onClick={() => void control('resume')}><Play size={13} />继续运行</button>}
+      {paused && (!summary?.workflow?.budget_pause || evidencePaused) && <button className="btn btn-primary" disabled={busy || pauseSettling} onClick={() => void control('resume')}><Play size={13} />{evidencePaused ? '使用剩余额度继续' : '继续运行'}</button>}
+      {paused && summary?.workflow && <BudgetGrantButton run={run} onChanged={changed} disabled={busy || pauseSettling} />}
       {TERMINAL.has(run.status) && <button className="btn" onClick={() => openDetails('report')}>查看报告</button>}
       <button className="btn" onClick={() => openDetails('overview')}><PanelRightOpen size={16} /><span>审计详情</span></button>
       <details className="run-more" onKeyDown={(event) => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary className="btn"><MoreHorizontal size={16} />更多</summary><div className="run-more-menu">

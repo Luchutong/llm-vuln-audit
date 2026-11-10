@@ -216,7 +216,7 @@ def test_context_status_reads_state_without_closing_and_404_means_closed():
 
     missing = _client(lambda _: httpx.Response(404, json={'detail': 'unknown verification context'}))
     assert _run(missing, lambda: missing.context_status('gone')) == {
-        'context_id': 'gone', 'state': 'closed', 'pending_jobs': 0, 'was_unknown': True}
+        'context_id': 'gone', 'state': 'closed', 'active': 0, 'pending_jobs': 0, 'was_unknown': True}
 
 
 def test_busy_context_has_explicit_status_code():

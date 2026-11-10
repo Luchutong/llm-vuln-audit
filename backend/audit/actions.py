@@ -141,6 +141,45 @@ def extract_action(text: str, finish_reason: str | None = None,
     return blocks[0], counts, None
 
 
+def terminal_payload(text: str, finish_reason=None, transport_tags=None):
+    """Decode a complete publication without executing Python or repairing bytes.
+
+    Only an isolated object or a single literal final_answer(dict) is terminal.
+    Tool calls, assignments and expressions always stay on the bounded code path.
+    """
+    if finish_reason == "length" or len(text.encode()) > 256 * 1024:
+        return None
+    from .structured_output import parse_json_object, StructuredOutputIssue
+    try:
+        return parse_json_object(text, response_finish_reason=finish_reason)
+    except StructuredOutputIssue:
+        pass
+    action, diagnostics, issue = extract_action(text, finish_reason, transport_tags)
+    if issue or action is None or diagnostics.get('closing_tag_omitted'):
+        return None
+    try:
+        tree = ast.parse(action)
+        if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Expr):
+            return None
+        call = tree.body[0].value
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                and call.func.id == 'final_answer' and len(call.args) == 1 and not call.keywords
+                and isinstance(call.args[0], ast.Dict)):
+            return None
+        nodes = list(ast.walk(call.args[0]))
+        if len(nodes) > 20000:
+            return None
+        for node in nodes:
+            if isinstance(node, ast.Dict):
+                keys = [ast.literal_eval(key) for key in node.keys]
+                if any(not isinstance(key, str) for key in keys) or len(set(keys)) != len(keys):
+                    return None
+        value = ast.literal_eval(call.args[0])
+        return value if isinstance(value, dict) else None
+    except (ValueError, TypeError, SyntaxError, RecursionError):
+        return None
+
+
 def check_action(code: str, authorized_imports: list[str], diagnostics: dict, *,
                  max_bytes=None, max_lines=None, max_nodes=None, tool_names=(), tool_limit=None, text_tools=()) -> None:
     """Validate the entire block before any host tool can produce side effects."""

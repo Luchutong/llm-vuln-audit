@@ -1,0 +1,35 @@
+{
+  "backend_full_passed": 2492,
+  "backend_groups": [
+    596,
+    745,
+    531,
+    620
+  ],
+  "backend_full_seconds": 308.03081705099976,
+  "latest_lifecycle_regression_passed": 86,
+  "latest_handoff_sdk_client_regression_passed": 40,
+  "additional_cases_after_full_collection": 2,
+  "note": "Two unknown-context cancellation cases were added after full-suite collection; both passed in the latest lifecycle and handoff regression replays.",
+  "frontend_passed": 130,
+  "browser_checks_passed": 27,
+  "frontend_build": "passed",
+  "provider_calls_in_tests": 0,
+  "runner_jobs_in_tests": 0,
+  "source_sha256": {
+    "backend/audit/poc_context.py": "b5e96f55753f0caa41d6b2838c11c3c5d0001d7c701f1d687d6c0711021e4572",
+    "backend/audit/poc.py": "f6f06b492e7c9d58049f8044d155c32dd21514e2071ee6fb5ed0dda2ef45e2a3",
+    "backend/audit/poc_runner.py": "5d591f890a57c04e272bfc59fc79c5f4fb08a7629c34518c9d1a6e21475be0ab",
+    "backend/audit/worker.py": "04c3844b381e7fa83712c4495afff95bf46eee8f297fb8aed87b07fb5f3e5284",
+    "backend/audit/execution_state.py": "55bdeb9e0c76e63e7b09a83467e0914e81a7325a0cccb395e201b92e3e52e711",
+    "backend/audit/runtimes/claude_queue.py": "05ad8a7fef7af802c455a7f675b817029144fb1ef5cf30a74e987f65d75880bf",
+    "backend/tests/test_poc_handoff_repair.py": "b898d132d950d70cb01632e9726af54d0e8475ecc155650b87f4f819fe326a73",
+    "backend/tests/test_poc_agent.py": "ac9aae233e017e99b839d431a58363c1dc3d20263c15dcc16f260bf3ca57fb56",
+    "backend/tests/test_poc_runner_client.py": "4105427fab917ed8b3cda35eb01270891575d1ad49120a230827908a3f6810cd",
+    "backend/tests/test_claude_poc_queue.py": "b023869eff4a4120a512684efa0e74d49a853e657c2bfe0a768fae9857eeaee9",
+    "frontend/src/activity.ts": "7f18be8084773f4a8afa8aed88e40815dc6b0adcd2b1095fc173c193449bec36",
+    "frontend/src/components/Timeline.tsx": "dccc8ee587af7df07ae5fe479e2e35df752748ca158522810f2c43cbb47b2621",
+    "frontend/tests/activity.test.mjs": "2edbdb6318d3cfdbeedaac49d38c78b58b01c9ffedf79655e50a0f50b1c86324",
+    "scripts/ui_agent_stability_smoke.py": "d338320b4688c8edd8f38085df437501ab4ee860acd43a8a69525749c8cd0766"
+  }
+}

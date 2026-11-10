@@ -1,0 +1,63 @@
+{
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "status": "paused",
+  "pause_reason": {
+    "code": "source_evidence_required",
+    "stage": "discovery",
+    "resumable": true,
+    "message": "仍有未完成的源码取证，已保留检查点；继续时先补齐这些方向，再进入终审。",
+    "at": "2026-11-10T15:19:48.695970+00:00"
+  },
+  "limits": {
+    "responses": 284,
+    "tools": 5075,
+    "seconds": 10110
+  },
+  "usage": {
+    "responses": 93,
+    "tools": 69,
+    "seconds": 3296.557
+  },
+  "remaining": {
+    "responses": 191,
+    "tools": 5006,
+    "seconds": 6813.443
+  },
+  "last_grant": {
+    "request": {
+      "request_id": "85a13667-b392-41ce-8472-61088b85ca41",
+      "stage": "auto",
+      "responses": 128,
+      "tools": 1024,
+      "seconds": 3600,
+      "transfer_responses": 0,
+      "transfer_from": null,
+      "resume": true
+    },
+    "before": {
+      "responses": 156,
+      "tools": 4051,
+      "seconds": 6510
+    },
+    "after": {
+      "responses": 284,
+      "tools": 5075,
+      "seconds": 10110
+    },
+    "stage": "discovery",
+    "at": "2026-11-10T15:13:06.129914+00:00"
+  },
+  "requests_since_last_grant": {
+    "worker:task_execute": 6,
+    "worker:task_publish": 11,
+    "planner:planner_publish": 4
+  },
+  "counts_are_requests_not_provider_billing": true,
+  "backend_regressions_passed": 110,
+  "frontend_tests_passed": 132,
+  "build": "passed",
+  "browser": "passed; evidence pause resumes without posting a budget grant",
+  "production_run_resumed": false,
+  "production_budget_added": false,
+  "observed_at": "2026-11-10T15:32:57.612075+00:00"
+}

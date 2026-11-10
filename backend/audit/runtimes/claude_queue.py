@@ -1145,12 +1145,17 @@ class ClaudeQueuePocRuntime(ClaudeCodePocRuntime):
                 self._cost_contiguous = True
             self._result_seen = True
             self._merge_usage(usage)
+            terminal_reason = getattr(final, 'terminal_reason', None)
+            expected_interrupt = bool(self._host_interrupt and terminal_reason in {'aborted_tools', 'aborted_streaming'})
             self._emit("poc_runtime_usage", stage="execute", usage=usage,
                 provider_model=self.limits.model, sdk_version=_sdk_version(),
                 cost_usd=usage.get("cost_usd"), cumulative_cost_usd=total_cost,
-                is_error=bool(getattr(final, "is_error", False)), session_policy=QUEUE_POLICY)
+                is_error=bool(getattr(final, "is_error", False)), session_policy=QUEUE_POLICY,
+                terminal_reason=terminal_reason if terminal_reason in {'aborted_tools', 'aborted_streaming', 'end_turn', 'api_error'} else 'other' if terminal_reason else None,
+                host_interrupt=self._host_interrupt or None, expected_interrupt=expected_interrupt,
+                item_published=self._published is not None)
             if getattr(final, "is_error", False):
-                if self._host_interrupt and getattr(final, 'terminal_reason', None) in {'aborted_tools', 'aborted_streaming'}:
+                if expected_interrupt:
                     return "completed" if self._published is not None else "conclusion_rejected"
                 self._sdk_diagnostic(EXECUTE_STAGE, final)
                 self._query_failed = True

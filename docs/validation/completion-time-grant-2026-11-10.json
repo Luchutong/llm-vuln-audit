@@ -1,0 +1,35 @@
+{
+  "grant": {
+    "added_seconds": 1800,
+    "before": {
+      "responses": 56,
+      "tools": 3951,
+      "seconds": 1010
+    },
+    "after": {
+      "responses": 56,
+      "tools": 3951,
+      "seconds": 2810
+    },
+    "returned_source_responses": 10,
+    "stage": "discovery",
+    "at": "2026-11-10T13:02:33.314973+00:00"
+  },
+  "recovery": {
+    "attempt_key": "47c10266ae4788fde43a295b79587341d6ac3aeed5183c147388b79e0689382e",
+    "finding_id": "eadd0beed2c0463888586e26fe9ddf33",
+    "previous_verification_id": "56e38cedfc2a4aab881d41679d7160de",
+    "context_id": "c20ef89e8f7b4ebca7ac520bc3f1b924",
+    "reason": "pause_interruption_zero_submissions"
+  },
+  "usage": {
+    "responses": 7,
+    "tools": 11,
+    "seconds": 352.802
+  },
+  "parent_frozen_unchanged": true,
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "resume_status": "pending",
+  "offline_preview_succeeded": true,
+  "observed_at": "2026-11-10T13:02:50.553084+00:00"
+}

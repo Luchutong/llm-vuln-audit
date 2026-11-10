@@ -1,0 +1,398 @@
+{
+  "observed_at": "2026-11-10T05:59:52.272176+00:00",
+  "run_id": "e06a8b4849815d2f894b420e354a6bfd",
+  "status": "inconclusive",
+  "created_at": "2026-11-10T05:11:41.585782+00:00",
+  "stop_reason": {
+    "code": "environment_unavailable",
+    "message": "上一条验证上下文未关闭，已停止自动验证。"
+  },
+  "usage": {
+    "responses": 180,
+    "tools": 159,
+    "seconds": 1772.823
+  },
+  "remaining": {
+    "responses": 332,
+    "tools": 3937,
+    "seconds": 5427.177
+  },
+  "workflow": {
+    "stage": "poc",
+    "limits": {
+      "discovery": 173,
+      "poc": 246,
+      "review": 93
+    },
+    "used": {
+      "discovery": 173,
+      "poc": 7,
+      "review": 0
+    },
+    "remaining": {
+      "discovery": 0,
+      "poc": 239,
+      "review": 93
+    },
+    "review_reserve": {
+      "pending_items": 119,
+      "estimated_batches": 31,
+      "workers": 0,
+      "responses": 93,
+      "seconds": 1920,
+      "funded": true,
+      "reading_work": {
+        "pages": 0,
+        "characters": 0,
+        "page_characters": 4096
+      },
+      "poc_window_seconds": 0.0,
+      "upstream_allowed": true,
+      "poc_window_blocks": false,
+      "reason": "actual_review_batches_and_inflight_workers"
+    },
+    "discovery_stop": {
+      "state": "inconclusive",
+      "basis": "一次修复规划后阻塞原因仍未改变，停止重复规划。",
+      "missing": [],
+      "code": "blocker_unresolved"
+    }
+  },
+  "findings": {
+    "raw": 28,
+    "canonical": 28,
+    "dispositions": {
+      "pending": 28
+    }
+  },
+  "poc": {
+    "queue_total": 28,
+    "counts": {
+      "completed": 2,
+      "deferred": 26
+    },
+    "jobs": 2,
+    "attempts": [
+      {
+        "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+        "state": "completed",
+        "runner_job_id": "320134d524b3488bb5e5433aa903f667"
+      },
+      {
+        "finding_id": "d547e96fa5a74dc0b6d99b14e013f20e",
+        "state": "completed",
+        "runner_job_id": null
+      }
+    ]
+  },
+  "review_batches": [
+    {
+      "phase": "integration",
+      "status": "completed",
+      "count": 4
+    }
+  ],
+  "risk": {
+    "total": 88,
+    "required": 88,
+    "pending_required": 88,
+    "unread_required": 0
+  },
+  "coverage_complete": true,
+  "event_counts": {
+    "run_continuation_created": 1,
+    "run_started": 1,
+    "planner_session_started": 1,
+    "workflow_budget_reallocated": 20,
+    "planner_task_started": 32,
+    "planner_context_prepared": 32,
+    "role_contract_bound": 42,
+    "investigation_contract_bound": 32,
+    "worker_knowledge_bound": 32,
+    "worker_finding_registry_prepared": 32,
+    "worker_current_findings_prepared": 32,
+    "agent_phase": 108,
+    "model_request": 173,
+    "model_response": 172,
+    "audit_progress": 76,
+    "tool_call": 159,
+    "tool_result": 159,
+    "agent_code": 78,
+    "task_exploration_stopped": 20,
+    "worker_prompt_layout": 20,
+    "agent_output_rejected": 21,
+    "model_retry": 60,
+    "agent_parse_error": 45,
+    "agent_error_summary": 37,
+    "task_assessment": 30,
+    "task_agent_terminal": 32,
+    "worker_findings_reused": 26,
+    "worker_investigation_paused": 3,
+    "worker_candidate_checkpoint": 13,
+    "planner_task_blocked": 3,
+    "worker_exploration_extended": 5,
+    "planner_task_completed": 27,
+    "planner_task_requeued": 2,
+    "coverage_review_requested": 3,
+    "planner_round_started": 10,
+    "planner_overview_prepared": 10,
+    "planner_coverage_prepared": 10,
+    "planner_situational_prepared": 10,
+    "planner_decision_sanitized": 56,
+    "planner_assessment": 9,
+    "planner_agent_terminal": 10,
+    "audit_directions_updated": 7,
+    "planner_round_committed": 8,
+    "project_finding_created": 3,
+    "finding_created": 5,
+    "agent_execution_error": 2,
+    "provider_retry": 1,
+    "project_finding_corrected": 2,
+    "review_batch_claimed": 4,
+    "review_input_prepared": 4,
+    "review_batch_completed": 4,
+    "planner_round_failed": 2,
+    "exploration_review_requested": 3,
+    "planner_task_reopened": 2,
+    "terminal_publication_accepted": 1,
+    "planner_blocker_progress": 2,
+    "workflow_stage_changed": 1,
+    "poc_agent_phase": 1,
+    "poc_target_reset": 1,
+    "poc_verification_started": 1,
+    "poc_queue_item_started": 1,
+    "poc_runtime_readiness": 1,
+    "poc_queue_heartbeat": 17,
+    "poc_stored_poc_skipped": 1,
+    "poc_queue_progress": 18,
+    "poc_gateway_request": 7,
+    "poc_gateway_stream": 19,
+    "poc_job_started": 2,
+    "poc_job_finished": 2,
+    "poc_queue_checkpoint": 1,
+    "poc_runtime_conclusion_rejected": 1,
+    "poc_verification_recorded": 2,
+    "poc_queue_item_published": 1,
+    "poc_runtime_usage": 1,
+    "poc_target_reset_failed": 1,
+    "poc_sdk_generation": 1,
+    "run_inconclusive": 1
+  },
+  "timeline": [
+    {
+      "id": 80483,
+      "kind": "workflow_stage_changed",
+      "created_at": "2026-11-10T05:38:20.465976+00:00",
+      "stage": "poc",
+      "reason": {
+        "state": "inconclusive",
+        "basis": "一次修复规划后阻塞原因仍未改变，停止重复规划。",
+        "missing": [],
+        "code": "blocker_unresolved"
+      }
+    },
+    {
+      "id": 80485,
+      "kind": "poc_target_reset",
+      "created_at": "2026-11-10T05:38:52.083778+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98"
+    },
+    {
+      "id": 80487,
+      "kind": "poc_queue_item_started",
+      "created_at": "2026-11-10T05:38:52.981546+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873"
+    },
+    {
+      "id": 80515,
+      "kind": "poc_job_started",
+      "created_at": "2026-11-10T05:39:32.718258+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "job_id": "2b24ae19ac034543a36ce82f575cafe0",
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873",
+      "status": "submitting"
+    },
+    {
+      "id": 80518,
+      "kind": "poc_job_finished",
+      "created_at": "2026-11-10T05:39:40.231022+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "job_id": "2b24ae19ac034543a36ce82f575cafe0",
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873",
+      "status": "finished",
+      "reason": ""
+    },
+    {
+      "id": 80529,
+      "kind": "poc_job_started",
+      "created_at": "2026-11-10T05:39:55.820606+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "job_id": "320134d524b3488bb5e5433aa903f667",
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873",
+      "status": "submitting"
+    },
+    {
+      "id": 80531,
+      "kind": "poc_job_finished",
+      "created_at": "2026-11-10T05:40:02.655628+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "job_id": "320134d524b3488bb5e5433aa903f667",
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873",
+      "status": "finished",
+      "reason": ""
+    },
+    {
+      "id": 80558,
+      "kind": "poc_runtime_conclusion_rejected",
+      "created_at": "2026-11-10T05:40:42.129865+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "reason": "host_check_rejected",
+      "errors": [
+        "experiment 攻击身份必须与实际攻击作业身份一致，不能用高权限成功冒充低权限攻击"
+      ],
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873"
+    },
+    {
+      "id": 80569,
+      "kind": "poc_verification_recorded",
+      "created_at": "2026-11-10T05:40:57.861106+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "status": "verified"
+    },
+    {
+      "id": 80570,
+      "kind": "poc_queue_item_published",
+      "created_at": "2026-11-10T05:40:57.863801+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873",
+      "status": "verified",
+      "message": "本项结论已保存，正在等待 SDK 完成当前响应。"
+    },
+    {
+      "id": 80575,
+      "kind": "poc_runtime_usage",
+      "created_at": "2026-11-10T05:41:05.869647+00:00",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "stage": "execute",
+      "is_error": true,
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873"
+    },
+    {
+      "id": 80577,
+      "kind": "poc_target_reset_failed",
+      "created_at": "2026-11-10T05:41:30.857758+00:00",
+      "finding_id": "d547e96fa5a74dc0b6d99b14e013f20e",
+      "reason": "target_reset_blocked",
+      "message": "上一条验证上下文仍未关闭，未复位靶场。",
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873"
+    },
+    {
+      "id": 80578,
+      "kind": "poc_verification_recorded",
+      "created_at": "2026-11-10T05:41:30.885360+00:00",
+      "finding_id": "d547e96fa5a74dc0b6d99b14e013f20e",
+      "status": "inconclusive"
+    },
+    {
+      "id": 80580,
+      "kind": "run_inconclusive",
+      "created_at": "2026-11-10T05:41:32.678948+00:00",
+      "reason": {
+        "code": "environment_unavailable",
+        "message": "上一条验证上下文未关闭，已停止自动验证。"
+      }
+    }
+  ],
+  "container_logs": {
+    "vuln-audit-poc-runner-1": {
+      "sampled_lines": 500,
+      "first_timestamp": "2026-11-10T05:11:59.895036900Z",
+      "last_timestamp": "2026-11-10T05:59:51.399080426Z",
+      "context_requests": [
+        "2026-11-10T05:41:14.735448106Z INFO:     172.23.0.3:48098 - \"DELETE /v1/verification-contexts/c955727bd3a74e2c9412e47e0ca0a873 HTTP/1.1\" 200 OK",
+        "2026-11-10T05:54:07.939524899Z INFO:     172.23.0.3:55320 - \"GET /v1/verification-contexts/c955727bd3a74e2c9412e47e0ca0a873 HTTP/1.1\" 200 OK"
+      ],
+      "handoff_interval": [
+        "2026-11-10T05:41:05.181851419Z INFO:     172.23.0.3:57600 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:10.985585847Z INFO:     172.23.0.3:48084 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:14.735448106Z INFO:     172.23.0.3:48098 - \"DELETE /v1/verification-contexts/c955727bd3a74e2c9412e47e0ca0a873 HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:16.893419111Z INFO:     172.23.0.3:32904 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:23.254211777Z INFO:     172.23.0.3:32908 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:29.138105054Z INFO:     172.23.0.3:57854 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:31.290542733Z INFO:     172.23.0.3:57862 - \"DELETE /v1/verification-contexts/8bbf2f7276ae4b9187063a8b461e1e0f HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:35.043368336Z INFO:     172.23.0.3:57872 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:40.946053369Z INFO:     172.23.0.3:42932 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:46.650503937Z INFO:     172.23.0.3:46534 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:53.247973442Z INFO:     172.23.0.3:46536 - \"GET /healthz HTTP/1.1\" 200 OK",
+        "2026-11-10T05:41:58.959274899Z INFO:     172.23.0.3:37074 - \"GET /healthz HTTP/1.1\" 200 OK"
+      ]
+    },
+    "vuln-audit-poc-runner-dev-1": {
+      "sampled_lines": 500,
+      "first_timestamp": "2026-11-09T16:34:35.059677843Z",
+      "last_timestamp": "2026-11-10T05:59:51.403292057Z",
+      "context_requests": [],
+      "handoff_interval": [
+        "2026-11-10T05:41:05.186235578Z poc-runner-dev: Relay connection closed: ConnectionResetError"
+      ]
+    }
+  },
+  "current_readonly_runner": {
+    "health": {
+      "seconds": 0.031,
+      "ok": true,
+      "version": "3.2.0",
+      "target": "lab30"
+    },
+    "context": {
+      "seconds": 0.004,
+      "context_id": "c955727bd3a74e2c9412e47e0ca0a873",
+      "target": "lab30",
+      "run_id": "e06a8b4849815d2f894b420e354a6bfd",
+      "finding_id": "35c66f03f2774cdfbc2965d67e19eb98",
+      "state": "closed",
+      "active": 0,
+      "pending_jobs": 0
+    }
+  },
+  "reproduction": {
+    "case": "first status query fails; the next reports closed",
+    "production_waiter_returned": false,
+    "status_queries_before_return": 1,
+    "elapsed_seconds": 0.0,
+    "next_read": {
+      "context_id": "isolated-context",
+      "state": "closed",
+      "active": 0,
+      "pending_jobs": 0
+    },
+    "real_runner_calls": 0,
+    "model_calls": 0,
+    "job_submissions": 0
+  },
+  "continuation_options": {
+    "available": true,
+    "retestable_count": 27,
+    "pending_review_count": 28,
+    "active_run_ids": []
+  },
+  "frozen_fingerprints_before": {
+    "run_id": "e4983abc5ccf75aef901f00f3e7568af062c7a849182b7b3cb780e93fe3918d8",
+    "input_hash": "71d91ab09a21b95d3e969643033ddd87d1070bb7c06a4a6667cb331c6cf52b9e",
+    "input_json": "7d942ba31edcb0d55b0b414ee8dfbef394262a04b2bf5a31b22ac342fb5d0d6c",
+    "created_at": "8afea68a9680ddf3e6f9119a35a8d46d32579bee6a0ba0de1d3b4b6f59a2e849",
+    "facts_json": "ac0bced7ca8786b387258522b83a31fc1b9637d5885c87a028b031a3a197f8c9",
+    "markdown": "3fa7101ed5044ad0b285be48d1d56028cd1c9eb4031598a1a89bedd22f76999c",
+    "output_hash": "964a19d287a87ddbe49cac223ae0047c0aa60ceb2b2b772bde84db6082a46ce3",
+    "zip_blob": "8b20a0dcbf01a86deb80cd36bf548010290ddf9c11767bdff54dee23665957b1",
+    "json_export": "8cb50a633e11452b277a4b8ce09d947243a780f79c94d3c45235d23b47a86a9c"
+  },
+  "source_sha256": {
+    "backend/audit/poc.py": "f79b863d8d827206add19a9d135b09be1ba9b7b505361085a778f48b4cb5e881",
+    "backend/audit/worker.py": "ae0748f1721ad1393a50c03c17b588f29e98b3393e8f92a0a44a152815e65cbe",
+    "backend/audit/runtimes/claude_queue.py": "7517af0ffd7882026e86c0e39f24eb423896aeffdfd85c6068666e52e39004ca"
+  },
+  "uncertainty": "The historical DELETE succeeded, but the exact exception of the subsequent status query was swallowed; current health cannot identify its original transport/timeout category.",
+  "frozen_unchanged_after_analysis": true
+}

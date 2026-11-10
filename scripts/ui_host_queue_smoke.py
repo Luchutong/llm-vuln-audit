@@ -38,6 +38,7 @@ def main():
                         pending_total=0, assigned_total=0, advisory_total=9),
         verification=dict(total=23, pending=17, verified=6, reviewed=6, pending_review=0))
     continuation_load = 'success'
+    checkpoint_mode = False
     pending_continuation_routes = []
     def handle(route):
         path = route.request.url.split('/api/', 1)[1].split('?', 1)[0]
@@ -50,6 +51,7 @@ def main():
                     api.json(route, dict(detail='离线模拟：配置服务暂时不可用'), 503)
                     return
                 api.json(route, dict(available=True, reason='', active_run_ids=[], retestable_count=2, pending_review_count=13,
+                    review_only=checkpoint_mode,
                     model_profiles=api.model_profiles, selected_profile_id='profile-secondary',
                     items=[dict(finding_id='poc-lfi', title='本地文件包含：结论阶段超时', verification_status='inconclusive', can_retest=True),
                            dict(finding_id='poc-pending', title='尚未执行验证的未决候选', verification_status='unverified', can_retest=True),
@@ -57,8 +59,10 @@ def main():
             else:
                 body = route.request.post_data_json
                 assert body['model_profile_id'] == 'profile-secondary'
-                assert body['mode'] == 'poc_review' and body['finding_ids'] == ['poc-lfi']
-                assert body['run_limits']['responses'] == 512 and body['run_limits']['seconds'] == 3600
+                assert body['mode'] == 'audit' and body['finding_ids'] == ['poc-lfi']
+                assert body['audit_policy'] == 'exhaustive-v1' and body['require_dynamic'] is True
+                assert body['run_limits']['responses'] == 512 and body['run_limits']['seconds'] == 7200
+                assert body['run_limits']['tools'] == 4096
                 assert body['poc']['max_seconds'] == 900 and body['poc']['execute_requests'] == 80
                 assert body['poc']['session_policy'] == 'session-queue-v1'
                 child = copy.deepcopy(item)
@@ -72,7 +76,7 @@ def main():
                     items=[dict(finding_id='f1', title='已发布的对照结论', revision=1, state='completed', status='verified'),
                            dict(finding_id='f2', title='正在进行的隔离验证', revision=2, state='running', status='inconclusive'),
                            dict(finding_id='f3', title='等待领取的后续项目', revision=1, state='pending', status='unverified')])
-                child['task_spec']['continuation'] = dict(version='continuation-v1', parent_run_id=COMPLETED_ID, root_run_id=COMPLETED_ID, mode='poc_review')
+                child['task_spec']['continuation'] = dict(version='continuation-v1', parent_run_id=COMPLETED_ID, root_run_id=COMPLETED_ID, mode='audit')
                 api.runs[child['id']] = child
                 api.findings[child['id']] = copy.deepcopy(api.findings[COMPLETED_ID])
                 api.json(route, child, 201)
@@ -153,7 +157,7 @@ def main():
             checks.passed('frozen SDK quotas stay accessible in audit details')
             page.get_by_role('button', name='复测与继续审计', exact=True).click()
             retest = page.get_by_role('dialog', name='复测与继续审计', exact=True)
-            expect(retest.get_by_role('checkbox')).to_have_count(2)
+            expect(retest.get_by_role('checkbox')).to_have_count(3)
             expect(retest.get_by_role('alert')).to_have_count(0)
             expect(retest.get_by_role('checkbox').first).to_be_checked()
             expect(retest.get_by_role('spinbutton', name='单项耗时提醒（秒）', exact=True)).to_have_value('600')
@@ -173,7 +177,7 @@ def main():
                 close_dialog(page)
                 continuation_load = 'success'
                 page.get_by_role('button', name='复测与继续审计', exact=True).click()
-                expect(retest.get_by_role('checkbox')).to_have_count(2)
+                expect(retest.get_by_role('checkbox')).to_have_count(3)
                 expect(retest.get_by_role('alert')).to_have_count(0)
                 checks.passed(f'genuine configuration {failure} stays visible; successful reopening clears the warning')
             close_dialog(page)
@@ -183,7 +187,7 @@ def main():
             close_dialog(page)
             continuation_load = 'success'
             page.get_by_role('button', name='复测与继续审计', exact=True).click()
-            expect(retest.get_by_role('checkbox')).to_have_count(2)
+            expect(retest.get_by_role('checkbox')).to_have_count(3)
             expect(retest.get_by_role('alert')).to_have_count(0)
             checks.passed('closing an in-flight load cannot poison the next continuation dialog')
             initial_theme = page.locator('html').get_attribute('data-theme')
@@ -213,6 +217,9 @@ def main():
             retest.get_by_role('spinbutton', name='SDK 实验请求上限', exact=True).fill('80')
             expect(retest.get_by_role('spinbutton', name='单项验证时长（秒）', exact=True)).to_have_value('900')
             retest.get_by_role('combobox', name='验证方式', exact=True).select_option('session-queue-v1')
+            retest.get_by_role('combobox', name='继续范围', exact=True).select_option('audit_full')
+            expect(retest.get_by_text('继承证据与发现，恢复未完成任务，启用全源码范围、穷尽线索与风险覆盖。原局部审计的跳过决定不再抵扣全量覆盖；发现数量由证据决定。', exact=True)).to_be_visible()
+            retest.get_by_role('checkbox', name='要求动态验证；环境不可用时明确保留未决', exact=True).check()
             retest.get_by_role('button', name='创建并启动继续任务', exact=True).click()
             expect(page).to_have_url(args.base.rstrip('/') + '/#run/offline-continuation')
             page.get_by_role('button', name='审计详情', exact=True).click()
@@ -265,6 +272,16 @@ def main():
                 assert download.value.suggested_filename == 'offline-report.txt'
             close_dialog(page)
             checks.passed('logs and frozen report downloads remain accessible')
+            checkpoint_mode = True
+            page.get_by_role('button', name='复测与继续审计', exact=True).click()
+            checkpoint = page.get_by_role('dialog', name='复测与继续审计', exact=True)
+            expect(checkpoint.get_by_role('combobox', name='继续范围', exact=True)).to_have_value('review')
+            expect(checkpoint.locator('option[value="poc_review"]')).to_have_js_property('disabled', True)
+            expect(checkpoint.locator('option[value="audit_full"]')).to_have_js_property('disabled', True)
+            expect(checkpoint.get_by_text('原任务已在检查点暂停。可创建独立终审任务，沿用已保存的验证结果；原任务保持暂停，关联终审结束前不能同时恢复。', exact=True)).to_be_visible()
+            close_dialog(page)
+            checkpoint_mode = False
+            checks.passed('paused checkpoints default to review-only and keep source/POC continuation disabled')
             # Explicit historical settings survive cloning; reset is a separate action.
             old = api.runs[COMPLETED_ID]
             old['task_spec'].update(orchestration_policy='rounds-v1', workflow_policy='discovery_first',

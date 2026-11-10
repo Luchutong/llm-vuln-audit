@@ -19,6 +19,19 @@ def freeze_focus(task):
             "policy": "源码整包可读；旁路发现保留，但仅独立复核为 relevant 的结论可支撑目标。supporting 须有真实必要链路，不能独立达成。"}
 
 
+def focus_evidence_ranges(claim):
+    """Union adjacent validated citations without bridging an unread source gap."""
+    from .evidence import seen_ranges
+    refs = []
+    for ref in claim.get('evidence') or []:
+        left = (ref.get('range') or {}).get('start', ref.get('start_line'))
+        right = (ref.get('range') or {}).get('end', ref.get('end_line'))
+        if isinstance(ref.get('path'), str) and type(left) is int and type(right) is int and 0 < left <= right:
+            refs.append(dict(path=ref['path'], start_line=left, end_line=right))
+    return [dict(path=path, start_line=left, end_line=right)
+            for path, left, right in seen_ranges({}, refs, exact=True)]
+
+
 def validate_focus(run, assessment, *, claim, known_ids=(), obligations=()):
     """Validate ownership/structure; semantic judgment remains the independent review.
 
@@ -35,14 +48,16 @@ def validate_focus(run, assessment, *, claim, known_ids=(), obligations=()):
     if relation in {"incidental", "unresolved"}:
         return
     refs = assessment.get("evidence") or []
-    allowed = claim.get("evidence") or []
+    allowed = focus_evidence_ranges(claim)
     def contains(ref):
-        return any(ref.get("path") == r.get("path") and
-                   int((r.get("range") or {}).get("start", r.get("start_line", 0))) <= ref.get("start_line", 0)
-                   <= ref.get("end_line", 0) <= int((r.get("range") or {}).get("end", r.get("end_line", 0)))
+        return (type(ref.get('start_line')) is int and type(ref.get('end_line')) is int and any(
+                   ref.get("path") == r['path'] and r['start_line'] <= ref['start_line'] <= ref['end_line'] <= r['end_line']
                    for r in allowed)
+                )
     if not refs or any(not contains(ref) for ref in refs):
-        raise ValueError("focus.evidence 必须来自本结论实际读取并校验的源码区间")
+        import json
+        raise ValueError("focus.evidence 必须来自本结论实际读取并校验的源码区间；本项允许的连续区间："
+                         + json.dumps(allowed, ensure_ascii=False, separators=(',', ':')))
     scenario = (run.get("task_spec") or {}).get("scenario")
     from .worker_strategies import canonical_vulnerability_type
     if relation == "relevant" and scenario and canonical_vulnerability_type(claim.get("vulnerability_type")) != canonical_vulnerability_type(scenario):
@@ -53,7 +68,9 @@ def validate_focus(run, assessment, *, claim, known_ids=(), obligations=()):
             raise ValueError("supporting 必须引用本运行实际的目标主张或风险义务")
         flow = assessment.get("chain") or []
         if not {"input", "sink"} <= {node.get("kind") for node in flow}:
-            raise ValueError("supporting 须给出必要的数据/状态依赖 input→sink；共享 include 不是依赖证明")
+            raise ValueError("supporting 须给出必要的数据/状态依赖 input→sink；共享 include 不是依赖证明。"
+                "risk_outcome=supported 只表示风险有 finding 支持，不要求 relation=supporting；"
+                "若本项自身属于目标，独立判断 relevant 并引用本项证据；依赖尚未证明时保留 pending/blocked")
         if any(not contains(node.get("evidence") or {}) for node in flow):
             raise ValueError("必要依赖链每个节点必须绑定本结论实际读取的源码行")
 

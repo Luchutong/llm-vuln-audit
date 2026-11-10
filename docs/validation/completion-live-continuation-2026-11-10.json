@@ -1,0 +1,52 @@
+{
+  "observed_at": "2026-11-10T10:04:35.143473+00:00",
+  "parent_run_id": "1995ca42dc1959488aadb74da515fbee",
+  "run_id": "566a1c802c1e5ef19b153cb5529b1446",
+  "url": "http://127.0.0.1:5173/#run/566a1c802c1e5ef19b153cb5529b1446",
+  "created_at": "2026-11-10T10:04:28.455986+00:00",
+  "mode": "audit",
+  "run_limits": {
+    "responses": 256,
+    "tools": 4096,
+    "seconds": 5400
+  },
+  "poc_mode": "required",
+  "native_format": "json_object",
+  "selected_retests": 8,
+  "inherited_findings": 28,
+  "inherited_verified": 20,
+  "initial_risk_by_state": {
+    "supported": 23,
+    "no_evidence": 42,
+    "not_applicable": 2,
+    "blocked": 0,
+    "pending": 21
+  },
+  "parent_unchanged": true,
+  "regression_tests_passed": 87,
+  "latest_observed_at": "2026-11-10T11:00:15.219396+00:00",
+  "live_status": "running",
+  "current_stage": "poc",
+  "current_usage": {
+    "responses_used": 112,
+    "tools_used": 99,
+    "active_elapsed_ms": 1941285,
+    "phase": "planning",
+    "stop_reason": null
+  },
+  "current_verification": {
+    "verified": 20,
+    "inconclusive": 1,
+    "unverified": 10
+  },
+  "current_directions": {
+    "unsettled_total": 43,
+    "unsettled_required_total": 5,
+    "triage_pending_total": 37,
+    "candidate_pending_total": 1
+  },
+  "checkpoint_repair_applied": true,
+  "recovery_regressions_passed": 122,
+  "credential_reload_verified": true,
+  "credential_gateway_http_status": 200
+}

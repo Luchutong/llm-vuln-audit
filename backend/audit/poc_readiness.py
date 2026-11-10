@@ -127,8 +127,15 @@ class PocReadinessService:
             )):
                 return self._result("runner_upgrade_required", mode=mode, profile=profile, target=target, capabilities=capabilities)
             return self._result("ready", mode=mode, profile=profile, target=target, capabilities=capabilities)
-        except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError, OSError, ValueError):
-            return self._result("runner_unhealthy", mode=mode, profile=profile, target=target)
+        except (PocRunnerError, PocRunnerUnavailable, asyncio.TimeoutError, OSError, ValueError) as exc:
+            result = self._result("runner_unhealthy", mode=mode, profile=profile, target=target)
+            result['diagnostic'] = {
+                'category': ('timeout' if isinstance(exc, asyncio.TimeoutError) else
+                             'runner_rejected' if isinstance(exc, PocRunnerError) else
+                             'connection' if isinstance(exc, (PocRunnerUnavailable, OSError)) else 'invalid_response'),
+                'status_code': getattr(exc, 'status_code', None),
+            }
+            return result
         finally:
             if client is not None:
                 close = getattr(client, "aclose", None)
@@ -137,3 +144,19 @@ class PocReadinessService:
                         await asyncio.wait_for(close(), timeout=0.1)
                     except (Exception, asyncio.CancelledError):
                         pass
+
+    async def check_for_execution(self, target_profile, *, mode='auto', target=None):
+        """Retry transient health failures before deferring an entire POC queue.
+
+        Three fresh HTTP checks at most, no model calls, no target reset or job.
+        Configuration/capability failures are definitive and never retried.
+        """
+        history = []
+        for attempt in range(3):
+            result = await self.check(target_profile, mode=mode, target=target, fresh=True)
+            history.append(dict(reason=result['reason'], diagnostic=result.get('diagnostic')))
+            if result['available'] or result['reason'] != 'runner_unhealthy':
+                break
+            if attempt < 2:
+                await asyncio.sleep(.2 * (attempt + 1))
+        return {**result, 'health_attempts': len(history), 'health_history': history}

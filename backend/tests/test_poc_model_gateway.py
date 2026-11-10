@@ -340,14 +340,16 @@ PING = b'event: ping\ndata: {"type":"ping"}\n\n'
 
 @pytest.mark.parametrize('outcome', ['healthy', 'idle', 'run_deadline'])
 def test_persistent_queue_stream_uses_run_window_and_keeps_idle_protection(harness, outcome):
-    sequence = [(.015, PING)] * 4 + [(0, STOP)] if outcome == 'healthy' else [(0, PING), (1, STOP)]
+    sequence = [(.015, PING)] * 4 + [(0, STOP)] if outcome == 'healthy' else [(0, PING), (2, STOP)]
     stream = DelayedChunks(sequence)
     h = harness(lambda request: httpx.Response(200, headers={'content-type': 'text/event-stream'}, stream=stream),
-                request_timeout_seconds=.02, stream_idle_timeout_seconds=.03 if outcome == 'idle' else .5)
+                request_timeout_seconds=.02, stream_idle_timeout_seconds=.03 if outcome == 'idle' else 3)
     scope = 'b' * 64
     h.store.open_poc_request_stage('run', 'execute@' + scope, 10, h.epoch)
     token = h.gateway.issue_capability('run', h.epoch, 'execute', MODEL, 'queue-1', 'queue-1',
-        quota_scope=scope, session_policy='session-queue-v1', ttl_seconds=.05 if outcome == 'run_deadline' else 1)
+        # Include real SQLite/ASGI admission time: a 50 ms token can expire before
+        # the stream starts on a busy machine, testing authentication instead.
+        quota_scope=scope, session_policy='session-queue-v1', ttl_seconds=1 if outcome == 'run_deadline' else 5)
     response = asyncio.run(h.request({**MESSAGE, 'stream': True}, token_value=token))
     if outcome == 'healthy':
         assert response.content.endswith(STOP)

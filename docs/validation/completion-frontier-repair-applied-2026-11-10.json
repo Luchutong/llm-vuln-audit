@@ -1,0 +1,40 @@
+{
+  "run_id": "566a1c802c1e5ef19b153cb5529b1446",
+  "before_stage": "poc",
+  "after_stage": "discovery",
+  "used_requests": 43,
+  "used_tools": 32,
+  "active_seconds": 709.08,
+  "limits": {
+    "discovery": 120,
+    "poc": 64,
+    "review": 72
+  },
+  "used": {
+    "discovery": 39,
+    "poc": 4,
+    "review": 0
+  },
+  "repair": {
+    "blocked_tasks": [
+      "wallet-debit-catalog"
+    ],
+    "policy": "historical-reopens-v1",
+    "prior_discovery_stop": {
+      "basis": "一次修复规划后阻塞原因仍未改变，停止重复规划。",
+      "code": "blocker_unresolved",
+      "missing": [],
+      "state": "inconclusive"
+    },
+    "transferred_back": 81
+  },
+  "preserved_sha256": {
+    "findings": "353b4b5616a868e40597d147b96fc2defef13b09311da1dea8456bdd36d5fa27",
+    "verifications": "eff0f8b367eb56d43a541b791058fff43da7d51ec4b5eff9da7d48d9fbb3b5a7",
+    "audit_review_allowances": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "planner_task_attempts": "6f3f6eff6c0cb2695353023c695893058f013ffed7b37df29b7133686e5dfc3e",
+    "poc_attempts": "8d9effb29d65f500e86cd82af92db82f37393755f4bc5a594b1ab8305a42231d"
+  },
+  "observed_at": "2026-11-10T10:30:26.641155+00:00",
+  "scope": "Applied once to the quiescent paused run; no model calls or jobs"
+}

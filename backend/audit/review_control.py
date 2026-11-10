@@ -64,7 +64,7 @@ class ReviewControlMixin:
 
     def _allowance_batch(self, run_id, batch_id):
         self.assert_execution_write(run_id)
-        batch = self.active_review_batch(run_id)
+        batch = self.active_review_batch(run_id, batch_id=batch_id)
         run = self._row("SELECT status FROM runs WHERE id=?", (run_id,))
         if not run or run[0] != "running" or not batch or batch["id"] != batch_id or not self.execution_write_allowed(run_id, batch["epoch"]):
             raise StopAudit("cancelled", "审查租约已失效，不再消耗或修改此项额度。")
@@ -89,7 +89,6 @@ class ReviewControlMixin:
                 if self._db.in_transaction:
                     self._db.execute("ROLLBACK")
                 raise
-
     def check_review_publication(self, run_id, batch_id):
         with self._lock:
             batch = self._allowance_batch(run_id, batch_id)
@@ -133,3 +132,10 @@ class ReviewControlMixin:
                 if self._db.in_transaction:
                     self._db.execute("ROLLBACK")
                 raise
+        if (batch['phase'] == 'final' and len(batch['items']) > 1
+                and all(item['kind'] == 'risk' for item in batch['items'])):
+            from .submission import reference_coordinates
+            if not any(reference_coordinates(item)['peers'] for item in batch['items']):
+                self.defer_review_batch(run_id, batch_id,
+                    '首次拒收后隔离独立风险，避免正常项陪同消耗纠错额度；保留逐项累计账本。', split=True)
+                raise StopAudit('review_batch_split', '独立风险批次已隔离，保留累计额度，按当前项继续判读。')

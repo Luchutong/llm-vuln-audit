@@ -1,0 +1,21 @@
+{
+  "observed_at": "2026-11-10T09:41:42.065689+00:00",
+  "parent_run_id": "eb67cbf8636b54a39cad67fc3753aa03",
+  "scope": "Offline SQLite backup; no model requests and no production writes",
+  "remaining_limits": {
+    "responses": 152,
+    "tools": 0,
+    "seconds": 2974
+  },
+  "inherited_accepted": 28,
+  "inherited_resolved_risks": 37,
+  "risk_by_state": {
+    "supported": 22,
+    "no_evidence": 15,
+    "not_applicable": 0,
+    "blocked": 0,
+    "pending": 51
+  },
+  "formal_verification_reviews_pending": 0,
+  "parent_unchanged": true
+}

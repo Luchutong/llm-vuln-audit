@@ -365,6 +365,7 @@ EXECUTE_INSTRUCTIONS = """你是 POC 自动验证 Agent，只在隔离的 Lab30 
 - 各工具的 identity 可选 guest/alice/bob/operator/admin；省略时使用宿主准备的身份。凭据通过该身份的 LAB30_USER/PASSWORD 提供，禁止猜密码。
 - 每次执行前宿主核对实际角色。precondition_failed 表示前提不符，不能拿高权限会话冒充普通会员。
 - 会话彼此隔离，但数据库和文件仍共享；同一 finding 内前序实验可能改变角色、余额等状态，必须核实本实验必要前提。
+- 会话固定分别验证 SID 投递、受害者站内认证、SID 是否轮换及攻击者复用。URL SID 路径应模拟受害者访问链接后站内登录，不强加跨站 POST 登录步骤；保留独立身份和两侧观测，HTTP 成功或未轮换本身都不是账号接管证明。
 
 脚本登录模板（这是交给 run_poc 的脚本内容，不是你的动作代码块）：
 ```python

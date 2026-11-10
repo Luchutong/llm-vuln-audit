@@ -1,0 +1,34 @@
+{
+  "backend_passed": 2523,
+  "backend_groups": [
+    703,
+    618,
+    564,
+    638
+  ],
+  "backend_seconds": 247.01213748900045,
+  "frontend_passed": 130,
+  "browser_passed": 49,
+  "build": "passed",
+  "provider_calls_in_regressions": 0,
+  "runner_jobs_in_regressions": 0,
+  "format_probe_calls": 1,
+  "isolated_live_review_calls": 1,
+  "source_sha256": {
+    "backend/audit/capability.py": "0437ce195c8b797e31dca0db0be8e628074f66e338feb234059fe741be139aae",
+    "backend/audit/review_store.py": "6d61d12f0571c38989fc547d0ae10b2e0b634ff5f6b03c35f6831214ba54f49b",
+    "backend/audit/submission.py": "eef4bf9acc3c38a66de187e1b86db2bad8b4e8b74e1e97e5d969abf667bf5508",
+    "backend/audit/finding_reuse.py": "7424d9a020346698257a4ba03491ee1018d4ecbe27ce8d23014057eb9b7bd083",
+    "backend/audit/db.py": "2315e357c68ea01a34bb8d4f0bec1542c1b667fc2185d3c81b8323be4215622b",
+    "backend/audit/worker.py": "1d8f523c7e47b63576431461697d9afbb77b4e1aa653464c70c5870d43235997",
+    "backend/audit/continuations.py": "3469350efc5b94943c1c75cfead0706bb818fb0585f10d2f88a4c28303a349b3",
+    "backend/audit/schemas.py": "18fc1608eb4d27a75ba39a11a8fa448cb233dfbd63117a1211b0257d51dde694",
+    "backend/tests/test_review_closure_repair.py": "67bc25099d30e22f9bd8bcbdd06bc8cb6ca95ee54fa4f64d768a73be0620f267",
+    "frontend/src/components/ContinueAudit.tsx": "18fe232b0c08dc0f08b8765d3a2a006b85e7d507182ae54878a618b2c180d7b5",
+    "scripts/ui_host_queue_smoke.py": "31e81139899fb8da59e9771e39cbf6fe77bede3bb8b242171113dabf96e24361"
+  },
+  "observed_at": "2026-11-10T09:50:36.914232+00:00",
+  "current_source_additional_regression_passed": 51,
+  "current_source_additional_regression_log": ".run/review-closure-current-source-final-tests.log",
+  "current_source_additional_regression_note": "完整回归后增加旧政策风险继承守卫，51 项当前源码回归验证该守卫与接续、证据、合同。"
+}

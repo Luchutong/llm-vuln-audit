@@ -1,0 +1,67 @@
+{
+  "at": "2026-11-10T16:18:31.234211+00:00",
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "repair": {
+    "policy": "named-source-v1",
+    "task_id": "5414d0a346e346c8b1fa2b762d26f026",
+    "added_paths": [
+      "lab30-shop/app/public/auth/login.php",
+      "lab30-shop/app/public/auth/logout.php",
+      "lab30-shop/app/public/auth/register.php",
+      "lab30-shop/app/public/health.php",
+      "lab30-shop/app/public/index.php",
+      "lab30-shop/app/public/ops/audit-log.php",
+      "lab30-shop/app/public/ops/batch-check.php",
+      "lab30-shop/app/src/dispatch_job.php",
+      "lab30-shop/app/src/host_check.php"
+    ],
+    "unresolved": [
+      {
+        "path": "index.php",
+        "reason": "named source is ambiguous"
+      }
+    ],
+    "attempts": 2,
+    "max_attempts": 3,
+    "at": "2026-11-10T16:18:30.673392+00:00"
+  },
+  "unchanged_facts": {
+    "findings": "55b57f088caf519729a0947343cf03cab5a6ff5ebef9339ba654f93eee3620fb",
+    "verification_reviews": "58a79fae6519358351d84cc5e352fbcd5b601c93d6b43483d9304fd8bd32a74a",
+    "poc_attempts": "3f0b1934ccf3daf3ac84a5d04cbf762ee277ce90ba7f8836127fc254950c2f79",
+    "poc_verification_jobs": "061a05dae718126b224af63f7bd0c41148a20dcc91da6a2fcf52b90eca951327",
+    "planner_task_attempts": "12c2e5e2d5cb3a0c5a4dd2a214bc984c782d4876972ff8cef8dcf2e278ed02eb",
+    "audit_review_allowances": "2e9bee83ced44f915a04b11ed6d6db11066b10c583d39e0641712729f9d413bc",
+    "verifications": "f1484d278a30b10a919cde11b0b92680e75b9c7439a09b17c485882737e85e9b",
+    "frozen_parent": "6e88862738f90fcbc2e56553f97c4e23ce2faee78f0ee1ac56bffe9882cf1aa6",
+    "budget": [
+      "{\"responses\": 284, \"tools\": 5075, \"seconds\": 10110}",
+      139,
+      98,
+      4003066
+    ]
+  },
+  "unchanged_other_task_fields": true,
+  "previous_source_paths": [
+    "lab30-shop/app/src/bootstrap.php"
+  ],
+  "source_paths": [
+    "lab30-shop/app/public/auth/login.php",
+    "lab30-shop/app/public/auth/logout.php",
+    "lab30-shop/app/public/auth/register.php",
+    "lab30-shop/app/public/health.php",
+    "lab30-shop/app/public/index.php",
+    "lab30-shop/app/public/ops/audit-log.php",
+    "lab30-shop/app/public/ops/batch-check.php",
+    "lab30-shop/app/src/bootstrap.php",
+    "lab30-shop/app/src/dispatch_job.php",
+    "lab30-shop/app/src/host_check.php"
+  ],
+  "unresolved": [
+    {
+      "path": "index.php",
+      "reason": "named source is ambiguous"
+    }
+  ],
+  "isolated_resume_and_claim": false
+}

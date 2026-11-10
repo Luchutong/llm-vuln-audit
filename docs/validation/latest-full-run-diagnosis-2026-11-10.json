@@ -1,0 +1,373 @@
+{
+  "date": "2026-11-10",
+  "timezone": "Asia/Shanghai",
+  "run_id": "7150ee45e16a49ad935ed62ab194be99",
+  "source_commit": "fa23b0d8e7a70502b9f9b690189176a0e6b637c9",
+  "inspection": "read-only SQLite, frozen report, host events, and GET /healthz only; no model request, POC, service restart, run resumption, or production data modification",
+  "run": {
+    "status": "inconclusive",
+    "created_at": "2026-11-10T03:47:04.936345+00:00",
+    "started_at": "2026-11-10T03:47:04.987317+00:00",
+    "finished_at": "2026-11-10T04:21:47.343905+00:00",
+    "run_limits": {
+      "responses": 512,
+      "seconds": 3600,
+      "tools": 4096
+    }
+  },
+  "task_policy": {
+    "baseline_policy": "fresh",
+    "completion_policy": "coverage_review",
+    "focus_scope": "targeted",
+    "risk_coverage_policy": "off",
+    "exploration_policy": "legacy",
+    "orchestration_policy": "host-queue-v1",
+    "require_poc": false
+  },
+  "poc_mode": "auto",
+  "usage": {
+    "requests": 212,
+    "tool_calls": 168,
+    "input_tokens": 4529753,
+    "output_tokens": 198245
+  },
+  "run_remaining": {
+    "responses": 300,
+    "seconds": 1517.6439999999998,
+    "tools": 3928
+  },
+  "stop_reason": {
+    "code": "final_review_needs_evidence",
+    "message": "终审已结束，5 条结论仍需补证；未将其计入已接受漏洞。"
+  },
+  "frozen_counts": {
+    "accepted": 18,
+    "canonical": 23,
+    "contested": 0,
+    "pending": 5,
+    "raw_records": 23,
+    "valid_records": 23,
+    "withdrawn": 0
+  },
+  "coverage": {
+    "directions": {
+      "advisory": 16,
+      "complete": false,
+      "required": 11,
+      "resolved": 11,
+      "skipped": 0,
+      "total": 27,
+      "unsettled": 2
+    },
+    "files": {
+      "complete": false,
+      "pending": 4,
+      "read": 56,
+      "reviewed": 57,
+      "skip_details": [
+        {
+          "path": "lab30-shop/app/public/assets/products.svg",
+          "reason": "静态 SVG 资源，无服务端脚本、无请求参数处理与动态数据写入，不构成可执行输入面。"
+        }
+      ],
+      "skipped": 1,
+      "total": 61
+    },
+    "final_review": {
+      "accepted": 18,
+      "contested": 0,
+      "pending": 5
+    },
+    "verification": {
+      "pending": 23,
+      "pending_review": 0,
+      "reviewed": 0,
+      "total": 23,
+      "verified": 0
+    }
+  },
+  "pending_paths": [
+    "lab30-shop/bin/lab",
+    "lab30-shop/bin/package.py",
+    "lab30-shop/docker/php.ini",
+    "lab30-shop/fixtures/server.py"
+  ],
+  "task_counts": [
+    {
+      "state": "blocked",
+      "n": 2
+    },
+    {
+      "state": "cancelled",
+      "n": 5
+    },
+    {
+      "state": "completed",
+      "n": 21
+    }
+  ],
+  "error_categories": [
+    {
+      "kind": "agent_parse_error",
+      "category": "no_code_block",
+      "count": 48
+    },
+    {
+      "kind": "agent_parse_error",
+      "category": "action_too_large",
+      "count": 8
+    },
+    {
+      "kind": "agent_parse_error",
+      "category": "truncated_output",
+      "count": 2
+    },
+    {
+      "kind": "agent_parse_error",
+      "category": "action_tool_limit",
+      "count": 1
+    },
+    {
+      "kind": "agent_output_rejected",
+      "category": "invalid_output",
+      "count": 21
+    },
+    {
+      "kind": "agent_execution_error",
+      "category": "timeout",
+      "count": 1
+    },
+    {
+      "kind": "agent_execution_error",
+      "category": "invalid_python",
+      "count": 1
+    },
+    {
+      "kind": "planner_round_failed",
+      "category": "invalid_output",
+      "count": 1
+    },
+    {
+      "kind": "planner_round_failed",
+      "category": "planner_commit_rejected",
+      "count": 1
+    }
+  ],
+  "correction_usage": {
+    "requests": 71,
+    "request_ratio": 0.33490566037735847,
+    "input_tokens": 1508578,
+    "output_tokens": 86277
+  },
+  "wallet_orders_publication_rejections": 11,
+  "worker_reuse_events": 5,
+  "duplicate_events": 0,
+  "provider_retry_events": 0,
+  "context_limit_events": 0,
+  "final_decision_revision_proof": [
+    {
+      "canonical_id": "1b620cdcb79e48ed8a59e883d04db24a",
+      "finding_id": "bfb222b196cb42aea6eb9aa092bccda8",
+      "title": "support/download.php file 参数未规范化导致路径穿越任意文件读取",
+      "references": 1,
+      "base_matches_stored": false,
+      "with_references_matches_stored": true,
+      "stored_decision": "accept"
+    },
+    {
+      "canonical_id": "3d7bcd8666c149e884a6533f109c96f2",
+      "finding_id": "ff3a62ff96234032b41275b57ae958f2",
+      "title": "商品欢迎页 name 参数未编码输出导致反射型 XSS",
+      "references": 1,
+      "base_matches_stored": false,
+      "with_references_matches_stored": true,
+      "stored_decision": "accept"
+    },
+    {
+      "canonical_id": "494423ddc5fb4859bd074dca9235a8c5",
+      "finding_id": "b0274d88e0464405aedda5310f07e213",
+      "title": "钱包提现余额检查与扣减非原子，存在并发竞态透支",
+      "references": 4,
+      "base_matches_stored": false,
+      "with_references_matches_stored": true,
+      "stored_decision": "accept"
+    },
+    {
+      "canonical_id": "65c06b0d6aa24d67926ac7d86879ee5c",
+      "finding_id": "6652fccf280249818b48b10a028df880",
+      "title": "商品目录搜索参数 q 拼接进 LIKE 查询导致 SQL 注入",
+      "references": 1,
+      "base_matches_stored": false,
+      "with_references_matches_stored": true,
+      "stored_decision": "accept"
+    }
+  ],
+  "readonly_reattach_projection": {
+    "matched_decisions": 23,
+    "projected_counts": {
+      "accepted": 22,
+      "pending": 1
+    },
+    "scope": "read-only in-memory reattachment of existing same-version decisions; original frozen report and database unchanged"
+  },
+  "poc": {
+    "during_run": {
+      "available": false,
+      "reason": "runner_unhealthy",
+      "checked_at": "2026-11-10T04:13:20.890686+00:00",
+      "mode": "auto"
+    },
+    "jobs": 0,
+    "verified": 0,
+    "pending": 23,
+    "health_now": {
+      "public_client_ok": true,
+      "configured_client_ok": true,
+      "version": "3.2.0",
+      "seconds": [
+        0.094,
+        0.099
+      ]
+    },
+    "limitation": "The original failure exception was not persisted; present health success does not diagnose historical failure or validate SDK/model gateway/POC execution."
+  },
+  "prompt_cache": {
+    "by_role": {
+      "planner": {
+        "cache_hit_ratio": 0.5772600407340754,
+        "cache_read_tokens": 107136,
+        "cache_write_tokens": null,
+        "complete": true,
+        "hit_records": 13,
+        "known_cache_read_tokens": 107136,
+        "known_cache_write_tokens": 0,
+        "known_input_tokens": 185594,
+        "record_coverage": 1.0,
+        "reported_input_tokens": 185594,
+        "reported_records": 13,
+        "usage_records": 13,
+        "write_reported_records": 0
+      },
+      "reviewer": {
+        "cache_hit_ratio": 0.09240732548880828,
+        "cache_read_tokens": 26112,
+        "cache_write_tokens": null,
+        "complete": true,
+        "hit_records": 17,
+        "known_cache_read_tokens": 26112,
+        "known_cache_write_tokens": 0,
+        "known_input_tokens": 282575,
+        "record_coverage": 1.0,
+        "reported_input_tokens": 282575,
+        "reported_records": 17,
+        "usage_records": 17,
+        "write_reported_records": 0
+      },
+      "worker": {
+        "cache_hit_ratio": 0.8656484760625411,
+        "cache_read_tokens": 3515904,
+        "cache_write_tokens": null,
+        "complete": true,
+        "hit_records": 182,
+        "known_cache_read_tokens": 3515904,
+        "known_cache_write_tokens": 0,
+        "known_input_tokens": 4061584,
+        "record_coverage": 1.0,
+        "reported_input_tokens": 4061584,
+        "reported_records": 182,
+        "usage_records": 182,
+        "write_reported_records": 0
+      }
+    },
+    "cache_hit_ratio": 0.8055962433271748,
+    "cache_read_tokens": 3649152,
+    "cache_write_tokens": null,
+    "complete": true,
+    "hit_records": 212,
+    "known_cache_read_tokens": 3649152,
+    "known_cache_write_tokens": 0,
+    "known_input_tokens": 4529753,
+    "record_coverage": 1.0,
+    "reported_input_tokens": 4529753,
+    "reported_records": 212,
+    "usage_records": 212,
+    "version": "prompt-cache-v1",
+    "write_reported_records": 0
+  },
+  "key_events": [
+    {
+      "event_id": 77926,
+      "kind": "planner_round_failed",
+      "created_at": "2026-11-10T04:04:23.082968+00:00",
+      "stage": null,
+      "reason": null,
+      "error": "StopAudit: 结构化发布在允许的请求数内未通过宿主校验；最后一次拒绝：任务 wallet-orders-logic 已经重开 2 次（上限 2）；重复重开同一方向会烧掉 worker 预算，请在 basis_summary 里说明剩余的不确定性，或换一个尚未探索的方向。",
+      "terminal_reason": "invalid_output"
+    },
+    {
+      "event_id": 78509,
+      "kind": "planner_round_failed",
+      "created_at": "2026-11-10T04:11:26.184805+00:00",
+      "stage": null,
+      "reason": null,
+      "error": "triage is only available for advisory leads in exhaustive-v1",
+      "terminal_reason": "planner_commit_rejected"
+    },
+    {
+      "event_id": 78603,
+      "kind": "workflow_stage_changed",
+      "created_at": "2026-11-10T04:13:11.034521+00:00",
+      "stage": "poc",
+      "reason": {
+        "state": "inconclusive",
+        "basis": "已为 POC 验证与统一终审预留时间，不再启动源码挖掘；未完成方向保留。",
+        "missing": [],
+        "code": "poc_window_reserved"
+      },
+      "error": null,
+      "terminal_reason": null
+    },
+    {
+      "event_id": 78604,
+      "kind": "poc_verification_unavailable",
+      "created_at": "2026-11-10T04:13:21.091846+00:00",
+      "stage": null,
+      "reason": "runner_unhealthy",
+      "error": null,
+      "terminal_reason": null
+    },
+    {
+      "event_id": 78605,
+      "kind": "workflow_stage_changed",
+      "created_at": "2026-11-10T04:13:24.467134+00:00",
+      "stage": "review",
+      "reason": null,
+      "error": null,
+      "terminal_reason": null
+    },
+    {
+      "event_id": 78804,
+      "kind": "run_inconclusive",
+      "created_at": "2026-11-10T04:21:47.898986+00:00",
+      "stage": null,
+      "reason": {
+        "code": "final_review_needs_evidence",
+        "message": "终审已结束，5 条结论仍需补证；未将其计入已接受漏洞。"
+      },
+      "error": null,
+      "terminal_reason": null
+    }
+  ],
+  "frozen_hashes": {
+    "input_hash": "ec928ecdec7c306768e1003b8cdf3fd7222ac1277524f04c8f20cd2c8d12714e",
+    "output_hash": "6cc13d4ef4b9cdf091ed20c2e19dc169cb5750840df66ed025eb8b25f41b20f8",
+    "created_at": "2026-11-10T04:21:47.884523+00:00"
+  },
+  "source_sha256": {
+    "backend/audit/review_store.py": "6250f3eb8cbbe0c8cad78b6341fe1e8d5bba6a6746a4703477ff55639f8e7cc9",
+    "backend/audit/poc_readiness.py": "9d1ed9a841789ca8acdd0c3d134e65ef3731a1ebbb86cd73ff62707021fbe14e",
+    "backend/audit/exhaustive.py": "6012ab7e4fd096b272570d10da4971f3c7ed9b1bd4cbbd8452bc4485ddebd8b0",
+    "backend/audit/agent.py": "f0cde1d4a640eb3d789984ec539ccb133c52829dfe1502b60396c647585c642e",
+    "frontend/src/taskDraft.ts": "aff03a930bcb5596f76ded284e8e8bfaae8f98dbd33e12812cb8171e9b34aca8"
+  }
+}

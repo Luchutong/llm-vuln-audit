@@ -287,6 +287,7 @@ export interface PocStatistics {
 export type WorkflowStage = 'discovery' | 'poc' | 'review';
 export type WorkflowAllocation = Record<WorkflowStage, number>;
 export interface WorkflowExecution {
+  budget_pause?: { code: string; stage: WorkflowStage; message: string; resumable: boolean };
   version: 'discovery-first-v1' | 'host-queue-v1';
   review_reserve?: { pending_items: number; estimated_batches: number; workers: number; responses: number; seconds: number; funded: boolean; upstream_allowed: boolean; reason: string };
   stage: WorkflowStage;

@@ -1,0 +1,177 @@
+{
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "parent_run_id": "566a1c802c1e5ef19b153cb5529b1446",
+  "upgrade": {
+    "rebound_reviews": 100,
+    "allowances_preserved": 3,
+    "reused_from_parent": {
+      "findings": 24,
+      "risks": 83,
+      "changed": [
+        {
+          "item_id": "13915e80b8b640bfb01bb4de36c9e504",
+          "changed_facts": [
+            "verification"
+          ]
+        },
+        {
+          "item_id": "4e35ce72f856430faf590095346c382a",
+          "changed_facts": [
+            "claim",
+            "sources",
+            "verification"
+          ]
+        },
+        {
+          "item_id": "4ff114fb7c314acea2f3c0414f005f7f",
+          "changed_facts": [
+            "verification"
+          ]
+        },
+        {
+          "item_id": "5a1f8b8736b246b9ae6d081c49f50198",
+          "changed_facts": [
+            "verification"
+          ]
+        },
+        {
+          "item_id": "693c196a65ed4310a7e9920b5b67d9f3",
+          "changed_facts": [
+            "verification"
+          ]
+        },
+        {
+          "item_id": "fd7b2de1f92542ed9e05b5d2de82edc1",
+          "changed_facts": [
+            "claim",
+            "sources",
+            "verification"
+          ]
+        }
+      ]
+    },
+    "stage": "discovery",
+    "at": "2026-11-10T13:57:58.527158+00:00"
+  },
+  "accepted_before": 20,
+  "accepted_after": 27,
+  "risk": {
+    "supported": 24,
+    "no_evidence": 40,
+    "not_applicable": 19,
+    "blocked": 0,
+    "pending": 5
+  },
+  "usage": {
+    "responses": 35,
+    "tools": 34,
+    "seconds": 1165.304
+  },
+  "limits": {
+    "responses": 56,
+    "tools": 3951,
+    "seconds": 2810
+  },
+  "remaining": {
+    "responses": 21,
+    "tools": 3917,
+    "seconds": 1644.696
+  },
+  "workflow": {
+    "limits": {
+      "discovery": 11,
+      "poc": 22,
+      "review": 23
+    },
+    "poc_reserved_seconds": 0.0,
+    "review_reserved_rounds": 0,
+    "review_reserved_seconds": 559,
+    "source": "derived",
+    "stage": "discovery",
+    "transferred": 0,
+    "used": {
+      "discovery": 11,
+      "poc": 22,
+      "review": 2
+    },
+    "version": "host-queue-v1",
+    "review_reserve": {
+      "pending_items": 57,
+      "estimated_batches": 17,
+      "workers": 0,
+      "responses": 23,
+      "seconds": 559,
+      "funded": false,
+      "reading_work": {
+        "pages": 19,
+        "characters": 67747,
+        "page_characters": 4096
+      },
+      "poc_window_seconds": 0.0,
+      "upstream_allowed": false,
+      "poc_window_blocks": false,
+      "reason": "actual_review_batches_and_inflight_workers"
+    },
+    "time_grants": {
+      "approved-add-1800-seconds-20261110": {
+        "added_seconds": 1800,
+        "before": {
+          "responses": 56,
+          "tools": 3951,
+          "seconds": 1010
+        },
+        "after": {
+          "responses": 56,
+          "tools": 3951,
+          "seconds": 2810
+        },
+        "returned_source_responses": 10,
+        "stage": "discovery",
+        "at": "2026-11-10T13:02:33.314973+00:00"
+      }
+    },
+    "budget_pause": {
+      "code": "stage_budget_exhausted",
+      "stage": "discovery",
+      "resumable": true,
+      "message": "未完成方向已恢复至原阶段；请在本记录补充或调拨阶段预算后继续。",
+      "at": "2026-11-10T13:57:59.545787+00:00"
+    },
+    "remaining": {
+      "discovery": 0,
+      "poc": 0,
+      "review": 21
+    },
+    "stage_remaining_seconds": 1085.696
+  },
+  "pending_by_kind": {
+    "direction": 38,
+    "finding": 4,
+    "risk": 5
+  },
+  "core_fingerprints": {
+    "findings": "cfcf83301a8a428f57e25b585fe70026849d0cc6ad20882bf428415aa968b03c",
+    "verifications": "1cd94e58857b2bfe792a9c81b28c51d676a132d3ae7480d793150f0b439779ad",
+    "verification_reviews": "6b9265fe010c17f1fdcdfc25565e10bd7cc8a2abefeb1c3fb4826aad330fc9a5",
+    "planner_tasks": "3a692f4d1f836f6352931206a4b13f73049879b7af2c11c060b56e2462f36480",
+    "planner_task_attempts": "548d415561ec2d603138f59192a9d46235ead5f5bc2400a34a1fda037b15474a",
+    "poc_attempts": "91556601e4f5b1e38edb73f220a3ae003bb1d6dcdca3847c7f0ffe07759ed055",
+    "poc_verification_jobs": "76848d9e6b3faafe969ade2302117e0891e55556f5c353faa6e8f62a862ab4e3"
+  },
+  "parent_frozen_hashes": {
+    "run_id": "d9fc4156f1f3ce6706f547648993098c33dcb6c9d3c25808478a6871363a1e03",
+    "input_hash": "a0002cf7822c7f0d41ae20deaad5352edc6e408e5360880adbab60561e0d06cb",
+    "input_json": "3cad4969cf03f0ccbd6ba66b137c636f58e0b13b793ef98b0a5495acefae0006",
+    "created_at": "e7bd777555e9d6462cb0cf7c51e580c55d9ae84572155f12b4a7a393eee6fb9e",
+    "facts_json": "804d00dce1e057d6c439fe117f819ff09095687ecb683b6a12073e250ad22dfe",
+    "markdown": "2e61301c9d88e3b6b59812084a62abadc87ea1d6b1e61c060e83099c8e706fb0",
+    "output_hash": "6bf838378298b9c590cbe2706e45205d1c76e69affc03614cbe6c2580ecda5fb",
+    "zip_blob": "21b12791cc33ad66e47597794edef12bc71b1cdf7da8200cf74e04a8b282f674",
+    "json_export": "8be0a3d8ac4f2e45bcb13019b9425d4c0b701db2e9be09bcc73d5fdafb44c98e"
+  },
+  "parent_frozen_unchanged": true,
+  "existing_reviews_and_allowances_preserved": true,
+  "no_model_requests": true,
+  "no_runner_jobs": true,
+  "observed_at": "2026-11-10T13:58:06.750608+00:00"
+}

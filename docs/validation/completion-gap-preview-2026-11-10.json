@@ -1,0 +1,171 @@
+{
+  "parent_run_id": "566a1c802c1e5ef19b153cb5529b1446",
+  "budget": {
+    "responses": 56,
+    "tools": 3951,
+    "seconds": 1010
+  },
+  "source_tasks": 7,
+  "directions_covered": 41,
+  "risk_by_state": {
+    "supported": 24,
+    "no_evidence": 40,
+    "not_applicable": 19,
+    "blocked": 0,
+    "pending": 5
+  },
+  "tasks": [
+    {
+      "task_key": "wallet-debit-catalog",
+      "directions": 12,
+      "risks": 0,
+      "paths": 5,
+      "shown_paths": 5,
+      "unresolved": [],
+      "limitations": [
+        "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+        "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+        "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+        "Binary files are registered with their size only and cannot be read or searched.",
+        "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding."
+      ]
+    },
+    {
+      "task_key": "close-283cf5ad272e5ec1",
+      "directions": 7,
+      "risks": 1,
+      "paths": 4,
+      "shown_paths": 4,
+      "unresolved": [],
+      "limitations": [
+        "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+        "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+        "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+        "Binary files are registered with their size only and cannot be read or searched.",
+        "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding."
+      ]
+    },
+    {
+      "task_key": "close-d69bef0483b4e725",
+      "directions": 3,
+      "risks": 0,
+      "paths": 5,
+      "shown_paths": 5,
+      "unresolved": [],
+      "limitations": [
+        "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+        "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+        "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+        "Binary files are registered with their size only and cannot be read or searched.",
+        "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding."
+      ]
+    },
+    {
+      "task_key": "close-f2402241b0048ce6",
+      "directions": 3,
+      "risks": 0,
+      "paths": 5,
+      "shown_paths": 5,
+      "unresolved": [],
+      "limitations": [
+        "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+        "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+        "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+        "Binary files are registered with their size only and cannot be read or searched.",
+        "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding."
+      ]
+    },
+    {
+      "task_key": "close-c528899221181cc8",
+      "directions": 5,
+      "risks": 0,
+      "paths": 5,
+      "shown_paths": 5,
+      "unresolved": [],
+      "limitations": [
+        "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+        "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+        "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+        "Binary files are registered with their size only and cannot be read or searched.",
+        "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding."
+      ]
+    },
+    {
+      "task_key": "close-71ea09007c34b9fd",
+      "directions": 9,
+      "risks": 3,
+      "paths": 15,
+      "shown_paths": 15,
+      "unresolved": [],
+      "limitations": [
+        "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+        "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+        "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+        "Binary files are registered with their size only and cannot be read or searched.",
+        "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding."
+      ]
+    },
+    {
+      "task_key": "close-6bdcbe6748eb3ef1",
+      "directions": 2,
+      "risks": 1,
+      "paths": 5,
+      "shown_paths": 5,
+      "unresolved": [],
+      "limitations": [
+        "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+        "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+        "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads.",
+        "Binary files are registered with their size only and cannot be read or searched.",
+        "The map is an index for planning, not source evidence; workers must read cited lines before reporting a finding."
+      ]
+    }
+  ],
+  "workflow": {
+    "discovery_stop": null,
+    "limits": {
+      "discovery": 20,
+      "poc": 14,
+      "review": 22
+    },
+    "poc_reserved_seconds": 353.5,
+    "review_reserved_rounds": 0,
+    "review_reserved_seconds": 457,
+    "source": "derived",
+    "stage": "discovery",
+    "transferred": 0,
+    "used": {
+      "discovery": 0,
+      "poc": 0,
+      "review": 0
+    },
+    "version": "host-queue-v1",
+    "review_reserve": {
+      "pending_items": 53,
+      "estimated_batches": 12,
+      "workers": 2,
+      "responses": 22,
+      "seconds": 457,
+      "funded": true,
+      "reading_work": {
+        "pages": 7,
+        "characters": 24837,
+        "page_characters": 4096
+      },
+      "poc_window_seconds": 353.5,
+      "upstream_allowed": true,
+      "poc_window_blocks": false,
+      "reason": "actual_review_batches_and_inflight_workers"
+    },
+    "remaining": {
+      "discovery": 20,
+      "poc": 14,
+      "review": 22
+    },
+    "stage_remaining_seconds": 197.1159915770054
+  },
+  "findings": 31,
+  "selected_pocs": 7,
+  "scope": "Isolated SQLite backup; zero model requests and zero runner jobs",
+  "observed_at": "2026-11-10T12:33:46.675290+00:00"
+}

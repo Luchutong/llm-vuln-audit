@@ -1,0 +1,33 @@
+{
+  "at": "2026-11-10T16:21:56.807923+00:00",
+  "full_backend": {
+    "total": 2596,
+    "passed": 2595,
+    "failed": 1,
+    "logs": ".run/comprehensive-source-tests-20261110",
+    "failure": "test_persistent_queue_stream_uses_run_window_and_keeps_idle_protection[run_deadline]",
+    "cause": "50 ms capability expired before HTTP admission under parallel load"
+  },
+  "corrected_gateway_suite": {
+    "passed": 57,
+    "failed": 0,
+    "log": ".run/comprehensive-source-gateway-tests.log"
+  },
+  "final_source_checkpoint_suite": {
+    "passed": 53,
+    "failed": 0,
+    "log": ".run/comprehensive-source-checkpoint-final-tests.log"
+  },
+  "initial_focused_suite": {
+    "passed": 147,
+    "failed": 0,
+    "log": ".run/comprehensive-source-tests.log"
+  },
+  "frontend": {
+    "passed": 132,
+    "failed": 0,
+    "build": "passed"
+  },
+  "isolated_replay": "comprehensive-source-repair-replay-2026-11-11.json",
+  "applied": "comprehensive-source-repair-applied-2026-11-11.json"
+}

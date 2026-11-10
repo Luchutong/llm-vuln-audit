@@ -437,6 +437,14 @@ th { font-weight: 600; color: var(--ink-faint); background: var(--surface-sunken
 .settings-section-label { display: flex; gap: 8px; align-items: center; color: var(--ink-soft); font-size: 12px; margin-bottom: 18px; }
 .mobile-sidebar { width: min(300px, 90vw); margin-right: auto; }
 .mobile-sidebar .side { flex: 1; padding-top: 20px; border: 0; }
+.budget-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.budget-preset { display: grid; gap: 7px; padding: 16px 12px; text-align: left; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.budget-preset > span { font-size: 12px; color: var(--ink-soft); }
+.budget-preset[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.budget-preset:disabled { opacity: .55; cursor: wait; }
+.budget-tuning > summary { cursor: pointer; color: var(--ink-soft); padding: 8px 0; }
+.budget-tuning fieldset { margin-top: 10px; }
+@media (max-width: 560px) { .budget-presets { grid-template-columns: 1fr; } .budget-preset { grid-template-columns: 1fr auto; } .budget-preset strong { grid-column: 1 / -1; } }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .spin { animation: spin 1.4s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -1,0 +1,39 @@
+{
+  "parent_run_id": "1995ca42dc1959488aadb74da515fbee",
+  "scope": "Offline SQLite backup, zero model requests and zero runner jobs",
+  "budget": {
+    "responses": 256,
+    "tools": 4096,
+    "seconds": 5400
+  },
+  "mode": "audit",
+  "stage": "discovery",
+  "poc_mode": "required",
+  "native_format": "json_object",
+  "findings": 28,
+  "inherited_verified": 20,
+  "selected_retests": 8,
+  "tasks": {
+    "completed": 48,
+    "ready": 1
+  },
+  "dispositions": {
+    "accepted": 20,
+    "pending": 8
+  },
+  "risk_by_state": {
+    "supported": 23,
+    "no_evidence": 42,
+    "not_applicable": 2,
+    "blocked": 0,
+    "pending": 21
+  },
+  "eligible_identical_risks": 67,
+  "workflow_limits": {
+    "discovery": 180,
+    "poc": 64,
+    "review": 12
+  },
+  "parent_frozen_unchanged": true,
+  "observed_at": "2026-11-10T10:03:13.180173+00:00"
+}

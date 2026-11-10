@@ -334,16 +334,19 @@ class DirectionStoreMixin(ExhaustiveMixin):
                     raise ValueError("cannot take a direction away from a running task")
                 if self.host_queue_enabled(run_id):
                     if record.get("unknown_paths"):
+                        inspect = _load(target['context_spec'], {}).get('closure_inspection')
+                        frozen = _load(self._row('SELECT task_spec FROM runs WHERE id=?',(run_id,))[0],{})
                         # The Planner cannot edit a direction's text, so an assignment
                         # refusal that only says "fix the scope" is a dead end: the run
                         # repeated it for three rounds until the coverage review closed.
                         # Name what is unknown and the two actions that can settle it.
-                        raise ValueError(
-                            f"方向 {identity} 的文本点名了冻结源码中不存在的文件："
-                            f"{'、'.join(record['unknown_paths'])}；该方向不能升级为必做方向。"
-                            "对本轮同一方向改用 skip（rationale 说明该路径不在冻结源码内，"
-                            "仍可直接派发任务读其它已知路径）；该方向从未派发，不能 resolve。"
-                            "其余任务与方向更新可随下一轮重新提交。")
+                        if not (inspect and frozen.get('completion_recovery_policy')=='assigned-gaps-v1'):
+                            raise ValueError(
+                                f"方向 {identity} 的文本点名了冻结源码中不存在的文件："
+                                f"{'、'.join(record['unknown_paths'])}；该方向不能升级为必做方向。"
+                                "对本轮同一方向改用 skip（rationale 说明该路径不在冻结源码内，"
+                                "仍可直接派发任务读其它已知路径）；该方向从未派发，不能 resolve。"
+                                "其余任务与方向更新可随下一轮重新提交。")
                     record["requirement"] = "required"
                 record.update(state="assigned", assigned_task_key=task_key)
                 spec = _load(self._db.execute("SELECT context_spec FROM planner_tasks WHERE id=?", (target["id"],)).fetchone()[0], {}) or {}
@@ -381,8 +384,17 @@ class DirectionStoreMixin(ExhaustiveMixin):
                     and finding.get("disposition") in {None, "", "open"} and finding.get("verification_status") != "rejected"
                     and paths and (not record.get("paths") or paths.intersection(record["paths"]))):
                 eligible.append({k: finding.get(k) for k in ("id", "title", "vulnerability_type", "primary_location", "evidence")})
+        witness = ([] if len(matching) != 1 or matching[0].get('outcome') != 'supported'
+                   else [f['id'] for f in eligible])
+        try:
+            self._validate_direction_resolution_tx(run_id, record,
+                dict(task_key=task.get('task_key'), finding_ids=witness), tasks)
+            can_resolve, blocked_reason = True, None
+        except ValueError as exc:
+            can_resolve, blocked_reason = False, str(exc)
         return {"requirement": record.get("requirement", "required"), "task_key": task.get("task_key"),
                 "task_state": task.get("state"), "worker_results": matching,
+                'can_resolve': can_resolve, 'resolution_blocker': blocked_reason,
                 **({"eligible_finding_ids": [f["id"] for f in eligible]} if compact else {"eligible_findings": eligible}),
                 "rules": ["required 不能 triage；未领取用 assign，证据不足保留 needs_evidence。",
                     "resolve 必须引用同一 direction_id 的 supported/no_evidence worker_results 和实际 task_key。",

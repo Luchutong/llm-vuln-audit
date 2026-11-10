@@ -5,10 +5,11 @@ import type { ModelProfile, Run } from '../types';
 import { runLabel, localDate } from '../status';
 import { Overlay } from './Overlay';
 
-type Mode = 'poc_review' | 'review' | 'audit';
+type Mode = 'poc_review' | 'review' | 'audit' | 'audit_full';
 const STATUS_LABELS: Record<string, string> = { inconclusive: '未决', unverified: '未验证', stale: '结论已更新', environment_unavailable: '环境不可用', rejected: '验证未通过', not_applicable: '不适用' };
 interface Options {
   available: boolean; reason: string; active_run_ids: string[];
+  review_only?: boolean;
   retestable_count: number; pending_review_count: number;
   model_profiles?: ModelProfile[]; selected_profile_id?: string | null;
   continuations?: { id: string; status: Run['status']; created_at: string }[];
@@ -28,6 +29,7 @@ function ContinueAudit({ run, onClose, onChanged }: { run: Run; onClose: () => v
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<Mode>('poc_review');
+  const [requireDynamic, setRequireDynamic] = useState(false);
   const [profileId, setProfileId] = useState('current');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [requestId] = useState(() => typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
@@ -53,7 +55,7 @@ function ContinueAudit({ run, onClose, onChanged }: { run: Run; onClose: () => v
       setError('');
       setOptions(value); setSelected(new Set(value.items.filter(i => i.can_retest).map(i => i.finding_id)));
       setProfileId(value.selected_profile_id || 'current');
-      if (!value.retestable_count) setMode('review');
+      if (!value.retestable_count || value.review_only) setMode('review');
     }).catch(exc => {
       if (!active) return;
       setError(timedOut ? '复测配置读取超时，请关闭后重试。' : errorText(exc));
@@ -68,7 +70,10 @@ function ContinueAudit({ run, onClose, onChanged }: { run: Run; onClose: () => v
     setBusy(true); setError('');
     try {
       const next = await post<Run>(`/runs/${run.id}/continuation`, {
-        request_id: requestId, mode, model_profile_id: profileId, finding_ids: mode === 'review' ? [] : [...selected],
+        request_id: requestId, mode: mode === 'audit_full' ? 'audit' : mode,
+        audit_policy: mode === 'audit_full' ? 'exhaustive-v1' : 'inherit',
+        require_dynamic: mode !== 'review' && requireDynamic,
+        model_profile_id: profileId, finding_ids: mode === 'review' ? [] : [...selected],
         run_limits: { responses, tools, seconds },
         ...(mode !== 'review' ? { poc: { session_policy: sessionPolicy, max_seconds: pocSeconds, max_jobs: jobs, execute_requests: execute, conclude_requests: conclude } } : {}),
       });
@@ -87,10 +92,21 @@ function ContinueAudit({ run, onClose, onChanged }: { run: Run; onClose: () => v
           <option value="original" disabled={originalModelUnavailable}>沿用原任务冻结档案 · {run.model}{originalModelUnavailable ? '（已停用）' : ''}</option>
         </select></label>
         <p className="small muted">新任务默认采用配置页当前档案，创建后冻结。POC SDK 使用其独立配置的模型与网关，不随此选项切换。</p>
-        <label className="field">继续范围<select value={mode} onChange={e => setMode(e.target.value as Mode)} disabled={busy}>
-          <option value="poc_review">复测未决 POC，再完成终审</option><option value="review">仅补终审，不执行新 POC</option><option value="audit">继续源码审计、验证与终审</option>
+        <label className="field">继续范围<select value={mode} onChange={e => {
+          const next = e.target.value as Mode;
+          setMode(next);
+          if (next === 'audit_full') {
+            setResponses(value => Math.max(value, 512));
+            setTools(value => Math.max(value, 4096));
+            setSeconds(value => Math.max(value, 7200));
+          }
+        }} disabled={busy}>
+          <option value="poc_review" disabled={options.review_only}>复测未决 POC，再完成终审</option><option value="review">仅补终审，不执行新 POC</option><option value="audit" disabled={options.review_only}>继续源码审计、验证与终审</option>
+          <option value="audit_full" disabled={options.review_only}>高召回全量审计、验证与终审</option>
         </select></label>
-        <p className="small muted">可复测 {options.retestable_count} 项 · 原运行待审或需重新处置 {options.pending_review_count} 项。所选复测项及关联结论将在新任务中重新终审；追加预算不保证漏洞成立或全部完成。</p>
+        {options.review_only && <p className="small muted">原任务已在检查点暂停。可创建独立终审任务，沿用已保存的验证结果；原任务保持暂停，关联终审结束前不能同时恢复。</p>}
+        {mode === 'audit_full' && <p className="small muted">继承证据与发现，恢复未完成任务，启用全源码范围、穷尽线索与风险覆盖。原局部审计的跳过决定不再抵扣全量覆盖；发现数量由证据决定。</p>}
+        <p className="small muted">可复测 {options.retestable_count} 项 · 原运行待审或需重新处置 {options.pending_review_count} 项。已通过终审且事实未变的结论直接继承；只处理未闭环方向、新证据或结论变化涉及的项目。阶段预算不足时暂停，可在同一记录补额继续。</p>
         {mode !== 'review' && <fieldset className="grid" disabled={busy}><legend>选择复测项目</legend>
           <div className="result-actions"><button className="text-button" type="button" onClick={() => setSelected(new Set(options.items.filter(i => i.can_retest).map(i => i.finding_id)))}>全选未决项</button><button className="text-button" type="button" onClick={() => setSelected(new Set())}>清空选择</button></div>
           <div style={{ maxHeight: 230, overflowY: 'auto' }} className="grid">{options.items.filter(i => i.can_retest).map(item => <label key={item.finding_id} style={{ display: 'flex', gap: 8, alignItems: 'start' }}>
@@ -104,6 +120,7 @@ function ContinueAudit({ run, onClose, onChanged }: { run: Run; onClose: () => v
           <label className="field">总时长（秒）<input type="number" min={30} max={14400} required value={seconds} onChange={e => setSeconds(e.target.valueAsNumber)} /></label>
         </fieldset>
         {mode !== 'review' && <fieldset className="grid" disabled={busy}><legend>POC 执行设置</legend>
+          <label className="small"><input type="checkbox" checked={requireDynamic} onChange={e => setRequireDynamic(e.target.checked)} />要求动态验证；环境不可用时明确保留未决</label>
           {sdk && <label className="field">验证方式<select value={sessionPolicy} onChange={e => setSessionPolicy(e.target.value)}>
             <option value="session-queue-v1">持续会话队列 · 逐项发布</option><option value="staged-v1">旧版逐项执行／结论</option>
           </select></label>}

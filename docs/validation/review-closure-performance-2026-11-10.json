@@ -1,0 +1,16 @@
+{
+  "run_id": "8a035cfcda5254238742ea8af118f869",
+  "review_fact_count": 119,
+  "timings_seconds": [
+    2.821,
+    1.002,
+    1.025
+  ],
+  "median_seconds": 1.025,
+  "prior_profile_seconds": 12.671,
+  "prior_get_run_calls": 32,
+  "prior_execution_summary_seconds": 10.094,
+  "source": "Local cProfile of the same paused run before repair and three read-only measurements after repair; no model calls.",
+  "existing_decisions": 20,
+  "matching_existing_revisions": 20
+}

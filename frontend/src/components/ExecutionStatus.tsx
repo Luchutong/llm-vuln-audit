@@ -80,7 +80,8 @@ function CompactExecutionStatus({ detail }: { detail: RunDetail }) {
   const summary = executionSummary(detail);
   const paused = detail.run.status === 'paused';
   const terminal = TERMINAL.has(detail.run.status);
-  const title = terminal ? '本次执行已结束' : paused ? summary && summary.phase !== 'paused' ? '正在暂停，等待在途执行静止' : '已暂停，可继续运行' : detail.run.status === 'pending' ? '等待调度' : view.titles[0] || (view.stage === 'review' ? '正在整理并复核结论' : view.stage === 'poc' ? view.pocLabel || '等待验证任务' : '等待排查任务');
+  const evidencePaused = summary?.workflow?.budget_pause?.code === 'source_evidence_required';
+  const title = terminal ? '本次执行已结束' : paused ? summary && summary.phase !== 'paused' ? '正在暂停，等待在途执行静止' : evidencePaused ? '源码补证受阻，剩余额度已保留' : '已暂停，可继续运行' : detail.run.status === 'pending' ? '等待调度' : view.titles[0] || (view.stage === 'review' ? '正在整理并复核结论' : view.stage === 'poc' ? view.pocLabel || '等待验证任务' : '等待排查任务');
   return <section className="run-execution-compact" aria-label="当前执行摘要">
     <div className="run-stage-labels" aria-label="审计阶段">{(['discovery', 'poc', 'review'] as const).map((stage) => <span key={stage} data-stage={stage} aria-current={view.stage === stage ? 'step' : undefined} className={view.stage === stage ? 'is-current' : undefined}>{RUN_STAGE_LABELS[stage]}</span>)}{!view.stage && <span>阶段未记录</span>}</div>
     <div className="run-current-task"><CompactText text={title} label="当前任务" />{!terminal && view.titles.length > 1 && <Disclosure title={`另有 ${view.titles.length - 1} 项`}>{view.titles.slice(1).map((text, index) => <p key={index} className="small">{text}</p>)}</Disclosure>}</div>

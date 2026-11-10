@@ -1412,6 +1412,7 @@ def _planner_situation(run_context: dict) -> dict:
             "state": item.get("state"),
             "attempts": item.get("attempts"),
             "revisions": int(item.get("revisions") or 0),
+            "reopens_this_run": int(item.get("reopens_this_run", item.get("revisions") or 0)),
             "dependencies": [_planner_text(value, 96) for value in (item.get("dependencies") or [])[:8]],
             # What this direction actually reads.  A settled direction's file set is what a
             # new proposal is compared against, so showing it here lets the round avoid the
@@ -1422,7 +1423,7 @@ def _planner_situation(run_context: dict) -> dict:
                 _planner_text(value, 80)
                 for value in (result.get("missing_context") or item.get("missing_context") or [])[:2]
             ],
-            "error": _planner_text(item.get("error"), 160) or None,
+            "error": _planner_text(item.get("error"), 600 if item.get('state')=='blocked' else 160) or None,
             "terminal_reason": _planner_text(item.get("terminal_reason") or result.get("terminal_reason"), 60) or None,
             "remaining_work": [_planner_text(value, 160) for value in (item.get("remaining_work") or result.get("remaining_work") or [])[:2]],
         }
@@ -3007,6 +3008,7 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     execution=execution, loop=asyncio.get_running_loop(),
                     dispatch=deps.call, deadline=deadline, limit=limit,
                     output_model=GoalAssessment, validate=validate_goal,
+                    accept_terminal_object=tools,
                 )
                 worker_gate[0] = gate
                 if tools and evidence_yield:
@@ -3076,6 +3078,8 @@ reasoning 字段只写简短、可审计的依据摘要：说明当前结论、�
                     emit({"kind": "task_exploration_stopped", "reason": exploration_reason,
                           "error": config.redact(exc)[:400], "usage": execution.snapshot()})
                 assessment = gate.published
+                if assessment is None and gate.pending_correction:
+                    deps.notes.append('上次提交被拒绝，请按具体字段纠正：' + gate.pending_correction[:1200])
             if assessment is None:
                 execution.enter("task_publish", attempt=attempt, reason=exploration_reason or "direct",
                                 reserved_responses=reserve)
@@ -3391,9 +3395,10 @@ def _check_reopen(update, prior: dict, state: str, *, task_limit: int, run_left:
             f"任务 {key} 当前处于 {state}，还没有结论可更正。"
             "仍在待办的任务不需要重开；暂缓的可直接用同一 task_key 重新提交。"
         )
-    if int(prior.get("revisions") or 0) + 1 > task_limit:
+    reopens = int(prior.get('reopens_this_run', prior.get('revisions') or 0))
+    if reopens + 1 > task_limit:
         raise ModelRetry(
-            f"任务 {key} 已经重开 {prior.get('revisions')} 次（上限 {task_limit}）；"
+            f"任务 {key} 本轮运行已经重开 {reopens} 次（上限 {task_limit}，历史累计 {prior.get('revisions', 0)}）；"
             "重复重开同一方向会烧掉 worker 预算，请在 basis_summary 里说明剩余的不确定性，"
             "或换一个尚未探索的方向。"
         )
@@ -4176,7 +4181,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     [item.model_dump() for item in value.updates],
                     [item.model_dump() for item in value.project_updates],
                     [item.model_dump() for item in value.direction_updates],
-                    pins._audit_direction_records(run_id) if role_policy.enabled(task) and hasattr(pins, '_audit_direction_records') else {},
+                    pins._audit_direction_records(run_id) if hasattr(pins, '_audit_direction_records') else {},
                     {t['task_key']: t for t in pins.list_tasks(run_id, include_attempts=False)}
                     if role_policy.enabled(task) and hasattr(pins, 'list_tasks') else {},
                     coverage_updates=[item.model_dump() for item in value.coverage_review])
@@ -4219,6 +4224,13 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                     )
                 pending: list[dict] = batch_notes
                 dropped_report = False
+                if hosted and not batch and value.verification_reviews:
+                    # Source planning is not a dynamic verdict publication. The
+                    # coordinator already discards these; don't spend corrections
+                    # requiring page reads for an output it cannot commit.
+                    value.verification_reviews = []
+                    pending.append(dict(reason='dynamic_review_requires_final_batch',
+                        message='源码规划中的动态复核已留给独立 final 批次；未写入任何验证判决。'))
                 if value.verification_reviews and not unified:
                     current_context = context_reader() if context_reader is not None else run_context
                     deps.validate_verification_reads(value.verification_reviews, current_context)
@@ -4374,7 +4386,8 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                           "不能自指、互相判重，或把本批次正在撤回的结论作为主结论。"
                           "goal_state=continue，宿主决定下一批及终态。"
                           "integration 中 finding 用 retain/needs_evidence/contested/duplicate/withdraw；"
-                          "direction 用 resolve/needs_evidence/skip。resolve 必须依据已完成任务实际读取的源码，不因 completed 标签自动接受。"
+                          "direction 只用本项 allowed_decisions；can_resolve=false 时仅能 needs_evidence。"
+                          "resolve 须有同一 direction_id 的取证结果及实际源码，completed 标签不能代替。risk_outcome 仅用于 risk，不得填到 direction/finding。"
                           "final 中 finding 用 accept/needs_evidence/contested/duplicate/withdraw；"
                           "静态证据充分可 accept，但不能把它说成 POC verified。冲突或证据不完整保留 needs_evidence/contested。"
                           "comparison_candidates 是待比对项，不是自动判重结果；逐项比较根因、危险操作和前提。"
@@ -4478,8 +4491,14 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 task_limit = max(1, min(8, int(policy.planner_publication_tasks)))
                 schema = PlannerDecision.model_json_schema()
                 if role_policy.enabled(task):
-                    schema = role_policy.planner_schema(schema, full_scope=task.get("focus_scope") == "all")
+                    schema = role_policy.planner_schema(schema, full_scope=task.get("focus_scope") == "all",
+                                                        exhaustive=task.get("exploration_policy") == "exhaustive-v1")
+                if task.get('workflow_policy')=='discovery_first' and not run_context.get('review_batch'):
+                    from .task_contract import planner_schema as scope_schema
+                    schema=scope_schema(schema,project_map,prior_tasks)
                 schema["properties"]["tasks"]["maxItems"] = 0 if review_only else task_limit
+                if hosted and not run_context.get('review_batch') and 'verification_reviews' in schema['properties']:
+                    schema['properties']['verification_reviews']['maxItems'] = 0
                 # An actual frozen path avoids teaching the model a fictitious evidence
                 # location. This demonstrates syntax only; the model chooses its tasks.
                 sample_file = next((row for row in project_map.get("files", [])
@@ -4491,8 +4510,12 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 if review_only:
                     sample = {"goal_state": "inconclusive", "basis_summary": "当前只能说明已完成部分成果，尚未完成的方向和未读取验证继续保留未决。", "tasks": []}
                 if sample_file and not review_only:
+                    example_key='entry-boundary'
+                    taken={t.get('task_key') for t in prior_tasks}
+                    while example_key in taken:
+                        example_key+='-next'
                     sample["tasks"] = [{
-                        "task_key": "entry-boundary", "title": "入口及相关边界检查",
+                        "task_key": example_key, "title": "入口及相关边界检查",
                         "objective": "沿源码入口检查可控输入、权限边界与敏感操作，确认是否存在可利用缺陷。",
                         "acceptance_criteria": "由 worker 读取原始源码，并提交有行号依据的漏洞或排查记录。",
                         "rationale_summary": "该源码方向尚需 worker 核对。",
@@ -4844,13 +4867,16 @@ async def pursue_planner_task(
     def emit(event: dict) -> None:
         sink({"agent_invocation_id": invocation_id, "request_index": 0, **event})
     discovery_first = run_task.get("workflow_policy") == "discovery_first"
+    bundle_options = {'workflow_policy':'discovery_first'} if discovery_first else {}
+    if discovery_first and (run_task.get('investigation_policy')=='bounded-v1' or run_task.get('completion_recovery_policy')=='assigned-gaps-v1'):
+        bundle_options['preload_named_sources']=True
     bundle = await asyncio.to_thread(
         repository.build_context_bundle,
         snapshot_id,
         planner_task,
         allowed_paths,
         (policy or AgentPolicy()).source_bytes,
-        **({"workflow_policy": "discovery_first"} if discovery_first else {}),
+        **bundle_options,
     )
     excerpts = list(bundle.get("excerpts") or [])
     emit({
@@ -4921,6 +4947,11 @@ async def pursue_planner_task(
         "assigned_risk_obligations": [item for item in (run_task.get("risk_obligation_set") or {}).get("items", [])
                                       if item["id"] in (planner_task.get("context_spec") or {}).get("obligation_ids", [])],
     }
+    if run_task.get('completion_recovery_policy') == 'assigned-gaps-v1':
+        worker_task['objective'] += (' 本项是未决清单收尾；逐项使用宿主已分派 ID，不创建同义任务。'
+            '宿主已提供原始源码；若全部所需源码已展示，直接提交结构化结果。'
+            '已结算的事实观察用 follow_up=false 并给已读反证，已有漏洞用 finding_references；'
+            '新具体风险仍须保留，不得为收尾编造安全结论。')
     result = planner_task.get("result") or {}
     if discovery_first:
         assigned = [

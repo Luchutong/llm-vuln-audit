@@ -115,6 +115,25 @@ class ExecutionStoreMixin:
         summary = self.execution_summary(run_id)
         return (summary.get("workflow") or {}) if summary else {}
 
+    def release_unavailable_poc_window(self, run_id, readiness):
+        """Use stranded wall time for source work; keep POC and review requests intact."""
+        if readiness.get('available'):
+            raise ValueError('就绪的 POC 不得释放保留时间')
+        with self._lock:
+            self.assert_execution_write(run_id)
+            row = self._row('SELECT workflow FROM run_execution_state WHERE run_id=?', (run_id,))
+            value = json.loads(row[0] or '{}')
+            if value.get('stage') != 'discovery' or not value.get('poc_reserved_seconds'):
+                return False
+            released = value['poc_reserved_seconds']
+            value['poc_reserved_seconds'] = 0
+            value['poc_window_released'] = dict(seconds=released, readiness=readiness,
+                retry_at='poc_stage', reason='environment_unavailable')
+            self._db.execute('UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?',
+                             (dump(value), stamp(), run_id))
+            self.append_event(run_id, None, 'poc_window_released', value['poc_window_released'])
+            return True
+
     def refresh_review_reserve(self, run_id, repository=None, *, additional_workers=0):
         """Repartition the existing ledger; this never admits or spends a request."""
         if not self.host_queue_enabled(run_id):
@@ -128,12 +147,16 @@ class ExecutionStoreMixin:
                 batches = self.review_batches_pending(run_id, "final", repository, for_scheduling=True)
                 workers = int(self._row("SELECT COUNT(*) FROM planner_tasks WHERE run_id=? AND state='running'", (run_id,))[0]) + additional_workers
                 from .review_policy import batch_response_reserve
-                needed = sum(batch_response_reserve(batch) for batch in batches) + 6 * workers
+                spec = json.loads(self._row('SELECT task_spec FROM runs WHERE id=?',(run_id,))[0] or '{}')
+                closing = spec.get('completion_recovery_policy') == 'assigned-gaps-v1'
+                needed = (len(batches) + min(6,2*len(batches)) + 2*workers if closing else
+                          sum(batch_response_reserve(batch) for batch in batches) + 6*workers)
                 from .review_transport import reading_work
                 reads = reading_work([item for batch in batches for item in batch])
                 # Reserve against remaining actual host pages, never two guessed model
                 # reading turns. This partitions, and never enlarges, the run deadline.
-                seconds = 60 * (len(batches) + 2 * workers + 1) + reads["pages"]
+                seconds = ((30*(len(batches)+workers+1) if closing else
+                            60*(len(batches)+2*workers+1)) + reads['pages'])
                 self._tick_execution_tx(run_id)
                 row = self._row("SELECT * FROM run_execution_state WHERE run_id=?", (run_id,))
                 value = json.loads(row["workflow"] or "{}")
@@ -143,7 +166,11 @@ class ExecutionStoreMixin:
                     return {}
                 previous = dict(value["limits"])
                 target = value["used"]["review"] + needed
-                if value["source"] != "explicit":
+                # A budget pause is a boundary, not a chance to refill the spent
+                # phase from another phase before the coordinator notices it.
+                exhausted_phase = (spec.get('budget_exhaustion_policy') == 'pause-v1'
+                    and value['limits'][value['stage']] <= value['used'][value['stage']])
+                if value["source"] != "explicit" and not exhausted_phase:
                     if target < value["limits"]["review"] and value["stage"] != "review":
                         released = value["limits"]["review"] - target
                         value["limits"]["review"] -= released
@@ -163,13 +190,19 @@ class ExecutionStoreMixin:
                 from .workflow import stage_poc_window
                 poc_window = stage_poc_window(value)
                 value["review_reserved_seconds"] = seconds
+                explicit_phase = (spec.get('budget_exhaustion_policy') == 'pause-v1'
+                                  and value.get('source') == 'explicit')
+                # After an explicit grant, each phase can use its own allowance.
+                # An estimate that later review needs more calls is reported, not
+                # used to reject the user's funded current phase in advance.
+                response_gate = funded or explicit_phase
                 value["review_reserve"] = {
                     "pending_items": sum(len(batch) for batch in batches), "estimated_batches": len(batches),
                     "workers": workers, "responses": needed, "seconds": seconds, "funded": funded,
                     "reading_work": reads,
                     "poc_window_seconds": poc_window,
-                    "upstream_allowed": funded and remaining_seconds > seconds + poc_window,
-                    "poc_window_blocks": (funded and remaining_seconds > seconds
+                    "upstream_allowed": response_gate and remaining_seconds > seconds + poc_window,
+                    "poc_window_blocks": (response_gate and remaining_seconds > seconds
                                           and remaining_seconds <= seconds + poc_window),
                     "reason": "actual_review_batches_and_inflight_workers",
                 }
@@ -210,6 +243,18 @@ class ExecutionStoreMixin:
             value["stage"] = stage
             self._db.execute("UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?", (dump(value), stamp(), run_id))
         return self.workflow_state(run_id)
+
+    def record_poc_stage_stop(self, run_id, reason):
+        """Stop experiments without throwing away the protected final-review stage."""
+        with self._lock:
+            self.assert_execution_write(run_id)
+            row = self._row('SELECT workflow FROM run_execution_state WHERE run_id=?', (run_id,))
+            value = json.loads(row[0] or '{}') if row else {}
+            if not value:
+                return
+            value['poc_stop'] = reason
+            self._db.execute('UPDATE run_execution_state SET workflow=?,updated_at=? WHERE run_id=?',
+                             (dump(value), stamp(), run_id))
 
     def release_poc_quota(self, run_id):
         """Move the finished POC stage's unspent responses into the final review.

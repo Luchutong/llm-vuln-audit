@@ -11,6 +11,19 @@ import json
 import re
 
 MAX_OBLIGATIONS = 256
+
+
+def operation_facts(payload, operation_read, *, source_only=False):
+    """Immutable operation and claim inputs; repeated read navigation is not a new claim."""
+    findings = ([{**{k:v for k,v in f.items() if k!='verification_status'},
+                      'verification_rejected': f.get('verification_status')=='rejected'}
+                     for f in payload.get('findings') or []] if source_only else payload.get('findings') or [])
+    return {key: payload[key] for key in ('obligation', 'evidence')} | {
+        'findings': findings,
+        'operation_read': bool(operation_read),
+        'assigned_work': sorted((t for t in payload.get('tasks') or []
+            if t.get('association') == 'explicit_assignment'), key=lambda t: t['task_key'])}
+
 SINKS = {
     "sqli": {"query", "exec", "mysqli_query", "mysql_query", "rawquery"},
     "command_injection": {"system", "exec", "shell_exec", "passthru", "popen", "proc_open"},
@@ -67,14 +80,21 @@ def freeze(project_map, task, snapshot_id):
 
 
 class RiskCoverageMixin:
-    def risk_coverage(self, run_id):
+    def risk_coverage(self, run_id, *, _current_revisions=True):
         row = self._row("SELECT task_spec FROM runs WHERE id=?", (run_id,))
         task = json.loads(row[0] or "{}") if row else {}
         frozen = task.get("risk_obligation_set")
         if not frozen:
             return None
-        decisions = {r["item_id"]: json.loads(r["decision"]) for r in self._rows(
-            "SELECT item_id,decision FROM audit_review_items WHERE run_id=? AND phase='final'", (run_id,))}
+        # Review history contains multiple revisions of each identity. Row order
+        # cannot select a verdict, and a stale revision cannot discharge current work.
+        revisions = ({r['item_id']: r['revision'] for r in self.risk_review_candidates(run_id)}
+                     if _current_revisions else None)
+        decisions = {r['item_id']: json.loads(r['decision']) for r in self._rows(
+            "SELECT r.item_id,r.revision,r.decision FROM audit_review_items r "
+            "JOIN audit_review_batches b ON b.id=r.batch_id WHERE r.run_id=? AND r.phase='final' "
+            "ORDER BY b.finished_at,b.rowid,r.rowid", (run_id,))
+            if revisions is None or revisions.get(r['item_id']) == r['revision']}
         seen = [ref for row in self._rows("SELECT seen FROM planner_task_attempts WHERE run_id=?", (run_id,))
                 for ref in json.loads(row[0] or "[]")] if frozen["version"] == "risk-obligations/v2" else None
         items = []
@@ -105,9 +125,14 @@ class RiskCoverageMixin:
     def risk_review_candidates(self, run_id):
         from .review_store import fingerprint
         from .finding_policy import is_vulnerability_finding
-        summary = self.risk_coverage(run_id)
+        # Use history only to route a previously relevant obligation. Current
+        # verdict selection above depends on the candidates built here.
+        summary = self.risk_coverage(run_id, _current_revisions=False)
         if not summary:
             return []
+        row = self._row('SELECT task_spec FROM runs WHERE id=?', (run_id,))
+        policy = json.loads(row[0] or '{}').get('risk_fact_policy')
+        semantic = policy in {'operation-v1','operation-v2'}
         tasks = self.list_tasks(run_id)
         known_files = {f["path"]: f for f in (self.get_project_map(run_id) or {}).get("files", [])}
         current = [item for item in self.list_findings(run_id)
@@ -142,8 +167,10 @@ class RiskCoverageMixin:
                        "evidence": [{"evidence_id": obligation["id"], "snapshot_id": obligation["source"]["snapshot_id"],
                                      "path": obligation["path"], "range": {"start": max(1, obligation["line"] - 8),
                                      "end": min(int(known_file.get("line_count") or obligation["line"]), obligation["line"] + 8)}}]}
-            rows.append({"kind": "risk", "item_id": obligation["id"], "revision": fingerprint(payload),
-                         "payload": payload, "operation_read": any(t["operation_read"] for t in task_refs)})
+            operation_read = any(t['operation_read'] for t in task_refs)
+            facts = operation_facts(payload, operation_read, source_only=policy=='operation-v2') if semantic else payload
+            rows.append({"kind": "risk", "item_id": obligation["id"], "revision": fingerprint(facts),
+                         "payload": payload, "operation_read": operation_read})
         return rows
 
     @staticmethod

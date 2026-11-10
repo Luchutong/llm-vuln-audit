@@ -1,0 +1,59 @@
+{
+  "parent_run_id": "8a035cfcda5254238742ea8af118f869",
+  "run_id": "eb67cbf8636b54a39cad67fc3753aa03",
+  "url": "http://127.0.0.1:5173/#run/eb67cbf8636b54a39cad67fc3753aa03",
+  "created_at": "2026-11-10T09:19:17.425023+00:00",
+  "status": "pending",
+  "mode": "review",
+  "native_format": "json_object",
+  "run_limits": {
+    "responses": 174,
+    "tools": 0,
+    "seconds": 3600
+  },
+  "model_request_total_limit": 176,
+  "validation_requests": 2,
+  "inherited_findings": 28,
+  "poc_mode": "off",
+  "parent_checkpoint": {
+    "status": "paused",
+    "phase": "paused",
+    "parent_execution_epoch": 1,
+    "purpose": "review_only",
+    "unresolved_verifications": 8
+  },
+  "observed_at": "2026-11-10T09:21:32.856959+00:00",
+  "live_status": "running",
+  "usage": {
+    "responses": 5,
+    "tools": 0,
+    "seconds": 128.503
+  },
+  "parent_unchanged": true,
+  "parent_status": "paused",
+  "final_dispositions": {
+    "accepted": 20,
+    "pending": 8
+  },
+  "event_counts": {
+    "run_continuation_created": 1,
+    "run_started": 1,
+    "planner_session_started": 1,
+    "workflow_stage_changed": 1,
+    "review_batch_claimed": 5,
+    "planner_round_started": 5,
+    "role_contract_bound": 5,
+    "agent_phase": 15,
+    "planner_overview_prepared": 5,
+    "planner_coverage_prepared": 5,
+    "planner_situational_prepared": 5,
+    "review_input_prepared": 5,
+    "model_request": 5,
+    "model_response": 5,
+    "planner_assessment": 4,
+    "planner_agent_terminal": 4,
+    "review_batch_completed": 4,
+    "planner_round_committed": 4
+  },
+  "pending_dynamic_reviews": 6
+}

@@ -1,0 +1,32 @@
+{
+  "mode": "bounded_isolated_sqlite_backup_replay",
+  "observed_at": "2026-11-10T07:36:44.294696+00:00",
+  "parent_run_id": "e06a8b4849815d2f894b420e354a6bfd",
+  "selected_retests": 27,
+  "inherited_findings": 28,
+  "inherited_verified": 1,
+  "poc_stage_stop": {
+    "code": "environment_unavailable",
+    "reason": "target_reset_blocked",
+    "message": "隔离注入：关闭状态未知",
+    "action": "final_review"
+  },
+  "phase": "review",
+  "completed_final_batches": 11,
+  "reviewed_kinds": {
+    "direction": 3,
+    "finding": 19
+  },
+  "scripted_review_decisions": {
+    "needs_evidence": 22
+  },
+  "original_frozen_unchanged": true,
+  "model_calls": 0,
+  "runner_job_submissions": 0,
+  "completion": "Stopped after confirming environment failure hands off to committed final batches. This bounded replay does not claim that all 119 review items were completed; full terminal closure is covered by the coordinator regression tests.",
+  "run_limits": {
+    "responses": 332,
+    "tools": 3937,
+    "seconds": 5427
+  }
+}

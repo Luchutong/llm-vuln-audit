@@ -1,0 +1,8 @@
+{
+  "purpose": "Only establish actual strategy binding and persisted model output under a strict low budget; NOT a fair effectiveness comparison among different scenario goals.",
+  "baseline_label": "First specialized strategy fills the API-required baseline slot only; no general-baseline performance inference.",
+  "user_constraint": "已充值，但额度不多，只做必要补充",
+  "maximum_model_responses": 15,
+  "retries": 0,
+  "created_at": "2026-11-11T11:25:49.078808+00:00"
+}

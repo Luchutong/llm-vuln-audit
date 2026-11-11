@@ -1,0 +1,18 @@
+{
+  "secondorder": [
+    "The complete exact JSON prefix contains a valid sqli claim at report.php:3, writing and readback evidence; trailing text makes the whole original reply invalid JSON. No claim text was edited."
+  ],
+  "authz": [
+    "The two different roots (orders/detail.php IDOR and account/update.php sensitive-field assignment) are independently matched. All normal/attack inputs are proposed static plans, not executed POCs."
+  ],
+  "state": [
+    "The route in one precondition says /wallet/index.php; the action code is actually /wallet/withdraw.php. Use the source route and historical real POC when executing; keep raw model wording unchanged.",
+    "For the suggested initial balance100/amount80, a correct sequential control includes a second80 request rejected with409 after the first leaves20. This is a source-based expected result, not a new observed HTTP response.",
+    "The dataflow node at withdraw.php:6 labels usleep as input; it is actually the delay window. The true POST input is line2. Root line7 and race classification remain source-supported."
+  ],
+  "leak": [
+    "The SQL summary contained two unescaped double quotes. The encoding-only derivative is documented, and original FMT remains failed.",
+    "The SQL finding contains one out-of-file supporting reference, recorded in source_checks.json; it remains a reference failure and is not counted as evidence-valid. Its primary location is separately checked.",
+    "SQL root discovery is source-supported; destructive impact in generic prose is conditional and not dynamically demonstrated by this static reply."
+  ]
+}

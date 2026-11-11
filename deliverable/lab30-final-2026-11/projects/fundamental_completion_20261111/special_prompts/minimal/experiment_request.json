@@ -1,0 +1,21 @@
+{
+  "protocol": "lab30-full-v2",
+  "prompt_ids": [
+    "9db85223ca9a4c3c9c03b2a8efcf5cb5",
+    "d60c400b05ab4ebaa4fc4ac8a5dd5f35",
+    "2ed3dc0c41c44852bbd8263042912dc6"
+  ],
+  "baseline_prompt_id": "9db85223ca9a4c3c9c03b2a8efcf5cb5",
+  "repeats": 1,
+  "budgets": {
+    "responses": 3,
+    "tools": 16,
+    "seconds": 90
+  },
+  "run_limits": {
+    "responses": 5,
+    "tools": 40,
+    "seconds": 120
+  },
+  "experiment_wall_seconds": 7200
+}

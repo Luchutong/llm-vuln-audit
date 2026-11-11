@@ -1,0 +1,12 @@
+{
+  "source_zip_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "new_frozen_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "old_original_archive_sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+  "new_snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+  "old_snapshot_id": "586b79b41f8e4f59be80f2a9b548902b",
+  "truth_sha256": "6c215b702fa962082e21a60bf8237692da7e47cb6ef97889d212616fa708faaa",
+  "anchors_sha256": "1bc01cf80d6326c2b683e251c3bf8c4f2df8bfa28005465d8108b0b73e0e7c7a",
+  "source_zip_matches": true,
+  "truth_matches_old_manifest": true,
+  "anchors_match_old_manifest": true
+}

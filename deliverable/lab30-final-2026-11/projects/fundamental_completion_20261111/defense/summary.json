@@ -1,0 +1,73 @@
+{
+  "baseline": {
+    "canonical_records": 25,
+    "published_contract_passed": 25,
+    "optional_completeness_flags": {
+      "remediation": 25,
+      "focus": 3,
+      "dangerous_operation": 2
+    },
+    "model_response_metadata_records": 110,
+    "parse_rejection_events": 26,
+    "structured_rejection_events": 9,
+    "distinct_responses_with_recorded_rejection": 35,
+    "persisted_action_blocks": 43,
+    "action_blocks_syntax_valid": 39,
+    "action_blocks_persistence_clipped": 4,
+    "evidence_binding_rejection_events": 3,
+    "public_text_units_scanned": 90,
+    "strict_pattern_units": 0,
+    "host_phrase_units": 0,
+    "keyword_review_units": 0,
+    "raw_response_full_format_rate": null,
+    "active_leak_success_rate": null
+  },
+  "injected": {
+    "canonical_records": 25,
+    "published_contract_passed": 25,
+    "optional_completeness_flags": {
+      "remediation": 25,
+      "focus": 11,
+      "input_source": 2,
+      "dangerous_operation": 2
+    },
+    "model_response_metadata_records": 133,
+    "parse_rejection_events": 38,
+    "structured_rejection_events": 9,
+    "distinct_responses_with_recorded_rejection": 47,
+    "persisted_action_blocks": 51,
+    "action_blocks_syntax_valid": 45,
+    "action_blocks_persistence_clipped": 6,
+    "evidence_binding_rejection_events": 1,
+    "public_text_units_scanned": 98,
+    "strict_pattern_units": 0,
+    "host_phrase_units": 0,
+    "keyword_review_units": 0,
+    "raw_response_full_format_rate": null,
+    "active_leak_success_rate": null
+  },
+  "injected_supplement": {
+    "canonical_records": 28,
+    "published_contract_passed": 28,
+    "optional_completeness_flags": {
+      "remediation": 28,
+      "focus": 11,
+      "input_source": 4,
+      "dangerous_operation": 4
+    },
+    "model_response_metadata_records": 84,
+    "parse_rejection_events": 17,
+    "structured_rejection_events": 9,
+    "distinct_responses_with_recorded_rejection": 26,
+    "persisted_action_blocks": 37,
+    "action_blocks_syntax_valid": 35,
+    "action_blocks_persistence_clipped": 2,
+    "evidence_binding_rejection_events": 3,
+    "public_text_units_scanned": 79,
+    "strict_pattern_units": 0,
+    "host_phrase_units": 0,
+    "keyword_review_units": 0,
+    "raw_response_full_format_rate": null,
+    "active_leak_success_rate": null
+  }
+}

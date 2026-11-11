@@ -1,0 +1,457 @@
+[
+  {
+    "event_id": 92559,
+    "response_key": [
+      "5f04fa8b5b584bb59e4b02a86cbc84a8",
+      1
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92563,
+    "response_key": [
+      "a99bdea4d2cf438681167be339a99992",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92567,
+    "response_key": [
+      "5f04fa8b5b584bb59e4b02a86cbc84a8",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92571,
+    "response_key": [
+      "a99bdea4d2cf438681167be339a99992",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92575,
+    "response_key": [
+      "5f04fa8b5b584bb59e4b02a86cbc84a8",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92582,
+    "response_key": [
+      "a99bdea4d2cf438681167be339a99992",
+      4
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92608,
+    "response_key": [
+      "a99bdea4d2cf438681167be339a99992",
+      5
+    ],
+    "kind": "agent_output_rejected",
+    "role": "worker",
+    "phase": "task_publish",
+    "category": "invalid_output",
+    "hint": "findings[0]（登录会话固定：login.php 接受 URL 中 SID 且认证后未轮换会话）.primary_location=lab30-shop/app/public/auth/login.php:3-3 未绑定唯一根因节点；当前 dataflow[1].root_cause=lab30-shop/app/src/bootstrap.php:11-19; dataflow[2].sink=lab30-shop/app/public/auth/login.php:7-9。保持真实根因位置；根因与 sink 分离时添加一个 root_cause 节点，其 evidence 同路径且 start_line≤主定位行≤end_line，explanation 说明缺陷与本条 sink 的联系；不要移动主定位或扩大 sink 区间来过校验",
+    "evidence_binding_rejection": true
+  },
+  {
+    "event_id": 92689,
+    "response_key": [
+      "c923e1391e094f719f4be1b52e781af5",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92692,
+    "response_key": [
+      "231d542d8ea34184ad9b8431e851a874",
+      2
+    ],
+    "kind": "agent_output_rejected",
+    "role": "worker",
+    "phase": "task_publish",
+    "category": "invalid_output",
+    "hint": "findings[1]（下单接口直接信任客户端 price 参数，可任意低价下单（金额篡改））.primary_location=lab30-shop/app/public/orders/create.php:3-3 未绑定唯一根因节点；当前 dataflow[1].root_cause=lab30-shop/app/public/orders/create.php:4-5; dataflow[2].sink=lab30-shop/app/public/orders/create.php:7-7。保持真实根因位置；根因与 sink 分离时添加一个 root_cause 节点，其 evidence 同路径且 start_line≤主定位行≤end_line，explanation 说明缺陷与本条 sink 的联系；不要移动主定位或扩大 sink 区间来过校验",
+    "evidence_binding_rejection": true
+  },
+  {
+    "event_id": 92696,
+    "response_key": [
+      "c923e1391e094f719f4be1b52e781af5",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92766,
+    "response_key": [
+      "0d13ef80a5b147e68ed4729b1e9672a1",
+      2
+    ],
+    "kind": "agent_output_rejected",
+    "role": "worker",
+    "phase": "task_publish",
+    "category": "invalid_output",
+    "hint": "findings.1.focus.chain.2.explanation: String should have at least 8 characters",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92784,
+    "response_key": [
+      "0d13ef80a5b147e68ed4729b1e9672a1",
+      3
+    ],
+    "kind": "agent_output_rejected",
+    "role": "worker",
+    "phase": "task_publish",
+    "category": "invalid_output",
+    "hint": "observations[1].disproof：须提供 {basis:effective_protection|unreachable|not_applicable,rationale:具体源码反证,evidence:[{path,start_line,end_line}]}，并引用本次实际读取的对应路径；3 validation errors for WorkerDisproof\nbasis\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nrationale\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nevidence\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92822,
+    "response_key": [
+      "b877b85d5d85406c8f3192233a2ddfaf",
+      1
+    ],
+    "kind": "agent_output_rejected",
+    "role": "planner",
+    "phase": "planner_publish",
+    "category": "invalid_output",
+    "hint": "方向 dir_28e4b122501bb77f89c4ba8a1c669ad4 不能同时分派给多个工作项（wallet-order-state-write、output-xss-publish）；每个方向每轮只能由一个任务领取",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92875,
+    "response_key": [
+      "d774faf8a7e444e28d8450891d5a141d",
+      1
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 92924,
+    "response_key": [
+      "d774faf8a7e444e28d8450891d5a141d",
+      3
+    ],
+    "kind": "agent_output_rejected",
+    "role": "worker",
+    "phase": "task_publish",
+    "category": "invalid_output",
+    "hint": "observations[0].evidence 须实际读取并覆盖所关联根因 lab30-shop/app/public/wallet/withdraw.php:7",
+    "evidence_binding_rejection": true
+  },
+  {
+    "event_id": 93000,
+    "response_key": [
+      "f1a378a163be4f99ad5bdd214963da5f",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93003,
+    "response_key": [
+      "2ceea61b45224d1e89b4c0795751b7e3",
+      2
+    ],
+    "kind": "agent_output_rejected",
+    "role": "worker",
+    "phase": "task_publish",
+    "category": "invalid_output",
+    "hint": "observations[0].disproof：须提供 {basis:effective_protection|unreachable|not_applicable,rationale:具体源码反证,evidence:[{path,start_line,end_line}]}，并引用本次实际读取的对应路径；3 validation errors for WorkerDisproof\nbasis\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nrationale\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nevidence\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93007,
+    "response_key": [
+      "f1a378a163be4f99ad5bdd214963da5f",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93109,
+    "response_key": [
+      "32446715a343415495abfdff6d34a85b",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93113,
+    "response_key": [
+      "32446715a343415495abfdff6d34a85b",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93231,
+    "response_key": [
+      "837a18df19b0417ca4851058113bafcd",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93234,
+    "response_key": [
+      "9f723034daa944ab8380d377443f4598",
+      2
+    ],
+    "kind": "agent_output_rejected",
+    "role": "worker",
+    "phase": "task_publish",
+    "category": "invalid_output",
+    "hint": "observations[1].disproof：须提供 {basis:effective_protection|unreachable|not_applicable,rationale:具体源码反证,evidence:[{path,start_line,end_line}]}，并引用本次实际读取的对应路径；3 validation errors for WorkerDisproof\nbasis\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nrationale\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nevidence\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing；已有漏洞的理由和证据已在 finding_references 中，请省略重复 observations；独立风险用 pending 候选保留，不能删除未决 candidate_updates。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93239,
+    "response_key": [
+      "837a18df19b0417ca4851058113bafcd",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93277,
+    "response_key": [
+      "837a18df19b0417ca4851058113bafcd",
+      5
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93315,
+    "response_key": [
+      "d1f71c8848ac4bbcb4707098031202e0",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93319,
+    "response_key": [
+      "d1f71c8848ac4bbcb4707098031202e0",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93439,
+    "response_key": [
+      "6e1cc13827884bc6874530c9f62e5dcd",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93440,
+    "response_key": [
+      "b5b8e721d9514fa19371573b79c3143c",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93447,
+    "response_key": [
+      "6e1cc13827884bc6874530c9f62e5dcd",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93464,
+    "response_key": [
+      "b5b8e721d9514fa19371573b79c3143c",
+      4
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "action_too_large",
+    "hint": "本动作 11842 字节/51 行超过执行上限 8192 字节/80 行；拆为短动作，每次只读取必要窗口。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93469,
+    "response_key": [
+      "6e1cc13827884bc6874530c9f62e5dcd",
+      5
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93541,
+    "response_key": [
+      "8a46a0652eb645b0a65bd1b33c89ce81",
+      2
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93548,
+    "response_key": [
+      "8a46a0652eb645b0a65bd1b33c89ce81",
+      3
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93552,
+    "response_key": [
+      "8a46a0652eb645b0a65bd1b33c89ce81",
+      4
+    ],
+    "kind": "agent_parse_error",
+    "role": "worker",
+    "phase": "task_execute",
+    "category": "no_code_block",
+    "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。",
+    "evidence_binding_rejection": false
+  },
+  {
+    "event_id": 93583,
+    "response_key": [
+      "9cb560eed2f04cdb9757388cdaf4e1e2",
+      1
+    ],
+    "kind": "agent_output_rejected",
+    "role": "planner",
+    "phase": "planner_publish",
+    "category": "invalid_output",
+    "hint": "review_decisions 的 item_id/revision 不属于当前冻结版本",
+    "evidence_binding_rejection": false
+  }
+]

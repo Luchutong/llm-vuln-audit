@@ -1,0 +1,15 @@
+{
+  "raw_sha256": "17cae535f4a762e2ee22b34ea7a3111ac40e452ad167a2d5aa323a062f105ce2",
+  "strict_json_valid": false,
+  "method": "exact_valid_json_prefix",
+  "modified_model_output": false,
+  "strict_json_error": {
+    "message": "Extra data",
+    "position": 3583,
+    "line": 1,
+    "column": 3584
+  },
+  "prefix_end": 3583,
+  "trailing_text": "],\"limitations\":[\"本次为静态源码分析，未执行 POC\",\"二次注入触发依赖运营/管理员访问读出入口，属运行时前提\",\"未确认是否存在后台定时调用 report.php 的自动化任务\"]}",
+  "derivative_note": "Only the exact complete JSON prefix is decoded; trailing invalid text is retained here, raw response remains unchanged."
+}

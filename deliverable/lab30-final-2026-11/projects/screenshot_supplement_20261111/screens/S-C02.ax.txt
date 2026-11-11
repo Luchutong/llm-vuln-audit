@@ -1,0 +1,4 @@
+Browser tab: 435794557, Title: "VULN-AUDIT · 源码审计工作空间", URL: "http://127.0.0.1:5173/#prompts".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~			96 text 共 14 条
+The focused UI element is 88 button E接续补证20261111：对象及字段越权 d60c400b05ab4ebaa4fc4ac8a5dd5f35 · 审计策略 · 自定义 · 已用于 2 次实验

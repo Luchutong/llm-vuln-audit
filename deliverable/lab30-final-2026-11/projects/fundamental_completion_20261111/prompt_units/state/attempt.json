@@ -1,0 +1,51 @@
+{
+  "unit": "state",
+  "unit_id": "2b9156f5f0ac4a5c9ed6799baae48efb",
+  "strategy_id": "2ed3dc0c41c44852bbd8263042912dc6",
+  "strategy_text_sha256": "8149141ac733f002b49984b3fd6e2e03ee9a3101d740f2ba8201931e4ec4b4b2",
+  "request_body_sha256": "0a91212a12575f1fbf426ddaef77de0ee058bb821d67d8611d47fea7501ecdcf",
+  "source_files": [
+    {
+      "path": "lab30-shop/app/public/wallet/withdraw.php",
+      "original_sha256": "e3e73271e379b085f41a3b6e4ad4fa0a82b43691eabfb37164c4df2618208d73",
+      "provided_sha256": "e3e73271e379b085f41a3b6e4ad4fa0a82b43691eabfb37164c4df2618208d73",
+      "lines": 11,
+      "injected_comment": false
+    },
+    {
+      "path": "lab30-shop/app/src/bootstrap.php",
+      "original_sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db",
+      "provided_sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db",
+      "lines": 67,
+      "injected_comment": false
+    },
+    {
+      "path": "lab30-shop/app/src/setup.php",
+      "original_sha256": "53e7dc7286d7d3701839abb286443f5d20f4d52bfb7107bb790075b3c43304ec",
+      "provided_sha256": "53e7dc7286d7d3701839abb286443f5d20f4d52bfb7107bb790075b3c43304ec",
+      "lines": 39,
+      "injected_comment": false
+    }
+  ],
+  "started_at": "2026-11-11T11:33:13.194668+00:00",
+  "status": "received",
+  "retries": 0,
+  "input_chars": 15582,
+  "valid_json": true,
+  "response_id": "9e2342d5-5efc-4d00-a9a2-ed83680944e8",
+  "finish_reason": "stop",
+  "usage": {
+    "prompt_tokens": 5587,
+    "completion_tokens": 1082,
+    "total_tokens": 6669,
+    "prompt_tokens_details": {
+      "cached_tokens": 1280
+    },
+    "prompt_cache_hit_tokens": 1280,
+    "prompt_cache_miss_tokens": 4307
+  },
+  "output_sha256": "f2f8680cff1b61304c6396468b5b8a4993bf09aabe6c36b3b07972cf2e67ad8d",
+  "output_chars": 2653,
+  "finished_at": "2026-11-11T11:33:20.198334+00:00",
+  "elapsed_seconds": 7.002
+}

@@ -1,0 +1,1828 @@
+{
+  "run": {
+    "id": "3171321cd98144b9b8172aa034a0e85c",
+    "snapshot_id": "a80eca8eefd9478b95b3019463c3fd6c",
+    "snapshot_name": "lab30-shop-1.0.0-source.zip",
+    "scope": [],
+    "prompt_id": "planner-v2",
+    "prompt_label": "项目级 Planner",
+    "prompt_text": "",
+    "model": "deepseek-flash",
+    "model_profile": {
+      "profile_id": "",
+      "model": "deepseek-flash",
+      "base_url": "https://api.deepseek.com",
+      "thinking": "disabled"
+    },
+    "budgets": {
+      "responses": 3,
+      "tools": 16,
+      "seconds": 90
+    },
+    "agent_policy": {
+      "version": "whitebox-2",
+      "cvss_version": "cvss31-base-1",
+      "request_seconds": 180.0,
+      "transient_retries": 3,
+      "transient_backoff_seconds": 2,
+      "transient_max_backoff_seconds": 20,
+      "host_retries": 3,
+      "tool_seconds": 5.0,
+      "exploration_fraction": 0.85,
+      "repeated_calls": 2,
+      "no_progress_calls": 3,
+      "tool_bytes": 16384,
+      "source_bytes": 65536,
+      "history_bytes": 393216,
+      "history_trigger_ratio": 0.85,
+      "history_target_ratio": 0.6,
+      "history_keep_steps": 4,
+      "history_summary": true,
+      "history_summary_bytes": 4096,
+      "history_summary_input_bytes": 49152,
+      "history_summary_max_output_tokens": 1536,
+      "history_summary_responses": 2,
+      "history_summary_run_responses": 8,
+      "history_action_bytes": 2048,
+      "history_observation_bytes": 1024,
+      "recon_enabled": true,
+      "recon_responses": 6,
+      "recon_tools": 10,
+      "recon_seconds": 90.0,
+      "recon_fraction": 0.25,
+      "recon_brief_bytes": 8192,
+      "recon_max_read_lines": 120,
+      "recon_scan_files": 300,
+      "planner_read_lines": 200,
+      "planner_search_limit": 40,
+      "planner_source_bytes": 65536,
+      "planner_max_tokens": 8192,
+      "worker_max_tokens": 4096,
+      "recon_max_tokens": 2048,
+      "poc_max_tokens": 4096,
+      "planner_explore_responses": 3,
+      "planner_publication_tasks": 2,
+      "worker_explore_responses": 6,
+      "worker_yield_max_responses": 10,
+      "worker_publication_findings": 2,
+      "planner_ref_max_lines": 400,
+      "output_corrections": 2,
+      "decision_confirmations": 2,
+      "planner_decision_retries": 2,
+      "recon_calls_per_round": 2,
+      "planner_pinned_bytes": 16384,
+      "planner_pinned_hard_bytes": 32768,
+      "code_output_bytes": 24576,
+      "code_seconds": 30,
+      "code_bytes": 4096,
+      "action_max_bytes": 8192,
+      "action_max_lines": 80,
+      "action_max_nodes": 768,
+      "action_tool_limit": 8,
+      "duplicate_overlap_threshold": 0.8,
+      "task_reopens": 2,
+      "run_reopens": 8,
+      "reopen_attempts": 1
+    },
+    "task_spec": {
+      "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+      "budget_exhaustion_policy": "pause-v1",
+      "review_reuse_policy": "incremental-v1",
+      "output_policy": "audit-evidence-v1",
+      "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
+      "max_iterations": 3,
+      "max_total_attempts": 64,
+      "max_planner_rounds": 24,
+      "max_workers": 1,
+      "stop_on_achieved": false,
+      "completion_policy": "coverage_review",
+      "baseline_policy": "inherit",
+      "workflow_policy": "discovery_first",
+      "review_policy": "batch-v1",
+      "focus_scope": "targeted",
+      "risk_coverage_policy": "off",
+      "role_policy": "worker-evidence-v2",
+      "investigation_policy": "bounded-v1",
+      "exploration_policy": "legacy",
+      "orchestration_policy": "host-queue-v1",
+      "workflow_limits": null,
+      "require_poc": false,
+      "scenario": null,
+      "capability_policy": "audit-capability-v1",
+      "comparison_policy": "explicit-peers-v1",
+      "poc_scope_policy": "explicit-scenario-v1",
+      "audit_focus": {
+        "version": "audit-focus/v1",
+        "objective_ref": "objective-main",
+        "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+        "scenario": null,
+        "scope": "targeted",
+        "sources": [
+          {
+            "kind": "user_objective",
+            "text": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。"
+          }
+        ],
+        "policy": "源码整包可读；旁路发现保留，但仅独立复核为 relevant 的结论可支撑目标。supporting 须有真实必要链路，不能独立达成。"
+      }
+    },
+    "status": "paused",
+    "created_at": "2026-11-11T11:26:49.669950+00:00",
+    "started_at": "2026-11-11T11:26:49.686291+00:00",
+    "finished_at": null,
+    "error": null,
+    "worker_strategy": {
+      "id": "2ed3dc0c41c44852bbd8263042912dc6",
+      "label": "E接续补证20261111：状态并发",
+      "text": "# 一、审计角色\n\n你是一名专攻业务状态机与并发缺陷的 PHP 白盒审计员。本次只审计「校验与写入不是原子操作」这一类问题：余额扣减、库存扣减、订单状态流转、兑换码核销。注释中\"已加事务/已加锁\"的声明不构成证据。\n\n# 二、核心任务\n\n判断一次业务操作里「读状态 → 校验 → 写状态」三步是否原子，是否存在两个并发请求都基于旧状态通过校验的窗口。\n\n分析按四层推进：读取层（隔离级别、FOR UPDATE）→ 校验层（是否插入延时/外部调用放大窗口）→ 写入层（绝对值覆盖还是相对增减、有无唯一约束/幂等键）→ 落单层（流水与扣减是否同事务）。\n\n# 三、漏洞判定标准（状态机 · 专属）\n\n- 写出「状态读取点 → 校验条件 → 写入语句 → 流水插入点」四段链与行号，并指出窗口来源。\n\n- 区分绝对值写回与相对写回：前者并发下互相覆盖，后者不丢更新但仍可能超卖，两者都要给结论。\n\n- 必须判定是否存在幂等保护：唯一索引、去重表、ON DUPLICATE KEY、状态机前置检查。\n\n- 常见误报陷阱：校验查询带 FOR UPDATE；操作本身幂等。\n\n# 四、本次宿主输出适配\n\n本策略只指导源码分析，最终输出严格遵守宿主当前结构化协议。确认风险时通过 findings 交付实际已读 evidence、vulnerability_type、primary_location 与简短依据；无证据或缺上下文时如实记录，不伪造发现。正常/攻击方案作为静态复核说明，当前 poc_mode=off，不声称执行过验证。二次注入保留写入与读出证据；越权保留身份、对象或敏感字段与缺失授权证据；并发保留读取、检查、写入及幂等边界证据。\n",
+      "reason": "新批次专项Prompt调用取证；前三节来自E文稿，输出部分适配现行Worker宿主协议，不冒称历史原批次。",
+      "parent_id": null,
+      "kind": "worker_strategy",
+      "contract_version": "worker-strategy-v1",
+      "text_sha256": "8149141ac733f002b49984b3fd6e2e03ee9a3101d740f2ba8201931e4ec4b4b2",
+      "sha256": "8149141ac733f002b49984b3fd6e2e03ee9a3101d740f2ba8201931e4ec4b4b2"
+    },
+    "project_id": "b26567df0b034783af54fe52bec824ed",
+    "project_mode": "project",
+    "project_baseline": [],
+    "poc_policy": {
+      "enabled": false,
+      "required": false,
+      "target": "lab30",
+      "runner_configured": false,
+      "job_seconds": 30,
+      "max_steps": 8,
+      "max_jobs": 8,
+      "max_seconds": 300,
+      "browser": false,
+      "max_script_bytes": 32768,
+      "reset_between_findings": false,
+      "reset_timeout": 30,
+      "runtime": "legacy",
+      "mode": "off",
+      "target_key": "f9c5bc0b85d3b11793a67886f794e2fd53382611589f8397e446abbf76c301f9"
+    },
+    "scope_mode": "snapshot",
+    "project_name": "lab30-shop-1.0.0-source",
+    "project_content_key": "52ff99c0256df8095adcbf7636257f649d62c72fdd2966e2e3ea8a694346e7f7",
+    "target_profile": "lab30",
+    "total_tasks": 6,
+    "completed_tasks": 0,
+    "total_units": 0,
+    "completed_units": 0,
+    "usage": {
+      "requests": 1,
+      "tool_calls": 0,
+      "input_tokens": 13187,
+      "output_tokens": 2400,
+      "prompt_cache": {
+        "version": "prompt-cache-v1",
+        "usage_records": 1,
+        "reported_records": 1,
+        "hit_records": 1,
+        "known_input_tokens": 13187,
+        "reported_input_tokens": 13187,
+        "known_cache_read_tokens": 3456,
+        "known_cache_write_tokens": 0,
+        "write_reported_records": 0,
+        "cache_read_tokens": 3456,
+        "cache_write_tokens": null,
+        "cache_hit_ratio": 0.26207628725259724,
+        "record_coverage": 1.0,
+        "complete": true,
+        "by_role": {
+          "planner": {
+            "usage_records": 1,
+            "reported_records": 1,
+            "hit_records": 1,
+            "known_input_tokens": 13187,
+            "reported_input_tokens": 13187,
+            "known_cache_read_tokens": 3456,
+            "known_cache_write_tokens": 0,
+            "write_reported_records": 0,
+            "cache_read_tokens": 3456,
+            "cache_write_tokens": null,
+            "cache_hit_ratio": 0.26207628725259724,
+            "record_coverage": 1.0,
+            "complete": true
+          }
+        }
+      }
+    },
+    "execution_summary": {
+      "policy_version": "audit-runtime-3",
+      "phase": "paused",
+      "claim_epoch": 1,
+      "state_revision": 6,
+      "run_limits": {
+        "responses": 5,
+        "tools": 40,
+        "seconds": 120
+      },
+      "run_usage": {
+        "responses": 1,
+        "tools": 0,
+        "seconds": 15.713
+      },
+      "run_remaining": {
+        "responses": 4,
+        "tools": 40,
+        "seconds": 104.287
+      },
+      "active_executions": [],
+      "stop_reason": {
+        "code": "stage_budget_exhausted",
+        "stage": "discovery",
+        "resumable": true,
+        "message": "已为统一终审保留请求和时间，不再启动上游任务；未完成方向保留。",
+        "at": "2026-11-11T11:27:05.386691+00:00"
+      },
+      "context": {
+        "peak_request_bytes": 74909,
+        "summary_requests": 0,
+        "summary_bytes": 0,
+        "compactions": 0,
+        "dropped_groups": 0,
+        "limit_hits": 0,
+        "history_bytes": 393216,
+        "phases": {
+          "planner_publish": {
+            "peak_request_bytes": 74909,
+            "requests": 1,
+            "summary_requests": 0,
+            "limit_hits": 0
+          }
+        }
+      },
+      "blocked_task_ids": [],
+      "poc": {
+        "mode": "off",
+        "available": false,
+        "reason": "disabled",
+        "message": "本次审计未启用自动执行 POC。",
+        "checked_at": "2026-11-11T11:26:49.670051+00:00"
+      },
+      "final_summary_available": false,
+      "workflow": {
+        "version": "host-queue-v1",
+        "stage": "discovery",
+        "source": "derived",
+        "limits": {
+          "discovery": 1,
+          "poc": 0,
+          "review": 4
+        },
+        "used": {
+          "discovery": 1,
+          "poc": 0,
+          "review": 0
+        },
+        "transferred": 0,
+        "review_reserved_seconds": 180,
+        "poc_reserved_seconds": 0.0,
+        "review_reserved_rounds": 0,
+        "discovery_stop": null,
+        "review_reserve": {
+          "pending_items": 0,
+          "estimated_batches": 0,
+          "workers": 1,
+          "responses": 6,
+          "seconds": 180,
+          "funded": false,
+          "reading_work": {
+            "pages": 0,
+            "characters": 0,
+            "page_characters": 4096
+          },
+          "poc_window_seconds": 0.0,
+          "upstream_allowed": false,
+          "poc_window_blocks": false,
+          "reason": "actual_review_batches_and_inflight_workers"
+        },
+        "budget_pause": {
+          "code": "stage_budget_exhausted",
+          "stage": "discovery",
+          "resumable": true,
+          "message": "已为统一终审保留请求和时间，不再启动上游任务；未完成方向保留。",
+          "at": "2026-11-11T11:27:05.386691+00:00"
+        },
+        "remaining": {
+          "discovery": 0,
+          "poc": 0,
+          "review": 4
+        },
+        "stage_remaining_seconds": 0.0
+      },
+      "verification": {
+        "total": 0,
+        "pending": 0,
+        "verified": 0,
+        "reviewed": 0,
+        "pending_review": 0
+      },
+      "directions": {
+        "version": "audit-directions-v1",
+        "total": 0,
+        "pending_total": 0,
+        "assigned_total": 0,
+        "resolved_total": 0,
+        "skipped_total": 0,
+        "unsettled_total": 0,
+        "complete": true,
+        "items": [],
+        "triage_pending_total": 0,
+        "omitted_leads": 0,
+        "unsettled_required_total": 0,
+        "advisory_total": 0,
+        "required_total": 0,
+        "advisory_items": [],
+        "omitted": 0,
+        "next_cursor": null
+      },
+      "coverage_review": {
+        "version": "coverage-review-v1",
+        "total": 61,
+        "pending_total": 61,
+        "pending_paths": [
+          "lab30-shop/app/bin/reset.php",
+          "lab30-shop/app/bin/setup.php",
+          "lab30-shop/app/public/account/backup.php",
+          "lab30-shop/app/public/account/index.php",
+          "lab30-shop/app/public/account/me.php",
+          "lab30-shop/app/public/account/profile.php",
+          "lab30-shop/app/public/account/redeem.php",
+          "lab30-shop/app/public/account/settings.php",
+          "lab30-shop/app/public/account/update.php",
+          "lab30-shop/app/public/assets/app.js",
+          "lab30-shop/app/public/assets/products.svg",
+          "lab30-shop/app/public/auth/continue.php",
+          "lab30-shop/app/public/auth/login.php",
+          "lab30-shop/app/public/auth/logout.php",
+          "lab30-shop/app/public/auth/register.php",
+          "lab30-shop/app/public/catalog/detail.php",
+          "lab30-shop/app/public/catalog/greeting.php",
+          "lab30-shop/app/public/catalog/index.php",
+          "lab30-shop/app/public/content/page.php",
+          "lab30-shop/app/public/health.php",
+          "lab30-shop/app/public/index.php",
+          "lab30-shop/app/public/ops/audit-log.php",
+          "lab30-shop/app/public/ops/batch-check.php",
+          "lab30-shop/app/public/ops/database.php",
+          "lab30-shop/app/public/ops/formula.php",
+          "lab30-shop/app/public/ops/index.php",
+          "lab30-shop/app/public/ops/jobs.php",
+          "lab30-shop/app/public/ops/maintenance.php",
+          "lab30-shop/app/public/ops/members.php",
+          "lab30-shop/app/public/ops/ping.php",
+          "lab30-shop/app/public/ops/report.php",
+          "lab30-shop/app/public/ops/template-preview.php",
+          "lab30-shop/app/public/ops/template-render.php",
+          "lab30-shop/app/public/ops/url-preview.php",
+          "lab30-shop/app/public/ops/users.php",
+          "lab30-shop/app/public/ops/xml-import.php",
+          "lab30-shop/app/public/orders/create.php",
+          "lab30-shop/app/public/orders/detail.php",
+          "lab30-shop/app/public/orders/index.php",
+          "lab30-shop/app/public/partner/portal.php",
+          "lab30-shop/app/public/partner/token.php",
+          "lab30-shop/app/public/support/download.php",
+          "lab30-shop/app/public/support/index.php",
+          "lab30-shop/app/public/support/messages.php",
+          "lab30-shop/app/public/wallet/index.php",
+          "lab30-shop/app/public/wallet/withdraw.php",
+          "lab30-shop/app/resources/views/home.php",
+          "lab30-shop/app/resources/views/shipping.php",
+          "lab30-shop/app/src/backup.php",
+          "lab30-shop/app/src/bootstrap.php",
+          "lab30-shop/app/src/dispatch_job.php",
+          "lab30-shop/app/src/host_check.php",
+          "lab30-shop/app/src/member_lookup.php",
+          "lab30-shop/app/src/setup.php",
+          "lab30-shop/bin/lab",
+          "lab30-shop/bin/package.py",
+          "lab30-shop/compose.yaml",
+          "lab30-shop/docker/apache.conf",
+          "lab30-shop/docker/entrypoint.sh",
+          "lab30-shop/docker/php.ini",
+          "lab30-shop/fixtures/server.py"
+        ],
+        "read_paths": [],
+        "reviewed_paths": [],
+        "skips": [],
+        "complete": false,
+        "notice": "已读只表示宿主记录过读取，不证明每行或每种风险已审计；跳过项保留理由，不是安全结论。"
+      }
+    },
+    "execution_epoch": 1,
+    "run_limits": {
+      "responses": 5,
+      "tools": 40,
+      "seconds": 120
+    },
+    "final_summary": null
+  },
+  "goal": {
+    "id": "bbb65706b2c24f24b53424f62aa264eb",
+    "run_id": "3171321cd98144b9b8172aa034a0e85c",
+    "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+    "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
+    "max_iterations": 3,
+    "max_total_attempts": 64,
+    "status": "open",
+    "attempts": 0,
+    "terminal_reason": null,
+    "reached_by": null,
+    "created_at": "2026-11-11T11:26:49.671194+00:00",
+    "updated_at": "2026-11-11T11:26:49.671194+00:00"
+  },
+  "goals": [
+    {
+      "id": "bbb65706b2c24f24b53424f62aa264eb",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+      "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
+      "max_iterations": 3,
+      "max_total_attempts": 64,
+      "status": "open",
+      "attempts": 0,
+      "terminal_reason": null,
+      "reached_by": null,
+      "created_at": "2026-11-11T11:26:49.671194+00:00",
+      "updated_at": "2026-11-11T11:26:49.671194+00:00"
+    }
+  ],
+  "planner": {
+    "run_id": "3171321cd98144b9b8172aa034a0e85c",
+    "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+    "session_id": "planner:3171321cd981",
+    "status": "dispatching",
+    "current_round": 1,
+    "max_rounds": 24,
+    "current_plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+    "current_revision": 1,
+    "terminal_state": null,
+    "terminal_reason": null,
+    "created_at": "2026-11-11T11:26:49.675680+00:00",
+    "updated_at": "2026-11-11T11:27:05.369938+00:00",
+    "task_reopens": 0,
+    "round_limit_applies": false,
+    "effective_round_limit": null
+  },
+  "project_map": {
+    "run_id": "3171321cd98144b9b8172aa034a0e85c",
+    "snapshot_id": "a80eca8eefd9478b95b3019463c3fd6c",
+    "scope_files": 69,
+    "stats": {
+      "files": 69,
+      "symbols": 22,
+      "includes": 51,
+      "calls": 555,
+      "entrypoints": 45,
+      "low_confidence_roots": 0,
+      "unresolved_includes": 2,
+      "modules": 1,
+      "binary_files": 0,
+      "php_files": 52,
+      "dependency_tree_files": 0
+    },
+    "entrypoints": [
+      {
+        "path": "lab30-shop/app/public/account/index.php",
+        "reason": "web_root_index",
+        "confidence": "high",
+        "priority": 95,
+        "signals": [
+          "web_root_index_name"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "reason": "web_root_index",
+        "confidence": "high",
+        "priority": 95,
+        "signals": [
+          "web_root_index_name"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/index.php",
+        "reason": "web_root_index",
+        "confidence": "high",
+        "priority": 95,
+        "signals": [
+          "web_root_index_name"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/ops/index.php",
+        "reason": "web_root_index",
+        "confidence": "high",
+        "priority": 95,
+        "signals": [
+          "web_root_index_name"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/orders/index.php",
+        "reason": "web_root_index",
+        "confidence": "high",
+        "priority": 95,
+        "signals": [
+          "web_root_index_name"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/support/index.php",
+        "reason": "web_root_index",
+        "confidence": "high",
+        "priority": 95,
+        "signals": [
+          "web_root_index_name"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/wallet/index.php",
+        "reason": "web_root_index",
+        "confidence": "high",
+        "priority": 95,
+        "signals": [
+          "web_root_index_name"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/account/backup.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/account/me.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/account/profile.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/account/redeem.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/account/update.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/auth/continue.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/auth/login.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/auth/logout.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      },
+      {
+        "path": "lab30-shop/app/public/auth/register.php",
+        "reason": "web_root_script",
+        "confidence": "high",
+        "priority": 75,
+        "signals": [
+          "web_root_php_script"
+        ]
+      }
+    ],
+    "binary_files": [],
+    "unresolved_root_candidates": [],
+    "directories": [
+      "lab30-shop",
+      "lab30-shop/app",
+      "lab30-shop/app/bin",
+      "lab30-shop/app/public",
+      "lab30-shop/app/public/account",
+      "lab30-shop/app/public/assets",
+      "lab30-shop/app/public/auth",
+      "lab30-shop/app/public/catalog",
+      "lab30-shop/app/public/content",
+      "lab30-shop/app/public/ops",
+      "lab30-shop/app/public/orders",
+      "lab30-shop/app/public/partner",
+      "lab30-shop/app/public/support",
+      "lab30-shop/app/public/wallet",
+      "lab30-shop/app/resources",
+      "lab30-shop/app/resources/views",
+      "lab30-shop/app/src",
+      "lab30-shop/bin",
+      "lab30-shop/docker",
+      "lab30-shop/fixtures"
+    ],
+    "architecture": {
+      "role_counts": {
+        "application_code": 6,
+        "bootstrap": 1,
+        "cli": 4,
+        "configuration": 1,
+        "entrypoint": 45,
+        "template": 2,
+        "test": 1,
+        "web_root": 45
+      },
+      "modules": [
+        {
+          "file_count": 69,
+          "role_counts": {
+            "cli": 4,
+            "entrypoint": 45,
+            "web_root": 45,
+            "configuration": 1,
+            "template": 2,
+            "application_code": 6,
+            "bootstrap": 1,
+            "test": 1
+          },
+          "entrypoints": [
+            "lab30-shop/app/public/account/index.php",
+            "lab30-shop/app/public/catalog/index.php",
+            "lab30-shop/app/public/index.php",
+            "lab30-shop/app/public/ops/index.php",
+            "lab30-shop/app/public/orders/index.php",
+            "lab30-shop/app/public/support/index.php",
+            "lab30-shop/app/public/wallet/index.php",
+            "lab30-shop/app/public/account/backup.php",
+            "lab30-shop/app/public/account/me.php",
+            "lab30-shop/app/public/account/profile.php",
+            "lab30-shop/app/public/account/redeem.php",
+            "lab30-shop/app/public/account/update.php"
+          ],
+          "resolved_include_edges": 49,
+          "unresolved_include_edges": 2,
+          "notable_calls": [
+            {
+              "name": "h",
+              "count": 81
+            },
+            {
+              "name": "db",
+              "count": 37
+            },
+            {
+              "name": "page",
+              "count": 37
+            },
+            {
+              "name": "require_user",
+              "count": 30
+            },
+            {
+              "name": "execute",
+              "count": 28
+            },
+            {
+              "name": "prepare",
+              "count": 27
+            },
+            {
+              "name": "fail_request",
+              "count": 25
+            },
+            {
+              "name": "form_input",
+              "count": 24
+            }
+          ],
+          "directory": "lab30-shop"
+        }
+      ],
+      "bootstrap_files": [
+        {
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "module": "lab30-shop"
+        }
+      ],
+      "include_graph": {
+        "resolved_edges": 49,
+        "unresolved_edges": 2,
+        "cross_module_edges": 0
+      }
+    },
+    "parse_errors": [],
+    "limitations": [
+      "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+      "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+      "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads."
+    ],
+    "omitted": [
+      "files",
+      "symbols",
+      "includes",
+      "calls"
+    ],
+    "full_map_path": "/api/runs/3171321cd98144b9b8172aa034a0e85c/project-map"
+  },
+  "plans": [
+    {
+      "id": "9786dd2ba0ec431ab6e1b258fdab9579",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+      "session_id": "planner:3171321cd981",
+      "round_no": 1,
+      "revision": 1,
+      "status": "completed",
+      "goal_state": "continue",
+      "basis_summary": "冻结快照含 69 个第一方文件、45 个 web 入口，覆盖统计显示尚无任何 worker 读过源码（files_read=0）。项目图显示 app/src 有 bootstrap、backup、dispatch_job、member_lookup、host_check、setup 六个应用层文件，public 下按 account/auth/catalog/ops/orders/partner/support/wallet 分域，ops 目录含 template-render、xml-import、url-preview、formula、database、batch-check 等敏感脚本，另有 bin/setup、bin/reset 与 docker/fixtures 的外部驱动。本轮按域切分证据方向，先并行推进鉴权/账户、管理面注入类、反序列化与备份、钱包订单交易流、文件与网络读取，后续回合依据 worker 结论继续覆盖剩余文件。",
+      "next_action": "",
+      "missing_context": [],
+      "task_snapshot": [
+        {
+          "task_key": "auth-account-session",
+          "title": "账户与会话边界：注册/登录/续期/资料更新的鉴权与输入处理",
+          "objective": "读取 bootstrap 的会话与 h/check_csrf/require_user 实现，以及 account 下 index、me、profile、settings、update、redeem 与 auth 下 login、register、continue、logout，确认是否存在越权读写他人资料、CSRF 缺失、任意字段更新（如角色/余额）、redeem 逻辑可重复或可篡改等有源码证据的缺陷。",
+          "acceptance_criteria": "逐条给出可控输入到敏感操作（DB 写入、会话身份、余额/优惠）的调用链与原始行号证据；无缺陷的方向写明读取范围与反证行；不得仅凭函数名推断。",
+          "rationale_summary": "account/auth 是身份与资料写入的第一入口，bootstrap 提供会话与 CSRF 原语，二者构成完整鉴权边界链条。",
+          "source_refs": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 1,
+              "end_line": 67,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 1,
+              "end_line": 9,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 1,
+              "end_line": 9,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/auth/login.php",
+              "start_line": 1,
+              "end_line": 13,
+              "reason": "planner_selected"
+            }
+          ],
+          "objective_ref": "objective-main",
+          "obligation_ids": [],
+          "direction_ids": [],
+          "scope_paths": [
+            "lab30-shop/app/public/account",
+            "lab30-shop/app/public/auth",
+            "lab30-shop/app/src/bootstrap.php"
+          ],
+          "target_symbols": [
+            "start_session",
+            "check_csrf",
+            "require_user",
+            "csrf_token",
+            "user",
+            "db",
+            "form_input",
+            "h"
+          ],
+          "dependencies": [],
+          "query_hints": [],
+          "priority": 90
+        },
+        {
+          "task_key": "ops-injection-surface",
+          "title": "管理面 ops 注入与模板/XML/URL 处理：template-render、template-preview、xml-import、url-preview、formula、batch-check",
+          "objective": "读取 ops 下模板渲染与预览、XML 导入、URL 预览、公式求值、批量检查脚本及 content/page.php，判定这些入口接受的参数是否直接进入 eval/include/模板编译、XML 解析器（XXE）、SSRF 请求、代码执行或 SQL 拼接，并确认是否存在鉴权前置。",
+          "acceptance_criteria": "每个被判定为风险的入口须给出参数来源行、危险操作行与权限前置状态；对无证据的最高危入口写明反证行；覆盖上述每个脚本至少一次实际读取。",
+          "rationale_summary": "ops 目录集中了模板渲染、XML 导入、URL 抓取等典型注入与 SSRF/XXE 面，是漏洞密度最高的方向之一。",
+          "source_refs": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/ops/formula.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            }
+          ],
+          "objective_ref": "objective-main",
+          "obligation_ids": [],
+          "direction_ids": [],
+          "scope_paths": [
+            "lab30-shop/app/public/ops",
+            "lab30-shop/app/public/content/page.php"
+          ],
+          "target_symbols": [
+            "page",
+            "db",
+            "form_input",
+            "h"
+          ],
+          "dependencies": [],
+          "query_hints": [],
+          "priority": 85
+        },
+        {
+          "task_key": "deser-backup-chain",
+          "title": "反序列化与备份/恢复链：DispatchJob、MemberBackup、backup.php、bin/setup、bin/reset、account/backup",
+          "objective": "读取 app/src/backup.php、dispatch_job.php、member_lookup.php、setup.php 与 account/backup.php、ops/jobs.php、bin/setup.php、bin/reset.php，确认是否存在用户可控数据进入 unserialize/__wakeup 魔术方法、备份文件路径可穿越或可下载、恢复流程可被外部触发。",
+          "acceptance_criteria": "给出可控序列化数据来源行与 unserialize/__wakeup 触发行，或给出文件路径拼接与读取/写入行；若各环节有白名单或权限校验，须引用具体校验行作为反证。",
+          "rationale_summary": "项目图显式索引了 __wakeup、MemberBackup、DispatchJob 等符号，配合备份与恢复脚本，构成反序列化与文件访问的完整候选链。",
+          "source_refs": [
+            {
+              "path": "lab30-shop/app/src/backup.php",
+              "start_line": 1,
+              "end_line": 5,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/src/dispatch_job.php",
+              "start_line": 1,
+              "end_line": 5,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/account/backup.php",
+              "start_line": 1,
+              "end_line": 8,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/bin/setup.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            }
+          ],
+          "objective_ref": "objective-main",
+          "obligation_ids": [],
+          "direction_ids": [],
+          "scope_paths": [
+            "lab30-shop/app/src",
+            "lab30-shop/app/bin",
+            "lab30-shop/app/public/ops/jobs.php"
+          ],
+          "target_symbols": [
+            "DispatchJob",
+            "DispatchJob::__wakeup",
+            "MemberBackup",
+            "__wakeup",
+            "data_dir",
+            "event_log"
+          ],
+          "dependencies": [],
+          "query_hints": [],
+          "priority": 80
+        },
+        {
+          "task_key": "wallet-orders-trade",
+          "title": "交易与余额流：wallet/index、wallet/withdraw、orders/create、orders/detail、orders/index",
+          "objective": "读取钱包与订单相关脚本，追踪金额、数量、商品 ID、订单归属等参数从请求到数据库写入/扣减的路径，确认是否存在负值/整数溢出、越权查看他人订单、重复提交、状态机绕过或价格由客户端决定等可用缺陷。",
+          "acceptance_criteria": "每条可疑点须给出输入行、数据库操作行与缺失或存在的校验行；如确有校验（如归属检查、金额范围）须引用该行说明为何不可利用。",
+          "rationale_summary": "钱包与订单是业务资金与状态的汇聚点，其参数直连 db()，是逻辑漏洞最可能落地的位置。",
+          "source_refs": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 1,
+              "end_line": 11,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/wallet/index.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 1,
+              "end_line": 7,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            }
+          ],
+          "objective_ref": "objective-main",
+          "obligation_ids": [],
+          "direction_ids": [],
+          "scope_paths": [
+            "lab30-shop/app/public/wallet",
+            "lab30-shop/app/public/orders"
+          ],
+          "target_symbols": [
+            "db",
+            "require_user",
+            "check_csrf",
+            "form_input"
+          ],
+          "dependencies": [],
+          "query_hints": [],
+          "priority": 75
+        },
+        {
+          "task_key": "file-and-fetch-readers",
+          "title": "文件与外部读取：support/download、support/messages、partner/portal、partner/token、catalog/detail、content/page",
+          "objective": "读取支持下载、消息、合作方门户与令牌、商品详情与内容页脚本，确认文件名/路径参数是否进入读取或包含操作、令牌校验是否可绕过或可预测、模板输出是否对用户内容做转义，判定 LFI/路径穿越、越权访问与反射型注入。",
+          "acceptance_criteria": "给出参数到 readfile/include/查询/输出的具体行号；对已正确使用 basename、白名单或 h() 转义的路径引用该行作为反证；覆盖每个列出的脚本至少一次。",
+          "rationale_summary": "support/download 与 partner 令牌属于典型的文件读取与凭证校验边界，且与 content/catalog 的输出编码一起决定注入可达性。",
+          "source_refs": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/partner/token.php",
+              "start_line": 1,
+              "end_line": 6,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 1,
+              "end_line": 6,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/catalog/detail.php",
+              "start_line": 1,
+              "end_line": 3,
+              "reason": "planner_selected"
+            }
+          ],
+          "objective_ref": "objective-main",
+          "obligation_ids": [],
+          "direction_ids": [],
+          "scope_paths": [
+            "lab30-shop/app/public/support",
+            "lab30-shop/app/public/partner",
+            "lab30-shop/app/public/catalog",
+            "lab30-shop/app/public/content"
+          ],
+          "target_symbols": [
+            "member_lookup",
+            "db",
+            "h",
+            "page",
+            "form_input"
+          ],
+          "dependencies": [],
+          "query_hints": [],
+          "priority": 70
+        },
+        {
+          "task_key": "infra-setup-boundary",
+          "title": "部署与初始化边界：bin/package.py、docker 配置、fixtures/server.py、health.php、ops/maintenance、ops/database、ops/audit-log",
+          "objective": "读取打包脚本、容器与 php.ini 配置、fixture 服务、健康检查与运维脚本，确认是否存在启用危险 PHP 配置、以 root 或宽权限运行、fixture 服务可选命令执行/文件写入、运维脚本缺少鉴权即可触发的破坏性操作。",
+          "acceptance_criteria": "对每个判定给出配置行或代码行；将仅影响测试环境或需本地访问权限的情形明确标注触发前提；确认 ops/maintenance、ops/database、ops/audit-log 的访问控制现状并引用具体校验行。",
+          "rationale_summary": "php.ini、entrypoint 与 fixtures/server.py 决定运行时危险函数的可用性与外部可达面，是判断其他入口能否升级为 RCE 的前提。",
+          "source_refs": [
+            {
+              "path": "lab30-shop/docker/php.ini",
+              "start_line": 1,
+              "end_line": 13,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/fixtures/server.py",
+              "start_line": 1,
+              "end_line": 43,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 1,
+              "end_line": 5,
+              "reason": "planner_selected"
+            },
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 1,
+              "end_line": 4,
+              "reason": "planner_selected"
+            }
+          ],
+          "objective_ref": "objective-main",
+          "obligation_ids": [],
+          "direction_ids": [],
+          "scope_paths": [
+            "lab30-shop/docker",
+            "lab30-shop/bin",
+            "lab30-shop/fixtures",
+            "lab30-shop/compose.yaml",
+            "lab30-shop/app/public/health.php",
+            "lab30-shop/app/public/ops/audit-log.php"
+          ],
+          "target_symbols": [],
+          "dependencies": [],
+          "query_hints": [
+            "disable_functions",
+            "allow_url_include",
+            "entrypoint",
+            "subprocess"
+          ],
+          "priority": 60
+        }
+      ],
+      "updates": [],
+      "usage": {
+        "requests": 1,
+        "tool_calls": 0,
+        "input_tokens": 13187,
+        "output_tokens": 2400,
+        "prompt_cache": {
+          "version": "prompt-cache-v1",
+          "usage_records": 1,
+          "reported_records": 1,
+          "hit_records": 1,
+          "known_input_tokens": 13187,
+          "reported_input_tokens": 13187,
+          "known_cache_read_tokens": 3456,
+          "known_cache_write_tokens": 0,
+          "write_reported_records": 0,
+          "cache_read_tokens": 3456,
+          "cache_write_tokens": null,
+          "cache_hit_ratio": 0.26207628725259724,
+          "record_coverage": 1.0,
+          "complete": true,
+          "by_role": {
+            "planner": {
+              "usage_records": 1,
+              "reported_records": 1,
+              "hit_records": 1,
+              "known_input_tokens": 13187,
+              "reported_input_tokens": 13187,
+              "known_cache_read_tokens": 3456,
+              "known_cache_write_tokens": 0,
+              "write_reported_records": 0,
+              "cache_read_tokens": 3456,
+              "cache_write_tokens": null,
+              "cache_hit_ratio": 0.26207628725259724,
+              "record_coverage": 1.0,
+              "complete": true
+            }
+          }
+        },
+        "model_attempts": 1,
+        "corrections": 0,
+        "elapsed_seconds": 15.626,
+        "phases": {
+          "planner_prepare": {
+            "model_attempts": 0,
+            "tool_calls": 0
+          },
+          "planner_publish": {
+            "model_attempts": 1,
+            "tool_calls": 0
+          }
+        },
+        "context": {
+          "peak_request_bytes": 74909,
+          "history_bytes": 393216,
+          "summary_requests": 0,
+          "summary_bytes": 0,
+          "compactions": 0,
+          "dropped_groups": 0,
+          "limit_hits": 0,
+          "sources": {},
+          "phases": {
+            "planner_publish": {
+              "peak_request_bytes": 74909,
+              "requests": 1,
+              "summary_requests": 0,
+              "limit_hits": 0
+            }
+          }
+        }
+      },
+      "error": null,
+      "created_at": "2026-11-11T11:26:49.729975+00:00",
+      "finished_at": "2026-11-11T11:27:05.369938+00:00",
+      "narrative": {}
+    }
+  ],
+  "tasks": [
+    {
+      "id": "111d7ccd9ef746fbbfb56303f851e5b7",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+      "plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+      "task_key": "auth-account-session",
+      "title": "账户与会话边界：注册/登录/续期/资料更新的鉴权与输入处理",
+      "objective": "读取 bootstrap 的会话与 h/check_csrf/require_user 实现，以及 account 下 index、me、profile、settings、update、redeem 与 auth 下 login、register、continue、logout，确认是否存在越权读写他人资料、CSRF 缺失、任意字段更新（如角色/余额）、redeem 逻辑可重复或可篡改等有源码证据的缺陷。",
+      "acceptance_criteria": "逐条给出可控输入到敏感操作（DB 写入、会话身份、余额/优惠）的调用链与原始行号证据；无缺陷的方向写明读取范围与反证行；不得仅凭函数名推断。",
+      "rationale_summary": "account/auth 是身份与资料写入的第一入口，bootstrap 提供会话与 CSRF 原语，二者构成完整鉴权边界链条。",
+      "context_spec": {
+        "objective_ref": "objective-main",
+        "obligation_ids": [],
+        "source_refs": [
+          {
+            "path": "lab30-shop/app/src/bootstrap.php",
+            "start_line": 1,
+            "end_line": 67,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 1,
+            "end_line": 9,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/account/redeem.php",
+            "start_line": 1,
+            "end_line": 9,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/auth/login.php",
+            "start_line": 1,
+            "end_line": 13,
+            "reason": "planner_selected"
+          }
+        ],
+        "scope_paths": [
+          "lab30-shop/app/public/account",
+          "lab30-shop/app/public/auth",
+          "lab30-shop/app/src/bootstrap.php"
+        ],
+        "target_symbols": [
+          "start_session",
+          "check_csrf",
+          "require_user",
+          "csrf_token",
+          "user",
+          "db",
+          "form_input",
+          "h"
+        ],
+        "query_hints": [],
+        "direction_ids": []
+      },
+      "dependencies": [],
+      "session_id": "planner:3171321cd981:task:111d7ccd9e",
+      "priority": 90,
+      "state": "ready",
+      "max_attempts": 3,
+      "attempts": 0,
+      "claimed_by": null,
+      "claimed_at": null,
+      "result": null,
+      "error": null,
+      "created_at": "2026-11-11T11:27:05.369938+00:00",
+      "updated_at": "2026-11-11T11:27:05.369938+00:00",
+      "finished_at": null,
+      "revisions": 0,
+      "attempt_history": []
+    },
+    {
+      "id": "d8e793b62a7c4412847041de16a85aad",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+      "plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+      "task_key": "ops-injection-surface",
+      "title": "管理面 ops 注入与模板/XML/URL 处理：template-render、template-preview、xml-import、url-preview、formula、batch-check",
+      "objective": "读取 ops 下模板渲染与预览、XML 导入、URL 预览、公式求值、批量检查脚本及 content/page.php，判定这些入口接受的参数是否直接进入 eval/include/模板编译、XML 解析器（XXE）、SSRF 请求、代码执行或 SQL 拼接，并确认是否存在鉴权前置。",
+      "acceptance_criteria": "每个被判定为风险的入口须给出参数来源行、危险操作行与权限前置状态；对无证据的最高危入口写明反证行；覆盖上述每个脚本至少一次实际读取。",
+      "rationale_summary": "ops 目录集中了模板渲染、XML 导入、URL 抓取等典型注入与 SSRF/XXE 面，是漏洞密度最高的方向之一。",
+      "context_spec": {
+        "objective_ref": "objective-main",
+        "obligation_ids": [],
+        "source_refs": [
+          {
+            "path": "lab30-shop/app/public/ops/template-render.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/ops/xml-import.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/ops/url-preview.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/ops/formula.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          }
+        ],
+        "scope_paths": [
+          "lab30-shop/app/public/ops",
+          "lab30-shop/app/public/content/page.php"
+        ],
+        "target_symbols": [
+          "page",
+          "db",
+          "form_input",
+          "h"
+        ],
+        "query_hints": [],
+        "direction_ids": []
+      },
+      "dependencies": [],
+      "session_id": "planner:3171321cd981:task:d8e793b62a",
+      "priority": 85,
+      "state": "ready",
+      "max_attempts": 3,
+      "attempts": 0,
+      "claimed_by": null,
+      "claimed_at": null,
+      "result": null,
+      "error": null,
+      "created_at": "2026-11-11T11:27:05.369938+00:00",
+      "updated_at": "2026-11-11T11:27:05.369938+00:00",
+      "finished_at": null,
+      "revisions": 0,
+      "attempt_history": []
+    },
+    {
+      "id": "1719355ca3b343a8bf643638bbe22c0d",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+      "plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+      "task_key": "deser-backup-chain",
+      "title": "反序列化与备份/恢复链：DispatchJob、MemberBackup、backup.php、bin/setup、bin/reset、account/backup",
+      "objective": "读取 app/src/backup.php、dispatch_job.php、member_lookup.php、setup.php 与 account/backup.php、ops/jobs.php、bin/setup.php、bin/reset.php，确认是否存在用户可控数据进入 unserialize/__wakeup 魔术方法、备份文件路径可穿越或可下载、恢复流程可被外部触发。",
+      "acceptance_criteria": "给出可控序列化数据来源行与 unserialize/__wakeup 触发行，或给出文件路径拼接与读取/写入行；若各环节有白名单或权限校验，须引用具体校验行作为反证。",
+      "rationale_summary": "项目图显式索引了 __wakeup、MemberBackup、DispatchJob 等符号，配合备份与恢复脚本，构成反序列化与文件访问的完整候选链。",
+      "context_spec": {
+        "objective_ref": "objective-main",
+        "obligation_ids": [],
+        "source_refs": [
+          {
+            "path": "lab30-shop/app/src/backup.php",
+            "start_line": 1,
+            "end_line": 5,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/src/dispatch_job.php",
+            "start_line": 1,
+            "end_line": 5,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/account/backup.php",
+            "start_line": 1,
+            "end_line": 8,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/bin/setup.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          }
+        ],
+        "scope_paths": [
+          "lab30-shop/app/src",
+          "lab30-shop/app/bin",
+          "lab30-shop/app/public/ops/jobs.php"
+        ],
+        "target_symbols": [
+          "DispatchJob",
+          "DispatchJob::__wakeup",
+          "MemberBackup",
+          "__wakeup",
+          "data_dir",
+          "event_log"
+        ],
+        "query_hints": [],
+        "direction_ids": []
+      },
+      "dependencies": [],
+      "session_id": "planner:3171321cd981:task:1719355ca3",
+      "priority": 80,
+      "state": "ready",
+      "max_attempts": 3,
+      "attempts": 0,
+      "claimed_by": null,
+      "claimed_at": null,
+      "result": null,
+      "error": null,
+      "created_at": "2026-11-11T11:27:05.369938+00:00",
+      "updated_at": "2026-11-11T11:27:05.369938+00:00",
+      "finished_at": null,
+      "revisions": 0,
+      "attempt_history": []
+    },
+    {
+      "id": "8118ec49f9fa48e88944012044318475",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+      "plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+      "task_key": "wallet-orders-trade",
+      "title": "交易与余额流：wallet/index、wallet/withdraw、orders/create、orders/detail、orders/index",
+      "objective": "读取钱包与订单相关脚本，追踪金额、数量、商品 ID、订单归属等参数从请求到数据库写入/扣减的路径，确认是否存在负值/整数溢出、越权查看他人订单、重复提交、状态机绕过或价格由客户端决定等可用缺陷。",
+      "acceptance_criteria": "每条可疑点须给出输入行、数据库操作行与缺失或存在的校验行；如确有校验（如归属检查、金额范围）须引用该行说明为何不可利用。",
+      "rationale_summary": "钱包与订单是业务资金与状态的汇聚点，其参数直连 db()，是逻辑漏洞最可能落地的位置。",
+      "context_spec": {
+        "objective_ref": "objective-main",
+        "obligation_ids": [],
+        "source_refs": [
+          {
+            "path": "lab30-shop/app/public/wallet/withdraw.php",
+            "start_line": 1,
+            "end_line": 11,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/wallet/index.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/orders/create.php",
+            "start_line": 1,
+            "end_line": 7,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/orders/detail.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          }
+        ],
+        "scope_paths": [
+          "lab30-shop/app/public/wallet",
+          "lab30-shop/app/public/orders"
+        ],
+        "target_symbols": [
+          "db",
+          "require_user",
+          "check_csrf",
+          "form_input"
+        ],
+        "query_hints": [],
+        "direction_ids": []
+      },
+      "dependencies": [],
+      "session_id": "planner:3171321cd981:task:8118ec49f9",
+      "priority": 75,
+      "state": "ready",
+      "max_attempts": 3,
+      "attempts": 0,
+      "claimed_by": null,
+      "claimed_at": null,
+      "result": null,
+      "error": null,
+      "created_at": "2026-11-11T11:27:05.369938+00:00",
+      "updated_at": "2026-11-11T11:27:05.369938+00:00",
+      "finished_at": null,
+      "revisions": 0,
+      "attempt_history": []
+    },
+    {
+      "id": "e3ff1c143b8b46d3bb53b58937c3cbc2",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+      "plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+      "task_key": "file-and-fetch-readers",
+      "title": "文件与外部读取：support/download、support/messages、partner/portal、partner/token、catalog/detail、content/page",
+      "objective": "读取支持下载、消息、合作方门户与令牌、商品详情与内容页脚本，确认文件名/路径参数是否进入读取或包含操作、令牌校验是否可绕过或可预测、模板输出是否对用户内容做转义，判定 LFI/路径穿越、越权访问与反射型注入。",
+      "acceptance_criteria": "给出参数到 readfile/include/查询/输出的具体行号；对已正确使用 basename、白名单或 h() 转义的路径引用该行作为反证；覆盖每个列出的脚本至少一次。",
+      "rationale_summary": "support/download 与 partner 令牌属于典型的文件读取与凭证校验边界，且与 content/catalog 的输出编码一起决定注入可达性。",
+      "context_spec": {
+        "objective_ref": "objective-main",
+        "obligation_ids": [],
+        "source_refs": [
+          {
+            "path": "lab30-shop/app/public/support/download.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/partner/token.php",
+            "start_line": 1,
+            "end_line": 6,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/partner/portal.php",
+            "start_line": 1,
+            "end_line": 6,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/catalog/detail.php",
+            "start_line": 1,
+            "end_line": 3,
+            "reason": "planner_selected"
+          }
+        ],
+        "scope_paths": [
+          "lab30-shop/app/public/support",
+          "lab30-shop/app/public/partner",
+          "lab30-shop/app/public/catalog",
+          "lab30-shop/app/public/content"
+        ],
+        "target_symbols": [
+          "member_lookup",
+          "db",
+          "h",
+          "page",
+          "form_input"
+        ],
+        "query_hints": [],
+        "direction_ids": []
+      },
+      "dependencies": [],
+      "session_id": "planner:3171321cd981:task:e3ff1c143b",
+      "priority": 70,
+      "state": "ready",
+      "max_attempts": 3,
+      "attempts": 0,
+      "claimed_by": null,
+      "claimed_at": null,
+      "result": null,
+      "error": null,
+      "created_at": "2026-11-11T11:27:05.369938+00:00",
+      "updated_at": "2026-11-11T11:27:05.369938+00:00",
+      "finished_at": null,
+      "revisions": 0,
+      "attempt_history": []
+    },
+    {
+      "id": "b6904cbadc2b4771801a175c015a35a6",
+      "run_id": "3171321cd98144b9b8172aa034a0e85c",
+      "goal_id": "bbb65706b2c24f24b53424f62aa264eb",
+      "plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+      "task_key": "infra-setup-boundary",
+      "title": "部署与初始化边界：bin/package.py、docker 配置、fixtures/server.py、health.php、ops/maintenance、ops/database、ops/audit-log",
+      "objective": "读取打包脚本、容器与 php.ini 配置、fixture 服务、健康检查与运维脚本，确认是否存在启用危险 PHP 配置、以 root 或宽权限运行、fixture 服务可选命令执行/文件写入、运维脚本缺少鉴权即可触发的破坏性操作。",
+      "acceptance_criteria": "对每个判定给出配置行或代码行；将仅影响测试环境或需本地访问权限的情形明确标注触发前提；确认 ops/maintenance、ops/database、ops/audit-log 的访问控制现状并引用具体校验行。",
+      "rationale_summary": "php.ini、entrypoint 与 fixtures/server.py 决定运行时危险函数的可用性与外部可达面，是判断其他入口能否升级为 RCE 的前提。",
+      "context_spec": {
+        "objective_ref": "objective-main",
+        "obligation_ids": [],
+        "source_refs": [
+          {
+            "path": "lab30-shop/docker/php.ini",
+            "start_line": 1,
+            "end_line": 13,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/fixtures/server.py",
+            "start_line": 1,
+            "end_line": 43,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/ops/maintenance.php",
+            "start_line": 1,
+            "end_line": 5,
+            "reason": "planner_selected"
+          },
+          {
+            "path": "lab30-shop/app/public/ops/database.php",
+            "start_line": 1,
+            "end_line": 4,
+            "reason": "planner_selected"
+          }
+        ],
+        "scope_paths": [
+          "lab30-shop/docker",
+          "lab30-shop/bin",
+          "lab30-shop/fixtures",
+          "lab30-shop/compose.yaml",
+          "lab30-shop/app/public/health.php",
+          "lab30-shop/app/public/ops/audit-log.php"
+        ],
+        "target_symbols": [],
+        "query_hints": [
+          "disable_functions",
+          "allow_url_include",
+          "entrypoint",
+          "subprocess"
+        ],
+        "direction_ids": []
+      },
+      "dependencies": [],
+      "session_id": "planner:3171321cd981:task:b6904cbadc",
+      "priority": 60,
+      "state": "ready",
+      "max_attempts": 3,
+      "attempts": 0,
+      "claimed_by": null,
+      "claimed_at": null,
+      "result": null,
+      "error": null,
+      "created_at": "2026-11-11T11:27:05.369938+00:00",
+      "updated_at": "2026-11-11T11:27:05.369938+00:00",
+      "finished_at": null,
+      "revisions": 0,
+      "attempt_history": []
+    }
+  ],
+  "observations": [
+    {
+      "kind": "planner_coverage_prepared",
+      "round": 1,
+      "payload": {
+        "agent_invocation_id": "4ea360e774c24bc2a8f62991a65ef4ec",
+        "request_index": 0,
+        "phase": "planner_prepare",
+        "round": 1,
+        "coverage": {
+          "files_total": 69,
+          "files_read": 0,
+          "files_with_findings": 0,
+          "coverage_ratio": 0.0,
+          "read_paths": [],
+          "unread_hot_modules": [
+            {
+              "module": "lab30-shop",
+              "unread": 69,
+              "total": 69
+            }
+          ],
+          "dependency_tree_total": 0,
+          "dependency_tree_read": 0,
+          "notice": "覆盖统计来自已持久化的 worker 读记录与冻结项目图，不是安全结论，也不能作为 finding 证据；read_paths 最多列 40 条，unread_hot_modules 最多列 12 个，最近 200 次尝试之外的读记录未计入。"
+        },
+        "usage": {
+          "requests": 0,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "prompt_cache": {
+            "version": "prompt-cache-v1",
+            "usage_records": 0,
+            "reported_records": 0,
+            "hit_records": 0,
+            "known_input_tokens": 0,
+            "reported_input_tokens": 0,
+            "known_cache_read_tokens": 0,
+            "known_cache_write_tokens": 0,
+            "write_reported_records": 0,
+            "cache_read_tokens": null,
+            "cache_write_tokens": null,
+            "cache_hit_ratio": null,
+            "record_coverage": null,
+            "complete": false,
+            "by_role": {}
+          },
+          "model_attempts": 0,
+          "corrections": 0,
+          "elapsed_seconds": 0.016,
+          "phases": {
+            "planner_prepare": {
+              "model_attempts": 0,
+              "tool_calls": 0
+            }
+          },
+          "context": {
+            "peak_request_bytes": 0,
+            "history_bytes": 393216,
+            "summary_requests": 0,
+            "summary_bytes": 0,
+            "compactions": 0,
+            "dropped_groups": 0,
+            "limit_hits": 0,
+            "sources": {}
+          }
+        },
+        "plan_id": "9786dd2ba0ec431ab6e1b258fdab9579",
+        "session_id": "planner:3171321cd981",
+        "role": "planner",
+        "planner_round": 1,
+        "revision": 1
+      }
+    }
+  ],
+  "investigations": {
+    "total": 0,
+    "by_status": {},
+    "recent": [],
+    "notice": "这些调查的结果已经固定在库里；同一个话题再问会直接返回原记录，不会重新执行。这里只列最近若干条且不含正文，需要全文时用 get_investigation。"
+  },
+  "units": [],
+  "work_items": [],
+  "findings": [],
+  "source_observations": [],
+  "attributions": [],
+  "metrics": {
+    "candidates": 0,
+    "candidate_findings": 0,
+    "source_observations": 0,
+    "withdrawn_findings": 0,
+    "discarded_candidates": 0,
+    "confirmed": 0,
+    "rejected": 0,
+    "uncertain": 0,
+    "awaiting_verification": 0,
+    "audit_coverage": 0.0,
+    "verification_coverage": 0.0,
+    "total_units": 0,
+    "completed_units": 0,
+    "incomplete_units": 0,
+    "pending_units": 0,
+    "project_id": "b26567df0b034783af54fe52bec824ed",
+    "new_findings": 0,
+    "corrected_findings": 0,
+    "rediscovered_findings": 0,
+    "carried_findings": 0,
+    "verified_findings": 0,
+    "rejected_findings": 0,
+    "unverified_findings": 0,
+    "verification_statuses": {},
+    "verdict_sources": {},
+    "total_tasks": 6,
+    "completed_tasks": 0,
+    "terminal_tasks": 0,
+    "active_tasks": 6,
+    "blocked_tasks": 0,
+    "task_states": {
+      "ready": 6
+    },
+    "task_coverage": 0.0,
+    "truth_status": "planner_goal_not_comparable",
+    "evaluation": null
+  },
+  "project": {
+    "id": "b26567df0b034783af54fe52bec824ed",
+    "content_key": "52ff99c0256df8095adcbf7636257f649d62c72fdd2966e2e3ea8a694346e7f7",
+    "name": "lab30-shop-1.0.0-source",
+    "created_at": "2026-11-11T11:26:49.636786+00:00",
+    "updated_at": "2026-11-11T11:26:49.673405+00:00",
+    "latest_snapshot_id": "a80eca8eefd9478b95b3019463c3fd6c",
+    "latest_run_id": "3171321cd98144b9b8172aa034a0e85c",
+    "snapshot_count": 1,
+    "run_count": 1,
+    "target_profile": "lab30",
+    "content_schema": 1,
+    "finding_counts": {
+      "total": 0,
+      "open": 0,
+      "verified": 0,
+      "rejected": 0,
+      "unverified": 0,
+      "inconclusive": 0,
+      "not_applicable": 0,
+      "environment_unavailable": 0,
+      "stale": 0,
+      "withdrawn": 0
+    }
+  },
+  "project_findings": [],
+  "carried_findings": [],
+  "verification_jobs": [],
+  "verification_summary": {
+    "verified": 0,
+    "rejected": 0,
+    "inconclusive": 0,
+    "not_applicable": 0,
+    "environment_unavailable": 0,
+    "unverified": 0,
+    "stale": 0
+  },
+  "verification_records": [],
+  "verification_reviews": [],
+  "defence": {
+    "score": null,
+    "components": [
+      {
+        "key": "evidence",
+        "label": "证据校验通过率",
+        "weight": 0.2,
+        "value": null,
+        "source": "run",
+        "detail": "本次运行没有漏洞候选"
+      },
+      {
+        "key": "poc",
+        "label": "POC 验证通过率",
+        "weight": 0.2,
+        "value": null,
+        "source": "run",
+        "detail": "本次运行没有执行自动验证"
+      },
+      {
+        "key": "review",
+        "label": "Planner 复核通过率",
+        "weight": 0.2,
+        "value": null,
+        "source": "run",
+        "detail": "没有需要核实的自动验证结论"
+      },
+      {
+        "key": "injection",
+        "label": "注入抵抗率",
+        "weight": 0.2,
+        "value": null,
+        "source": "benchmark",
+        "detail": "还没有完成的 Prompt 对比实验"
+      },
+      {
+        "key": "chain",
+        "label": "证据链完整率",
+        "weight": 0.2,
+        "value": null,
+        "source": "benchmark",
+        "detail": "还没有完成的 Prompt 对比实验"
+      }
+    ],
+    "missing": [
+      "evidence",
+      "poc",
+      "review",
+      "injection",
+      "chain"
+    ],
+    "denominator_weight": 0,
+    "benchmark": {
+      "experiment_id": null,
+      "finished_at": null,
+      "variants": []
+    },
+    "note": "总分按可用成分的权重归一化；缺失项在 missing 中列出，不以 0 分代入。defence 相关三个成分来自本次运行，injection/chain 来自最近一次完成的 Prompt 对比实验。"
+  },
+  "report_narrative": {},
+  "verification_policy": {
+    "enabled": false,
+    "required": false,
+    "target": "lab30",
+    "runner_configured": false,
+    "job_seconds": 30,
+    "max_steps": 8,
+    "max_jobs": 8,
+    "max_seconds": 300,
+    "browser": false,
+    "max_script_bytes": 32768,
+    "reset_between_findings": false,
+    "reset_timeout": 30,
+    "runtime": "legacy",
+    "mode": "off",
+    "target_key": "f9c5bc0b85d3b11793a67886f794e2fd53382611589f8397e446abbf76c301f9"
+  }
+}

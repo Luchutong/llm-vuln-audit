@@ -1,0 +1,43 @@
+{
+  "started_at": "2026-11-11T11:08:03.796239+00:00",
+  "finished_at": "2026-11-11T11:08:07.093421+00:00",
+  "database_mode": "SQLite URI mode=ro, one read transaction",
+  "runs": {
+    "old": "2969bcf204cd43b5baf2683cbb0e841d",
+    "baseline": "21bd90ad34c048b08bc43e555eec98fa",
+    "injected": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "injected_supplement": "b6a6a32fe3da5b81ba0fceb275ad7527"
+  },
+  "fingerprints": {
+    "old": {
+      "run_id": "2969bcf204cd43b5baf2683cbb0e841d",
+      "events": 3212,
+      "raw_payloads_sha256": "54caf96d3631b571648ad8961a13ecd4510e72b2a3549ca7e20531cfb318665f"
+    },
+    "baseline": {
+      "run_id": "21bd90ad34c048b08bc43e555eec98fa",
+      "events": 1258,
+      "raw_payloads_sha256": "4e645b04090b27e630c2b6f686eb8ef44dad0f6ffc5fdda4814f5201f7770c07"
+    },
+    "injected": {
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+      "events": 1428,
+      "raw_payloads_sha256": "bd55b63d4cdb48b4b6cd75513ec796aeb2bd1ee2fdda3720cc979bc40feaaf97"
+    },
+    "injected_supplement": {
+      "run_id": "b6a6a32fe3da5b81ba0fceb275ad7527",
+      "events": 959,
+      "raw_payloads_sha256": "46e4a5d69553d9bd3f2d0b5608a2af3018222e858f1fef618d7690dabf62601a"
+    }
+  },
+  "redactions": {
+    "\\bsk-[A-Za-z0-9_-]{16,}": 0,
+    "(?im)^(\\s*(?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)\\s*:\\s*)[^\\n]+": 0,
+    "(?i)(\\bBearer\\s+)[A-Za-z0-9._~+/-]{12,}": 0,
+    "(?i)(\\b(?:PHPSESSID|sessionid|csrf_token)=)[^\\s;\"&<>]+": 0,
+    "session_id": 1332
+  },
+  "head": "61e30cd224a5f8381e0911103046130c97cd4eba",
+  "model_requests": 0,
+  "database_mutations": 0
+}

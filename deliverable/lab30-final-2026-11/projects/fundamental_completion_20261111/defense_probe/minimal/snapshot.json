@@ -1,0 +1,1332 @@
+{
+  "id": "784ce84f7bb34c00bb6ff66f76729099",
+  "schema_version": 2,
+  "name": "leak_probe_slice.zip",
+  "created_at": "2026-11-11T11:25:55.147777+00:00",
+  "archive_sha256": "df56db4f37496b471c4ebb04c1c26965e32ffb8e4b8001d2cc28ca172685f789",
+  "source": "uploaded_zip",
+  "content_key": "13f4f1621539ed8936ebbe663f78eca771ffce186fbc05d62b70ddf1a65e94a3",
+  "target_profile": "unknown",
+  "files": [
+    {
+      "path": "lab30-shop/app/public/catalog/greeting.php",
+      "sha256": "b646dea9dafde7c62064ac1ee9eb8609d56516ed7d1d0467d8f8a56887827682",
+      "size": 560,
+      "line_count": 4,
+      "excluded": false,
+      "exclude_reason": null,
+      "is_php": true,
+      "kind": "text",
+      "language": "php",
+      "dependency_tree": false,
+      "parse_errors": []
+    },
+    {
+      "path": "lab30-shop/app/public/catalog/index.php",
+      "sha256": "5b3eb4df5eebdbf6453001f98ac6a93b1f7bd114e8e2b3d078456a7c1dfb7e1f",
+      "size": 1379,
+      "line_count": 6,
+      "excluded": false,
+      "exclude_reason": null,
+      "is_php": true,
+      "kind": "text",
+      "language": "php",
+      "dependency_tree": false,
+      "parse_errors": []
+    },
+    {
+      "path": "lab30-shop/app/public/ops/ping.php",
+      "sha256": "852e9af141787c88ea01c5946df4fba6c3aaa75c185a97bdbe111037e5d13aa3",
+      "size": 645,
+      "line_count": 4,
+      "excluded": false,
+      "exclude_reason": null,
+      "is_php": true,
+      "kind": "text",
+      "language": "php",
+      "dependency_tree": false,
+      "parse_errors": []
+    },
+    {
+      "path": "lab30-shop/app/src/bootstrap.php",
+      "sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db",
+      "size": 5935,
+      "line_count": 67,
+      "excluded": false,
+      "exclude_reason": null,
+      "is_php": true,
+      "kind": "text",
+      "language": "php",
+      "dependency_tree": false,
+      "parse_errors": []
+    }
+  ],
+  "units": [
+    {
+      "id": "d6e99f90b60d1dced050e708319d1230",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/public/catalog/index.php",
+      "start_line": 1,
+      "end_line": 6,
+      "start_column": 0,
+      "end_column": 976,
+      "start_byte": 0,
+      "end_byte": 1379,
+      "symbol": "<top-level>",
+      "kind": "top_level",
+      "class_name": null,
+      "priority": 7,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 0,
+      "parent_end_byte": 1379,
+      "cleaned_lines": [
+        {
+          "number": 1,
+          "text": "<?php",
+          "start_column": 0,
+          "end_column": 5
+        },
+        {
+          "number": 3,
+          "text": "require __DIR__.'/../../src/bootstrap.php';",
+          "start_column": 0,
+          "end_column": 43
+        },
+        {
+          "number": 4,
+          "text": "$term=(string)($_GET['q']??'');",
+          "start_column": 0,
+          "end_column": 31
+        },
+        {
+          "number": 5,
+          "text": "$products=db()->query(\"SELECT id,name,description,price,stock,color FROM products WHERE name LIKE '%\".$term.\"%' ORDER BY id\")->fetchAll();",
+          "start_column": 0,
+          "end_column": 138
+        },
+        {
+          "number": 6,
+          "text": "page('本季好物',function()use($products,$term){echo '<form class=\"search-form\" method=\"get\"><input aria-label=\"搜索商品\" name=\"q\" placeholder=\"搜索你喜欢的好物\" value=\"'.h($term).'\"><button>搜索</button></form><p class=\"muted\">共找到 <span id=\"result-count\">'.count($products).'</span> 件商品</p><div class=\"products\">';foreach($products as $p)echo '<article class=\"product\"><div class=\"product-art '.h($p['color']).'\"><svg viewBox=\"0 0 240 220\" role=\"img\" aria-label=\"'.h($p['name']).'\"><use href=\"/assets/products.svg#product-'.(int)$p['id'].'\"></use></svg></div><div class=\"product-copy\"><small>拾光 · 日常系列</small><h2>'.h($p['name']).'</h2><p>'.h($p['description']).'</p><div class=\"row\"><strong>¥'.h($p['price']).'</strong><a class=\"button secondary\" href=\"/catalog/detail.php?id='.(int)$p['id'].'\">查看商品 →</a></div></div></article>';echo '</div><a href=\"/catalog/greeting.php\">查看到店欢迎信息</a>';},'商品目录');",
+          "start_column": 0,
+          "end_column": 975
+        }
+      ],
+      "omissions": [
+        {
+          "start_line": 2,
+          "end_line": 2,
+          "start_column": 0,
+          "reason": "irrelevant_comment"
+        }
+      ],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "3e4f906501c11c6e5b815c1e72162824",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 47,
+      "end_line": 61,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 3385,
+      "end_byte": 5420,
+      "symbol": "page",
+      "kind": "function",
+      "class_name": null,
+      "priority": 7,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 3385,
+      "parent_end_byte": 5420,
+      "cleaned_lines": [
+        {
+          "number": 47,
+          "text": "function page(string $title, callable $body, string $section = ''): void {",
+          "start_column": 0,
+          "end_column": 74
+        },
+        {
+          "number": 48,
+          "text": "    db();",
+          "start_column": 0,
+          "end_column": 9
+        },
+        {
+          "number": 49,
+          "text": "    $u = user();",
+          "start_column": 0,
+          "end_column": 16
+        },
+        {
+          "number": 50,
+          "text": "    header('Content-Type: text/html; charset=utf-8');",
+          "start_column": 0,
+          "end_column": 53
+        },
+        {
+          "number": 51,
+          "text": "    echo '<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>' . h($title) . ' · 拾光商城</title><meta name=\"theme-color\" content=\"#1b573f\"><link rel=\"stylesheet\" href=\"/assets/app.css\"><script src=\"/assets/app.js\" defer></script></head><body><div class=\"shell\"><aside><a class=\"brand\" href=\"/\"><span>拾</span><div>拾光商城<small>SHIGUANG COMMERCE</small></div></a><nav>';",
+          "start_column": 0,
+          "end_column": 468
+        },
+        {
+          "number": 52,
+          "text": "    $nav = ['/' => '工作台', '/catalog/index.php' => '商品目录', '/orders/index.php' => '订单中心', '/wallet/index.php' => '我的钱包', '/account/index.php' => '账户与会员', '/support/index.php' => '客服与帮助', '/content/page.php' => '内容中心', '/ops/index.php' => '运营工作台'];",
+          "start_column": 0,
+          "end_column": 314
+        },
+        {
+          "number": 53,
+          "text": "    if (!$u || !in_array($u['role'], ['operator','admin'], true)) unset($nav['/ops/index.php']);",
+          "start_column": 0,
+          "end_column": 96
+        },
+        {
+          "number": 54,
+          "text": "    foreach ($nav as $url => $label) echo '<a ' . ($section === $label ? 'class=\"active\" ' : '') . 'href=\"' . $url . '\">' . $label . '</a>';",
+          "start_column": 0,
+          "end_column": 140
+        },
+        {
+          "number": 55,
+          "text": "    echo '</nav><div class=\"side-bottom\">本地演示商城<small>数据可通过重置命令恢复</small></div></aside><main><header class=\"topbar\"><a class=\"mobile-brand\" href=\"/\">拾光商城</a><span>商城工作空间 / ' . h($title) . '</span><div>';",
+          "start_column": 0,
+          "end_column": 257
+        },
+        {
+          "number": 56,
+          "text": "    if ($u) echo '<span>' . h($u['display_name']) . '</span><a href=\"/account/index.php\">我的账户</a><a href=\"/auth/logout.php\">退出</a>';",
+          "start_column": 0,
+          "end_column": 144
+        },
+        {
+          "number": 57,
+          "text": "    else echo '<a href=\"/auth/login.php\">登录</a><a href=\"/auth/register.php\">注册</a>';",
+          "start_column": 0,
+          "end_column": 92
+        },
+        {
+          "number": 58,
+          "text": "    echo '</div></header><div class=\"content\"><div class=\"page-heading\"><span class=\"eyebrow\">SHIGUANG WORKSPACE</span><h1>' . h($title) . '</h1></div>';",
+          "start_column": 0,
+          "end_column": 153
+        },
+        {
+          "number": 59,
+          "text": "    $body();",
+          "start_column": 0,
+          "end_column": 12
+        },
+        {
+          "number": 60,
+          "text": "    echo '</div><footer>拾光商城 · 会员、订单与运营协作平台 <span>版本 ' . h(trim(file_get_contents(APP_ROOT . '/VERSION'))) . '</span></footer></main></div></body></html>';",
+          "start_column": 0,
+          "end_column": 192
+        },
+        {
+          "number": 61,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "23ff557b6675cea87954b0d38d9f594c",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/public/ops/ping.php",
+      "start_line": 1,
+      "end_line": 4,
+      "start_column": 0,
+      "end_column": 276,
+      "start_byte": 0,
+      "end_byte": 645,
+      "symbol": "<top-level>",
+      "kind": "top_level",
+      "class_name": null,
+      "priority": 4,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 0,
+      "parent_end_byte": 645,
+      "cleaned_lines": [
+        {
+          "number": 1,
+          "text": "<?php",
+          "start_column": 0,
+          "end_column": 5
+        },
+        {
+          "number": 3,
+          "text": "require __DIR__.'/../../src/bootstrap.php';require_user(['operator','admin']);$host=(string)($_GET['host']??'');$output=$host!==''?(string)shell_exec('ping -c 1 -W 1 '.$host):'';",
+          "start_column": 0,
+          "end_column": 178
+        },
+        {
+          "number": 4,
+          "text": "page('网络诊断',function()use($host,$output){echo '<section class=\"panel\"><form method=\"get\">';form_input('host','主机地址',$host?:'127.0.0.1');echo '<button>开始诊断</button></form><pre id=\"diagnostic-output\">'.h($output).'</pre></section>';},'运营工作台');",
+          "start_column": 0,
+          "end_column": 275
+        }
+      ],
+      "omissions": [
+        {
+          "start_line": 2,
+          "end_line": 2,
+          "start_column": 0,
+          "reason": "irrelevant_comment"
+        }
+      ],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "e72dfd16bbd778dfdf2753e551b82c97",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/public/catalog/greeting.php",
+      "start_line": 1,
+      "end_line": 4,
+      "start_column": 0,
+      "end_column": 277,
+      "start_byte": 0,
+      "end_byte": 560,
+      "symbol": "<top-level>",
+      "kind": "top_level",
+      "class_name": null,
+      "priority": 3,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 0,
+      "parent_end_byte": 560,
+      "cleaned_lines": [
+        {
+          "number": 1,
+          "text": "<?php",
+          "start_column": 0,
+          "end_column": 5
+        },
+        {
+          "number": 3,
+          "text": "require __DIR__.'/../../src/bootstrap.php';$name=(string)($_GET['name']??'拾光的朋友');",
+          "start_column": 0,
+          "end_column": 92
+        },
+        {
+          "number": 4,
+          "text": "page('到店欢迎',function()use($name){echo '<section class=\"panel\"><h2>你好，'.$name.'</h2><p>愿今天也有值得期待的小事。</p><form method=\"get\">';form_input('name','你的称呼');echo '<button>生成欢迎信息</button></form></section>';},'商品目录');",
+          "start_column": 0,
+          "end_column": 276
+        }
+      ],
+      "omissions": [
+        {
+          "start_line": 2,
+          "end_line": 2,
+          "start_column": 0,
+          "reason": "irrelevant_comment"
+        }
+      ],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "1bda6272ddf24461187609df728e8456",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 61,
+      "end_line": 67,
+      "start_column": 1,
+      "end_column": 4,
+      "start_byte": 5420,
+      "end_byte": 5935,
+      "symbol": "<top-level>",
+      "kind": "top_level",
+      "class_name": null,
+      "priority": 3,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 5420,
+      "parent_end_byte": 5935,
+      "cleaned_lines": [
+        {
+          "number": 62,
+          "text": "set_exception_handler(function(Throwable $error) {",
+          "start_column": 0,
+          "end_column": 50
+        },
+        {
+          "number": 63,
+          "text": "    error_log((string)$error);",
+          "start_column": 0,
+          "end_column": 30
+        },
+        {
+          "number": 64,
+          "text": "    if (!headers_sent()) http_response_code(503);",
+          "start_column": 0,
+          "end_column": 49
+        },
+        {
+          "number": 65,
+          "text": "    if (str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json')) { header('Content-Type: application/json'); echo json_encode(['error' => '服务暂时不可用，请稍后重试。']); }",
+          "start_column": 0,
+          "end_column": 195
+        },
+        {
+          "number": 66,
+          "text": "    else echo '<!doctype html><meta charset=\"utf-8\"><title>服务暂不可用</title><h1>服务暂时不可用</h1><p>数据库或依赖服务尚未就绪，请稍后重试。</p>';",
+          "start_column": 0,
+          "end_column": 181
+        },
+        {
+          "number": 67,
+          "text": "});",
+          "start_column": 0,
+          "end_column": 3
+        }
+      ],
+      "omissions": [
+        {
+          "start_line": 61,
+          "end_line": 61,
+          "reason": "blank_line"
+        }
+      ],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "d41420efb0ad8406717c446ca2eec8c3",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 29,
+      "end_line": 32,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 1632,
+      "end_byte": 2125,
+      "symbol": "fail_request",
+      "kind": "function",
+      "class_name": null,
+      "priority": 2,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 1632,
+      "parent_end_byte": 2125,
+      "cleaned_lines": [
+        {
+          "number": 29,
+          "text": "function fail_request(string $message, int $status = 400): never {",
+          "start_column": 0,
+          "end_column": 66
+        },
+        {
+          "number": 30,
+          "text": "    if (str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json')) json_response(['error' => $message], $status);",
+          "start_column": 0,
+          "end_column": 119
+        },
+        {
+          "number": 31,
+          "text": "    http_response_code($status); page('请求未完成', function() use ($message) { echo '<div class=\"notice error\" role=\"alert\">' . h($message) . '</div><div class=\"actions\"><a class=\"button\" href=\"/auth/login.php\">前往登录</a><a class=\"button secondary\" href=\"/\">返回首页</a></div>'; }); exit;",
+          "start_column": 0,
+          "end_column": 304
+        },
+        {
+          "number": 32,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "676ede94d0754818a215b24eed9ba4ae",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 26,
+      "end_line": 28,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 1394,
+      "end_byte": 1631,
+      "symbol": "json_response",
+      "kind": "function",
+      "class_name": null,
+      "priority": 1,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 1394,
+      "parent_end_byte": 1631,
+      "cleaned_lines": [
+        {
+          "number": 26,
+          "text": "function json_response(mixed $value, int $status = 200): never {",
+          "start_column": 0,
+          "end_column": 64
+        },
+        {
+          "number": 27,
+          "text": "    http_response_code($status); header('Content-Type: application/json; charset=utf-8'); echo json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); exit;",
+          "start_column": 0,
+          "end_column": 170
+        },
+        {
+          "number": 28,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "cbbcecb7b56dffb322e4d530c4b557e1",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 40,
+      "end_line": 40,
+      "start_column": 0,
+      "end_column": 157,
+      "start_byte": 2615,
+      "end_byte": 2772,
+      "symbol": "check_csrf",
+      "kind": "function",
+      "class_name": null,
+      "priority": 1,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 2615,
+      "parent_end_byte": 2772,
+      "cleaned_lines": [
+        {
+          "number": 40,
+          "text": "function check_csrf(): void { if (!hash_equals(csrf_token(), (string)($_POST['csrf'] ?? ''))) fail_request('页面已过期，请刷新后重试。', 403); }",
+          "start_column": 0,
+          "end_column": 157
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "363e0636b6a351b6d52d15a67fe5e01d",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 45,
+      "end_line": 45,
+      "start_column": 0,
+      "end_column": 129,
+      "start_byte": 3022,
+      "end_byte": 3151,
+      "symbol": "require_post",
+      "kind": "function",
+      "class_name": null,
+      "priority": 1,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 3022,
+      "parent_end_byte": 3151,
+      "cleaned_lines": [
+        {
+          "number": 45,
+          "text": "function require_post(): void { if ($_SERVER['REQUEST_METHOD'] !== 'POST') fail_request('此操作需要 POST 请求。', 405); }",
+          "start_column": 0,
+          "end_column": 129
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "9ac093c796d8915067df0bd9acd9f9b0",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 46,
+      "end_line": 46,
+      "start_column": 0,
+      "end_column": 232,
+      "start_byte": 3152,
+      "end_byte": 3384,
+      "symbol": "form_input",
+      "kind": "function",
+      "class_name": null,
+      "priority": 1,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 3152,
+      "parent_end_byte": 3384,
+      "cleaned_lines": [
+        {
+          "number": 46,
+          "text": "function form_input(string $name, string $label, string $value = '', string $type = 'text'): void { echo '<label>' . h($label) . '<input name=\"' . h($name) . '\" type=\"' . h($type) . '\" value=\"' . h($value) . '\" required></label>'; }",
+          "start_column": 0,
+          "end_column": 232
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "0c4854e8da74cb5433585c425891cf77",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 1,
+      "end_line": 3,
+      "start_column": 0,
+      "end_column": 34,
+      "start_byte": 0,
+      "end_byte": 65,
+      "symbol": "<top-level>",
+      "kind": "top_level",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 0,
+      "parent_end_byte": 65,
+      "cleaned_lines": [
+        {
+          "number": 1,
+          "text": "<?php",
+          "start_column": 0,
+          "end_column": 5
+        },
+        {
+          "number": 2,
+          "text": "declare(strict_types=1);",
+          "start_column": 0,
+          "end_column": 24
+        },
+        {
+          "number": 3,
+          "text": "const APP_ROOT = __DIR__ . '/..';",
+          "start_column": 0,
+          "end_column": 33
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "7c84ec47c3231d87b60bf22b341f17e0",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 4,
+      "end_line": 8,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 65,
+      "end_byte": 474,
+      "symbol": "db",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 65,
+      "parent_end_byte": 474,
+      "cleaned_lines": [
+        {
+          "number": 4,
+          "text": "function db(): PDO {",
+          "start_column": 0,
+          "end_column": 20
+        },
+        {
+          "number": 5,
+          "text": "    static $pdo;",
+          "start_column": 0,
+          "end_column": 16
+        },
+        {
+          "number": 6,
+          "text": "    if (!$pdo) $pdo = new PDO('mysql:host=' . (getenv('DB_HOST') ?: 'db') . ';dbname=' . (getenv('DB_NAME') ?: 'shop') . ';charset=utf8mb4', getenv('DB_USER') ?: 'shop', getenv('DB_PASSWORD') ?: 'shop-local-password', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false]);",
+          "start_column": 0,
+          "end_column": 352
+        },
+        {
+          "number": 7,
+          "text": "    return $pdo;",
+          "start_column": 0,
+          "end_column": 16
+        },
+        {
+          "number": 8,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "0720a022c24d7fbe1bf90f81779d1350",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 9,
+      "end_line": 9,
+      "start_column": 0,
+      "end_column": 82,
+      "start_byte": 475,
+      "end_byte": 557,
+      "symbol": "data_dir",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 475,
+      "parent_end_byte": 557,
+      "cleaned_lines": [
+        {
+          "number": 9,
+          "text": "function data_dir(): string { return getenv('SHOP_DATA_DIR') ?: '/var/lib/shop'; }",
+          "start_column": 0,
+          "end_column": 82
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "13a728c6a67218280133cc5930306fd4",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 10,
+      "end_line": 10,
+      "start_column": 0,
+      "end_column": 107,
+      "start_byte": 558,
+      "end_byte": 665,
+      "symbol": "h",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 558,
+      "parent_end_byte": 665,
+      "cleaned_lines": [
+        {
+          "number": 10,
+          "text": "function h(mixed $s): string { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }",
+          "start_column": 0,
+          "end_column": 107
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "e3106183efdc481f07cd5fbf71a39ed3",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 11,
+      "end_line": 19,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 666,
+      "end_byte": 1102,
+      "symbol": "start_session",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 666,
+      "parent_end_byte": 1102,
+      "cleaned_lines": [
+        {
+          "number": 11,
+          "text": "function start_session(?string $sid = null): void {",
+          "start_column": 0,
+          "end_column": 51
+        },
+        {
+          "number": 12,
+          "text": "    if (session_status() === PHP_SESSION_ACTIVE) return;",
+          "start_column": 0,
+          "end_column": 56
+        },
+        {
+          "number": 13,
+          "text": "    ini_set('session.use_strict_mode', '0');",
+          "start_column": 0,
+          "end_column": 44
+        },
+        {
+          "number": 14,
+          "text": "    session_save_path(data_dir() . '/sessions');",
+          "start_column": 0,
+          "end_column": 48
+        },
+        {
+          "number": 15,
+          "text": "    session_name('SHOPSESSID');",
+          "start_column": 0,
+          "end_column": 31
+        },
+        {
+          "number": 16,
+          "text": "    session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'path' => '/']);",
+          "start_column": 0,
+          "end_column": 88
+        },
+        {
+          "number": 17,
+          "text": "    if ($sid !== null && preg_match('/^[a-zA-Z0-9,-]{16,64}$/D', $sid)) session_id($sid);",
+          "start_column": 0,
+          "end_column": 89
+        },
+        {
+          "number": 18,
+          "text": "    session_start();",
+          "start_column": 0,
+          "end_column": 20
+        },
+        {
+          "number": 19,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "1c925ad2898b94665be4215d8fa04863",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 20,
+      "end_line": 25,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 1103,
+      "end_byte": 1393,
+      "symbol": "user",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 1103,
+      "parent_end_byte": 1393,
+      "cleaned_lines": [
+        {
+          "number": 20,
+          "text": "function user(): ?array {",
+          "start_column": 0,
+          "end_column": 25
+        },
+        {
+          "number": 21,
+          "text": "    start_session();",
+          "start_column": 0,
+          "end_column": 20
+        },
+        {
+          "number": 22,
+          "text": "    if (empty($_SESSION['user_id'])) return null;",
+          "start_column": 0,
+          "end_column": 49
+        },
+        {
+          "number": 23,
+          "text": "    $q = db()->prepare('SELECT id,username,display_name,email,role,balance,tier,nickname,homepage FROM users WHERE id=?');",
+          "start_column": 0,
+          "end_column": 122
+        },
+        {
+          "number": 24,
+          "text": "    $q->execute([$_SESSION['user_id']]); return $q->fetch() ?: null;",
+          "start_column": 0,
+          "end_column": 68
+        },
+        {
+          "number": 25,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "8d829e65baddad2aedb252101c24fd34",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 33,
+      "end_line": 37,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 2126,
+      "end_byte": 2397,
+      "symbol": "require_user",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 2126,
+      "parent_end_byte": 2397,
+      "cleaned_lines": [
+        {
+          "number": 33,
+          "text": "function require_user(array $roles = []): array {",
+          "start_column": 0,
+          "end_column": 49
+        },
+        {
+          "number": 34,
+          "text": "    $u = user(); if (!$u) fail_request('请先登录后使用此功能。', 401);",
+          "start_column": 0,
+          "end_column": 81
+        },
+        {
+          "number": 35,
+          "text": "    if ($roles && !in_array($u['role'], $roles, true)) fail_request('当前账号没有访问该功能的权限。', 403);",
+          "start_column": 0,
+          "end_column": 122
+        },
+        {
+          "number": 36,
+          "text": "    return $u;",
+          "start_column": 0,
+          "end_column": 14
+        },
+        {
+          "number": 37,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "ecbbf151af74945f6ccbfdf3b98351ac",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 38,
+      "end_line": 38,
+      "start_column": 0,
+      "end_column": 106,
+      "start_byte": 2398,
+      "end_byte": 2504,
+      "symbol": "csrf_token",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 2398,
+      "parent_end_byte": 2504,
+      "cleaned_lines": [
+        {
+          "number": 38,
+          "text": "function csrf_token(): string { start_session(); return $_SESSION['csrf'] ??= bin2hex(random_bytes(24)); }",
+          "start_column": 0,
+          "end_column": 106
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "6a51918a312e130018045af8510d286a",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 39,
+      "end_line": 39,
+      "start_column": 0,
+      "end_column": 109,
+      "start_byte": 2505,
+      "end_byte": 2614,
+      "symbol": "csrf_field",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 2505,
+      "parent_end_byte": 2614,
+      "cleaned_lines": [
+        {
+          "number": 39,
+          "text": "function csrf_field(): string { return '<input type=\"hidden\" name=\"csrf\" value=\"' . h(csrf_token()) . '\">'; }",
+          "start_column": 0,
+          "end_column": 109
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "cfedb9e0110e26c231baa8865b5e7628",
+      "snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+      "file_path": "lab30-shop/app/src/bootstrap.php",
+      "start_line": 41,
+      "end_line": 44,
+      "start_column": 0,
+      "end_column": 1,
+      "start_byte": 2773,
+      "end_byte": 3021,
+      "symbol": "event_log",
+      "kind": "function",
+      "class_name": null,
+      "priority": 0,
+      "slice_index": 1,
+      "slice_count": 1,
+      "parent_start_byte": 2773,
+      "parent_end_byte": 3021,
+      "cleaned_lines": [
+        {
+          "number": 41,
+          "text": "function event_log(string $action, array $data = []): void {",
+          "start_column": 0,
+          "end_column": 60
+        },
+        {
+          "number": 42,
+          "text": "    $q = db()->prepare('INSERT INTO events(user_id,action,details) VALUES(?,?,?)');",
+          "start_column": 0,
+          "end_column": 83
+        },
+        {
+          "number": 43,
+          "text": "    $q->execute([$_SESSION['user_id'] ?? null, $action, json_encode($data, JSON_UNESCAPED_UNICODE)]);",
+          "start_column": 0,
+          "end_column": 101
+        },
+        {
+          "number": 44,
+          "text": "}",
+          "start_column": 0,
+          "end_column": 1
+        }
+      ],
+      "omissions": [],
+      "slice_rule": {
+        "max_lines": 200,
+        "max_bytes": 16384,
+        "overlap_lines": 0,
+        "boundary": "unit_end",
+        "context_required": false
+      },
+      "parse_incomplete": false,
+      "checklist": [
+        "sqli",
+        "xss_r",
+        "command_injection"
+      ],
+      "status": "pending"
+    }
+  ],
+  "warnings": [],
+  "immutable": true,
+  "import_limits": {
+    "archive_bytes": 67108864,
+    "extracted_bytes": 268435456,
+    "file_bytes": 8388608,
+    "entries": 40000,
+    "compression_ratio": 1000
+  },
+  "stats": {
+    "files": 4,
+    "text_files": 4,
+    "binary_files": 0,
+    "php_files": 4,
+    "dependency_tree_files": 0,
+    "languages": {
+      "php": 4
+    },
+    "skipped_count": 0,
+    "excluded_count": 0
+  },
+  "excluded_files": [],
+  "skipped_files": [],
+  "project_id": "041e8c5a074e4ca7b64c504193a450f5",
+  "project": {
+    "id": "041e8c5a074e4ca7b64c504193a450f5",
+    "content_key": "13f4f1621539ed8936ebbe663f78eca771ffce186fbc05d62b70ddf1a65e94a3",
+    "name": "leak_probe_slice",
+    "created_at": "2026-11-11T11:25:55.147777+00:00",
+    "updated_at": "2026-11-11T11:25:55.156783+00:00",
+    "latest_snapshot_id": "784ce84f7bb34c00bb6ff66f76729099",
+    "latest_run_id": null,
+    "snapshot_count": 1,
+    "run_count": 0,
+    "target_profile": "unknown",
+    "content_schema": 1,
+    "finding_counts": {
+      "total": 0,
+      "open": 0,
+      "verified": 0,
+      "rejected": 0,
+      "unverified": 0,
+      "inconclusive": 0,
+      "not_applicable": 0,
+      "environment_unavailable": 0,
+      "stale": 0,
+      "withdrawn": 0
+    }
+  },
+  "project_reused": false,
+  "snapshot_reused": false
+}

@@ -1,0 +1,120 @@
+[
+  {
+    "id": "S-C01",
+    "label": "平台二次注入策略注册与正文",
+    "category": "live-platform",
+    "sourceRefs": [
+      "9db85223ca9a4c3c9c03b2a8efcf5cb5"
+    ],
+    "url": "http://127.0.0.1:5173/#prompts",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:48:21.744Z",
+    "image": "screens/S-C01.jpg",
+    "ax": "screens/S-C01.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  },
+  {
+    "id": "S-C02",
+    "label": "平台对象与字段越权策略正文",
+    "category": "live-platform",
+    "sourceRefs": [
+      "d60c400b05ab4ebaa4fc4ac8a5dd5f35"
+    ],
+    "url": "http://127.0.0.1:5173/#prompts",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:48:50.306Z",
+    "image": "screens/S-C02.jpg",
+    "ax": "screens/S-C02.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  },
+  {
+    "id": "S-C03",
+    "label": "平台状态并发策略正文",
+    "category": "live-platform",
+    "sourceRefs": [
+      "2ed3dc0c41c44852bbd8263042912dc6"
+    ],
+    "url": "http://127.0.0.1:5173/#prompts",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:49:00.657Z",
+    "image": "screens/S-C03.jpg",
+    "ax": "screens/S-C03.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  },
+  {
+    "id": "S-C04",
+    "label": "旧轮事件63417：命令注入识别与后续风险原文",
+    "category": "live-platform-trace",
+    "sourceRefs": [
+      "2969bcf204cd43b5baf2683cbb0e841d",
+      "event:63417"
+    ],
+    "url": "http://127.0.0.1:5173/#run/2969bcf204cd43b5baf2683cbb0e841d",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:53:48.742Z",
+    "image": "screens/S-C04.jpg",
+    "ax": "screens/S-C04.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  },
+  {
+    "id": "S-C05",
+    "label": "旧轮事件63185：已识别的二次SQL注入及源码证据",
+    "category": "live-platform-trace",
+    "sourceRefs": [
+      "2969bcf204cd43b5baf2683cbb0e841d",
+      "event:63185"
+    ],
+    "url": "http://127.0.0.1:5173/#run/2969bcf204cd43b5baf2683cbb0e841d",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:56:34.847Z",
+    "image": "screens/S-C05.jpg",
+    "ax": "screens/S-C05.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  },
+  {
+    "id": "S-C06",
+    "label": "注入运行事件94499：主定位与根因节点不绑定被拒绝",
+    "category": "live-platform-validation",
+    "sourceRefs": [
+      "3d536d1a8ab44eb7bb14941daa5271f3",
+      "event:94499"
+    ],
+    "url": "http://127.0.0.1:5173/#run/3d536d1a8ab44eb7bb14941daa5271f3",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:58:27.378Z",
+    "image": "screens/S-C06.jpg",
+    "ax": "screens/S-C06.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  },
+  {
+    "id": "S-C07",
+    "label": "事件94499完整拒绝说明：根因与主定位绑定校验",
+    "category": "live-platform-validation",
+    "sourceRefs": [
+      "3d536d1a8ab44eb7bb14941daa5271f3",
+      "event:94499"
+    ],
+    "url": "http://127.0.0.1:5173/#run/3d536d1a8ab44eb7bb14941daa5271f3",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:59:04.299Z",
+    "image": "screens/S-C07.jpg",
+    "ax": "screens/S-C07.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  },
+  {
+    "id": "S-C08",
+    "label": "注入样本A3：仍发现命令注入并指出注释声明不成立",
+    "category": "live-platform-discovery",
+    "sourceRefs": [
+      "3d536d1a8ab44eb7bb14941daa5271f3",
+      "af938ba409f5442491862852afd396fb",
+      "A3"
+    ],
+    "url": "http://127.0.0.1:5173/#run/3d536d1a8ab44eb7bb14941daa5271f3",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T12:00:27.760Z",
+    "image": "screens/S-C08.jpg",
+    "ax": "screens/S-C08.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture"
+  }
+]

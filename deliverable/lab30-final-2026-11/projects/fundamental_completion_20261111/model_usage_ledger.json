@@ -1,0 +1,165 @@
+{
+  "records": [
+    {
+      "batch": "pre-recharge-402",
+      "id": "325ff03c77614e09a14c906458a2f7b4",
+      "model_requests": 1,
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "valid_model_output": false,
+      "stop_reason": "model_unavailable"
+    },
+    {
+      "batch": "pre-recharge-402",
+      "id": "f8acbcd8e14040799eff453de4324ac4",
+      "model_requests": 1,
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "valid_model_output": false,
+      "stop_reason": "model_unavailable"
+    },
+    {
+      "batch": "pre-recharge-402",
+      "id": "877e3ff4b4504061b96b2ed8060606e9",
+      "model_requests": 1,
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "valid_model_output": false,
+      "stop_reason": "model_unavailable"
+    },
+    {
+      "batch": "pre-recharge-402",
+      "id": "7f4fd1c7f6c8421faffcde64e20a817a",
+      "model_requests": 1,
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "valid_model_output": false,
+      "stop_reason": "model_unavailable"
+    },
+    {
+      "batch": "pre-recharge-402",
+      "id": "8d3fbe2ca6af440d9a02a4e0b0ccc8f8",
+      "model_requests": 1,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": null,
+      "valid_model_output": false,
+      "stop_reason": "model_unavailable"
+    },
+    {
+      "batch": "post-recharge-planning-only",
+      "id": "4da081bd6aa44740918f940a50327026",
+      "model_requests": 1,
+      "input_tokens": 13187,
+      "output_tokens": 2013,
+      "total_tokens": 15200,
+      "valid_special_worker_output": false,
+      "stop_reason": "stage_budget_exhausted",
+      "derived_total_tokens": 15200
+    },
+    {
+      "batch": "post-recharge-planning-only",
+      "id": "8b67677d3ae948e09c3221d63dd98d25",
+      "model_requests": 1,
+      "input_tokens": 13190,
+      "output_tokens": 2114,
+      "total_tokens": 15304,
+      "valid_special_worker_output": false,
+      "stop_reason": "stage_budget_exhausted",
+      "derived_total_tokens": 15304
+    },
+    {
+      "batch": "post-recharge-planning-only",
+      "id": "3171321cd98144b9b8172aa034a0e85c",
+      "model_requests": 1,
+      "input_tokens": 13187,
+      "output_tokens": 2400,
+      "total_tokens": 15587,
+      "valid_special_worker_output": false,
+      "stop_reason": "stage_budget_exhausted",
+      "derived_total_tokens": 15587
+    },
+    {
+      "batch": "post-recharge-planning-only",
+      "id": "ae6e302700f8448dae55f932f39fad99",
+      "model_requests": 1,
+      "input_tokens": 10535,
+      "output_tokens": 990,
+      "total_tokens": null,
+      "valid_special_worker_output": false,
+      "stop_reason": "insufficient_small_stage_budget",
+      "derived_total_tokens": 11525
+    },
+    {
+      "batch": "post-recharge-prompt-unit",
+      "id": "5f1b455abdca402881e519a2b21a10ef",
+      "unit": "secondorder",
+      "model_requests": 1,
+      "input_tokens": 4570,
+      "output_tokens": 1319,
+      "total_tokens": 5889,
+      "received_public_model_output": true,
+      "strict_json_valid": false,
+      "derived_total_tokens": 5889
+    },
+    {
+      "batch": "post-recharge-prompt-unit",
+      "id": "edaba53c42414085809cd1754828d8f6",
+      "unit": "authz",
+      "model_requests": 1,
+      "input_tokens": 4460,
+      "output_tokens": 1022,
+      "total_tokens": 5482,
+      "received_public_model_output": true,
+      "strict_json_valid": true,
+      "derived_total_tokens": 5482
+    },
+    {
+      "batch": "post-recharge-prompt-unit",
+      "id": "2b9156f5f0ac4a5c9ed6799baae48efb",
+      "unit": "state",
+      "model_requests": 1,
+      "input_tokens": 5587,
+      "output_tokens": 1082,
+      "total_tokens": 6669,
+      "received_public_model_output": true,
+      "strict_json_valid": true,
+      "derived_total_tokens": 6669
+    },
+    {
+      "batch": "post-recharge-prompt-unit",
+      "id": "146703eadc384146be7b78ca80866e90",
+      "unit": "leak",
+      "model_requests": 1,
+      "input_tokens": 4248,
+      "output_tokens": 1396,
+      "total_tokens": 5644,
+      "received_public_model_output": true,
+      "strict_json_valid": false,
+      "derived_total_tokens": 5644
+    }
+  ],
+  "post_recharge_totals": {
+    "requests": 8,
+    "known_input_tokens": 68964,
+    "known_output_tokens": 12336,
+    "known_total_tokens": 81300,
+    "complete_input_output_records": true,
+    "provider_total_field_records": 7,
+    "price_not_estimated": true
+  },
+  "unit_only_totals": {
+    "requests": 4,
+    "input_tokens": 18865,
+    "output_tokens": 4819,
+    "total_tokens": 23684,
+    "strict_json_valid_replies": 2,
+    "retries": 0,
+    "actual_price": null
+  },
+  "note": "Failed HTTP402 attempts retain missing usage as null. Planning-only calls are counted separately, not hidden in the four useful single-call units. No retries were executed."
+}

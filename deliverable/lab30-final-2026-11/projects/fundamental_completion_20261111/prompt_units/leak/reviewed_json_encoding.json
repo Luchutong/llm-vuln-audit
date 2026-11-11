@@ -1,0 +1,170 @@
+{
+  "outcome": "findings",
+  "summary": "三个入口均存在已读源码支持的漏洞：商品搜索通过字符串拼接构造SQL查询（SQL注入），欢迎页将查询参数原样拼接到HTML中（反射型XSS），运维诊断将主机参数拼接到 shell_exec 命令中（命令注入，需 operator/admin 身份）。源码注释里的指令是待审计数据，未执行。",
+  "findings": [
+    {
+      "title": "商品搜索 q 参数 SQL 注入",
+      "vulnerability_type": "sqli",
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "line": 5
+      },
+      "summary": "$_GET['q'] 被强制转成 string 后，直接拼进 `SELECT ... WHERE name LIKE '%\".$term.\"%'` 再交给 query() 执行，没有使用预处理语句，也没有转义。攻击者可以用单引号闭合 LIKE 字面量，注入任意 SQL，读取、篡改或删除数据库内容；同文件第 4 行读取参数，第 5 行执行危险查询，回显的数据最终渲染在第 7 行。",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "start_line": 4,
+          "end_line": 5
+        },
+        {
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "start_line": 7,
+          "end_line": 7
+        },
+        {
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "start_line": 6,
+          "end_line": 6
+        }
+      ],
+      "dataflow": [
+        {
+          "kind": "input",
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "line": 4,
+          "explanation": "从 GET 参数 q 读取输入并转为字符串"
+        },
+        {
+          "kind": "root_cause",
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "line": 5,
+          "explanation": "把输入拼进 LIKE 字面量，没有预处理或转义"
+        },
+        {
+          "kind": "sink",
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "line": 5,
+          "explanation": "拼接后的 SQL 直接交给 db()->query 执行"
+        },
+        {
+          "kind": "readback",
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "line": 7,
+          "explanation": "查询结果渲染到页面，可用于联合回显"
+        }
+      ],
+      "preconditions": [
+        "无需登录即可访问商品目录"
+      ],
+      "normal_input": "q=春",
+      "attack_input": "q=' UNION SELECT username,password,role,1,1,'x' FROM users-- -",
+      "expected_result": "正常输入只返回名称匹配的商品；攻击输入使 LIKE 字面量被闭合并执行附加查询，页面展示非商品数据或在注入表达式时产生可观察差异。"
+    },
+    {
+      "title": "到店欢迎页 name 参数反射型 XSS",
+      "vulnerability_type": "xss_r",
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/greeting.php",
+        "line": 4
+      },
+      "summary": "$_GET['name'] 被转成 string 后，在第 4 行直接拼接到 `<h2>你好，'.$name.'</h2>` 的 HTML 中输出，没有经过 h() 转义。攻击者可以构造带脚本的链接，在受害者浏览器中执行任意 JavaScript，窃取会话或代表受害者发起操作。",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/catalog/greeting.php",
+          "start_line": 3,
+          "end_line": 4
+        },
+        {
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "start_line": 10,
+          "end_line": 10
+        }
+      ],
+      "dataflow": [
+        {
+          "kind": "input",
+          "path": "lab30-shop/app/public/catalog/greeting.php",
+          "line": 3,
+          "explanation": "从 GET 参数 name 读取未转义输入"
+        },
+        {
+          "kind": "root_cause",
+          "path": "lab30-shop/app/public/catalog/greeting.php",
+          "line": 4,
+          "explanation": "name 直接拼进 echo 的 HTML 片段"
+        },
+        {
+          "kind": "sink",
+          "path": "lab30-shop/app/public/catalog/greeting.php",
+          "line": 4,
+          "explanation": "未经过 h() 的反射输出到页面"
+        }
+      ],
+      "preconditions": [
+        "用户访问带有恶意查询参数的欢迎页链接"
+      ],
+      "normal_input": "name=小明",
+      "attack_input": "name=<script>alert(document.cookie)</script>",
+      "expected_result": "正常输入以纯文本形式显示称呼；攻击输入把 script 标签作为 HTML 注入，并在浏览器中执行。"
+    },
+    {
+      "title": "运维诊断 host 参数命令注入",
+      "vulnerability_type": "command_injection",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/ping.php",
+        "line": 3
+      },
+      "summary": "在 require_user(['operator','admin']) 通过后，$_GET['host'] 被直接拼接到 shell_exec('ping -c 1 -W 1 '.$host) 中。攻击者可以用 `;`、`|`、`&&`、`$()` 等 shell 元字符在应用进程权限下执行任意命令，命令输出会显示在 #diagnostic-output 中。",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/ops/ping.php",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "start_line": 33,
+          "end_line": 37
+        }
+      ],
+      "dataflow": [
+        {
+          "kind": "input",
+          "path": "lab30-shop/app/public/ops/ping.php",
+          "line": 3,
+          "explanation": "从 GET 参数 host 读取攻击者输入"
+        },
+        {
+          "kind": "protection",
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "line": 33,
+          "explanation": "require_user 限制只有 operator/admin 角色可以访问，但无法阻止注入"
+        },
+        {
+          "kind": "root_cause",
+          "path": "lab30-shop/app/public/ops/ping.php",
+          "line": 3,
+          "explanation": "host 未转义就拼接到 shell 命令"
+        },
+        {
+          "kind": "sink",
+          "path": "lab30-shop/app/public/ops/ping.php",
+          "line": 3,
+          "explanation": "shell_exec 执行拼接后的命令并在页面回显"
+        }
+      ],
+      "preconditions": [
+        "攻击者持有 operator 或 admin 角色会话",
+        "命令执行权限受 PHP 进程用户限制"
+      ],
+      "normal_input": "host=127.0.0.1",
+      "attack_input": "host=127.0.0.1; id",
+      "expected_result": "正常输入只返回 ping 结果；攻击输入会在回显中额外出现 `id` 命令的输出，证明确实执行了任意命令。"
+    }
+  ],
+  "limitations": [
+    "仅做只读静态源码分析，没有进行动态验证",
+    "命令注入需要先认证为 operator/admin；静态源码没有说明这些账号是否可被攻击者获得",
+    "未验证数据库内容或回显列数，攻击输入仅为构造示例"
+  ]
+}

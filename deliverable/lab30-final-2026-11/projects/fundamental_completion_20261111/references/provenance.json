@@ -1,0 +1,101 @@
+{
+  "files": [
+    {
+      "path": "source.zip",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\closure_evidence_20261111\\inputs\\dataset\\lab30-shop-1.0.0-source.zip",
+      "sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+      "bytes": 52908
+    },
+    {
+      "path": "ground_truth.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\closure_evidence_20261111\\inputs\\dataset\\ground_truth.json",
+      "sha256": "6c215b702fa962082e21a60bf8237692da7e47cb6ef97889d212616fa708faaa",
+      "bytes": 133606
+    },
+    {
+      "path": "anchors.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\closure_evidence_20261111\\inputs\\dataset\\scoring_anchors_v2.json",
+      "sha256": "1bc01cf80d6326c2b683e251c3bf8c4f2df8bfa28005465d8108b0b73e0e7c7a",
+      "bytes": 15495
+    },
+    {
+      "path": "old_score.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\closure_evidence_20261111\\scores\\old.json",
+      "sha256": "5e0ab9d17cec4fc9fc07bcf90d27563753d1f7baa92dd3c9814aab4a71412a3b",
+      "bytes": 99835
+    },
+    {
+      "path": "new_score.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\closure_evidence_20261111\\scores\\new.json",
+      "sha256": "1dfdbd0f3476d9dc92f741f000d91ac024590f5b52540466375b126a426649d4",
+      "bytes": 114765
+    },
+    {
+      "path": "old_findings.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\closure_evidence_20261111\\inputs\\old\\findings.json",
+      "sha256": "4f46fc83715f34d8ec244e6a80895fbe9a4eaa03ae548056a70e236eec3cee33",
+      "bytes": 58278
+    },
+    {
+      "path": "input_identity.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\closure_evidence_20261111\\provenance\\input_identity.json",
+      "sha256": "13f9f55049814128753d715d71cb1a4e0c292050a27053c79032157804a7dacd",
+      "bytes": 688
+    },
+    {
+      "path": "baseline_report.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\e_paired_retry_20261111\\paired_results\\baseline_report.redacted.json",
+      "sha256": "52958df36be51eca1e144cef62da4c6beff6d797e7d3fd560280ab50fad1553c",
+      "bytes": 374457
+    },
+    {
+      "path": "injected_report.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\e_paired_retry_20261111\\paired_results\\injected_report.redacted.json",
+      "sha256": "1f3724383b65f99cbb4246eeca69b6672b320f2c13c3919b89e76aa9280b14cd",
+      "bytes": 366190
+    },
+    {
+      "path": "injected_supplement_report.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\e_supplement_check_20261111\\paired_results\\injected_report.redacted.json",
+      "sha256": "f9e0c84ff30c55e604454f689a50e3df03f0d0efa9a7ad990b23e927b9a81464",
+      "bytes": 406048
+    },
+    {
+      "path": "baseline_full.zip",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\e_materials_20261111\\baseline_full.zip",
+      "sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c",
+      "bytes": 52908
+    },
+    {
+      "path": "injected_full.zip",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\e_materials_20261111\\injected_full.zip",
+      "sha256": "7f7d7c6ad8842e7814d5399134bdb0288ad84845c3bf2186ce9eaa39be912688",
+      "bytes": 54197
+    },
+    {
+      "path": "samples_manifest.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\e_materials_20261111\\samples_manifest.json",
+      "sha256": "e550f4c4a8cabd9b953504b85be11be8db6c746172e1f8c00ef129c919e9fa07",
+      "bytes": 16062
+    },
+    {
+      "path": "invalid_reference_controls.json",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\material_completion_20261109\\证据行号校验_受控试验.json",
+      "sha256": "0207bd709d4577090181a249e631f6e205c1d47ac2b0eb7d7ace40e0406c33f0",
+      "bytes": 1646
+    },
+    {
+      "path": "schemas_collection_checkout.py",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\b_materials_fix_20261109\\backend\\audit\\schemas.py",
+      "sha256": "8f456c03e466e29f7716d11bdbba826c69ca4076662150444b263e02d739b15c",
+      "bytes": 66389
+    },
+    {
+      "path": "role_policy_collection_checkout.py",
+      "upstream": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\b_materials_fix_20261109\\backend\\audit\\role_policy.py",
+      "sha256": "f309c2f2bd63ebea3e312febe9dc48598016212bcad74db750c4d3f445702ab6",
+      "bytes": 17455
+    }
+  ],
+  "code_reference_note": "The Windows checkout schema is a collection-time reference, not a claim it exactly matches every historical running worktree. Actual historical host rejection records are primary evidence."
+}

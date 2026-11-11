@@ -1,0 +1,29 @@
+[
+  {
+    "name": "secondorder",
+    "source_sha256": "c719dee1dd51cb3f7cd62c9051415b0745177d0347f7a6fd459cc17d1ea051b0",
+    "needles": [
+      "专攻「二次注入」",
+      "写入安全、读出危险"
+    ],
+    "matches": []
+  },
+  {
+    "name": "authz",
+    "source_sha256": "056f20d680a6f6cf05171f8028834302c41bce3afd9fdbc2d42c4aff1973bcb9",
+    "needles": [
+      "专攻业务越权与隐性逻辑缺陷",
+      "身份来源 → 对象标识来源"
+    ],
+    "matches": []
+  },
+  {
+    "name": "state",
+    "source_sha256": "92e3c53dc57a99636b0f05c134edbfe0b3636ee2dc4777bc242736b7de9d68f8",
+    "needles": [
+      "专攻业务状态机与并发缺陷",
+      "读状态 → 校验 → 写状态"
+    ],
+    "matches": []
+  }
+]

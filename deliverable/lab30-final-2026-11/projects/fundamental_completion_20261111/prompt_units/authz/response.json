@@ -1,0 +1,23 @@
+{
+  "id": "97daf7c8-d84f-4c21-ae3b-083abc042ef8",
+  "model": "deepseek-flash",
+  "created": 1794396789,
+  "usage": {
+    "prompt_tokens": 4460,
+    "completion_tokens": 1022,
+    "total_tokens": 5482,
+    "prompt_tokens_details": {
+      "cached_tokens": 1280
+    },
+    "prompt_cache_hit_tokens": 1280,
+    "prompt_cache_miss_tokens": 3180
+  },
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "content": "{\"outcome\":\"findings\",\"summary\":\"订单详情接口以用户可控的 id 查询订单，查询未绑定当前会话用户，导致任意登录用户可读取他人订单及配送备注（水平越权）；账户更新把 role、balance、tier 纳入可写白名单，低权限用户可提升为管理员并篡改余额（垂直/字段级越权）。\",\"findings\":[{\"title\":\"订单详情缺失归属校验导致任意用户读取他人订单\",\"vulnerability_type\":\"idor\",\"primary_location\":{\"path\":\"lab30-shop/app/public/orders/detail.php\",\"line\":2},\"summary\":\"require_user 仅确认已登录；SQL 仅按 o.id=? 过滤，无 AND o.user_id=当前用户 条件，随后把整行订单（含购买人 username、private_note、total）渲染或 JSON 返回。任意登录用户遍历 id 即可跨用户读取订单。\",\"evidence\":[{\"path\":\"lab30-shop/app/public/orders/detail.php\",\"start_line\":2,\"end_line\":4},{\"path\":\"lab30-shop/app/src/bootstrap.php\",\"start_line\":33,\"end_line\":37}],\"dataflow\":[{\"kind\":\"input\",\"path\":\"lab30-shop/app/public/orders/detail.php\",\"line\":2,\"explanation\":\"$_GET['id'] 由请求方任意指定\"},{\"kind\":\"root_cause\",\"path\":\"lab30-shop/app/public/orders/detail.php\",\"line\":2,\"explanation\":\"查询只以 o.id=? 为条件，缺少 o.user_id=当前会话 user_id 的归属约束\"},{\"kind\":\"sink\",\"path\":\"lab30-shop/app/public/orders/detail.php\",\"line\":3,\"explanation\":\"JSON 分支直接输出整行订单对象\"},{\"kind\":\"sink\",\"path\":\"lab30-shop/app/public/orders/detail.php\",\"line\":4,\"explanation\":\"页面分支输出订单号、购买人、金额和 private_note\"}],\"preconditions\":[\"攻击者持任意有效普通用户会话\",\"已知或可枚举他人订单 id\"],\"normal_input\":\"以订单所属用户会话 GET /orders/detail.php?id=自己订单ID\",\"attack_input\":\"以用户A会话 GET /orders/detail.php?id=用户B的订单ID\",\"expected_result\":\"正常返回本人订单；攻击请求也应返回用户B订单及其 private_note，证明缺失归属校验\"},{\"title\":\"账户更新可批量赋值 role/balance/tier 实现提权与余额篡改\",\"vulnerability_type\":\"mass_assignment\",\"primary_location\":{\"path\":\"lab30-shop/app/public/account/update.php\",\"line\":4},\"summary\":\"$columns 白名单包含 role、balance、tier 等敏感字段；循环把 $_POST 中匹配键写入 UPDATE，UPDATE 仅以自身 id 为条件，未校验角色也不限制可写字段。低权限用户可 POST role=admin、balance=大值 自我提权及改余额。\",\"evidence\":[{\"path\":\"lab30-shop/app/public/account/update.php\",\"start_line\":4,\"end_line\":6},{\"path\":\"lab30-shop/app/src/bootstrap.php\",\"start_line\":20,\"end_line\":25},{\"path\":\"lab30-shop/app/src/bootstrap.php\",\"start_line\":33,\"end_line\":37}],\"dataflow\":[{\"kind\":\"input\",\"path\":\"lab30-shop/app/public/account/update.php\",\"line\":5,\"explanation\":\"$_POST 任意键值被遍历匹配白名单\"},{\"kind\":\"root_cause\",\"path\":\"lab30-shop/app/public/account/update.php\",\"line\":4,\"explanation\":\"白名单数组本身包含 role、balance、tier 敏感列，未做字段级授权\"},{\"kind\":\"sink\",\"path\":\"lab30-shop/app/public/account/update.php\",\"line\":6,\"explanation\":\"动态 SET 子句将这些列写入 users 表\"},{\"kind\":\"protection\",\"path\":\"lab30-shop/app/public/account/update.php\",\"line\":4,\"explanation\":\"仅有 CSRF 检查，未检查用户角色或字段可写范围\"}],\"preconditions\":[\"攻击者持任意有效普通用户会话并能取得自己的 CSRF token\",\"账户更新接口未限制 role/balance 字段写入\"],\"normal_input\":\"普通用户 POST display_name=新名&csrf=有效值，仅更新非敏感字段\",\"attack_input\":\"普通用户 POST role=admin&balance=999999&csrf=有效值\",\"expected_result\":\"正常仅改显示名；攻击请求应把当前用户 role 改为 admin、balance 改为极大值，证明批量赋值越权\"}],\"limitations\":[\"本次未做动态验证，以上为静态源码证据结论\",\"无法从已读源码确认 orders 表列定义及 role 取值集合，但字段语义足够支持越权判断\"]}"
+    }
+  ],
+  "request_id": null
+}

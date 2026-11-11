@@ -1,0 +1,808 @@
+[
+  {
+    "truth_id": "07",
+    "class": "code_execution",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "deferred_risk",
+    "trace_supported_conclusion": "读取并提出动态调用后续方向，未形成该根因的漏洞条目",
+    "source_anchors": [
+      {
+        "path": "app/public/ops/formula.php",
+        "line": 3,
+        "line_sha256": "b19cc75cb9b92d69d482f8fe626389c836cb73d63bc563cdcb374148ac192812",
+        "rationale": "用户选择函数名并控制调用参数，缺少允许函数清单。",
+        "archive_path": "lab30-shop/app/public/ops/formula.php",
+        "source_line": "if(isset($_GET['func'])){$func=(string)$_GET['func'];$result=(string)$func((string)($_GET['arg']??''));}"
+      }
+    ],
+    "direct_successful_source_reads": [
+      {
+        "event_id": 63345,
+        "created_at": "2026-10-30T14:00:32.473679+00:00",
+        "args": {
+          "path": "lab30-shop/app/public/ops/formula.php",
+          "start": 1,
+          "end": 10
+        },
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "preview": "lab30-shop/app/public/ops/formula.php:1 | <?php\nlab30-shop/app/public/ops/formula.php:2 | require __DIR__.'/../../src/bootstrap.php';require_user(['operator','admin']);$result='';\nlab30-shop/app/public/ops/formula.php:3 | if(isset($_GET['func'])){$func=(string)$_GET['func'];$result=(string)$func((string)($_GET['arg']??''));}\nlab30-shop/app/public/ops/formula.php:4 | page('运营公式计算',function()use($result){echo '<section class=\"panel\"><p>选择函数并提交文本进行试算。</p><form method=\"get\">';form_input('func','函数名称','strtoupper');form_input('arg','输入值','spring-sale');echo '<button>执行计算</button></form><pre>'.h($result).'</pre></section>';},'运营工作台');\n"
+      }
+    ],
+    "trace_excerpts": [
+      {
+        "event_id": 63417,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:01:19.328525+00:00",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "summary": "ops/index.php 仅角色门禁并渲染卡片，无直接危险操作；bin/reset.php 有 CLI 守卫、bin/setup.php 仅初始化时调用 reset_shop，Web 不可达。实际风险在 ops 子页：ping.php:2 与 src/host_check.php:2 直接 shell_exec 拼接 host（命令注入）；jobs.php:3 unserialize 用户数据触发 dispatch_job.php:4 __wakeup 的 shell_exec（反序列化 RCE）。两条均以 operator 会话为前置，已落库并附 POC；template-render eval、template-preview include、formula 动态调用、url-preview SSRF、xml-import XXE、maintenance 头鉴权列入 remaining_work。",
+        "rationale": "已读 ops/index.php:1-3 确认 require_user(['operator','admin'])；bin/reset.php:2 以 PHP_SAPI!=='cli' 404 守卫，src/setup.php 全部为硬编码 SQL，未发现输入拼接。可外部输入的 sink 在 ops 子页：ping.php:2 与 host_check.php:2 把 $_GET['host'] 拼进 shell_exec，只有角色校验无 escapeshellarg；dispatch_job.php:4 __wakeup 执行 shell_exec($this->command)，jobs.php:3 对 base64 解码后的 POST 直接 unserialize 且 instanceof 检查在反序列化之后。两者根因不同（命令注入 vs 不安全反序列化），前提同为一枚 operator 会话，故分列两条 finding。",
+        "remaining_work": [
+          "lab30-shop/app/public/ops/template-render.php:3 对 POST template 的 {{...}} 直接 eval('return '.$m[1].';')，需补证代码执行",
+          "lab30-shop/app/public/ops/template-preview.php:3 直接 include GET 可控 $template，评估 LFI/RFI（依赖 allow_url_include）",
+          "lab30-shop/app/public/ops/formula.php:3 以 GET func 作为函数名动态调用（如 system/phpinfo）",
+          "lab30-shop/app/public/ops/url-preview.php:3 file_get_contents 读取 GET url，SSRF 待补证",
+          "lab30-shop/app/public/ops/xml-import.php:3 simplexml_load_string 启用 LIBXML_NOENT|LIBXML_DTDLOAD，XXE 待补证",
+          "lab30-shop/app/public/ops/maintenance.php:3 仅凭可伪造 X-Admin 头鉴权且未要求登录"
+        ],
+        "observations": [
+          {
+            "title": "运营入口访问控制实现位置",
+            "kind": "security_boundary",
+            "summary": "ops/index.php:2 用 require_user(['operator','admin']) 建立角色边界；bootstrap.php:33-36 未登录返回 401、角色不符返回 403，使用严格 in_array。该检查只做可达性控制，子页面各自处理输入且无输入过滤。",
+            "evidence": "lab30-shop/app/public/ops/index.php:1-3; lab30-shop/app/src/bootstrap.php:33-36; lab30-shop/app/src/bootstrap.php:52-54"
+          },
+          {
+            "title": "部署与重置脚本 Web 不可达",
+            "kind": "source_observation",
+            "summary": "bin/reset.php:2 以 PHP_SAPI!=='cli' 直接 404 退出，且 app/bin 不在 public 下，Web 不可访问；bin/setup.php 仅在 settings 缺少 generation 时调用 reset_shop()。reset_shop 中表名来自硬编码数组、数据用预处理，未见命令注入或 eval。",
+            "evidence": "lab30-shop/app/bin/reset.php:1-4; lab30-shop/app/bin/setup.php:1-4; lab30-shop/app/src/setup.php:4-39"
+          },
+          {
+            "title": "database.php 输出异常堆栈",
+            "kind": "data_flow",
+            "summary": "bootstrap.php:62-67 的 set_exception_handler 只输出通用提示；但 ops/database.php:3 catch 中把 get_class($e).': '.$e->getMessage().getTraceAsString() 作为 output 输出，经 h() 编码仍暴露堆栈、路径与连接信息，需 operator 权限触发。",
+            "evidence": "lab30-shop/app/src/bootstrap.php:62-67; lab30-shop/app/public/ops/database.php:1-4"
+          },
+          {
+            "title": "登录接受 sid 指定会话 ID",
+            "kind": "data_flow",
+            "summary": "auth/login.php:3 把 $_GET['sid'] 传给 start_session，bootstrap.php:13 关闭 strict mode、第 17 行允许客户端指定会话 ID，与已落库 session_fixation 结论同源，本次不重复主张。",
+            "evidence": "lab30-shop/app/public/auth/login.php:1-4; lab30-shop/app/src/bootstrap.php:11-18"
+          }
+        ]
+      }
+    ],
+    "related_collection_time_findings": [],
+    "task_error_events_background_only": [
+      {
+        "event_id": 63401,
+        "kind": "agent_parse_error",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 90 行、第 3 列：invalid Python syntax。"
+      }
+    ],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  },
+  {
+    "truth_id": "09",
+    "class": "info_disclosure",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "risk_left_as_observation",
+    "trace_supported_conclusion": "已在观察中指出异常堆栈暴露，未作为 info_disclosure 漏洞发布",
+    "source_anchors": [
+      {
+        "path": "app/public/ops/database.php",
+        "line": 3,
+        "line_sha256": "e78884061f4c4b81c82941cb05fa6ad4522f0f1565fdec2bdffeae193a6e0fce",
+        "rationale": "异常类型、消息和完整堆栈直接拼入页面输出。",
+        "archive_path": "lab30-shop/app/public/ops/database.php",
+        "source_line": "if(isset($_GET['probe'])){try{$schema=$_GET['probe']==='archive'?'shop_archive_unconfigured':(getenv('DB_NAME')?:'shop');$test=new PDO('mysql:host='.(getenv('DB_HOST')?:'db').';dbname='.$schema,getenv('DB_USER')?:'shop',getenv('DB_PASSWORD')?:'shop-local-password');$test->query('SELECT 1');$output='主数据源连接正常。';}catch(Throwable$e){$output=get_class($e).': '.$e->getMessage().\"\\n\".$e->getTraceAsString();}}"
+      },
+      {
+        "path": "app/public/ops/database.php",
+        "line": 4,
+        "line_sha256": "0a928e56e8e51b9557dc4c79294611f7c293246f1d7a42b73e79a56fc1617cc6",
+        "rationale": "页面输出未经隐藏处理的诊断异常消息和堆栈；HTML 转义不消除信息泄露。",
+        "archive_path": "lab30-shop/app/public/ops/database.php",
+        "source_line": "page('数据库诊断',function()use($output){echo '<section class=\"panel\"><p>检查在线数据源与归档数据源。</p><form method=\"get\"><label>数据源<select name=\"probe\"><option value=\"main\">主数据源</option><option value=\"archive\">归档数据源</option></select></label><button>检查连接</button></form><pre>'.h($output).'</pre></section>';},'运营工作台');"
+      }
+    ],
+    "direct_successful_source_reads": [
+      {
+        "event_id": 63359,
+        "created_at": "2026-10-30T14:00:32.518940+00:00",
+        "args": {
+          "path": "lab30-shop/app/public/ops/database.php",
+          "start": 1,
+          "end": 10
+        },
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "preview": "lab30-shop/app/public/ops/database.php:1 | <?php\nlab30-shop/app/public/ops/database.php:2 | require __DIR__.'/../../src/bootstrap.php';require_user(['operator','admin']);$output='';\nlab30-shop/app/public/ops/database.php:3 | if(isset($_GET['probe'])){try{$schema=$_GET['probe']==='archive'?'shop_archive_unconfigured':(getenv('DB_NAME')?:'shop');$test=new PDO('mysql:host='.(getenv('DB_HOST')?:'db').';dbname='.$schema,getenv('DB_USER')?:'shop',getenv('DB_PASSWORD')?:'shop-local-password');$test->query('SELECT 1');$output='主数据源连接正常。';}catch(Throwable$e){$output=get_class($e).': '.$e->getMessage().\"\\n\".$e->getTraceAsString();}}\nlab30-shop/app/public/ops/database.php:4 | page('数据库诊断',function()use($output){echo '<section class=\"panel\"><p>检查在线数据源与归档数据源。</p><form method=\"get\"><label>数据源<select name=\"probe\"><option value=\"main\">主数据源</option><option value=\"archive\">归档数据源</option></select></label><button>检查连接</button></form><pre>'.h($output).'</pre></section>';},'运营工作台');\n"
+      }
+    ],
+    "trace_excerpts": [
+      {
+        "event_id": 63417,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:01:19.328525+00:00",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "summary": "ops/index.php 仅角色门禁并渲染卡片，无直接危险操作；bin/reset.php 有 CLI 守卫、bin/setup.php 仅初始化时调用 reset_shop，Web 不可达。实际风险在 ops 子页：ping.php:2 与 src/host_check.php:2 直接 shell_exec 拼接 host（命令注入）；jobs.php:3 unserialize 用户数据触发 dispatch_job.php:4 __wakeup 的 shell_exec（反序列化 RCE）。两条均以 operator 会话为前置，已落库并附 POC；template-render eval、template-preview include、formula 动态调用、url-preview SSRF、xml-import XXE、maintenance 头鉴权列入 remaining_work。",
+        "rationale": "已读 ops/index.php:1-3 确认 require_user(['operator','admin'])；bin/reset.php:2 以 PHP_SAPI!=='cli' 404 守卫，src/setup.php 全部为硬编码 SQL，未发现输入拼接。可外部输入的 sink 在 ops 子页：ping.php:2 与 host_check.php:2 把 $_GET['host'] 拼进 shell_exec，只有角色校验无 escapeshellarg；dispatch_job.php:4 __wakeup 执行 shell_exec($this->command)，jobs.php:3 对 base64 解码后的 POST 直接 unserialize 且 instanceof 检查在反序列化之后。两者根因不同（命令注入 vs 不安全反序列化），前提同为一枚 operator 会话，故分列两条 finding。",
+        "remaining_work": [
+          "lab30-shop/app/public/ops/template-render.php:3 对 POST template 的 {{...}} 直接 eval('return '.$m[1].';')，需补证代码执行",
+          "lab30-shop/app/public/ops/template-preview.php:3 直接 include GET 可控 $template，评估 LFI/RFI（依赖 allow_url_include）",
+          "lab30-shop/app/public/ops/formula.php:3 以 GET func 作为函数名动态调用（如 system/phpinfo）",
+          "lab30-shop/app/public/ops/url-preview.php:3 file_get_contents 读取 GET url，SSRF 待补证",
+          "lab30-shop/app/public/ops/xml-import.php:3 simplexml_load_string 启用 LIBXML_NOENT|LIBXML_DTDLOAD，XXE 待补证",
+          "lab30-shop/app/public/ops/maintenance.php:3 仅凭可伪造 X-Admin 头鉴权且未要求登录"
+        ],
+        "observations": [
+          {
+            "title": "运营入口访问控制实现位置",
+            "kind": "security_boundary",
+            "summary": "ops/index.php:2 用 require_user(['operator','admin']) 建立角色边界；bootstrap.php:33-36 未登录返回 401、角色不符返回 403，使用严格 in_array。该检查只做可达性控制，子页面各自处理输入且无输入过滤。",
+            "evidence": "lab30-shop/app/public/ops/index.php:1-3; lab30-shop/app/src/bootstrap.php:33-36; lab30-shop/app/src/bootstrap.php:52-54"
+          },
+          {
+            "title": "部署与重置脚本 Web 不可达",
+            "kind": "source_observation",
+            "summary": "bin/reset.php:2 以 PHP_SAPI!=='cli' 直接 404 退出，且 app/bin 不在 public 下，Web 不可访问；bin/setup.php 仅在 settings 缺少 generation 时调用 reset_shop()。reset_shop 中表名来自硬编码数组、数据用预处理，未见命令注入或 eval。",
+            "evidence": "lab30-shop/app/bin/reset.php:1-4; lab30-shop/app/bin/setup.php:1-4; lab30-shop/app/src/setup.php:4-39"
+          },
+          {
+            "title": "database.php 输出异常堆栈",
+            "kind": "data_flow",
+            "summary": "bootstrap.php:62-67 的 set_exception_handler 只输出通用提示；但 ops/database.php:3 catch 中把 get_class($e).': '.$e->getMessage().getTraceAsString() 作为 output 输出，经 h() 编码仍暴露堆栈、路径与连接信息，需 operator 权限触发。",
+            "evidence": "lab30-shop/app/src/bootstrap.php:62-67; lab30-shop/app/public/ops/database.php:1-4"
+          },
+          {
+            "title": "登录接受 sid 指定会话 ID",
+            "kind": "data_flow",
+            "summary": "auth/login.php:3 把 $_GET['sid'] 传给 start_session，bootstrap.php:13 关闭 strict mode、第 17 行允许客户端指定会话 ID，与已落库 session_fixation 结论同源，本次不重复主张。",
+            "evidence": "lab30-shop/app/public/auth/login.php:1-4; lab30-shop/app/src/bootstrap.php:11-18"
+          }
+        ]
+      }
+    ],
+    "related_collection_time_findings": [],
+    "task_error_events_background_only": [
+      {
+        "event_id": 63401,
+        "kind": "agent_parse_error",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 90 行、第 3 列：invalid Python syntax。"
+      }
+    ],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  },
+  {
+    "truth_id": "10",
+    "class": "weak_crypto",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "risk_left_as_observation",
+    "trace_supported_conclusion": "已提及使用 MD5 存密码，但保留在注册/退出流程观察中",
+    "source_anchors": [
+      {
+        "path": "app/public/auth/register.php",
+        "line": 8,
+        "line_sha256": "a231629824f2b856423cfaf35a47e1af2b791b88241ac2d32ea979a3a4099923",
+        "rationale": "注册密码以无盐快速 MD5 形式写入 password_md5。",
+        "archive_path": "lab30-shop/app/public/auth/register.php",
+        "source_line": "    try {$q->execute([$name,md5($password),$name,(string)($_POST['email']??''),'customer','standard',$name]); $notice='注册成功，现在可以登录。';} catch(PDOException $e) {fail_request('该用户名已注册。',409);}"
+      },
+      {
+        "path": "app/src/setup.php",
+        "line": 17,
+        "line_sha256": "e23345e7042ee9c9cee6290475dcebee0cac02f9d3a2852c2cd5ae8390045b8a",
+        "rationale": "初始化用户密码以无盐 MD5 形式写入用户表。",
+        "archive_path": "lab30-shop/app/src/setup.php",
+        "source_line": "    foreach ([[1,'alice','Alice123!','林晓','alice@shop.local','customer'],[2,'bob','Bob123!','陈远','bob@shop.local','customer'],[3,'operator','Ops123!','运营同事','ops@shop.local','operator'],[4,'admin','Admin123!','系统管理员','admin@shop.local','admin']] as $u) $q->execute([$u[0],$u[1],md5($u[2]),$u[3],$u[4],$u[5],'standard',$u[1]]);"
+      }
+    ],
+    "direct_successful_source_reads": [
+      {
+        "event_id": 63499,
+        "created_at": "2026-10-30T14:01:48.668295+00:00",
+        "args": {
+          "path": "lab30-shop/app/public/auth/register.php",
+          "start": 1,
+          "end": 25
+        },
+        "task_id": "7383e029bf3d475d89f12f4425070553",
+        "task_key": "session-fixation-auth",
+        "preview": "lab30-shop/app/public/auth/register.php:1 | <?php\nlab30-shop/app/public/auth/register.php:2 | require __DIR__ . '/../../src/bootstrap.php';\nlab30-shop/app/public/auth/register.php:3 | $notice='';\nlab30-shop/app/public/auth/register.php:4 | if($_SERVER['REQUEST_METHOD']==='POST') {\nlab30-shop/app/public/auth/register.php:5 |     $name=(string)($_POST['username']??''); $password=(string)($_POST['password']??'');\nlab30-shop/app/public/auth/register.php:6 |     if(!preg_match('/^[a-zA-Z][a-zA-Z0-9_]{2,39}$/D',$name)||strlen($password)<8) fail_request('用户名需为 3–40 位字母数字，密码至少 8 位。');\nlab30-shop/app/public/auth/register.php:7 |     $q=db()->prepare('INSERT INTO users(username,password_md5,display_name,email,role,balance,tier,nickname) VALUES(?,?,?,?,?,100,?,?)');\nlab30-shop/app/public/auth/register.php:8 |     try {$q->execute([$name,md5($password),$name,(string)($_POST['email']??''),'customer','standard',$name]); $notice='注册成功，现在可以登录。';} catch(PDOException $e) {fail_request('该用户名已注册。',409);}\nlab30-shop/app/public/auth/register.php:9 | }\nlab30-shop/app/public/auth/register.php:10 | page('创建账户',function()use($notice){echo '<section class=\"panel narrow\">';if($notice)echo '<div class=\"notice\""
+      }
+    ],
+    "trace_excerpts": [
+      {
+        "event_id": 63566,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:02:21.735367+00:00",
+        "task_id": "7383e029bf3d475d89f12f4425070553",
+        "task_key": "session-fixation-auth",
+        "summary": "已确认会话固定漏洞：login.php 第3行从 $_GET['sid'] 取值传入 start_session，bootstrap.php 第13行关闭 use_strict_mode、第17行对匹配字符集的 sid 直接调用 session_id() 后再 session_start()，攻击者可指定受害者会话 ID 并在受害者登录后复用该会话劫持身份。另确认 open_redirect（continue.php next 参数）与开放登录表单无会话令牌轮换，但会话固定为主发现。",
+        "rationale": "login.php:3 'start_session(isset($_GET[\"sid\"]) ? (string)$_GET[\"sid\"] : null)' 表明 sid 完全来自请求参数；bootstrap.php:13 'session.use_strict_mode','0' 关闭严格模式，17 行在正则 /^[a-zA-Z0-9,-]{16,64}$/D 校验后直接 session_id($sid)，18 行 session_start()，未生成新 ID 也无重新生成。login.php:8 认证成功后仅写 $_SESSION['user_id'] 并未 session_regenerate_id，因此攻击者预先设定的 SID 在受害者登录后仍是有效会话，构成会话固定。该根因与运行库中已存在结论一致（bootstrap.php:17），但本工作项已独立读取原始行号确认。此外 continue.php:3 直接从 $_GET['next'] 重定向构成开放重定向，属独立根因。",
+        "remaining_work": [],
+        "observations": [
+          {
+            "title": "register/logout 的会话处理",
+            "kind": "source_observation",
+            "summary": "register.php 未调用 start_session，仅做用户名正则与长度校验后以 MD5 存密码；logout.php 第2行 start_session() 后清空 $_SESSION 并 session_destroy()。注册使用参数化 INSERT，username 正则 ^[a-zA-Z][a-zA-Z0-9_]{2,39}$ 未见类型混淆绕过。",
+            "evidence": "lab30-shop/app/public/auth/register.php:5-8; lab30-shop/app/public/auth/logout.php:2"
+          }
+        ]
+      }
+    ],
+    "related_collection_time_findings": [],
+    "task_error_events_background_only": [],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  },
+  {
+    "truth_id": "14",
+    "class": "csrf",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "boundary_confusion_and_unpublished_risk",
+    "trace_supported_conclusion": "邮箱校验/参数化的安全观察未覆盖 CSRF；后续摘要虽提到无 CSRF 校验，仍未发布该漏洞",
+    "source_anchors": [
+      {
+        "path": "app/public/account/settings.php",
+        "line": 5,
+        "line_sha256": "53f409fd8b888dc72278f1bb483f4bb3a0097af02379243396b9bc2092248f29",
+        "rationale": "已认证用户邮箱更新操作缺失 CSRF 令牌检查。",
+        "archive_path": "lab30-shop/app/public/account/settings.php",
+        "source_line": "    db()->prepare('UPDATE users SET email=? WHERE id=?')->execute([$email,$u['id']]);event_log('update_email',['email'=>$email]);$u['email']=$email;$notice='邮箱已更新。';"
+      }
+    ],
+    "direct_successful_source_reads": [
+      {
+        "event_id": 63233,
+        "created_at": "2026-10-30T13:59:15.861566+00:00",
+        "args": {
+          "path": "lab30-shop/app/public/account/settings.php",
+          "start": 1,
+          "end": 50
+        },
+        "task_id": "08b15a13fb4941c3937bce416647ed5d",
+        "task_key": "entry-routing-auth",
+        "preview": "lab30-shop/app/public/account/settings.php:1 | <?php\nlab30-shop/app/public/account/settings.php:2 | require __DIR__.'/../../src/bootstrap.php';$u=require_user();$notice='';\nlab30-shop/app/public/account/settings.php:3 | if($_SERVER['REQUEST_METHOD']==='POST'){\nlab30-shop/app/public/account/settings.php:4 |     $email=(string)($_POST['email']??'');if(!filter_var($email,FILTER_VALIDATE_EMAIL))fail_request('请输入有效邮箱。');\nlab30-shop/app/public/account/settings.php:5 |     db()->prepare('UPDATE users SET email=? WHERE id=?')->execute([$email,$u['id']]);event_log('update_email',['email'=>$email]);$u['email']=$email;$notice='邮箱已更新。';\nlab30-shop/app/public/account/settings.php:6 |     if(str_contains($_SERVER['HTTP_ACCEPT']??'','application/json'))json_response(['email'=>$email,'updated'=>true]);\nlab30-shop/app/public/account/settings.php:7 | }\nlab30-shop/app/public/account/settings.php:8 | page('邮箱设置',function()use($u,$notice){echo '<section class=\"panel narrow\">';if($notice)echo '<div class=\"notice\">'.h($notice).'</div>';echo '<form method=\"post\">';form_input('email','常用邮箱',$u['email'],'email');echo '<button>保存邮箱</button></form></section>';},'账户与会员');\n"
+      },
+      {
+        "event_id": 63523,
+        "created_at": "2026-10-30T14:01:53.190298+00:00",
+        "args": {
+          "path": "lab30-shop/app/public/account/settings.php",
+          "start": 1,
+          "end": 15
+        },
+        "task_id": "00c9b5a236224605bde3b6461014677c",
+        "task_key": "account-mass-assign",
+        "preview": "lab30-shop/app/public/account/settings.php:1 | <?php\nlab30-shop/app/public/account/settings.php:2 | require __DIR__.'/../../src/bootstrap.php';$u=require_user();$notice='';\nlab30-shop/app/public/account/settings.php:3 | if($_SERVER['REQUEST_METHOD']==='POST'){\nlab30-shop/app/public/account/settings.php:4 |     $email=(string)($_POST['email']??'');if(!filter_var($email,FILTER_VALIDATE_EMAIL))fail_request('请输入有效邮箱。');\nlab30-shop/app/public/account/settings.php:5 |     db()->prepare('UPDATE users SET email=? WHERE id=?')->execute([$email,$u['id']]);event_log('update_email',['email'=>$email]);$u['email']=$email;$notice='邮箱已更新。';\nlab30-shop/app/public/account/settings.php:6 |     if(str_contains($_SERVER['HTTP_ACCEPT']??'','application/json'))json_response(['email'=>$email,'updated'=>true]);\nlab30-shop/app/public/account/settings.php:7 | }\nlab30-shop/app/public/account/settings.php:8 | page('邮箱设置',function()use($u,$notice){echo '<section class=\"panel narrow\">';if($notice)echo '<div class=\"notice\">'.h($notice).'</div>';echo '<form method=\"post\">';form_input('email','常用邮箱',$u['email'],'email');echo '<button>保存邮箱</button></form></section>';},'账户与会员');\n"
+      }
+    ],
+    "trace_excerpts": [
+      {
+        "event_id": 63637,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:02:57.138429+00:00",
+        "task_id": "00c9b5a236224605bde3b6461014677c",
+        "task_key": "account-mass-assign",
+        "summary": "account/update.php 将 $_POST 键名与包含 role/balance/tier 的白名单列比对后直接拼进 UPDATE users，普通登录用户可自改角色为 admin 并任意设置余额；redeem.php 用 == 比较 md5 十六进制串存在弱类型绕过（0e magic hash）。",
+        "rationale": "update.php:4 白名单显式含 role、balance、tier，第 5 行把匹配键值放入 VALUES，第 6 行 UPDATE users SET ... WHERE id=当前用户；无字段级授权。提权后 ops/index.php:2 require_user(['operator','admin']) 与 users.php 管理员清单可达；wallet/withdraw.php:4-7 依据 balance 扣款，余额篡改可换取提现。redeem.php:4-5 使用 md5(...)==$secret_hash，PHP 弱比较下 0e 前缀哈希相等。settings.php 仅白名单 email 且 filter_var 校验、me.php/profile.php 使用 require_user，属安全观察。",
+        "remaining_work": [
+          "lab30-shop/app/public/account/profile.php:2-3 的 url 直接拼进 href 属性，核查 XSS 可行性",
+          "lab30-shop/app/public/ops/users.php:2 使用 $_COOKIE['role'] 作管理员判定，核查 client-controlled 授权绕过"
+        ],
+        "observations": [
+          {
+            "title": "settings.php 仅允许 email 且经 filter_var 校验",
+            "kind": "security_boundary",
+            "summary": "settings.php 第 4-5 行只取 email 字段并用 FILTER_VALIDATE_EMAIL 校验后参数化更新本用户邮箱，未发生批量赋值。",
+            "evidence": "lab30-shop/app/public/account/settings.php:2-6"
+          },
+          {
+            "title": "me.php/profile.php 的鉴权与输出",
+            "kind": "data_flow",
+            "summary": "me.php 用 require_user 后 json_response($u)，不接收写入参数；profile.php 的 url 参数输出到 href 属性且未做 h() 转义，可作为独立输出编码方向进一步核查。",
+            "evidence": "lab30-shop/app/public/account/me.php:2-2; lab30-shop/app/public/account/profile.php:2-3"
+          }
+        ]
+      },
+      {
+        "event_id": 63935,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:06:27.046230+00:00",
+        "task_id": "e274c1a0aad44d2ebcc1f4d60c234240",
+        "task_key": "account-object-authz",
+        "summary": "profile.php 第2行将 GET url 直接拼入 href，无 URL 白名单或协议校验，h() 仅编码引号不能阻止 javascript: 协议，构成反射型 XSS（属性注入）。settings.php 用预处理且 filter_var 校验邮箱、无 CSRF 校验属已存结论范围，本单元不再重复。backup.php 的 unserialize、redeem.php 的弱比较分别由已指派方向覆盖，作为发现之外的后续方向登记。",
+        "rationale": "profile.php:2 $url=(string)($_GET['url']??$u['homepage']) 直接来自 $_GET；profile.php:3 在 page 回调中 echo '<a ... href=\"'.$url.'\">'，$url 未经 h() 或任何协议过滤；bootstrap.php:10 h() 仅 htmlspecialchars，挡不住 javascript: 伪协议。攻击者构造 /account/profile.php?url=javascript:alert(1) 诱导已登录用户点击页面中的“访问个人主页”链接即可执行脚本，根因与危险操作均在 profile.php:3。",
+        "remaining_work": [
+          "lab30-shop/app/public/account/redeem.php:4-5 弱比较 md5==md5 的可绕过性证据补充",
+          "lab30-shop/app/public/account/backup.php:4-5 unserialize 对象注入可利用性与 gadget 缺失评估",
+          "lab30-shop/app/public/account/settings.php:3-6 缺少 check_csrf 的 CSRF 修改邮箱路径（需验证 cookie 策略）"
+        ],
+        "observations": []
+      }
+    ],
+    "related_collection_time_findings": [],
+    "task_error_events_background_only": [
+      {
+        "event_id": 63088,
+        "kind": "agent_parse_error",
+        "task_id": "08b15a13fb4941c3937bce416647ed5d",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 16 行、第 3 列：invalid Python syntax。"
+      },
+      {
+        "event_id": 63116,
+        "kind": "agent_parse_error",
+        "task_id": "08b15a13fb4941c3937bce416647ed5d",
+        "phase": "task_execute",
+        "error_code": "no_code_block",
+        "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。"
+      },
+      {
+        "event_id": 63144,
+        "kind": "agent_parse_error",
+        "task_id": "08b15a13fb4941c3937bce416647ed5d",
+        "phase": "task_execute",
+        "error_code": "no_code_block",
+        "hint": "请只输出一个完整的 <code>Python 动作</code> 或 ```python 代码块；最终结果在块内调用 final_answer(...)。"
+      },
+      {
+        "event_id": 63894,
+        "kind": "agent_parse_error",
+        "task_id": "e274c1a0aad44d2ebcc1f4d60c234240",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 78 行、第 97 列：unterminated string literal。"
+      }
+    ],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  },
+  {
+    "truth_id": "17",
+    "class": "auth_bypass",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "independent_boundary_not_published",
+    "trace_supported_conclusion": "源码读取用于批量赋值后的权限影响说明，未见独立的客户端 Cookie 角色信任漏洞条目",
+    "source_anchors": [
+      {
+        "path": "app/public/ops/users.php",
+        "line": 2,
+        "line_sha256": "2c144459341e60bd6a9a03ae60ef87881d140dd3d089e584f9fcf546229f4e36",
+        "rationale": "客户端 role Cookie 覆盖真实用户角色并决定管理员授权。",
+        "archive_path": "lab30-shop/app/public/ops/users.php",
+        "source_line": "require __DIR__.'/../../src/bootstrap.php';$u=require_user();$role=(string)($_COOKIE['role']??$u['role']);if($role!=='admin')fail_request('人员管理需要管理员权限。',403);"
+      }
+    ],
+    "direct_successful_source_reads": [
+      {
+        "event_id": 63560,
+        "created_at": "2026-10-30T14:02:09.685591+00:00",
+        "args": {
+          "path": "lab30-shop/app/public/ops/users.php",
+          "start": 1,
+          "end": 10
+        },
+        "task_id": "00c9b5a236224605bde3b6461014677c",
+        "task_key": "account-mass-assign",
+        "preview": "lab30-shop/app/public/ops/users.php:1 | <?php\nlab30-shop/app/public/ops/users.php:2 | require __DIR__.'/../../src/bootstrap.php';$u=require_user();$role=(string)($_COOKIE['role']??$u['role']);if($role!=='admin')fail_request('人员管理需要管理员权限。',403);\nlab30-shop/app/public/ops/users.php:3 | $rows=db()->query('SELECT id,username,email,role FROM users ORDER BY id')->fetchAll();\nlab30-shop/app/public/ops/users.php:4 | if(str_contains($_SERVER['HTTP_ACCEPT']??'','application/json'))json_response(['access'=>'admin','users'=>$rows]);\nlab30-shop/app/public/ops/users.php:5 | page('人员与权限管理',function()use($rows){echo '<section class=\"panel\"><span class=\"badge\">管理员工作区</span><h2>账户权限清单</h2><table><thead><tr><th>用户名</th><th>邮箱</th><th>角色</th></tr></thead><tbody>';foreach($rows as$r)echo '<tr><td>'.h($r['username']).'</td><td>'.h($r['email']).'</td><td>'.h($r['role']).'</td></tr>';echo '</tbody></table></section>';},'运营工作台');\n"
+      }
+    ],
+    "trace_excerpts": [
+      {
+        "event_id": 63637,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:02:57.138429+00:00",
+        "task_id": "00c9b5a236224605bde3b6461014677c",
+        "task_key": "account-mass-assign",
+        "summary": "account/update.php 将 $_POST 键名与包含 role/balance/tier 的白名单列比对后直接拼进 UPDATE users，普通登录用户可自改角色为 admin 并任意设置余额；redeem.php 用 == 比较 md5 十六进制串存在弱类型绕过（0e magic hash）。",
+        "rationale": "update.php:4 白名单显式含 role、balance、tier，第 5 行把匹配键值放入 VALUES，第 6 行 UPDATE users SET ... WHERE id=当前用户；无字段级授权。提权后 ops/index.php:2 require_user(['operator','admin']) 与 users.php 管理员清单可达；wallet/withdraw.php:4-7 依据 balance 扣款，余额篡改可换取提现。redeem.php:4-5 使用 md5(...)==$secret_hash，PHP 弱比较下 0e 前缀哈希相等。settings.php 仅白名单 email 且 filter_var 校验、me.php/profile.php 使用 require_user，属安全观察。",
+        "remaining_work": [
+          "lab30-shop/app/public/account/profile.php:2-3 的 url 直接拼进 href 属性，核查 XSS 可行性",
+          "lab30-shop/app/public/ops/users.php:2 使用 $_COOKIE['role'] 作管理员判定，核查 client-controlled 授权绕过"
+        ],
+        "observations": [
+          {
+            "title": "settings.php 仅允许 email 且经 filter_var 校验",
+            "kind": "security_boundary",
+            "summary": "settings.php 第 4-5 行只取 email 字段并用 FILTER_VALIDATE_EMAIL 校验后参数化更新本用户邮箱，未发生批量赋值。",
+            "evidence": "lab30-shop/app/public/account/settings.php:2-6"
+          },
+          {
+            "title": "me.php/profile.php 的鉴权与输出",
+            "kind": "data_flow",
+            "summary": "me.php 用 require_user 后 json_response($u)，不接收写入参数；profile.php 的 url 参数输出到 href 属性且未做 h() 转义，可作为独立输出编码方向进一步核查。",
+            "evidence": "lab30-shop/app/public/account/me.php:2-2; lab30-shop/app/public/account/profile.php:2-3"
+          }
+        ]
+      }
+    ],
+    "related_collection_time_findings": [
+      {
+        "id": "273559dff3794cb684377c2d37822ec3",
+        "title": "account/update.php 批量赋值：白名单含 role/balance/tier，普通用户可提权 admin 并篡改余额",
+        "vulnerability_type": "mass_assignment",
+        "primary_location": {
+          "path": "lab30-shop/app/public/account/update.php",
+          "line": 6
+        },
+        "disposition": "duplicate",
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 2,
+            "end_line": 6
+          },
+          {
+            "path": "lab30-shop/app/src/bootstrap.php",
+            "start_line": 33,
+            "end_line": 36
+          },
+          {
+            "path": "lab30-shop/app/public/ops/index.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          {
+            "path": "lab30-shop/app/public/ops/users.php",
+            "start_line": 2,
+            "end_line": 4
+          },
+          {
+            "path": "lab30-shop/app/public/wallet/withdraw.php",
+            "start_line": 4,
+            "end_line": 8
+          }
+        ],
+        "summary": "update.php 第 4 行定义可写列时把 role、balance、tier 一并纳入，第 5 行遍历 $_POST 键名匹配即收集值，第 6 行直接拼 UPDATE users SET `<key>`=? WHERE id=<当前用户 id>。require_user 只校验登录而未限制字段，check_csrf 只防跨站，因此任意普通账户提交 role=admin、balance=999999 即完成提权与资金篡改；随后 ops/index.php 与 ops/users.php（require_user(['operator','admin'])）对 admin 开放，wallet/withdraw.php 依据用户 balance 放款。",
+        "propagation": "$_POST -> foreach 键名白名单匹配 -> $set/$values -> UPDATE users SET 拼接 -> 当前用户行 role/balance 被改写"
+      }
+    ],
+    "task_error_events_background_only": [],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  },
+  {
+    "truth_id": "18",
+    "class": "auth_bypass",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "deferred_risk",
+    "trace_supported_conclusion": "读取后把 maintenance 头鉴权列入剩余工作，未形成该根因的漏洞条目",
+    "source_anchors": [
+      {
+        "path": "app/public/ops/maintenance.php",
+        "line": 3,
+        "line_sha256": "3df8df57413258463abaea08fa6fcce33fe128751d9848cf7962a2cc0a8f18d3",
+        "rationale": "仅依赖客户端 X-Admin 请求头决定维护服务授权。",
+        "archive_path": "lab30-shop/app/public/ops/maintenance.php",
+        "source_line": "if(($_SERVER['HTTP_X_ADMIN']??'')!=='1')fail_request('内部维护接口需要有效的服务身份。',403);"
+      }
+    ],
+    "direct_successful_source_reads": [
+      {
+        "event_id": 63349,
+        "created_at": "2026-10-30T14:00:32.486514+00:00",
+        "args": {
+          "path": "lab30-shop/app/public/ops/maintenance.php",
+          "start": 1,
+          "end": 10
+        },
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "preview": "lab30-shop/app/public/ops/maintenance.php:1 | <?php\nlab30-shop/app/public/ops/maintenance.php:2 | require __DIR__.'/../../src/bootstrap.php';\nlab30-shop/app/public/ops/maintenance.php:3 | if(($_SERVER['HTTP_X_ADMIN']??'')!=='1')fail_request('内部维护接口需要有效的服务身份。',403);\nlab30-shop/app/public/ops/maintenance.php:4 | if($_SERVER['REQUEST_METHOD']==='POST'){db()->prepare(\"INSERT INTO jobs(user_id,title,status,details) VALUES(4,?,'queued','维护接口发起')\")->execute(['系统对账']);json_response(['accepted'=>true,'job_id'=>(int)db()->lastInsertId()]);}\nlab30-shop/app/public/ops/maintenance.php:5 | json_response(['service'=>'settlement-maintenance','authorized'=>true]);\n"
+      }
+    ],
+    "trace_excerpts": [
+      {
+        "event_id": 63417,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:01:19.328525+00:00",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "summary": "ops/index.php 仅角色门禁并渲染卡片，无直接危险操作；bin/reset.php 有 CLI 守卫、bin/setup.php 仅初始化时调用 reset_shop，Web 不可达。实际风险在 ops 子页：ping.php:2 与 src/host_check.php:2 直接 shell_exec 拼接 host（命令注入）；jobs.php:3 unserialize 用户数据触发 dispatch_job.php:4 __wakeup 的 shell_exec（反序列化 RCE）。两条均以 operator 会话为前置，已落库并附 POC；template-render eval、template-preview include、formula 动态调用、url-preview SSRF、xml-import XXE、maintenance 头鉴权列入 remaining_work。",
+        "rationale": "已读 ops/index.php:1-3 确认 require_user(['operator','admin'])；bin/reset.php:2 以 PHP_SAPI!=='cli' 404 守卫，src/setup.php 全部为硬编码 SQL，未发现输入拼接。可外部输入的 sink 在 ops 子页：ping.php:2 与 host_check.php:2 把 $_GET['host'] 拼进 shell_exec，只有角色校验无 escapeshellarg；dispatch_job.php:4 __wakeup 执行 shell_exec($this->command)，jobs.php:3 对 base64 解码后的 POST 直接 unserialize 且 instanceof 检查在反序列化之后。两者根因不同（命令注入 vs 不安全反序列化），前提同为一枚 operator 会话，故分列两条 finding。",
+        "remaining_work": [
+          "lab30-shop/app/public/ops/template-render.php:3 对 POST template 的 {{...}} 直接 eval('return '.$m[1].';')，需补证代码执行",
+          "lab30-shop/app/public/ops/template-preview.php:3 直接 include GET 可控 $template，评估 LFI/RFI（依赖 allow_url_include）",
+          "lab30-shop/app/public/ops/formula.php:3 以 GET func 作为函数名动态调用（如 system/phpinfo）",
+          "lab30-shop/app/public/ops/url-preview.php:3 file_get_contents 读取 GET url，SSRF 待补证",
+          "lab30-shop/app/public/ops/xml-import.php:3 simplexml_load_string 启用 LIBXML_NOENT|LIBXML_DTDLOAD，XXE 待补证",
+          "lab30-shop/app/public/ops/maintenance.php:3 仅凭可伪造 X-Admin 头鉴权且未要求登录"
+        ],
+        "observations": [
+          {
+            "title": "运营入口访问控制实现位置",
+            "kind": "security_boundary",
+            "summary": "ops/index.php:2 用 require_user(['operator','admin']) 建立角色边界；bootstrap.php:33-36 未登录返回 401、角色不符返回 403，使用严格 in_array。该检查只做可达性控制，子页面各自处理输入且无输入过滤。",
+            "evidence": "lab30-shop/app/public/ops/index.php:1-3; lab30-shop/app/src/bootstrap.php:33-36; lab30-shop/app/src/bootstrap.php:52-54"
+          },
+          {
+            "title": "部署与重置脚本 Web 不可达",
+            "kind": "source_observation",
+            "summary": "bin/reset.php:2 以 PHP_SAPI!=='cli' 直接 404 退出，且 app/bin 不在 public 下，Web 不可访问；bin/setup.php 仅在 settings 缺少 generation 时调用 reset_shop()。reset_shop 中表名来自硬编码数组、数据用预处理，未见命令注入或 eval。",
+            "evidence": "lab30-shop/app/bin/reset.php:1-4; lab30-shop/app/bin/setup.php:1-4; lab30-shop/app/src/setup.php:4-39"
+          },
+          {
+            "title": "database.php 输出异常堆栈",
+            "kind": "data_flow",
+            "summary": "bootstrap.php:62-67 的 set_exception_handler 只输出通用提示；但 ops/database.php:3 catch 中把 get_class($e).': '.$e->getMessage().getTraceAsString() 作为 output 输出，经 h() 编码仍暴露堆栈、路径与连接信息，需 operator 权限触发。",
+            "evidence": "lab30-shop/app/src/bootstrap.php:62-67; lab30-shop/app/public/ops/database.php:1-4"
+          },
+          {
+            "title": "登录接受 sid 指定会话 ID",
+            "kind": "data_flow",
+            "summary": "auth/login.php:3 把 $_GET['sid'] 传给 start_session，bootstrap.php:13 关闭 strict mode、第 17 行允许客户端指定会话 ID，与已落库 session_fixation 结论同源，本次不重复主张。",
+            "evidence": "lab30-shop/app/public/auth/login.php:1-4; lab30-shop/app/src/bootstrap.php:11-18"
+          }
+        ]
+      }
+    ],
+    "related_collection_time_findings": [],
+    "task_error_events_background_only": [
+      {
+        "event_id": 63401,
+        "kind": "agent_parse_error",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 90 行、第 3 列：invalid Python syntax。"
+      }
+    ],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  },
+  {
+    "truth_id": "23",
+    "class": "sqli",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "deferred_cross_file_risk",
+    "trace_supported_conclusion": "观察中指出 helper 的 SQL 拼接并视为另一方向，未形成跨文件 SQL 注入漏洞条目",
+    "source_anchors": [
+      {
+        "path": "app/src/member_lookup.php",
+        "line": 3,
+        "line_sha256": "a7d93b540dbfb5dc4ad5ae70d79c16c1cf24201f488f728a5b9481a365451c1b",
+        "rationale": "跨文件传入的检索词在公共函数中拼接 SQL 并 query。",
+        "archive_path": "lab30-shop/app/src/member_lookup.php",
+        "source_line": "    return db()->query(\"SELECT id,username,email,role FROM users WHERE username LIKE '%\" . $term . \"%'\")->fetchAll();"
+      }
+    ],
+    "direct_successful_source_reads": [],
+    "trace_excerpts": [
+      {
+        "event_id": 63185,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T13:58:59.620084+00:00",
+        "task_id": "d7082ebb528842d581c83020114d18f1",
+        "task_key": "sql-data-layer",
+        "summary": "db() 封装位于 bootstrap.php:4-8，为纯 PDO 单例，不提供转义。已证实两条 SQL 注入：catalog/index.php:3-4 将 $_GET['q'] 直接拼接进 LIKE 查询；ops/report.php:2-3 把用户可自改的 nickname 二次拼接进查询。其余调用点使用占位符或常量 SQL。",
+        "rationale": "逐条核对了 db()->query/prepare 调用点：catalog/index.php:3 与 :4 间无参数化；report.php:2 取出 nickname 后 :3 直接拼接，且 account/update.php:5-6 允许用户写入 nickname；orders/index.php:2、catalog/detail.php:2、bootstrap.php:23/42 使用占位符，health/users/portal/messages/audit-log/jobs 为无输入常量 SQL，故记录为观察。",
+        "remaining_work": [
+          "lab30-shop/app/src/member_lookup.php:3 中 $term 拼接进 LIKE，上游 ops/members.php:2 仅要求 operator/admin，需评估低权限到高权限横向读取与权限边界"
+        ],
+        "observations": [
+          {
+            "title": "db() 数据访问封装定义位置",
+            "kind": "source_observation",
+            "summary": "db() 定义在 bootstrap.php 第4-8行，返回全局 PDO 单例，连接参数来自环境变量，charset=utf8mb4，ERRMODE 异常，EMULATE_PREPARES=false。该封装本身不提供转义或参数化能力，安全性取决于调用点是否使用 prepare/占位符。",
+            "evidence": "lab30-shop/app/src/bootstrap.php:4-8"
+          },
+          {
+            "title": "其他调用点均已参数化或使用固定 SQL",
+            "kind": "security_boundary",
+            "summary": "orders/index.php 第2行、catalog/detail.php 第2行、ops/report.php 第2行、bootstrap.php 第23行/第42行等使用 prepare+execute 占位符；health.php、ops/users.php、partner/portal.php、support/messages.php、ops/audit-log.php、ops/jobs.php、index.php 的 db()->query 均为无外部输入的常量 SQL，无可达注入点。member_lookup() 在 member_lookup.php:3 拼接 $term，但上游 ops/members.php:2 已要求 operator/admin 权限，属另一独立方向。",
+            "evidence": "lab30-shop/app/public/orders/index.php:2-2;lab30-shop/app/public/catalog/detail.php:2-2;lab30-shop/app/src/bootstrap.php:23-24;lab30-shop/app/src/bootstrap.php:42-43;lab30-shop/app/public/support/messages.php:4-4;lab30-shop/app/src/member_lookup.php:3-3"
+          }
+        ]
+      }
+    ],
+    "related_collection_time_findings": [],
+    "task_error_events_background_only": [
+      {
+        "event_id": 63112,
+        "kind": "agent_parse_error",
+        "task_id": "d7082ebb528842d581c83020114d18f1",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 7 行、第 3 列：invalid Python syntax。"
+      }
+    ],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  },
+  {
+    "truth_id": "24",
+    "class": "command_injection",
+    "old_protocol_match": false,
+    "new_protocol_match": true,
+    "classification": "merged_distinct_location",
+    "trace_supported_conclusion": "已识别跨文件 shell_exec 拼接，但与 ping.php 命令注入按同根因表述；保留条目主定位为 ping.php:2，未命中独立 helper 真值",
+    "source_anchors": [
+      {
+        "path": "app/src/host_check.php",
+        "line": 2,
+        "line_sha256": "fa0699fdd4a540a46ac8bd99e7eea2771d121362ac5dfc6b561d4625372954fa",
+        "rationale": "公共巡检函数将调用方 host 直接拼入 shell_exec。",
+        "archive_path": "lab30-shop/app/src/host_check.php",
+        "source_line": "function host_check(string $host): string { return (string)shell_exec('ping -c 1 -W 1 ' . $host); }"
+      }
+    ],
+    "direct_successful_source_reads": [
+      {
+        "event_id": 63376,
+        "created_at": "2026-10-30T14:00:37.123546+00:00",
+        "args": {
+          "path": "lab30-shop/app/src/host_check.php",
+          "start": 1,
+          "end": 40
+        },
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "preview": "lab30-shop/app/src/host_check.php:1 | <?php\nlab30-shop/app/src/host_check.php:2 | function host_check(string $host): string { return (string)shell_exec('ping -c 1 -W 1 ' . $host); }\n"
+      },
+      {
+        "event_id": 63621,
+        "created_at": "2026-10-30T14:02:38.082476+00:00",
+        "args": {
+          "path": "lab30-shop/app/src/host_check.php",
+          "start": 1,
+          "end": 40
+        },
+        "task_id": "60d0071816324fa3bd5d0ce03ad7e93b",
+        "task_key": "ops-ssrf-xxe",
+        "preview": "lab30-shop/app/src/host_check.php:1 | <?php\nlab30-shop/app/src/host_check.php:2 | function host_check(string $host): string { return (string)shell_exec('ping -c 1 -W 1 ' . $host); }\n"
+      }
+    ],
+    "trace_excerpts": [
+      {
+        "event_id": 63417,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:01:19.328525+00:00",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "task_key": "ops-and-cli",
+        "summary": "ops/index.php 仅角色门禁并渲染卡片，无直接危险操作；bin/reset.php 有 CLI 守卫、bin/setup.php 仅初始化时调用 reset_shop，Web 不可达。实际风险在 ops 子页：ping.php:2 与 src/host_check.php:2 直接 shell_exec 拼接 host（命令注入）；jobs.php:3 unserialize 用户数据触发 dispatch_job.php:4 __wakeup 的 shell_exec（反序列化 RCE）。两条均以 operator 会话为前置，已落库并附 POC；template-render eval、template-preview include、formula 动态调用、url-preview SSRF、xml-import XXE、maintenance 头鉴权列入 remaining_work。",
+        "rationale": "已读 ops/index.php:1-3 确认 require_user(['operator','admin'])；bin/reset.php:2 以 PHP_SAPI!=='cli' 404 守卫，src/setup.php 全部为硬编码 SQL，未发现输入拼接。可外部输入的 sink 在 ops 子页：ping.php:2 与 host_check.php:2 把 $_GET['host'] 拼进 shell_exec，只有角色校验无 escapeshellarg；dispatch_job.php:4 __wakeup 执行 shell_exec($this->command)，jobs.php:3 对 base64 解码后的 POST 直接 unserialize 且 instanceof 检查在反序列化之后。两者根因不同（命令注入 vs 不安全反序列化），前提同为一枚 operator 会话，故分列两条 finding。",
+        "remaining_work": [
+          "lab30-shop/app/public/ops/template-render.php:3 对 POST template 的 {{...}} 直接 eval('return '.$m[1].';')，需补证代码执行",
+          "lab30-shop/app/public/ops/template-preview.php:3 直接 include GET 可控 $template，评估 LFI/RFI（依赖 allow_url_include）",
+          "lab30-shop/app/public/ops/formula.php:3 以 GET func 作为函数名动态调用（如 system/phpinfo）",
+          "lab30-shop/app/public/ops/url-preview.php:3 file_get_contents 读取 GET url，SSRF 待补证",
+          "lab30-shop/app/public/ops/xml-import.php:3 simplexml_load_string 启用 LIBXML_NOENT|LIBXML_DTDLOAD，XXE 待补证",
+          "lab30-shop/app/public/ops/maintenance.php:3 仅凭可伪造 X-Admin 头鉴权且未要求登录"
+        ],
+        "observations": [
+          {
+            "title": "运营入口访问控制实现位置",
+            "kind": "security_boundary",
+            "summary": "ops/index.php:2 用 require_user(['operator','admin']) 建立角色边界；bootstrap.php:33-36 未登录返回 401、角色不符返回 403，使用严格 in_array。该检查只做可达性控制，子页面各自处理输入且无输入过滤。",
+            "evidence": "lab30-shop/app/public/ops/index.php:1-3; lab30-shop/app/src/bootstrap.php:33-36; lab30-shop/app/src/bootstrap.php:52-54"
+          },
+          {
+            "title": "部署与重置脚本 Web 不可达",
+            "kind": "source_observation",
+            "summary": "bin/reset.php:2 以 PHP_SAPI!=='cli' 直接 404 退出，且 app/bin 不在 public 下，Web 不可访问；bin/setup.php 仅在 settings 缺少 generation 时调用 reset_shop()。reset_shop 中表名来自硬编码数组、数据用预处理，未见命令注入或 eval。",
+            "evidence": "lab30-shop/app/bin/reset.php:1-4; lab30-shop/app/bin/setup.php:1-4; lab30-shop/app/src/setup.php:4-39"
+          },
+          {
+            "title": "database.php 输出异常堆栈",
+            "kind": "data_flow",
+            "summary": "bootstrap.php:62-67 的 set_exception_handler 只输出通用提示；但 ops/database.php:3 catch 中把 get_class($e).': '.$e->getMessage().getTraceAsString() 作为 output 输出，经 h() 编码仍暴露堆栈、路径与连接信息，需 operator 权限触发。",
+            "evidence": "lab30-shop/app/src/bootstrap.php:62-67; lab30-shop/app/public/ops/database.php:1-4"
+          },
+          {
+            "title": "登录接受 sid 指定会话 ID",
+            "kind": "data_flow",
+            "summary": "auth/login.php:3 把 $_GET['sid'] 传给 start_session，bootstrap.php:13 关闭 strict mode、第 17 行允许客户端指定会话 ID，与已落库 session_fixation 结论同源，本次不重复主张。",
+            "evidence": "lab30-shop/app/public/auth/login.php:1-4; lab30-shop/app/src/bootstrap.php:11-18"
+          }
+        ]
+      },
+      {
+        "event_id": 63681,
+        "kind": "task_assessment",
+        "created_at": "2026-10-30T14:03:32.007237+00:00",
+        "task_id": "60d0071816324fa3bd5d0ce03ad7e93b",
+        "task_key": "ops-ssrf-xxe",
+        "summary": "确认 url-preview.php 存在 SSRF（$_GET['url'] 未经白名单过滤进入 file_get_contents 并回显），xml-import.php 在 LIBXML_NOENT|LIBXML_DTDLOAD 下解析用户 XML 形成 XXE 文件读取；ping/batch-check 的 shell_exec 拼接作为命令注入观察记录。",
+        "rationale": "url-preview.php:2-4：可控 url 直入 file_get_contents，结果回显，无协议/IP 校验；xml-import.php:3-4：用户 XML 在启用外部实体的 libxml 标志下解析并回显 title；bootstrap.php:33-36 仅做角色校验，bootstrap.php:38-40 的 CSRF 无法阻止持自身 token 的运营账号。",
+        "remaining_work": [],
+        "observations": [
+          {
+            "title": "ping.php 与 batch-check.php 的 host 直接拼接 shell_exec",
+            "kind": "source_observation",
+            "summary": "ping.php:2 与 src/host_check.php:2 均以 'ping -c 1 -W 1 '.$host 调用 shell_exec，host 来自 GET 且无转义，仅角色门禁，构成命令注入（与本轮其他方向同根因，此处记为观察）。",
+            "evidence": "lab30-shop/app/public/ops/ping.php:2; lab30-shop/app/public/ops/batch-check.php:2; lab30-shop/app/src/host_check.php:2"
+          },
+          {
+            "title": "运营页面的角色门禁与 CSRF 边界",
+            "kind": "security_boundary",
+            "summary": "bootstrap.php:33-36 用 in_array($u['role'],$roles,true) 严格比较角色；xml-import.php:3 有 check_csrf()，而 url-preview/ping/batch-check 为 GET 无 CSRF 校验。",
+            "evidence": "lab30-shop/app/src/bootstrap.php:33-36; lab30-shop/app/src/bootstrap.php:38-40; lab30-shop/app/public/ops/xml-import.php:3"
+          }
+        ]
+      }
+    ],
+    "related_collection_time_findings": [
+      {
+        "id": "7d557370dabe4a41ba0c681deb30a0a1",
+        "title": "运营主机巡检 host 参数未过滤直接拼接 shell_exec 造成命令注入",
+        "vulnerability_type": "command_injection",
+        "primary_location": {
+          "path": "lab30-shop/app/public/ops/ping.php",
+          "line": 2
+        },
+        "disposition": "open",
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/ops/ping.php",
+            "start_line": 1,
+            "end_line": 3
+          },
+          {
+            "path": "lab30-shop/app/public/ops/batch-check.php",
+            "start_line": 1,
+            "end_line": 3
+          },
+          {
+            "path": "lab30-shop/app/src/host_check.php",
+            "start_line": 1,
+            "end_line": 2
+          },
+          {
+            "path": "lab30-shop/app/public/ops/index.php",
+            "start_line": 1,
+            "end_line": 3
+          },
+          {
+            "path": "lab30-shop/app/src/bootstrap.php",
+            "start_line": 33,
+            "end_line": 36
+          }
+        ],
+        "summary": "ops/ping.php 读取 $_GET['host'] 后原样拼进 'ping -c 1 -W 1 '.$host 交给 shell_exec；ops/batch-check.php 经 host_check() 走同一路径（src/host_check.php:2 拼接 shell_exec）。仅有 require_user(['operator','admin']) 角色校验，无 escapeshellarg、无 host 白名单，提交 host=127.0.0.1;id 即可执行任意系统命令，输出回显到页面 pre。",
+        "propagation": "$_GET['host'] → (string) → 拼接 'ping -c 1 -W 1 '.$host → shell_exec() → h() 回显"
+      }
+    ],
+    "task_error_events_background_only": [
+      {
+        "event_id": 63401,
+        "kind": "agent_parse_error",
+        "task_id": "8cc43f721f094f6b9901c122f867bf50",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 90 行、第 3 列：invalid Python syntax。"
+      },
+      {
+        "event_id": 63581,
+        "kind": "agent_parse_error",
+        "task_id": "60d0071816324fa3bd5d0ce03ad7e93b",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 5 行、第 3 列：invalid Python syntax。"
+      },
+      {
+        "event_id": 63654,
+        "kind": "agent_parse_error",
+        "task_id": "60d0071816324fa3bd5d0ce03ad7e93b",
+        "phase": "task_execute",
+        "error_code": "incomplete_code",
+        "hint": "动作代码块没有闭合；请重新提交完整代码块，不会自动补造缺失代码。Python 语法检查：第 2 行、第 12 列：unclosed parenthesis or bracket。"
+      }
+    ],
+    "limits": "This explains the observed recording/matching path, not the internal psychological cause or a causal effect of any single framework change."
+  }
+]

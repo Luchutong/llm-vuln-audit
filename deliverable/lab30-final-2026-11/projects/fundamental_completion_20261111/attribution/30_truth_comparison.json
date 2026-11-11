@@ -1,0 +1,344 @@
+[
+  {
+    "truth_id": "01",
+    "class": "sqli",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "2aad233871a24c91a491d81b3fea08ac"
+    ],
+    "new_finding_ids": [
+      "1895fbd0583d46348f4a8dbd81236b9b"
+    ]
+  },
+  {
+    "truth_id": "02",
+    "class": "xss_r",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "5d49941ea36b4c14aaba5cec95eb33ce"
+    ],
+    "new_finding_ids": [
+      "a5707d3ea9bb4b9284ff9f164dbf955d"
+    ]
+  },
+  {
+    "truth_id": "03",
+    "class": "command_injection",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "7d557370dabe4a41ba0c681deb30a0a1"
+    ],
+    "new_finding_ids": [
+      "c02fe17575974cbfa0caf32637b482db"
+    ]
+  },
+  {
+    "truth_id": "04",
+    "class": "path_traversal",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "eac118f98bf744b498228eacf22fd396"
+    ],
+    "new_finding_ids": [
+      "e158b6a09f1e4f84b85fd03e4eb93c48"
+    ]
+  },
+  {
+    "truth_id": "05",
+    "class": "lfi",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "5783491e92f4458082050a3863ac0095"
+    ],
+    "new_finding_ids": [
+      "f6a24603a7a941f3a62f5034c1b46b82"
+    ]
+  },
+  {
+    "truth_id": "06",
+    "class": "rfi",
+    "old_match": true,
+    "new_match": false,
+    "old_finding_ids": [
+      "633719c82cd64d56bc043d63f5b5df83"
+    ],
+    "new_finding_ids": []
+  },
+  {
+    "truth_id": "07",
+    "class": "code_execution",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "eadd0beed2c0463888586e26fe9ddf33"
+    ]
+  },
+  {
+    "truth_id": "08",
+    "class": "open_redirect",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "d5eedb8664a24e029b3279ca593c5f5b"
+    ],
+    "new_finding_ids": [
+      "9ef964fa5f354f918d4924183aadfe11"
+    ]
+  },
+  {
+    "truth_id": "09",
+    "class": "info_disclosure",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "0e88b1f8b3d04a0798676aeccba07cf9"
+    ]
+  },
+  {
+    "truth_id": "10",
+    "class": "weak_crypto",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "0bed78e56e8045e9bffdfb21970489eb"
+    ]
+  },
+  {
+    "truth_id": "11",
+    "class": "xss_s",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "43b0838f093d472c9143038ec56e1e96"
+    ],
+    "new_finding_ids": [
+      "20f1b555e4b648e8b9622864abb3123c"
+    ]
+  },
+  {
+    "truth_id": "12",
+    "class": "ssrf",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "bc328ee5aef640c58a4a4f22afe0015e"
+    ],
+    "new_finding_ids": [
+      "452d174056004fbfad541168b5c7ae12"
+    ]
+  },
+  {
+    "truth_id": "13",
+    "class": "xxe",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "addbc91072b7478c8aa7d68521c49c73"
+    ],
+    "new_finding_ids": [
+      "8af981c796814905b9bdd25108e47ddb"
+    ]
+  },
+  {
+    "truth_id": "14",
+    "class": "csrf",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "13160cf2233d456381d1bb93c4cebd70"
+    ]
+  },
+  {
+    "truth_id": "15",
+    "class": "insecure_deserialization",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "e4c0d7fa5c0640dbb7e81a774b02ae04"
+    ],
+    "new_finding_ids": [
+      "a47fd652debb4f0391fe234a5d91ecd6"
+    ]
+  },
+  {
+    "truth_id": "16",
+    "class": "idor",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "6f9baa7bb5694f4e8d2f1635f38c7d9f"
+    ],
+    "new_finding_ids": [
+      "13a0f5bed6414ab0948f6f25117d47f5"
+    ]
+  },
+  {
+    "truth_id": "17",
+    "class": "auth_bypass",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "f434cb50f3c5481db935aaf727023338"
+    ]
+  },
+  {
+    "truth_id": "18",
+    "class": "auth_bypass",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "e2cf827251824b459229883c352560e6"
+    ]
+  },
+  {
+    "truth_id": "19",
+    "class": "price_manipulation",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "7c8e155d6b5741d7be73c3dab2bc6a10"
+    ],
+    "new_finding_ids": [
+      "0a1bf6e3f513469fa4f9d3cc9bc8af7c"
+    ]
+  },
+  {
+    "truth_id": "20",
+    "class": "race_condition",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "168e43edeee643d6a8d80cfc004090ba"
+    ],
+    "new_finding_ids": [
+      "61e9d885a7434e17a86e04f517471730"
+    ]
+  },
+  {
+    "truth_id": "21",
+    "class": "session_fixation",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "0e642f7c599c4d2a8a0e1973916b983b"
+    ],
+    "new_finding_ids": [
+      "8514fe5a09b24a97b2b9200edd85f915"
+    ]
+  },
+  {
+    "truth_id": "22",
+    "class": "weak_type_comparison",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "5a0a00576fa249cfb5ad3466c54cf27f"
+    ],
+    "new_finding_ids": [
+      "0e67c5ccc77e46d4b7f37847b81b9827"
+    ]
+  },
+  {
+    "truth_id": "23",
+    "class": "sqli",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "6ea737d111da4451a1c0cbab2c63aa92"
+    ]
+  },
+  {
+    "truth_id": "24",
+    "class": "command_injection",
+    "old_match": false,
+    "new_match": true,
+    "old_finding_ids": [],
+    "new_finding_ids": [
+      "264e0609408a450888c4851f4d477be1"
+    ]
+  },
+  {
+    "truth_id": "25",
+    "class": "xss_r",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "7d425e28404445b7b8301548aba889b1"
+    ],
+    "new_finding_ids": [
+      "4afcafc91e504ef589de6fb97a6b9693"
+    ]
+  },
+  {
+    "truth_id": "26",
+    "class": "auth_bypass",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "966576d2146344879dcbedc45dc3fcca"
+    ],
+    "new_finding_ids": [
+      "9f5d703b4b6f446ca5a3f2b7b6e61942"
+    ]
+  },
+  {
+    "truth_id": "27",
+    "class": "insecure_deserialization",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "fe228c9b642d456694f9b45fb29d5e92"
+    ],
+    "new_finding_ids": [
+      "a41fe4397d1647aca813d15585c09820"
+    ]
+  },
+  {
+    "truth_id": "28",
+    "class": "sqli",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "5aff729ccaaa4480a9e526a947f58de9"
+    ],
+    "new_finding_ids": [
+      "6bc2fbecc4be4bf0af206d7c9f717aac"
+    ]
+  },
+  {
+    "truth_id": "29",
+    "class": "code_execution",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "cbc0430810e6455eabc064331bd9a754"
+    ],
+    "new_finding_ids": [
+      "f559f9fc049449178215238868ce4fb4"
+    ]
+  },
+  {
+    "truth_id": "30",
+    "class": "mass_assignment",
+    "old_match": true,
+    "new_match": true,
+    "old_finding_ids": [
+      "618fed4dab94434c9f2d11308ca4829e"
+    ],
+    "new_finding_ids": [
+      "63ebf68069984b988e79c6e29984e96c"
+    ]
+  }
+]

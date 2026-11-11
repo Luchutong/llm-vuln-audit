@@ -1,0 +1,192 @@
+{
+  "outcome": "findings",
+  "summary": "已确认二次SQL注入：普通会员可安全参数化更新 users.nickname，运营/管理员报表读取同一行 nickname 后直接字符串拼接进第二个查询，导致SQL注入。",
+  "findings": [
+    {
+      "title": "会员昵称二次注入：update.php 参数化写入 nickname，ops/report.php 字符串拼接读出",
+      "vulnerability_type": "sqli",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/report.php",
+        "line": 3
+      },
+      "summary": "update.php 第5-6行通过白名单列 + 参数化把攻击者可控的 nickname 写入 users 表；ops/report.php 第2行用参数化取出该 nickname，第3行却将 $nickname 直接拼入 SELECT 语句并 query() 执行，形成二次注入。注入结果（如改写 WHERE 条件或 UNION）被 fetchAll 取出后在第4行 JSON 或第5行表格回显。",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/account/update.php",
+          "start_line": 4,
+          "end_line": 6
+        },
+        {
+          "path": "lab30-shop/app/src/bootstrap.php",
+          "start_line": 20,
+          "end_line": 24
+        },
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 2,
+          "end_line": 3
+        },
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 4,
+          "end_line": 5
+        }
+      ],
+      "dataflow": [
+        {
+          "kind": "input",
+          "path": "lab30-shop/app/public/account/update.php",
+          "line": 5,
+          "explanation": "POST 中 nickname 命中列白名单后作为待更新值收集"
+        },
+        {
+          "kind": "storage",
+          "path": "lab30-shop/app/public/account/update.php",
+          "line": 6,
+          "explanation": "参数化 UPDATE users SET nickname=? WHERE id=? 将攻击者昵称写入当前用户行"
+        },
+        {
+          "kind": "readback",
+          "path": "lab30-shop/app/public/ops/report.php",
+          "line": 2,
+          "explanation": "按 user_id 参数化读出同表同行的 nickname 到 $nickname"
+        },
+        {
+          "kind": "root_cause",
+          "path": "lab30-shop/app/public/ops/report.php",
+          "line": 3,
+          "explanation": "$nickname 直接拼接进 SQL 字符串，二次注入根因"
+        },
+        {
+          "kind": "sink",
+          "path": "lab30-shop/app/public/ops/report.php",
+          "line": 3,
+          "explanation": "db()->query(...) 执行拼接后的 SQL"
+        },
+        {
+          "kind": "protection",
+          "path": "lab30-shop/app/public/ops/report.php",
+          "line": 5,
+          "explanation": "仅输出阶段 h() 转义，对 SQL 拼接无防护"
+        }
+      ],
+      "preconditions": [
+        "攻击者持有可登录的普通会员账号（用于 update.php 写 nickname）",
+        "存在 operator/admin 账号或攻击者自身亦为运营（读出点 require_user(['operator','admin'])，成功需运营/管理员访问或改报表），触发依赖第三方角色操作"
+      ],
+      "normal_input": "nickname=alice 写入后，运营访问 report.php?user_id=<id> 仅返回该昵称对应会员行",
+      "attack_input": "nickname=x' UNION SELECT username,email,role FROM users WHERE '1'='1 写入；运营访问 report.php?user_id=<id>",
+      "expected_result": "正常输入返回本人一行；攻击输入检索条件被篡改，返回额外/敏感 users 行（如全部账号邮箱与角色），证明读出点拼接注入生效"
+    }
+  ],
+  "limitations": [
+    "未做动态验证，poc_mode=off",
+    "需运营/管理员访问读出点才触发，未确认是否存在自动化报表调用",
+    "未验证 MySQL 版本对 UNION 列数/类型的容忍细节"
+  ],
+  "cvss_input": {
+    "AV": {
+      "value": "N",
+      "rationale": "通过 HTTP 访问两个页面",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/account/update.php",
+          "start_line": 2,
+          "end_line": 3
+        },
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 2,
+          "end_line": 2
+        }
+      ]
+    },
+    "AC": {
+      "value": "H",
+      "rationale": "需先后经写入口写恶意昵称、再由运营/管理员访问读出点，依赖第三方角色与时序",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/account/update.php",
+          "start_line": 6,
+          "end_line": 6
+        },
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 2,
+          "end_line": 3
+        }
+      ]
+    },
+    "PR": {
+      "value": "L",
+      "rationale": "写入侧仅需普通登录会员即可更新本人 nickname；读出侧需运营/管理员",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/account/update.php",
+          "start_line": 2,
+          "end_line": 2
+        },
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 2,
+          "end_line": 2
+        }
+      ]
+    },
+    "UI": {
+      "value": "R",
+      "rationale": "需运营/管理员用户使用报表页面或接口读取被污染昵称",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    "S": {
+      "value": "U",
+      "rationale": "同一数据库与应用的授权边界内",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 2,
+          "end_line": 3
+        }
+      ]
+    },
+    "C": {
+      "value": "H",
+      "rationale": "注入可 UNION 读取 users 表敏感列（邮箱、角色等）",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 3,
+          "end_line": 5
+        }
+      ]
+    },
+    "I": {
+      "value": "L",
+      "rationale": "SELECT 注入以读取为主，未证实可写",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    "A": {
+      "value": "N",
+      "rationale": "未发现拒绝服务证据",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/ops/report.php",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    }
+  }
+}

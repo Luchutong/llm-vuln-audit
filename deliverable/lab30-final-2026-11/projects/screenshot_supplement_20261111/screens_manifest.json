@@ -1,0 +1,168 @@
+[
+  {
+    "id": "S-C01",
+    "label": "平台二次注入策略注册与正文",
+    "category": "live-platform",
+    "sourceRefs": [
+      "9db85223ca9a4c3c9c03b2a8efcf5cb5"
+    ],
+    "url": "http://127.0.0.1:5173/#prompts",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:48:21.744Z",
+    "image": "screens/S-C01.jpg",
+    "ax": "screens/S-C01.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T19:48:21.744000+08:00",
+    "sha256": "295eaf7033ed2eb3b58765ed427a7286967f88c4f39fcb8a15f670f9434935fe",
+    "ax_sha256": "9f517ee6e249a320325598f48518dad302e94338ded520cddf6de35ecfbb1d53"
+  },
+  {
+    "id": "S-C02",
+    "label": "平台对象与字段越权策略正文",
+    "category": "live-platform",
+    "sourceRefs": [
+      "d60c400b05ab4ebaa4fc4ac8a5dd5f35"
+    ],
+    "url": "http://127.0.0.1:5173/#prompts",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:48:50.306Z",
+    "image": "screens/S-C02.jpg",
+    "ax": "screens/S-C02.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T19:48:50.306000+08:00",
+    "sha256": "28fd95667a8ff6a4deea6d8c3455c6b106ad9b8c6429f0326b81d8d89e56d0ef",
+    "ax_sha256": "34588193d3cb45564dc6ce4a9358a03c5808c8d9500309dcaf089d87c1344ca8"
+  },
+  {
+    "id": "S-C03",
+    "label": "平台状态并发策略正文",
+    "category": "live-platform",
+    "sourceRefs": [
+      "2ed3dc0c41c44852bbd8263042912dc6"
+    ],
+    "url": "http://127.0.0.1:5173/#prompts",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:49:00.657Z",
+    "image": "screens/S-C03.jpg",
+    "ax": "screens/S-C03.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T19:49:00.657000+08:00",
+    "sha256": "e94d22b6db157302abaf772638f05daf599c6ab69563d544ba78205fc4d8e239",
+    "ax_sha256": "dd0d845271f9bc3c3f0f4111042c2adcfd0e71df477184e0ced5cfbdec37c8fa"
+  },
+  {
+    "id": "S-C04",
+    "label": "旧轮事件63417：命令注入识别与后续风险原文",
+    "category": "live-platform-trace",
+    "sourceRefs": [
+      "2969bcf204cd43b5baf2683cbb0e841d",
+      "event:63417"
+    ],
+    "url": "http://127.0.0.1:5173/#run/2969bcf204cd43b5baf2683cbb0e841d",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:53:48.742Z",
+    "image": "screens/S-C04.jpg",
+    "ax": "screens/S-C04.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T19:53:48.742000+08:00",
+    "sha256": "3f7dfe490440ea158d5cef062f4bd73046cee8a7efc00e3951ec7c108936b18b",
+    "ax_sha256": "de6b8b9e7be9332e43034af5940a756fb80f6350c67890a0a9906efe6bc214f2"
+  },
+  {
+    "id": "S-C05",
+    "label": "旧轮事件63185：已识别的二次SQL注入及源码证据",
+    "category": "live-platform-trace",
+    "sourceRefs": [
+      "2969bcf204cd43b5baf2683cbb0e841d",
+      "event:63185"
+    ],
+    "url": "http://127.0.0.1:5173/#run/2969bcf204cd43b5baf2683cbb0e841d",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:56:34.847Z",
+    "image": "screens/S-C05.jpg",
+    "ax": "screens/S-C05.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T19:56:34.847000+08:00",
+    "sha256": "017296cc717837735c83d79671d9013cc3ea06c0d068d0c1d7902f92a4d99e2e",
+    "ax_sha256": "0174d4c6f8d51be2a53b1bd27853bb2bd55e5546d30476c84cb79be8e5e58e30"
+  },
+  {
+    "id": "S-C06",
+    "label": "注入运行事件94499：主定位与根因节点不绑定被拒绝",
+    "category": "live-platform-validation",
+    "sourceRefs": [
+      "3d536d1a8ab44eb7bb14941daa5271f3",
+      "event:94499"
+    ],
+    "url": "http://127.0.0.1:5173/#run/3d536d1a8ab44eb7bb14941daa5271f3",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:58:27.378Z",
+    "image": "screens/S-C06.jpg",
+    "ax": "screens/S-C06.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T19:58:27.378000+08:00",
+    "sha256": "7206381c4f40e7ca77e13020b60e042b9377cc399a94676b7ac25cbb4e2b3977",
+    "ax_sha256": "85c6546907737dbdd86e661db443461879d30f7b0b5df0a82d6512b357eeea7d"
+  },
+  {
+    "id": "S-C07",
+    "label": "事件94499完整拒绝说明：根因与主定位绑定校验",
+    "category": "live-platform-validation",
+    "sourceRefs": [
+      "3d536d1a8ab44eb7bb14941daa5271f3",
+      "event:94499"
+    ],
+    "url": "http://127.0.0.1:5173/#run/3d536d1a8ab44eb7bb14941daa5271f3",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T11:59:04.299Z",
+    "image": "screens/S-C07.jpg",
+    "ax": "screens/S-C07.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T19:59:04.299000+08:00",
+    "sha256": "5ad3d96a18d88036815e76f89dfb5c5e77be80f83ffa34de2db66358924b41bb",
+    "ax_sha256": "c726eb893dbdf8d2b9b79243e9412e639d2e51a3697cbd78a7f47290c7f00104"
+  },
+  {
+    "id": "S-C08",
+    "label": "注入样本A3：仍发现命令注入并指出注释声明不成立",
+    "category": "live-platform-discovery",
+    "sourceRefs": [
+      "3d536d1a8ab44eb7bb14941daa5271f3",
+      "af938ba409f5442491862852afd396fb",
+      "A3"
+    ],
+    "url": "http://127.0.0.1:5173/#run/3d536d1a8ab44eb7bb14941daa5271f3",
+    "title": "VULN-AUDIT · 源码审计工作空间",
+    "capturedAtUTC": "2026-11-11T12:00:27.760Z",
+    "image": "screens/S-C08.jpg",
+    "ax": "screens/S-C08.ax.txt",
+    "method": "Chrome extension screenshot API; unmodified viewport capture",
+    "width": 2048,
+    "height": 962,
+    "format": "JPEG",
+    "capturedAtShanghai": "2026-11-11T20:00:27.760000+08:00",
+    "sha256": "32ca57f2ddbbb759b546a63278d9c4bad4eec798d205d9aedde1913223f6d731",
+    "ax_sha256": "e4915ed45cc50d54c57a53fd6672931329594f75e0f4e5d9ae2c6c5ecc48682d"
+  }
+]

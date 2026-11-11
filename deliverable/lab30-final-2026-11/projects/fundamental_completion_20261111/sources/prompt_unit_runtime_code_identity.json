@@ -1,0 +1,10 @@
+{
+  "collected_at": "2026-11-11T11:39:29.366194+00:00",
+  "files": {
+    "backend/audit/config.py": "624ac60f54bca32c2ccd62b3ecfcb592105ca3f8e2ef73c2eb1338b81aab4bbb",
+    "backend/audit/worker_strategies.py": "e6de66f632c5c2ffbd6f040d34bf9a6efcf3539972bafe1cdfe0bc874471fc2c",
+    "backend/audit/codemodel.py": "bd1dd8214fc5ffc4453e86ab0f648ca4b6347643fcf3d9318fbc71f532ac856d"
+  },
+  "method": "Read existing WSL source through UNC, no backend edits/restart. Model secrets read only in process memory and never exported.",
+  "sqlite_config_read": "Checkpointed main DB via mode=ro&immutable=1, selected model and endpoint checked against live public API; credentials not copied."
+}

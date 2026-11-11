@@ -1,0 +1,16 @@
+{
+  "attribution": "done: eight observed trace paths, scores unchanged, no causal ablation claim",
+  "defense": "done within declared scopes:78 canonical contracts, actual rejection ledger, public lexical checks, one new synthetic-canary Prompt unit; no universal no-impact claim",
+  "special_prompts": "done as new standalone Prompt-unit invocation: three registered versions, four exact source-root matches, original replies and encoding failures preserved. Historical E runs and production-worker invocation not recovered.",
+  "new_runtime_screenshots": "not_collected: Computer Use stopped because current Windows browser URL could not be reliably confirmed. No alternate capture or fabricated screenshot was substituted.",
+  "report_written": false,
+  "post_recharge_usage": {
+    "requests": 8,
+    "known_input_tokens": 68964,
+    "known_output_tokens": 12336,
+    "known_total_tokens": 81300,
+    "complete_input_output_records": true,
+    "provider_total_field_records": 7,
+    "price_not_estimated": true
+  }
+}

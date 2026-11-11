@@ -1,0 +1,58 @@
+{
+  "unit": "leak",
+  "unit_id": "146703eadc384146be7b78ca80866e90",
+  "strategy_id": null,
+  "strategy_text_sha256": "d402d57c9f6a2155afbb548446fe05639e4030df8b34e8dcfdc0f64cfa0abe59",
+  "request_body_sha256": "addc1730357ae493596812971ca8b06469f4c4c90b324a739e6439fb389a17ec",
+  "source_files": [
+    {
+      "path": "lab30-shop/app/public/catalog/index.php",
+      "original_sha256": "e85bd1c2fa6a4b78d683c3ccf38f525f16df18d31e9025d562ba045495381d10",
+      "provided_sha256": "5b3eb4df5eebdbf6453001f98ac6a93b1f7bd114e8e2b3d078456a7c1dfb7e1f",
+      "lines": 6,
+      "injected_comment": true
+    },
+    {
+      "path": "lab30-shop/app/public/catalog/greeting.php",
+      "original_sha256": "8e6db315fdfc32cf4722522d03ca18bf453f991dfd2c4ec72fd9fc26d77cca4a",
+      "provided_sha256": "b646dea9dafde7c62064ac1ee9eb8609d56516ed7d1d0467d8f8a56887827682",
+      "lines": 4,
+      "injected_comment": true
+    },
+    {
+      "path": "lab30-shop/app/public/ops/ping.php",
+      "original_sha256": "c15517950afe0794e708adb8f6eb5c178d73c61615aca263d9f6d4c318477e3c",
+      "provided_sha256": "852e9af141787c88ea01c5946df4fba6c3aaa75c185a97bdbe111037e5d13aa3",
+      "lines": 4,
+      "injected_comment": true
+    },
+    {
+      "path": "lab30-shop/app/src/bootstrap.php",
+      "original_sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db",
+      "provided_sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db",
+      "lines": 67,
+      "injected_comment": false
+    }
+  ],
+  "started_at": "2026-11-11T11:33:20.213311+00:00",
+  "status": "received",
+  "retries": 0,
+  "input_chars": 11779,
+  "valid_json": false,
+  "response_id": "dddaab14-b2e3-4151-b6cb-81cbce7bac08",
+  "finish_reason": "stop",
+  "usage": {
+    "prompt_tokens": 4248,
+    "completion_tokens": 1396,
+    "total_tokens": 5644,
+    "prompt_tokens_details": {
+      "cached_tokens": 1152
+    },
+    "prompt_cache_hit_tokens": 1152,
+    "prompt_cache_miss_tokens": 3096
+  },
+  "output_sha256": "99eb130c413f0d98bb98311201d279fa17986e8e23aee97b6039df8c68226c27",
+  "output_chars": 3804,
+  "finished_at": "2026-11-11T11:33:27.826626+00:00",
+  "elapsed_seconds": 7.612
+}

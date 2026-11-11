@@ -1,0 +1,55 @@
+[
+  {
+    "index": 0,
+    "title": "商品搜索 q 参数 SQL 注入",
+    "type": "sqli",
+    "primary_location": {
+      "path": "lab30-shop/app/public/catalog/index.php",
+      "line": 5
+    },
+    "source_reference_errors": [
+      "evidence_range"
+    ],
+    "invalid_references": [
+      {
+        "reference": {
+          "path": "lab30-shop/app/public/catalog/index.php",
+          "start_line": 7,
+          "end_line": 7
+        },
+        "actual_file_lines": 6
+      }
+    ],
+    "exact_type_and_anchor_matches": [
+      "01"
+    ]
+  },
+  {
+    "index": 1,
+    "title": "到店欢迎页 name 参数反射型 XSS",
+    "type": "xss_r",
+    "primary_location": {
+      "path": "lab30-shop/app/public/catalog/greeting.php",
+      "line": 4
+    },
+    "source_reference_errors": [],
+    "invalid_references": [],
+    "exact_type_and_anchor_matches": [
+      "02"
+    ]
+  },
+  {
+    "index": 2,
+    "title": "运维诊断 host 参数命令注入",
+    "type": "command_injection",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/ping.php",
+      "line": 3
+    },
+    "source_reference_errors": [],
+    "invalid_references": [],
+    "exact_type_and_anchor_matches": [
+      "03"
+    ]
+  }
+]

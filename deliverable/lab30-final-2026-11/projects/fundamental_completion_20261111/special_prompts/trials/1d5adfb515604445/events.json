@@ -1,0 +1,966 @@
+[
+  {
+    "id": 1,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "planner_run_queued",
+    "payload": {
+      "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+      "scope_mode": "snapshot",
+      "scope_files": 69,
+      "project_map_stats": {
+        "files": 69,
+        "symbols": 22,
+        "includes": 51,
+        "calls": 555,
+        "entrypoints": 45,
+        "low_confidence_roots": 0,
+        "unresolved_includes": 2,
+        "modules": 1,
+        "binary_files": 0,
+        "php_files": 52,
+        "dependency_tree_files": 0
+      },
+      "max_planner_rounds": 24,
+      "completion_policy": "coverage_review",
+      "baseline_policy": "inherit",
+      "model_profile": {
+        "profile_id": "",
+        "model": "deepseek-flash",
+        "base_url": "https://api.deepseek.com",
+        "thinking": "disabled"
+      }
+    },
+    "created_at": "2026-11-11T11:11:28.237852+00:00"
+  },
+  {
+    "id": 2,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "project_findings_baseline_frozen",
+    "payload": {
+      "project_id": "d1d725c4e7074870aa3db2677f18b259",
+      "project_name": "lab30-shop-1.0.0-source",
+      "baseline_policy": "inherit",
+      "count": 0,
+      "ids": [],
+      "verified": 0
+    },
+    "created_at": "2026-11-11T11:11:28.239822+00:00"
+  },
+  {
+    "id": 3,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "run_started",
+    "payload": {
+      "snapshot_id": "e8500de32d2046e9aa7a731724030b27",
+      "scope": [],
+      "model": "deepseek-flash",
+      "model_profile": {
+        "profile_id": "",
+        "model": "deepseek-flash",
+        "base_url": "https://api.deepseek.com",
+        "thinking": "disabled"
+      },
+      "budgets": {
+        "responses": 24,
+        "tools": 96,
+        "seconds": 240
+      },
+      "mode": "planner_v2",
+      "task": {
+        "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+        "budget_exhaustion_policy": "pause-v1",
+        "review_reuse_policy": "incremental-v1",
+        "output_policy": "audit-evidence-v1",
+        "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
+        "max_iterations": 3,
+        "max_total_attempts": 64,
+        "max_planner_rounds": 24,
+        "max_workers": 1,
+        "stop_on_achieved": false,
+        "completion_policy": "coverage_review",
+        "baseline_policy": "inherit",
+        "workflow_policy": "discovery_first",
+        "review_policy": "batch-v1",
+        "focus_scope": "targeted",
+        "risk_coverage_policy": "off",
+        "role_policy": "worker-evidence-v2",
+        "investigation_policy": "bounded-v1",
+        "exploration_policy": "legacy",
+        "orchestration_policy": "host-queue-v1",
+        "workflow_limits": null,
+        "require_poc": false,
+        "scenario": null,
+        "capability_policy": "audit-capability-v1",
+        "comparison_policy": "explicit-peers-v1",
+        "poc_scope_policy": "explicit-scenario-v1",
+        "audit_focus": {
+          "version": "audit-focus/v1",
+          "objective_ref": "objective-main",
+          "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+          "scenario": null,
+          "scope": "targeted",
+          "sources": [
+            {
+              "kind": "user_objective",
+              "text": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。"
+            }
+          ],
+          "policy": "源码整包可读；旁路发现保留，但仅独立复核为 relevant 的结论可支撑目标。supporting 须有真实必要链路，不能独立达成。"
+        }
+      },
+      "project_map": {
+        "stats": {
+          "files": 69,
+          "symbols": 22,
+          "includes": 51,
+          "calls": 555,
+          "entrypoints": 45,
+          "low_confidence_roots": 0,
+          "unresolved_includes": 2,
+          "modules": 1,
+          "binary_files": 0,
+          "php_files": 52,
+          "dependency_tree_files": 0
+        },
+        "entrypoints": [
+          {
+            "path": "lab30-shop/app/public/account/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "priority": 95,
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/catalog/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "priority": 95,
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "priority": 95,
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/ops/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "priority": 95,
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/orders/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "priority": 95,
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/support/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "priority": 95,
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/wallet/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "priority": 95,
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/backup.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "priority": 75,
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/me.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "priority": 75,
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/profile.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "priority": 75,
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/redeem.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "priority": 75,
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/update.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "priority": 75,
+            "signals": [
+              "web_root_php_script"
+            ]
+          }
+        ]
+      }
+    },
+    "created_at": "2026-11-11T11:11:28.254684+00:00"
+  },
+  {
+    "id": 4,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "planner_session_started",
+    "payload": {
+      "goal_id": "3019058de4ba4b8e8df9ede44aa06410",
+      "session_id": "planner:325ff03c7761",
+      "objective": "在规定时间内对完整源码尽可能发现有源码证据支持的可操作漏洞，合理安排审计优先级，不要找到第一处就停止。逐项提供根因、原始源码证据、影响与触发条件，并记录尚未覆盖的方向；不要求在时间窗口内穷尽源码。",
+      "success_criteria": "在宿主规定的时间内尽可能挖掘并保存有已读源码证据的漏洞，同时记录未覆盖方向；不要求穷尽，不能找到第一条就停止。",
+      "max_planner_rounds": 24,
+      "round_limit_applies": false,
+      "effective_round_limit": null,
+      "orchestration_policy": "host-queue-v1",
+      "max_total_attempts": 64,
+      "max_workers": 1,
+      "project_map_stats": {
+        "files": 69,
+        "symbols": 22,
+        "includes": 51,
+        "calls": 555,
+        "entrypoints": 45,
+        "low_confidence_roots": 0,
+        "unresolved_includes": 2,
+        "modules": 1,
+        "binary_files": 0,
+        "php_files": 52,
+        "dependency_tree_files": 0
+      }
+    },
+    "created_at": "2026-11-11T11:11:28.258199+00:00"
+  },
+  {
+    "id": 5,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "workflow_budget_reallocated",
+    "payload": {
+      "before": {
+        "discovery": 91,
+        "poc": 0,
+        "review": 5
+      },
+      "limits": {
+        "discovery": 96,
+        "poc": 0,
+        "review": 0
+      },
+      "reserve": {
+        "pending_items": 0,
+        "estimated_batches": 0,
+        "workers": 0,
+        "responses": 0,
+        "seconds": 60,
+        "funded": true,
+        "reading_work": {
+          "pages": 0,
+          "characters": 0,
+          "page_characters": 4096
+        },
+        "poc_window_seconds": 0.0,
+        "upstream_allowed": true,
+        "poc_window_blocks": false,
+        "reason": "actual_review_batches_and_inflight_workers"
+      },
+      "reason": "按实际待审事实调整预留，整次上限与累计用量不变。"
+    },
+    "created_at": "2026-11-11T11:11:28.267112+00:00"
+  },
+  {
+    "id": 6,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "coverage_review_requested",
+    "payload": {
+      "pending_total": 61,
+      "total": 61,
+      "pending_paths": [
+        "lab30-shop/app/bin/reset.php",
+        "lab30-shop/app/bin/setup.php",
+        "lab30-shop/app/public/account/backup.php",
+        "lab30-shop/app/public/account/index.php",
+        "lab30-shop/app/public/account/me.php",
+        "lab30-shop/app/public/account/profile.php",
+        "lab30-shop/app/public/account/redeem.php",
+        "lab30-shop/app/public/account/settings.php",
+        "lab30-shop/app/public/account/update.php",
+        "lab30-shop/app/public/assets/app.js",
+        "lab30-shop/app/public/assets/products.svg",
+        "lab30-shop/app/public/auth/continue.php",
+        "lab30-shop/app/public/auth/login.php",
+        "lab30-shop/app/public/auth/logout.php",
+        "lab30-shop/app/public/auth/register.php",
+        "lab30-shop/app/public/catalog/detail.php",
+        "lab30-shop/app/public/catalog/greeting.php",
+        "lab30-shop/app/public/catalog/index.php",
+        "lab30-shop/app/public/content/page.php",
+        "lab30-shop/app/public/health.php",
+        "lab30-shop/app/public/index.php",
+        "lab30-shop/app/public/ops/audit-log.php",
+        "lab30-shop/app/public/ops/batch-check.php",
+        "lab30-shop/app/public/ops/database.php",
+        "lab30-shop/app/public/ops/formula.php",
+        "lab30-shop/app/public/ops/index.php",
+        "lab30-shop/app/public/ops/jobs.php",
+        "lab30-shop/app/public/ops/maintenance.php",
+        "lab30-shop/app/public/ops/members.php",
+        "lab30-shop/app/public/ops/ping.php",
+        "lab30-shop/app/public/ops/report.php",
+        "lab30-shop/app/public/ops/template-preview.php",
+        "lab30-shop/app/public/ops/template-render.php",
+        "lab30-shop/app/public/ops/url-preview.php",
+        "lab30-shop/app/public/ops/users.php",
+        "lab30-shop/app/public/ops/xml-import.php",
+        "lab30-shop/app/public/orders/create.php",
+        "lab30-shop/app/public/orders/detail.php",
+        "lab30-shop/app/public/orders/index.php",
+        "lab30-shop/app/public/partner/portal.php"
+      ],
+      "round": 0
+    },
+    "created_at": "2026-11-11T11:11:28.280610+00:00"
+  },
+  {
+    "id": 7,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "planner_round_started",
+    "payload": {
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "round": 1,
+      "revision": 1,
+      "session_id": "planner:325ff03c7761",
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 0
+    },
+    "created_at": "2026-11-11T11:11:28.289486+00:00"
+  },
+  {
+    "id": 8,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "role_contract_bound",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 0,
+      "phase": "prepare",
+      "policy": "worker-evidence-v2",
+      "agent_role": "planner",
+      "contract_sha256": "9ccd8741a9cf0279572cd49d5557f12a10b738db0efe3bd8d10291109165a50a",
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:28.302184+00:00"
+  },
+  {
+    "id": 9,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "agent_phase",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 0,
+      "phase": "planner_prepare",
+      "round": 1,
+      "reserved_responses": 3,
+      "remaining_seconds": 239.99,
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:28.308955+00:00"
+  },
+  {
+    "id": 10,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "planner_overview_prepared",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 0,
+      "phase": "planner_prepare",
+      "round": 1,
+      "overview": {
+        "overview": true,
+        "snapshot_id": "e8500de32d2046e9aa7a731724030b27",
+        "project_stats": {
+          "files": 69,
+          "symbols": 22,
+          "includes": 51,
+          "calls": 555,
+          "entrypoints": 45,
+          "low_confidence_roots": 0,
+          "unresolved_includes": 2,
+          "modules": 1
+        },
+        "focus_terms": [],
+        "high_confidence_entrypoints": [
+          {
+            "path": "lab30-shop/app/public/account/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/catalog/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/ops/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/orders/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/support/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/wallet/index.php",
+            "reason": "web_root_index",
+            "confidence": "high",
+            "signals": [
+              "web_root_index_name"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/backup.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/me.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/profile.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/redeem.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "signals": [
+              "web_root_php_script"
+            ]
+          },
+          {
+            "path": "lab30-shop/app/public/account/update.php",
+            "reason": "web_root_script",
+            "confidence": "high",
+            "signals": [
+              "web_root_php_script"
+            ]
+          }
+        ],
+        "architecture": {
+          "role_counts": {
+            "application_code": 6,
+            "bootstrap": 1,
+            "cli": 4,
+            "configuration": 1,
+            "entrypoint": 45,
+            "template": 2,
+            "test": 1,
+            "web_root": 45
+          },
+          "include_graph": {
+            "resolved_edges": 49,
+            "unresolved_edges": 2,
+            "cross_module_edges": 0
+          },
+          "bootstrap_files": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "module": "lab30-shop"
+            }
+          ],
+          "modules": [
+            {
+              "directory": "lab30-shop",
+              "file_count": 69,
+              "role_counts": {
+                "cli": 4,
+                "entrypoint": 45,
+                "web_root": 45,
+                "configuration": 1,
+                "template": 2,
+                "application_code": 6,
+                "bootstrap": 1,
+                "test": 1
+              },
+              "entrypoints": [
+                "lab30-shop/app/public/account/index.php",
+                "lab30-shop/app/public/catalog/index.php",
+                "lab30-shop/app/public/index.php",
+                "lab30-shop/app/public/ops/index.php"
+              ],
+              "resolved_include_edges": 49,
+              "unresolved_include_edges": 2,
+              "notable_calls": [
+                {
+                  "name": "h",
+                  "count": 81
+                },
+                {
+                  "name": "db",
+                  "count": 37
+                },
+                {
+                  "name": "page",
+                  "count": 37
+                }
+              ]
+            }
+          ]
+        },
+        "low_confidence_root_count": 0,
+        "limitations": [
+          "PHP files are indexed with a tree-sitter grammar; every other language is indexed as plain text lines. There is no cross-language symbol resolution.",
+          "Static parsing does not resolve dynamic dispatch, reflection, framework routing, or runtime include paths.",
+          "Entrypoints are high-confidence path candidates, not proof of runtime routing; unresolved static include roots are kept separately as low-confidence leads."
+        ],
+        "navigation": "需要具体路径、符号、include 或调用点时再用 search_project_map 精确查询；不要把低置信静态根当作路由事实。"
+      },
+      "overview_bytes": 3269,
+      "usage": {
+        "requests": 0,
+        "tool_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "prompt_cache": {
+          "version": "prompt-cache-v1",
+          "usage_records": 0,
+          "reported_records": 0,
+          "hit_records": 0,
+          "known_input_tokens": 0,
+          "reported_input_tokens": 0,
+          "known_cache_read_tokens": 0,
+          "known_cache_write_tokens": 0,
+          "write_reported_records": 0,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "cache_hit_ratio": null,
+          "record_coverage": null,
+          "complete": false,
+          "by_role": {}
+        },
+        "model_attempts": 0,
+        "corrections": 0,
+        "elapsed_seconds": 0.015,
+        "phases": {
+          "planner_prepare": {
+            "model_attempts": 0,
+            "tool_calls": 0
+          }
+        },
+        "context": {
+          "peak_request_bytes": 0,
+          "history_bytes": 393216,
+          "summary_requests": 0,
+          "summary_bytes": 0,
+          "compactions": 0,
+          "dropped_groups": 0,
+          "limit_hits": 0,
+          "sources": {}
+        }
+      },
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:28.313929+00:00"
+  },
+  {
+    "id": 11,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "planner_coverage_prepared",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 0,
+      "phase": "planner_prepare",
+      "round": 1,
+      "coverage": {
+        "files_total": 69,
+        "files_read": 0,
+        "files_with_findings": 0,
+        "coverage_ratio": 0.0,
+        "read_paths": [],
+        "unread_hot_modules": [
+          {
+            "module": "lab30-shop",
+            "unread": 69,
+            "total": 69
+          }
+        ],
+        "dependency_tree_total": 0,
+        "dependency_tree_read": 0,
+        "notice": "覆盖统计来自已持久化的 worker 读记录与冻结项目图，不是安全结论，也不能作为 finding 证据；read_paths 最多列 40 条，unread_hot_modules 最多列 12 个，最近 200 次尝试之外的读记录未计入。"
+      },
+      "usage": {
+        "requests": 0,
+        "tool_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "prompt_cache": {
+          "version": "prompt-cache-v1",
+          "usage_records": 0,
+          "reported_records": 0,
+          "hit_records": 0,
+          "known_input_tokens": 0,
+          "reported_input_tokens": 0,
+          "known_cache_read_tokens": 0,
+          "known_cache_write_tokens": 0,
+          "write_reported_records": 0,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "cache_hit_ratio": null,
+          "record_coverage": null,
+          "complete": false,
+          "by_role": {}
+        },
+        "model_attempts": 0,
+        "corrections": 0,
+        "elapsed_seconds": 0.019,
+        "phases": {
+          "planner_prepare": {
+            "model_attempts": 0,
+            "tool_calls": 0
+          }
+        },
+        "context": {
+          "peak_request_bytes": 0,
+          "history_bytes": 393216,
+          "summary_requests": 0,
+          "summary_bytes": 0,
+          "compactions": 0,
+          "dropped_groups": 0,
+          "limit_hits": 0,
+          "sources": {}
+        }
+      },
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:28.318656+00:00"
+  },
+  {
+    "id": 12,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "planner_situational_prepared",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 0,
+      "phase": "planner_prepare",
+      "round": 1,
+      "counts": {
+        "frontier": 0,
+        "settled": 0,
+        "findings": 0,
+        "observations": 0,
+        "pinned_investigations": 0,
+        "project_findings": 0,
+        "verification_records": 0,
+        "verification_reviews_required": 0,
+        "verification_reviews": 0,
+        "duplicate_candidates": 0,
+        "pending": 0,
+        "ready": 0,
+        "running": 0,
+        "blocked": 0,
+        "deferred": 0,
+        "exhausted": 0
+      },
+      "frontier": [],
+      "settled": [],
+      "finding_ids": [],
+      "omitted": {
+        "settled": 0,
+        "findings": 0
+      },
+      "usage": {
+        "requests": 0,
+        "tool_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "prompt_cache": {
+          "version": "prompt-cache-v1",
+          "usage_records": 0,
+          "reported_records": 0,
+          "hit_records": 0,
+          "known_input_tokens": 0,
+          "reported_input_tokens": 0,
+          "known_cache_read_tokens": 0,
+          "known_cache_write_tokens": 0,
+          "write_reported_records": 0,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "cache_hit_ratio": null,
+          "record_coverage": null,
+          "complete": false,
+          "by_role": {}
+        },
+        "model_attempts": 0,
+        "corrections": 0,
+        "elapsed_seconds": 0.024,
+        "phases": {
+          "planner_prepare": {
+            "model_attempts": 0,
+            "tool_calls": 0
+          }
+        },
+        "context": {
+          "peak_request_bytes": 0,
+          "history_bytes": 393216,
+          "summary_requests": 0,
+          "summary_bytes": 0,
+          "compactions": 0,
+          "dropped_groups": 0,
+          "limit_hits": 0,
+          "sources": {}
+        }
+      },
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:28.323180+00:00"
+  },
+  {
+    "id": 13,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "agent_phase",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 0,
+      "phase": "planner_publish",
+      "reason": "direct",
+      "remaining_seconds": 239.97,
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:28.328950+00:00"
+  },
+  {
+    "id": 14,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "model_request",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 1,
+      "phase": "planner_publish",
+      "attempt": 1,
+      "purpose": "model",
+      "request_bytes": 74911,
+      "history_bytes": 393216,
+      "used_ratio": 0.1905,
+      "message_count": 2,
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:29.058903+00:00"
+  },
+  {
+    "id": 15,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "planner_agent_terminal",
+    "payload": {
+      "agent_invocation_id": "792d9e3bb1fe4319b783a022282794cf",
+      "request_index": 1,
+      "phase": "planner_publish",
+      "reason": "model_error",
+      "error": "ModelCallFailed: APIStatusError: Error code: 402 - {'error': {'message': 'Insufficient Balance (request_id: d7fd224c-c2d4-434b-ab9d-351921a142e2)', 'type': 'insufficient_balance_error', 'param': None, 'code': 'invalid_request_error'}}",
+      "status": 402,
+      "provider_error_type": "APIStatusError",
+      "usage": {
+        "requests": 0,
+        "tool_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "prompt_cache": {
+          "version": "prompt-cache-v1",
+          "usage_records": 0,
+          "reported_records": 0,
+          "hit_records": 0,
+          "known_input_tokens": 0,
+          "reported_input_tokens": 0,
+          "known_cache_read_tokens": 0,
+          "known_cache_write_tokens": 0,
+          "write_reported_records": 0,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "cache_hit_ratio": null,
+          "record_coverage": null,
+          "complete": false,
+          "by_role": {}
+        },
+        "model_attempts": 1,
+        "corrections": 0,
+        "elapsed_seconds": 2.12,
+        "phases": {
+          "planner_prepare": {
+            "model_attempts": 0,
+            "tool_calls": 0
+          },
+          "planner_publish": {
+            "model_attempts": 1,
+            "tool_calls": 0
+          }
+        },
+        "context": {
+          "peak_request_bytes": 74911,
+          "history_bytes": 393216,
+          "summary_requests": 0,
+          "summary_bytes": 0,
+          "compactions": 0,
+          "dropped_groups": 0,
+          "limit_hits": 0,
+          "sources": {},
+          "phases": {
+            "planner_publish": {
+              "peak_request_bytes": 74911,
+              "requests": 1,
+              "summary_requests": 0,
+              "limit_hits": 0
+            }
+          }
+        }
+      },
+      "plan_id": "5d51d00fe052452da9bdf0f016295965",
+      "session_id": "planner:325ff03c7761",
+      "role": "planner",
+      "planner_round": 1,
+      "revision": 1
+    },
+    "created_at": "2026-11-11T11:11:30.418929+00:00"
+  },
+  {
+    "id": 16,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "run_inconclusive",
+    "payload": {
+      "reason": {
+        "code": "model_unavailable",
+        "message": "模型认证或路由失败（Planner，HTTP 402）：ModelCallFailed: APIStatusError: Error code: 402 - {'error': {'message': 'Insufficient Balance (request_id: d7fd224c-c2d4-434b-ab9d-351921a142e2)', 'type': 'insufficient_balance_error', 'param': None, 'code': 'invalid_request_error'}}"
+      },
+      "final_summary_available": true
+    },
+    "created_at": "2026-11-11T11:11:30.451822+00:00"
+  },
+  {
+    "id": 17,
+    "run_id": "325ff03c77614e09a14c906458a2f7b4",
+    "unit_id": null,
+    "kind": "run_inconclusive",
+    "payload": {
+      "reason": "model_unavailable",
+      "error": "模型认证或路由失败（Planner，HTTP 402）：ModelCallFailed: APIStatusError: Error code: 402 - {'error': {'message': 'Insufficient Balance (request_id: d7fd224c-c2d4-434b-ab9d-351921a142e2)', 'type': 'insufficient_balance_error', 'param': None, 'code': 'invalid_request_error'}}"
+    },
+    "created_at": "2026-11-11T11:11:30.569260+00:00"
+  }
+]

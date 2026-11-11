@@ -1,0 +1,17 @@
+{
+  "protocol": "lab30-full-v2",
+  "prompt_ids": [
+    "worker-w2-v2",
+    "9db85223ca9a4c3c9c03b2a8efcf5cb5",
+    "d60c400b05ab4ebaa4fc4ac8a5dd5f35",
+    "2ed3dc0c41c44852bbd8263042912dc6"
+  ],
+  "baseline_prompt_id": "worker-w2-v2",
+  "repeats": 1,
+  "run_limits": {
+    "responses": 96,
+    "tools": 600,
+    "seconds": 240
+  },
+  "experiment_wall_seconds": 7200
+}

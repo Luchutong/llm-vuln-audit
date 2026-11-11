@@ -1,0 +1,89 @@
+{
+  "outcome": "findings",
+  "summary": "wallet/withdraw.php 在 session_write_close 后执行“读取余额→校验扣减后余额→usleep 350ms→以绝对值写回”，读、校验、写之间无事务、无行锁、无幂等约束，并发请求可重复通过余额校验并互相覆盖，造成超额提现/资金虚增。",
+  "findings": [
+    {
+      "title": "提现余额读取-校验-写回非原子，可并发超提",
+      "vulnerability_type": "race_condition",
+      "primary_location": {
+        "path": "lab30-shop/app/public/wallet/withdraw.php",
+        "line": 7
+      },
+      "summary": "withdraw.php 第3行先 session_write_close() 释放会话锁，使同一会话的并发请求可同时进入；第4行读取 balance，第5行基于该快照校验 balance>=amount，第6行 usleep(350000) 放大窗口，第7行执行 UPDATE users SET balance=?（绝对值写回 balance-amount），全程无事务、无 SELECT ... FOR UPDATE、无原子条件更新（如 WHERE balance>=?），也无幂等键；第8行仅在校验通过后插入提现流水。两个并发请求读到同一旧余额 100，各提现 80，均通过校验，随后各自写回 20，最终余额 20，但 withdrawals 插入两条共 160，形成超额提现/资金虚增。",
+      "evidence": [
+        {
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "start_line": 3,
+          "end_line": 9
+        },
+        {
+          "path": "lab30-shop/app/src/setup.php",
+          "start_line": 7,
+          "end_line": 7
+        },
+        {
+          "path": "lab30-shop/app/src/setup.php",
+          "start_line": 10,
+          "end_line": 10
+        }
+      ],
+      "dataflow": [
+        {
+          "kind": "input",
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "line": 2,
+          "explanation": "POST amount 经 filter_var 过滤后被接受，是并发场景下每个请求的扣减金额"
+        },
+        {
+          "kind": "storage",
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "line": 4,
+          "explanation": "SELECT balance FROM users WHERE id=? 读取余额快照，无 FOR UPDATE、不开启事务"
+        },
+        {
+          "kind": "readback",
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "line": 5,
+          "explanation": "基于旧快照判断 balance<amount 才拒绝，两个请求可同时通过"
+        },
+        {
+          "kind": "input",
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "line": 6,
+          "explanation": "usleep(350ms) 人为放大读校验与写入之间的并发窗口"
+        },
+        {
+          "kind": "root_cause",
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "line": 7,
+          "explanation": "UPDATE users SET balance=? 以绝对值 $balance-$amount 覆盖写回，并发请求互相覆盖而非相对扣减或条件更新"
+        },
+        {
+          "kind": "sink",
+          "path": "lab30-shop/app/public/wallet/withdraw.php",
+          "line": 8,
+          "explanation": "提现流水 INSERT 独立执行，与余额更新不同事务且无唯一幂等约束，重复流水全部落库"
+        },
+        {
+          "kind": "protection",
+          "path": "lab30-shop/app/src/setup.php",
+          "line": 10,
+          "explanation": "withdrawals 表仅 id 主键，无 user_id+amount/请求幂等键唯一索引，不能去重并发提现"
+        }
+      ],
+      "preconditions": [
+        "攻击者已登录且账户余额大于单笔提现金额（例如 100 元）",
+        "能对 /wallet/index.php 提现接口并发发起多个携带有效 CSRF token 的 POST 请求",
+        "第3行 session_write_close 使同一会话的并发请求不会因 session 文件锁被串行化"
+      ],
+      "normal_input": "串行提交一笔金额 80 的提现 POST，请求通过后余额由 100 变为 20，withdrawals 新增一条 80。",
+      "attack_input": "并发同时提交两笔金额各 80 的提现 POST（同一会话，各自线程在 usleep 窗口内均读到余额 100 并通过校验）。",
+      "expected_result": "正常情况最终余额 20 且仅一条流水；攻击预期两条提现流水共 160 均成功落库，而余额被绝对值写回为 20，用户实际多取得 80 元资金。静态上第4-8行缺少事务/行锁/条件更新/幂等约束，预期存在差异，未做动态执行验证。"
+    }
+  ],
+  "limitations": [
+    "本次为只读静态审计，未连接数据库执行并发测试，未验证 MySQL 隔离级别下实际交错时序",
+    "未读取 auth 登录与 CSRF 中间件之外的请求链路，但已读 bootstrap.php 中 check_csrf/require_post/require_user 证据表明并发需带有效会话与 token",
+    "未确认生产 MySQL 表引擎与隔离级别，但在无事务、无 FOR UPDATE、无唯一索引的情况下即使 REPEATABLE READ 也仍存在该窗口"
+  ]
+}

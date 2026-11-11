@@ -1,0 +1,31 @@
+{
+  "images": 8,
+  "all_images": "Unmodified actual Chrome viewport screenshots of the existing HTTP audit platform",
+  "model_calls": 0,
+  "browser": "Chrome extension / profile chitong / browser id3",
+  "claimed_tab_id": "435794557",
+  "platform": "http://127.0.0.1:5173/",
+  "AX_note": "AX text is the tool response at capture time and may be a diff or no-change notice; it is not guaranteed to be a complete accessibility tree. The JPEG is the visual original.",
+  "uncompleted": [
+    "Standalone Prompt-unit raw reply screenshots",
+    "Synthetic-canary local material-view screenshots",
+    "Offline eight-FN and78-claim summary-view screenshots"
+  ],
+  "viewer_note": "viewer/ HTML was generated from existing artifacts for manual local viewing. No viewer page was captured; it is not a production audit UI, an execution record, or a substitute screenshot.",
+  "blocked_actions": [
+    {
+      "action": "Start-Process temporary loopback material viewer service",
+      "result": "Automatic approval review rejected the command",
+      "stated_reason": "blocked by policy",
+      "service_started": false
+    },
+    {
+      "action": "Navigate Chrome to local material-viewer file URL",
+      "result": "Browser URL policy rejected file protocol",
+      "stated_reason": "Allowed protocols: http:, https:. The requested URL protocol is not allowed.",
+      "local_file_screenshots_taken": false,
+      "workarounds_attempted_after_denial": false
+    }
+  ],
+  "report_written": false
+}

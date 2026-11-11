@@ -1,0 +1,70 @@
+{
+  "method": "调用本机 audit.evidence.validate_evidence；受控输入，不调用LLM",
+  "source_commit": "924378dc7f97c835276394ff00d2615e170880f4",
+  "cases": [
+    {
+      "case": "已读取合法行",
+      "citation": {
+        "path": "a.php",
+        "start_line": 5,
+        "end_line": 10
+      },
+      "expected_accept": true,
+      "accepted": true,
+      "valid": [
+        {
+          "path": "a.php",
+          "start_line": 5,
+          "end_line": 10
+        }
+      ],
+      "problems": [],
+      "passed": true
+    },
+    {
+      "case": "不存在文件",
+      "citation": {
+        "path": "c.php",
+        "start_line": 1,
+        "end_line": 2
+      },
+      "expected_accept": false,
+      "accepted": false,
+      "valid": [],
+      "problems": [
+        "evidence[1]: path 'c.php' is not a file in this snapshot; 已读候选路径（需原样引用并核对行号）: a.php"
+      ],
+      "passed": true
+    },
+    {
+      "case": "超出文件末尾",
+      "citation": {
+        "path": "a.php",
+        "start_line": 90,
+        "end_line": 150
+      },
+      "expected_accept": false,
+      "accepted": false,
+      "valid": [],
+      "problems": [
+        "evidence[1]: lines 90-150 exceed a.php which has 100 lines"
+      ],
+      "passed": true
+    },
+    {
+      "case": "存在但未读取",
+      "citation": {
+        "path": "b.php",
+        "start_line": 1,
+        "end_line": 2
+      },
+      "expected_accept": false,
+      "accepted": false,
+      "valid": [],
+      "problems": [
+        "evidence[1]: lines 1-2 of b.php were never read by this unit"
+      ],
+      "passed": true
+    }
+  ]
+}

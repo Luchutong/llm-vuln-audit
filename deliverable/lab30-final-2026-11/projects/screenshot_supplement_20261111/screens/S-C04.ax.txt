@@ -1,0 +1,3 @@
+Browser tab: 435794557, Title: "VULN-AUDIT · 源码审计工作空间", URL: "http://127.0.0.1:5173/#run/2969bcf204cd43b5baf2683cbb0e841d".
+There has been no change in the accessibility tree.
+The focused UI element is 627 button (expanded) Secondary Actions: Collapse, 审计依据摘要 22:01:19 ops/index.php 仅角色门禁并渲染卡片，无直接危险操作；bin/reset.php 有 CLI 守卫、bin/setup.php 仅初始化时调用 reset_shop，Web 不可达。实际风…

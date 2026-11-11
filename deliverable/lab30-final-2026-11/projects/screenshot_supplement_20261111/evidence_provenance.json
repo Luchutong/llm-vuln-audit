@@ -1,0 +1,51 @@
+[
+  {
+    "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\secondorder_registration.json",
+    "source_sha256": "44262a28284ff97a3d51582273175868d9b3f5e60e7836d8e41c92faf6add407",
+    "copied_to": "evidence_refs\\secondorder_registration.json",
+    "copy_sha256": "44262a28284ff97a3d51582273175868d9b3f5e60e7836d8e41c92faf6add407"
+  },
+  {
+    "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\authz_registration.json",
+    "source_sha256": "8963d3a3ff36a9a7bf61de36569aca91732a9db7600c6dbee27137f0599d59ef",
+    "copied_to": "evidence_refs\\authz_registration.json",
+    "copy_sha256": "8963d3a3ff36a9a7bf61de36569aca91732a9db7600c6dbee27137f0599d59ef"
+  },
+  {
+    "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\state_registration.json",
+    "source_sha256": "a70479d0f2fd5621af0a4c3d9c692de26f4664ff7dc4bcd80eb585b728c6a53c",
+    "copied_to": "evidence_refs\\state_registration.json",
+    "copy_sha256": "a70479d0f2fd5621af0a4c3d9c692de26f4664ff7dc4bcd80eb585b728c6a53c"
+  },
+  {
+    "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\events.redacted.json",
+    "source_sha256": "b38ad95fa51a63aee7d0f687abf00ea6e5779f132705f072320816fde8befad9",
+    "selection_event_ids": [
+      63185,
+      63417
+    ],
+    "derived_copy": "evidence_refs\\old_selected_events.json",
+    "note": "Exact selected event objects, JSON whitespace may differ; no payload wording changed."
+  },
+  {
+    "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\events.redacted.json",
+    "source_sha256": "204f8a441ed02ccac42b5808369db832e38119f2d75f702c22a4b7cd53696491",
+    "selection_event_ids": [
+      94499
+    ],
+    "derived_copy": "evidence_refs\\injected_selected_events.json",
+    "note": "Exact selected event objects, JSON whitespace may differ; no payload wording changed."
+  },
+  {
+    "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\injected_full.zip",
+    "source_sha256": "7f7d7c6ad8842e7814d5399134bdb0288ad84845c3bf2186ce9eaa39be912688",
+    "copied_to": "evidence_refs\\injected_full.zip",
+    "copy_sha256": "7f7d7c6ad8842e7814d5399134bdb0288ad84845c3bf2186ce9eaa39be912688"
+  },
+  {
+    "archive": "evidence_refs/injected_full.zip",
+    "member": "lab30-shop/app/public/ops/ping.php",
+    "output": "evidence_refs/A3_ping.php",
+    "sha256": "94f01d9b25de2b04029e836607ced1bc40110a3c83bffb82095a0ef0972d2239"
+  }
+]

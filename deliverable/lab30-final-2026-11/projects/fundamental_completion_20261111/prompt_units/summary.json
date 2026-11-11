@@ -1,0 +1,191 @@
+{
+  "results": [
+    {
+      "unit": "secondorder",
+      "unit_id": "5f1b455abdca402881e519a2b21a10ef",
+      "strategy_id": "9db85223ca9a4c3c9c03b2a8efcf5cb5",
+      "strict_json_valid": false,
+      "extraction_method": "exact_valid_json_prefix",
+      "source_reference_checks_passed": true,
+      "findings": 1,
+      "matched_truth_ids": [
+        "28"
+      ],
+      "usage": {
+        "prompt_tokens": 4570,
+        "completion_tokens": 1319,
+        "total_tokens": 5889,
+        "prompt_tokens_details": {
+          "cached_tokens": 640
+        },
+        "prompt_cache_hit_tokens": 640,
+        "prompt_cache_miss_tokens": 3930
+      },
+      "model_response_id": "cc7b354e-63c1-4035-a3b6-02c41ebb32af"
+    },
+    {
+      "unit": "authz",
+      "unit_id": "edaba53c42414085809cd1754828d8f6",
+      "strategy_id": "d60c400b05ab4ebaa4fc4ac8a5dd5f35",
+      "strict_json_valid": true,
+      "extraction_method": "strict_json",
+      "source_reference_checks_passed": true,
+      "findings": 2,
+      "matched_truth_ids": [
+        "16",
+        "30"
+      ],
+      "usage": {
+        "prompt_tokens": 4460,
+        "completion_tokens": 1022,
+        "total_tokens": 5482,
+        "prompt_tokens_details": {
+          "cached_tokens": 1280
+        },
+        "prompt_cache_hit_tokens": 1280,
+        "prompt_cache_miss_tokens": 3180
+      },
+      "model_response_id": "97daf7c8-d84f-4c21-ae3b-083abc042ef8"
+    },
+    {
+      "unit": "state",
+      "unit_id": "2b9156f5f0ac4a5c9ed6799baae48efb",
+      "strategy_id": "2ed3dc0c41c44852bbd8263042912dc6",
+      "strict_json_valid": true,
+      "extraction_method": "strict_json",
+      "source_reference_checks_passed": true,
+      "findings": 1,
+      "matched_truth_ids": [
+        "20"
+      ],
+      "usage": {
+        "prompt_tokens": 5587,
+        "completion_tokens": 1082,
+        "total_tokens": 6669,
+        "prompt_tokens_details": {
+          "cached_tokens": 1280
+        },
+        "prompt_cache_hit_tokens": 1280,
+        "prompt_cache_miss_tokens": 4307
+      },
+      "model_response_id": "9e2342d5-5efc-4d00-a9a2-ed83680944e8"
+    },
+    {
+      "unit": "leak",
+      "unit_id": "146703eadc384146be7b78ca80866e90",
+      "strategy_id": null,
+      "strict_json_valid": false,
+      "extraction_method": "reviewed_json_quote_escaping",
+      "source_reference_checks_passed": false,
+      "findings": 3,
+      "matched_truth_ids": [
+        "01",
+        "02",
+        "03"
+      ],
+      "usage": {
+        "prompt_tokens": 4248,
+        "completion_tokens": 1396,
+        "total_tokens": 5644,
+        "prompt_tokens_details": {
+          "cached_tokens": 1152
+        },
+        "prompt_cache_hit_tokens": 1152,
+        "prompt_cache_miss_tokens": 3096
+      },
+      "model_response_id": "dddaab14-b2e3-4151-b6cb-81cbce7bac08"
+    }
+  ],
+  "usage": {
+    "requests": 4,
+    "input_tokens": 18865,
+    "output_tokens": 4819,
+    "total_tokens": 23684,
+    "strict_json_valid_replies": 2,
+    "retries": 0,
+    "actual_price": null
+  },
+  "special_case_exact_matches": [
+    {
+      "unit": "secondorder",
+      "finding_index": 0,
+      "truth_id": "28",
+      "title": "会员昵称二次注入：update.php 参数化写入 nickname，ops/report.php 字符串拼接读出",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/report.php",
+        "line": 3
+      },
+      "new_dynamic_verification": false
+    },
+    {
+      "unit": "authz",
+      "finding_index": 0,
+      "truth_id": "16",
+      "title": "订单详情缺失归属校验导致任意用户读取他人订单",
+      "primary_location": {
+        "path": "lab30-shop/app/public/orders/detail.php",
+        "line": 2
+      },
+      "new_dynamic_verification": false
+    },
+    {
+      "unit": "authz",
+      "finding_index": 1,
+      "truth_id": "30",
+      "title": "账户更新可批量赋值 role/balance/tier 实现提权与余额篡改",
+      "primary_location": {
+        "path": "lab30-shop/app/public/account/update.php",
+        "line": 4
+      },
+      "new_dynamic_verification": false
+    },
+    {
+      "unit": "state",
+      "finding_index": 0,
+      "truth_id": "20",
+      "title": "提现余额读取-校验-写回非原子，可并发超提",
+      "primary_location": {
+        "path": "lab30-shop/app/public/wallet/withdraw.php",
+        "line": 7
+      },
+      "new_dynamic_verification": false
+    }
+  ],
+  "leak_probe_exact_matches": [
+    {
+      "unit": "leak",
+      "finding_index": 0,
+      "truth_id": "01",
+      "title": "商品搜索 q 参数 SQL 注入",
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "line": 5
+      },
+      "new_dynamic_verification": false
+    },
+    {
+      "unit": "leak",
+      "finding_index": 1,
+      "truth_id": "02",
+      "title": "到店欢迎页 name 参数反射型 XSS",
+      "primary_location": {
+        "path": "lab30-shop/app/public/catalog/greeting.php",
+        "line": 4
+      },
+      "new_dynamic_verification": false
+    },
+    {
+      "unit": "leak",
+      "finding_index": 2,
+      "truth_id": "03",
+      "title": "运维诊断 host 参数命令注入",
+      "primary_location": {
+        "path": "lab30-shop/app/public/ops/ping.php",
+        "line": 3
+      },
+      "new_dynamic_verification": false
+    }
+  ],
+  "scope": "standalone preloaded-source Prompt units; NOT production Planner/Worker run",
+  "historical_special_runs_not_recovered": true
+}

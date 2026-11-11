@@ -1,0 +1,59 @@
+{
+  "scope": "Synthetic checker controls only; NOT real model observations",
+  "cases": [
+    {
+      "case": "missing_title",
+      "rejected": true,
+      "errors": [
+        "title"
+      ]
+    },
+    {
+      "case": "invalid_type",
+      "rejected": true,
+      "errors": [
+        "vulnerability_type"
+      ]
+    },
+    {
+      "case": "fake_primary",
+      "rejected": true,
+      "errors": [
+        "primary_location",
+        "primary_covered",
+        "root_binding"
+      ]
+    },
+    {
+      "case": "missing_cvss_metrics",
+      "rejected": true,
+      "errors": [
+        "cvss_metrics",
+        "cvss_vector",
+        "cvss_score",
+        "cvss_severity"
+      ]
+    },
+    {
+      "case": "missing_flow",
+      "rejected": true,
+      "errors": [
+        "dataflow",
+        "dataflow_input_sink",
+        "root_binding"
+      ]
+    },
+    {
+      "case": "synthetic_key",
+      "detected": true
+    },
+    {
+      "case": "synthetic_private_key",
+      "detected": true
+    },
+    {
+      "case": "known_host_phrase",
+      "detected": true
+    }
+  ]
+}

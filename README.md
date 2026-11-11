@@ -368,3 +368,7 @@ frontend/src/         React 工作台（任务创建、执行详情、Prompt 实
 scripts/start.sh      本地前后端一键启动（--poc 同时启动本地靶场与 runner）
 docs/                 API 契约与报告说明
 ```
+
+## 课程实验材料
+
+[2026-11-11 漏洞发现能力与真实截图补充材料](deliverable/lab30-final-2026-11/README.md)包含七个原始归档包、三项关键补证、八张Chrome平台原图以及修订计划书/任务清单。独立Prompt单元、历史动态验证、规范候选与原始格式失败分别标注；最终课程报告尚未编写。

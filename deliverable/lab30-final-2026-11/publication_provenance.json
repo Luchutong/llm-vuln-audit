@@ -1,0 +1,1647 @@
+{
+  "prepared_at": "2026-11-11T23:11:00.870165+08:00",
+  "base_commit": "19eb1f3",
+  "branch": "docs/materials-20261111",
+  "copies": [
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\attribution\\30_truth_comparison.json",
+      "path": "projects/fundamental_completion_20261111/attribution/30_truth_comparison.json",
+      "bytes": 7439,
+      "sha256": "85e8dcd19968a82b02fd939fa9c43527379d4cb1ff195cc142ae98f8c2306208"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\attribution\\old_8_fn_trace_review.json",
+      "path": "projects/fundamental_completion_20261111/attribution/old_8_fn_trace_review.json",
+      "bytes": 60874,
+      "sha256": "c8bfcdd300090e7f2592954bd20cc1ccc12fe82413ed48aad594676070d82e9f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\attribution\\summary.json",
+      "path": "projects/fundamental_completion_20261111/attribution/summary.json",
+      "bytes": 876,
+      "sha256": "64ab4de3cbf7d84b6fbc7384af6337a9c1fbb4813b5608e0b256fd4d125b2401"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\attribution\\旧八项漏报轨迹复核.md",
+      "path": "projects/fundamental_completion_20261111/attribution/旧八项漏报轨迹复核.md",
+      "bytes": 2612,
+      "sha256": "55a5fb3214185043a654b15add7914f278d256456a10a777dd6e10ca8dafc725"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\build_attribution.py",
+      "path": "projects/fundamental_completion_20261111/build_attribution.py",
+      "bytes": 8155,
+      "sha256": "3c64958570bc180adc733474b4f061ed507194d387becf1eee6c693cfaa8062f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\build_defense_checks.py",
+      "path": "projects/fundamental_completion_20261111/build_defense_checks.py",
+      "bytes": 18180,
+      "sha256": "57b5cea15126989e3241d5d4e7296047a83ab76924a09cd9e411d81e59454744"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\collect_sources.py",
+      "path": "projects/fundamental_completion_20261111/collect_sources.py",
+      "bytes": 4778,
+      "sha256": "e15ad5088e2a744435d6fd241b1e71afedb462a099fc7e2b21c50652fb68a05a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\completion_summary.json",
+      "path": "projects/fundamental_completion_20261111/completion_summary.json",
+      "bytes": 1037,
+      "sha256": "d940e627f9e01ad606f430513d8e878bd8399168ee7800954457aedbf372f6f2"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\copy_references.py",
+      "path": "projects/fundamental_completion_20261111/copy_references.py",
+      "bytes": 2175,
+      "sha256": "463187b2365a0126c590c411d1cfe2b7578f6322dfdb0b23fe8acc31dde246a6"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\baseline_host_rejections.json",
+      "path": "projects/fundamental_completion_20261111/defense/baseline_host_rejections.json",
+      "bytes": 17670,
+      "sha256": "c2a7661b107b5aadbbb50469ff5994bc837575bd6f2fc832b4e36dfb53bf53fc"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\baseline_persisted_action_checks.json",
+      "path": "projects/fundamental_completion_20261111/defense/baseline_persisted_action_checks.json",
+      "bytes": 7517,
+      "sha256": "bd6fc03b8a0853805dd1569fe20f9a2cc580c6772df34236481f3820d7917707"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\baseline_public_output_scan.json",
+      "path": "projects/fundamental_completion_20261111/defense/baseline_public_output_scan.json",
+      "bytes": 21559,
+      "sha256": "d9a81f46e602b46b3bdca2bb3d156610d102c6c471b015b604333fbca09537f2"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\baseline_published_claim_checks.json",
+      "path": "projects/fundamental_completion_20261111/defense/baseline_published_claim_checks.json",
+      "bytes": 5887,
+      "sha256": "808b339b4eaec02138e73ac4e0fed319257cc27de977fb42ba6dc3b84134eaaf"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\checker_contract.json",
+      "path": "projects/fundamental_completion_20261111/defense/checker_contract.json",
+      "bytes": 1478,
+      "sha256": "5f41757ef9707c7ab73e629878a8a5cc5c1fd8aec409a40b1bab1952ade7fd70"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\checker_positive_controls.json",
+      "path": "projects/fundamental_completion_20261111/defense/checker_positive_controls.json",
+      "bytes": 1131,
+      "sha256": "86bacb3da08772575aea15a066e1942df1c936c06763df71f6a8c3cd9f672530"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\historical_invalid_reference_controls.json",
+      "path": "projects/fundamental_completion_20261111/defense/historical_invalid_reference_controls.json",
+      "bytes": 1646,
+      "sha256": "0207bd709d4577090181a249e631f6e205c1d47ac2b0eb7d7ace40e0406c33f0"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_host_rejections.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_host_rejections.json",
+      "bytes": 21379,
+      "sha256": "9fd415629c25f7de6269146d4522dbaea1185972e78fbe6b4dd16a4e5a4ea9ac"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_persisted_action_checks.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_persisted_action_checks.json",
+      "bytes": 8954,
+      "sha256": "38550dcb413d35ece3f64ba958939af74b1f198304171515f4ecfe0c79cc6c3f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_public_output_scan.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_public_output_scan.json",
+      "bytes": 23405,
+      "sha256": "ccd1167b6279468098e931620bf08f2402f6b4e681069fc3eebbad9b90cd1bd5"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_published_claim_checks.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_published_claim_checks.json",
+      "bytes": 6061,
+      "sha256": "6cb260bb822d0260e786d06b8f00d09befdcdb7d376434f364186edbd50a822f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_supplement_host_rejections.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_supplement_host_rejections.json",
+      "bytes": 11106,
+      "sha256": "539d6c10394bf06522915af91aeea05a48dda42a82ede29b85b0183c4f512863"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_supplement_persisted_action_checks.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_supplement_persisted_action_checks.json",
+      "bytes": 6349,
+      "sha256": "b22b0b153095721b89904661856e6b3f9abd8addae392772b327b2f573e4dfe7"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_supplement_public_output_scan.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_supplement_public_output_scan.json",
+      "bytes": 19046,
+      "sha256": "6f73d16898319148cd08ae22ec6f27817b6bb826c62132c629e2e2b1f98e35ee"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\injected_supplement_published_claim_checks.json",
+      "path": "projects/fundamental_completion_20261111/defense/injected_supplement_published_claim_checks.json",
+      "bytes": 6861,
+      "sha256": "331e3562601e655491530b7e94d8cf196c528a3e373e6f13c3bb28309b253baa"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\leak_rules.json",
+      "path": "projects/fundamental_completion_20261111/defense/leak_rules.json",
+      "bytes": 5037,
+      "sha256": "0403a1a10d420ca7ce15f792a6bd805d876c23657b214e70c6959becb3166186"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\summary.json",
+      "path": "projects/fundamental_completion_20261111/defense/summary.json",
+      "bytes": 2367,
+      "sha256": "9f10659bb51b684a4b69844ee3a1c706be1b77fa0794ee0ce7699a20c0e51238"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\对抗输出补充核验.md",
+      "path": "projects/fundamental_completion_20261111/defense/对抗输出补充核验.md",
+      "bytes": 4040,
+      "sha256": "c13ad2ed3cb5aab0b05ace169f6fa5d85720e91d3cbc84630227eb1b7e5dd0b5"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\events.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/events.json",
+      "bytes": 32612,
+      "sha256": "9279698de73072e67c8de335143a63ada119f77f89b6dca89fe3bf06e8b8f175"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\latest_bundle.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/latest_bundle.json",
+      "bytes": 47125,
+      "sha256": "3ad1a0cc9b5fb360478f7f226c806c564abaf4fcfc7baed1a3e1a0007b59c9da"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\leak_probe_full.zip",
+      "path": "projects/fundamental_completion_20261111/defense_probe/leak_probe_full.zip",
+      "bytes": 53326,
+      "sha256": "657e34e60a1f41f30080de9abe1fbbdc9491427f2836ea1df3142ee1c7051e7c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\manifest.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/manifest.json",
+      "bytes": 2081,
+      "sha256": "17499c7f95260e71a310db1df7afee15ff2a61ca6c00e73e7599344a33dd76df"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\events.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/events.json",
+      "bytes": 56913,
+      "sha256": "7df82dc18b279ca7317cb1d7844a2b938395e93bdc8eef52e8a4cb33a31059c6"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\latest_bundle.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/latest_bundle.json",
+      "bytes": 51333,
+      "sha256": "bb73a4d0d57ea82e7ad54ab42017faaba0451a2e48a417f21938ba82c73b9119"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\leak_probe_slice.zip",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/leak_probe_slice.zip",
+      "bytes": 5244,
+      "sha256": "df56db4f37496b471c4ebb04c1c26965e32ffb8e4b8001d2cc28ca172685f789"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\manifest.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/manifest.json",
+      "bytes": 3057,
+      "sha256": "f4d0a3cdb252cda16f1a53d850801f8a24bec81f887442fd8d51ab307753e324"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\report.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/report.json",
+      "bytes": 3812,
+      "sha256": "a280dda6dda654ac948ba9d1ac3d28cf3f76d0fedcdcfb3cd3d9e86658c0ba8d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\run.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/run.json",
+      "bytes": 9688,
+      "sha256": "5419251a981b33f70ba4a521aa2468db48bedd531bf5cd354de234ce2a8bb58d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\run_request.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/run_request.json",
+      "bytes": 939,
+      "sha256": "83ae29576b41701347a6702ffe4f67c6ce2efefa6e3f798eef5438090918905d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\minimal\\snapshot.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/minimal/snapshot.json",
+      "bytes": 41060,
+      "sha256": "31171fa4108d71bc8b06095a1ca4221d9902ba1d07ba3036e7bc3eec1428a802"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\report.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/report.json",
+      "bytes": 4068,
+      "sha256": "7911b29a1c0931cf45fe54e1612fe97d45ea0a9f74b014464c0598312618f7a0"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\run.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/run.json",
+      "bytes": 12679,
+      "sha256": "0245773e0e2d282cfe6c417a0bff9bae33b34f0539130fa93cec164c1538b5a8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\run_request.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/run_request.json",
+      "bytes": 841,
+      "sha256": "36bcb244e2e2553789e406294be856a8555a4bfe4a259dbd9e1e1ba7bf89d613"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense_probe\\snapshot.json",
+      "path": "projects/fundamental_completion_20261111/defense_probe/snapshot.json",
+      "bytes": 189208,
+      "sha256": "3b3c445c284d7a362fa653e653f17e65ce23d0318e2844856b808686c7a6f39a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\finalize_materials.py",
+      "path": "projects/fundamental_completion_20261111/finalize_materials.py",
+      "bytes": 8782,
+      "sha256": "d2ee0cb6417eebad6dea7b88f5967e143a061d40f8ca01151cbb5d4e2bba1093"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\harvest_live.py",
+      "path": "projects/fundamental_completion_20261111/harvest_live.py",
+      "bytes": 3253,
+      "sha256": "0899cc018762a3af46f639339c9ca196212b3208e03584e9b6a2e013d32edf83"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\load_local_model.py",
+      "path": "projects/fundamental_completion_20261111/load_local_model.py",
+      "bytes": 2827,
+      "sha256": "99f807fba49eeb07d0126231c2669beb3d98f2dbeb01f91e8aa4905d7fedcb47"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\model_usage_ledger.json",
+      "path": "projects/fundamental_completion_20261111/model_usage_ledger.json",
+      "bytes": 5075,
+      "sha256": "148fc991cd5afaab462f78ae44f5e2896b9cf797064dc29d72f834d0f35db8e8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\package_materials.py",
+      "path": "projects/fundamental_completion_20261111/package_materials.py",
+      "bytes": 2973,
+      "sha256": "02e26405d3f53799bf22983aac77f6fb9a587a176ed6d151f903d62e54ffeee1"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\attempt.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/attempt.json",
+      "bytes": 1955,
+      "sha256": "a0a05cbb446532590789fa95bb2734f679d087c15f1f1110e40bf0ca643b2cf8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\extraction.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/extraction.json",
+      "bytes": 183,
+      "sha256": "85e54973d40f3a349adaf1614d7ece628e55dc79d25e89d5d3eb6764aaee7f04"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\parsed.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/parsed.json",
+      "bytes": 5270,
+      "sha256": "6b7def95076404019c99fdee5470a5357a6f3802f52c828b599d9abce6061ee9"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\request.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/request.json",
+      "bytes": 17075,
+      "sha256": "a0c9cb035a54d83e83b10082ed3dd515b1424540282c7cac677154f12a4d4a11"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\response.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/response.json",
+      "bytes": 4748,
+      "sha256": "a9a1b553661abba71b66e9f04d535ab781341f49c7eaa8b8be468404309be23b"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\response.txt",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/response.txt",
+      "bytes": 4003,
+      "sha256": "6c55094c690d35fc818c77089a4ca3570079a3ab305ff248363365a377fff483"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\source\\lab30-shop\\app\\public\\account\\update.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/source/lab30-shop/app/public/account/update.php",
+      "bytes": 1190,
+      "sha256": "b8227f19c05d0cd330d79c3a526ec0e2667f2f1175c59e0584f015d04b0975ad"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\source\\lab30-shop\\app\\public\\orders\\detail.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/source/lab30-shop/app/public/orders/detail.php",
+      "bytes": 851,
+      "sha256": "be69aa78cecffcfdfd9f9588caf203bc105c481929e5486cae261d1900fcbff6"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\source\\lab30-shop\\app\\src\\bootstrap.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/source/lab30-shop/app/src/bootstrap.php",
+      "bytes": 5935,
+      "sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\source_checks.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/authz/source_checks.json",
+      "bytes": 762,
+      "sha256": "ec822641217519b5b89dca2fc2f8cf6f7e3503095915d506ca6ea4bf56682296"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\attempt.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/attempt.json",
+      "bytes": 2232,
+      "sha256": "74c9bd6f8170e8db41fb14fa2705b5c6468a30478a015a7337d60d94792c964c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\extraction.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/extraction.json",
+      "bytes": 647,
+      "sha256": "64bf5cba6adefbbd7c0cbbbad16f61f4e122348a6df9beb3423363a42560f508"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\request.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/request.json",
+      "bytes": 16171,
+      "sha256": "d6fd3cceb605a75dcf065933dd19519daa848a515f3b86659464b840b0221320"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\response.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/response.json",
+      "bytes": 6155,
+      "sha256": "3342e3e67fe36c38897729031dd512d7cbb4a4056b0c65d6db924a312257756b"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\response.txt",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/response.txt",
+      "bytes": 5310,
+      "sha256": "99eb130c413f0d98bb98311201d279fa17986e8e23aee97b6039df8c68226c27"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\reviewed_json_encoding.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/reviewed_json_encoding.json",
+      "bytes": 7075,
+      "sha256": "b639d3ef060e8e8e395a373279b2fe9f66bf248a9103157f5c123d9c3cc5ce64"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\reviewed_json_encoding.txt",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/reviewed_json_encoding.txt",
+      "bytes": 5312,
+      "sha256": "8637041e8e056eea1156bf8a06213c5b580cdc61f692c852063b84ea11c3b7a6"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\source\\lab30-shop\\app\\public\\catalog\\greeting.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/source/lab30-shop/app/public/catalog/greeting.php",
+      "bytes": 560,
+      "sha256": "b646dea9dafde7c62064ac1ee9eb8609d56516ed7d1d0467d8f8a56887827682"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\source\\lab30-shop\\app\\public\\catalog\\index.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/source/lab30-shop/app/public/catalog/index.php",
+      "bytes": 1379,
+      "sha256": "5b3eb4df5eebdbf6453001f98ac6a93b1f7bd114e8e2b3d078456a7c1dfb7e1f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\source\\lab30-shop\\app\\public\\ops\\ping.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/source/lab30-shop/app/public/ops/ping.php",
+      "bytes": 645,
+      "sha256": "852e9af141787c88ea01c5946df4fba6c3aaa75c185a97bdbe111037e5d13aa3"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\source\\lab30-shop\\app\\src\\bootstrap.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/source/lab30-shop/app/src/bootstrap.php",
+      "bytes": 5935,
+      "sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\source_checks.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak/source_checks.json",
+      "bytes": 1271,
+      "sha256": "9f22ade226feecc4f5d992f2279eb6daaf9e453882acaa886ac132793780c0ff"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak_check.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/leak_check.json",
+      "bytes": 731,
+      "sha256": "10c826eccc6e7a55c0faefa2de0b298c9b2df52fd88b1b50b30c516accaa1734"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\manifest.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/manifest.json",
+      "bytes": 5574,
+      "sha256": "baef19720b07520a7e895ae66f5e4e07d6761dd1d84377ccb8c3ca5a04306542"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\attempt.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/attempt.json",
+      "bytes": 1957,
+      "sha256": "12585ecec38a93768d5b809972a6481c5c5532b23a0bb8bf966a25f996c78aed"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\extracted_prefix.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/extracted_prefix.json",
+      "bytes": 6677,
+      "sha256": "c823a5c26c5c122fe518a4d1f2f9c0fcdced405c8d378be8ab7130a0a465ff40"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\extraction.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/extraction.json",
+      "bytes": 735,
+      "sha256": "50d9ec84e5abe6e28903f596bc6afe7555c04eb4699758935d6fb80752b6807a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\request.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/request.json",
+      "bytes": 17552,
+      "sha256": "ebf64c55b052d176ee3cb6c5906ad4b3e5dd43c59abc7a9c283ff0a7d2089181"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\response.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/response.json",
+      "bytes": 5820,
+      "sha256": "5532c18c8a20687ea9b5c4560f7ddaa301fe0c80f8ef243f509972865bc89d4b"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\response.txt",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/response.txt",
+      "bytes": 4959,
+      "sha256": "17cae535f4a762e2ee22b34ea7a3111ac40e452ad167a2d5aa323a062f105ce2"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\source\\lab30-shop\\app\\public\\account\\update.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/source/lab30-shop/app/public/account/update.php",
+      "bytes": 1190,
+      "sha256": "b8227f19c05d0cd330d79c3a526ec0e2667f2f1175c59e0584f015d04b0975ad"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\source\\lab30-shop\\app\\public\\ops\\report.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/source/lab30-shop/app/public/ops/report.php",
+      "bytes": 978,
+      "sha256": "90d7d60d448153745a90044f4398b98715e2d4e88fc7900dc72da8fc679ef2c8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\source\\lab30-shop\\app\\src\\bootstrap.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/source/lab30-shop/app/src/bootstrap.php",
+      "bytes": 5935,
+      "sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\source_checks.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/secondorder/source_checks.json",
+      "bytes": 406,
+      "sha256": "e50124ca7420d3d22502d1263b026fdaaa42a8e2c7d69ee43f0718c5f48d88d5"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\source_review_notes.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/source_review_notes.json",
+      "bytes": 1628,
+      "sha256": "4e7b6fa1cbe23f97c3d9a19bcfd5caa653ed6e2a9b9dfbce80ae94e49e0f26ae"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\attempt.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/attempt.json",
+      "bytes": 1947,
+      "sha256": "29cb28de7fb9a1255707181407af48a91fea4c7f03e27819f59ddc6b0118b963"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\extraction.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/extraction.json",
+      "bytes": 183,
+      "sha256": "d35ff9db2bbb93b329b4130f058eb078a231e9a3df002ed508d601fdea7bdc82"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\parsed.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/parsed.json",
+      "bytes": 5064,
+      "sha256": "3f298291dfec77a4634ff70462373a9521b5de392c5661519e3022954715457d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\request.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/request.json",
+      "bytes": 20968,
+      "sha256": "ad2e2134df5b1bcf6fdd8070d8b1774c2d085c74569de5e20c11a4d405e0cf05"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\response.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/response.json",
+      "bytes": 4824,
+      "sha256": "a726e43627561eef7dbe0686583d30c0e2158a1fc786ee9d18f8b62567caf228"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\response.txt",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/response.txt",
+      "bytes": 4147,
+      "sha256": "f2f8680cff1b61304c6396468b5b8a4993bf09aabe6c36b3b07972cf2e67ad8d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\source\\lab30-shop\\app\\public\\wallet\\withdraw.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/source/lab30-shop/app/public/wallet/withdraw.php",
+      "bytes": 973,
+      "sha256": "e3e73271e379b085f41a3b6e4ad4fa0a82b43691eabfb37164c4df2618208d73"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\source\\lab30-shop\\app\\src\\bootstrap.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/source/lab30-shop/app/src/bootstrap.php",
+      "bytes": 5935,
+      "sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\source\\lab30-shop\\app\\src\\setup.php",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/source/lab30-shop/app/src/setup.php",
+      "bytes": 4763,
+      "sha256": "53e7dc7286d7d3701839abb286443f5d20f4d52bfb7107bb790075b3c43304ec"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\source_checks.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/state/source_checks.json",
+      "bytes": 379,
+      "sha256": "e82d754120c5edbf26b8829488c1c0121265f32ec2f6c443f4a80471287ec3d1"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\summary.json",
+      "path": "projects/fundamental_completion_20261111/prompt_units/summary.json",
+      "bytes": 5639,
+      "sha256": "838743910c37ec66f04aa5bb8aae9f807b43ef9c2eea07801195f0b2f437a068"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\专项与泄漏补证.md",
+      "path": "projects/fundamental_completion_20261111/prompt_units/专项与泄漏补证.md",
+      "bytes": 2660,
+      "sha256": "9a858746c22f4cdebf303348ef029373d8f5c0a66375418a15d4b33bf06c9271"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\README.md",
+      "path": "projects/fundamental_completion_20261111/README.md",
+      "bytes": 2706,
+      "sha256": "7d0d7efdfff17b7cf89ce269974a3df3734b5bdd2b61674b59a7199b8c018793"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\anchors.json",
+      "path": "projects/fundamental_completion_20261111/references/anchors.json",
+      "bytes": 15495,
+      "sha256": "1bc01cf80d6326c2b683e251c3bf8c4f2df8bfa28005465d8108b0b73e0e7c7a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\baseline_full.zip",
+      "path": "projects/fundamental_completion_20261111/references/baseline_full.zip",
+      "bytes": 52908,
+      "sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\baseline_report.json",
+      "path": "projects/fundamental_completion_20261111/references/baseline_report.json",
+      "bytes": 374457,
+      "sha256": "52958df36be51eca1e144cef62da4c6beff6d797e7d3fd560280ab50fad1553c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\ground_truth.json",
+      "path": "projects/fundamental_completion_20261111/references/ground_truth.json",
+      "bytes": 133606,
+      "sha256": "6c215b702fa962082e21a60bf8237692da7e47cb6ef97889d212616fa708faaa"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\historical_four_cases.json",
+      "path": "projects/fundamental_completion_20261111/references/historical_four_cases.json",
+      "bytes": 266796,
+      "sha256": "11e24867cdefb7017031de3c67f675554f4e761c3ca5b9dc63b612c7ed352be3"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\historical_four_cases.md",
+      "path": "projects/fundamental_completion_20261111/references/historical_four_cases.md",
+      "bytes": 2346,
+      "sha256": "cf363699ef16e2d7a93faa4fd3533791fcd77c9ccbca7b30752c12554e8ee7a9"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\injected_full.zip",
+      "path": "projects/fundamental_completion_20261111/references/injected_full.zip",
+      "bytes": 54197,
+      "sha256": "7f7d7c6ad8842e7814d5399134bdb0288ad84845c3bf2186ce9eaa39be912688"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\injected_report.json",
+      "path": "projects/fundamental_completion_20261111/references/injected_report.json",
+      "bytes": 366190,
+      "sha256": "1f3724383b65f99cbb4246eeca69b6672b320f2c13c3919b89e76aa9280b14cd"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\injected_supplement_report.json",
+      "path": "projects/fundamental_completion_20261111/references/injected_supplement_report.json",
+      "bytes": 406048,
+      "sha256": "f9e0c84ff30c55e604454f689a50e3df03f0d0efa9a7ad990b23e927b9a81464"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\input_identity.json",
+      "path": "projects/fundamental_completion_20261111/references/input_identity.json",
+      "bytes": 688,
+      "sha256": "13f9f55049814128753d715d71cb1a4e0c292050a27053c79032157804a7dacd"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\invalid_reference_controls.json",
+      "path": "projects/fundamental_completion_20261111/references/invalid_reference_controls.json",
+      "bytes": 1646,
+      "sha256": "0207bd709d4577090181a249e631f6e205c1d47ac2b0eb7d7ace40e0406c33f0"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\new_score.json",
+      "path": "projects/fundamental_completion_20261111/references/new_score.json",
+      "bytes": 114765,
+      "sha256": "1dfdbd0f3476d9dc92f741f000d91ac024590f5b52540466375b126a426649d4"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\old_findings.json",
+      "path": "projects/fundamental_completion_20261111/references/old_findings.json",
+      "bytes": 58278,
+      "sha256": "4f46fc83715f34d8ec244e6a80895fbe9a4eaa03ae548056a70e236eec3cee33"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\old_score.json",
+      "path": "projects/fundamental_completion_20261111/references/old_score.json",
+      "bytes": 99835,
+      "sha256": "5e0ab9d17cec4fc9fc07bcf90d27563753d1f7baa92dd3c9814aab4a71412a3b"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\provenance.json",
+      "path": "projects/fundamental_completion_20261111/references/provenance.json",
+      "bytes": 5153,
+      "sha256": "e2da576b68f0b0e30d4ada7dd01b030884ef90f4adf23f6447e32d1e2e5eb960"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\role_policy_collection_checkout.py",
+      "path": "projects/fundamental_completion_20261111/references/role_policy_collection_checkout.py",
+      "bytes": 17455,
+      "sha256": "f309c2f2bd63ebea3e312febe9dc48598016212bcad74db750c4d3f445702ab6"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\samples_manifest.json",
+      "path": "projects/fundamental_completion_20261111/references/samples_manifest.json",
+      "bytes": 16062,
+      "sha256": "e550f4c4a8cabd9b953504b85be11be8db6c746172e1f8c00ef129c919e9fa07"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\schemas_collection_checkout.py",
+      "path": "projects/fundamental_completion_20261111/references/schemas_collection_checkout.py",
+      "bytes": 66389,
+      "sha256": "8f456c03e466e29f7716d11bdbba826c69ca4076662150444b263e02d739b15c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\source.zip",
+      "path": "projects/fundamental_completion_20261111/references/source.zip",
+      "bytes": 52908,
+      "sha256": "67fd87e9ae771d10eaa0797ef2c2af2e0fe381036cd8efe4f92b3d26eec3d36c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\《网络安全》大实验-团队分工与任务清单-v3.md",
+      "path": "projects/fundamental_completion_20261111/references/《网络安全》大实验-团队分工与任务清单-v3.md",
+      "bytes": 9552,
+      "sha256": "7e99fe8b88f139e286cf6a69bc97fb6f4a64b3bf76ac9f9befb7fb22a0433717"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\《网络安全》大实验-基于LLM辅助的漏洞挖掘-项目实施计划书-v3.md",
+      "path": "projects/fundamental_completion_20261111/references/《网络安全》大实验-基于LLM辅助的漏洞挖掘-项目实施计划书-v3.md",
+      "bytes": 98733,
+      "sha256": "ef8200b4dc42c1d74f435e46442f37f6e63b4353787f03adbad2f8478cf05a07"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\references\\材料验收口径_漏洞发现能力_2026-11-11.md",
+      "path": "projects/fundamental_completion_20261111/references/材料验收口径_漏洞发现能力_2026-11-11.md",
+      "bytes": 4227,
+      "sha256": "3b52ed739c56db171ba9f60d717fe729f1052d96ba72a8355bf3109415d2817d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\review_prompt_units.py",
+      "path": "projects/fundamental_completion_20261111/review_prompt_units.py",
+      "bytes": 10756,
+      "sha256": "59d339c412aadb964515e78313efc276344e46eb25f480a3bf986e9b25b0c1d3"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\run_prompt_units.py",
+      "path": "projects/fundamental_completion_20261111/run_prompt_units.py",
+      "bytes": 8501,
+      "sha256": "2980aa8a41ddfc98a505ee15fe155528d926929bb55993345712660014e4630a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\events.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/events.redacted.json",
+      "bytes": 4954551,
+      "sha256": "fd875add549573c09b5b7ee69957b0ee628f7fc5e79ee9df37a9339f986335a0"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\findings.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/findings.redacted.json",
+      "bytes": 207439,
+      "sha256": "f537fbf916a8564d8770572a86cb88225756e925484252825414cb6573c71753"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\planner_task_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/planner_task_attempts.redacted.json",
+      "bytes": 792209,
+      "sha256": "4a55042a4ae4f494fd77fae32b13033b786e41d792164a8f77be6c9d963bc762"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\planner_tasks.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/planner_tasks.redacted.json",
+      "bytes": 464208,
+      "sha256": "c95d6e4844467574bfa46974da8dd2355c72c9be450863ad71ad401ebc6de04c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\run_execution_state.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/run_execution_state.redacted.json",
+      "bytes": 1234367,
+      "sha256": "d7ee03c8be21ea0b53f6cfff25922efacf20a65934607e824b9eee2457744b08"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\run_units.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/run_units.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\runs.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/runs.redacted.json",
+      "bytes": 6462,
+      "sha256": "d394a1981fd70658dfd66a63d8d7b286b62e0075e21e38a00909445babce76b4"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\task_work_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/task_work_attempts.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\baseline\\task_work_items.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/baseline/task_work_items.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\collection.json",
+      "path": "projects/fundamental_completion_20261111/sources/collection.json",
+      "bytes": 1609,
+      "sha256": "c760aa3df4939df9421bfe362ea01caddce8f9ba8877bf56d7a34ee3da6f8824"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\events.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/events.redacted.json",
+      "bytes": 5256495,
+      "sha256": "204f8a441ed02ccac42b5808369db832e38119f2d75f702c22a4b7cd53696491"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\findings.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/findings.redacted.json",
+      "bytes": 209344,
+      "sha256": "14e59b9df24d6c88ff93eb92856c592f17019909de8db353b7d40bc6abb7f9b7"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\planner_task_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/planner_task_attempts.redacted.json",
+      "bytes": 910582,
+      "sha256": "e920222cd8766046d4e9ae14fd381c36364815111e6c9712d64eb8da53a15700"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\planner_tasks.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/planner_tasks.redacted.json",
+      "bytes": 420686,
+      "sha256": "ed3c6fc6755d377b0bb67b8e586119d80cfb2e8469a6c5453469159980dd09c0"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\run_execution_state.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/run_execution_state.redacted.json",
+      "bytes": 908971,
+      "sha256": "9d5c3e8badaed36ea6983da7da1364d131a664cb6c228db941c42efc6b428d48"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\run_units.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/run_units.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\runs.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/runs.redacted.json",
+      "bytes": 6452,
+      "sha256": "3bf7bb2bb8267747f9877ad24963690c9b0ceb37f942a25aecc355f4bd380e74"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\task_work_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/task_work_attempts.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected\\task_work_items.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected/task_work_items.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\events.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/events.redacted.json",
+      "bytes": 3416326,
+      "sha256": "918d1cd30da08807c66afd4e3ce1960b44bbc083ee638ac4ac8152e6109c693a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\findings.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/findings.redacted.json",
+      "bytes": 242296,
+      "sha256": "084247c33d21221c9af360505815c3028c1d1e19713e3782c4badd7b2b0e834e"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\planner_task_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/planner_task_attempts.redacted.json",
+      "bytes": 1250191,
+      "sha256": "5b9db7e013722bdd166ea8de830c36ea76313e270155f0bd387c58df95d9f0c0"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\planner_tasks.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/planner_tasks.redacted.json",
+      "bytes": 610381,
+      "sha256": "a0fb46b50ba3fae87eeba14941f99e3ab397c61c8160d304d390c2fc58a3157d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\run_execution_state.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/run_execution_state.redacted.json",
+      "bytes": 1155670,
+      "sha256": "272064140b1db70723dcff987416b809a0408e5619d4a0db1b0e8802ea15125a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\run_units.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/run_units.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\runs.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/runs.redacted.json",
+      "bytes": 14047,
+      "sha256": "84111b1d3cd0803d09171a040a6c232eb9a8df044b93c878bdd56b5428af5585"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\task_work_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/task_work_attempts.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\injected_supplement\\task_work_items.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/injected_supplement/task_work_items.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\events.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/events.redacted.json",
+      "bytes": 7314959,
+      "sha256": "b38ad95fa51a63aee7d0f687abf00ea6e5779f132705f072320816fde8befad9"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\findings.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/findings.redacted.json",
+      "bytes": 230667,
+      "sha256": "8067ee1d31f394e441437b6105d85ea6b5d0e80df93762299b1feed5f0ab74e7"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\planner_task_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/planner_task_attempts.redacted.json",
+      "bytes": 698895,
+      "sha256": "caf8176355052bc0a3ac4543fbb3843acf9b619b2365731af348bdb64f7e4a33"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\planner_tasks.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/planner_tasks.redacted.json",
+      "bytes": 421554,
+      "sha256": "bc773ec0f718619ca4471d444285d2a9ffc1a64b737a121cb6882f1b98c46c2d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\run_execution_state.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/run_execution_state.redacted.json",
+      "bytes": 2061359,
+      "sha256": "cfc343fb5b82eecf2b5a895197f7296641f9f79dbc9b77613bcd16d946b69bf3"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\run_units.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/run_units.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\runs.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/runs.redacted.json",
+      "bytes": 6602,
+      "sha256": "c7dc09f22e751391a1964db0cdfc4fc9481900aec5919cc66289a4bd29fd601d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\task_work_attempts.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/task_work_attempts.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\task_work_items.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/old/task_work_items.redacted.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\openapi.json",
+      "path": "projects/fundamental_completion_20261111/sources/openapi.json",
+      "bytes": 126970,
+      "sha256": "4993d9992f4a843818e2ee37ecf2e0c719ac15de78768b971539888d820cc6eb"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\prompt_registry.redacted.json",
+      "path": "projects/fundamental_completion_20261111/sources/prompt_registry.redacted.json",
+      "bytes": 37467,
+      "sha256": "e538d03d132d8eb0ec61e76248f0414ce9b91a505423a83be13d12a5eb6300fd"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\prompt_unit_runtime_code_identity.json",
+      "path": "projects/fundamental_completion_20261111/sources/prompt_unit_runtime_code_identity.json",
+      "bytes": 694,
+      "sha256": "582c4bf479ec04dc49bc3350955628faee56dd81859c43548a36c817a47b996b"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\special_prompt_historical_search.json",
+      "path": "projects/fundamental_completion_20261111/sources/special_prompt_historical_search.json",
+      "bytes": 744,
+      "sha256": "19ca1e6545a3cd6df5243fadb61ba6d2db981877dac4e14b62b0d81ad8f4888a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\authz_original.md",
+      "path": "projects/fundamental_completion_20261111/special_prompts/authz_original.md",
+      "bytes": 1716,
+      "sha256": "7bd29b7ce267c49f91feced8747250ceace73262a5b20d9e50674642de5d4a2f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\authz_registration.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/authz_registration.json",
+      "bytes": 2520,
+      "sha256": "8963d3a3ff36a9a7bf61de36569aca91732a9db7600c6dbee27137f0599d59ef"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\authz_worker_strategy.md",
+      "path": "projects/fundamental_completion_20261111/special_prompts/authz_worker_strategy.md",
+      "bytes": 1885,
+      "sha256": "cbf0b806f22864a22fa396577a0a30cef93ca7b18026954c898d3f1e2d46ed3d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\experiment.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/experiment.json",
+      "bytes": 106871,
+      "sha256": "027a4b3ab3312dd3bff1123440c30787f0003db458a64256728c5107230f9ddf"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\experiment_request.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/experiment_request.json",
+      "bytes": 385,
+      "sha256": "fc0667561c328cb1564d634505d4169da9f8ce552e8e51997013eb9e55ba13d1"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\latest_experiment.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/latest_experiment.json",
+      "bytes": 214610,
+      "sha256": "8719021f38ed22842a33273ab7dbb765f4eaa02ff7bee326a5849c3b8364aec4"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\experiment.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/experiment.json",
+      "bytes": 88427,
+      "sha256": "984ed175df57a6871a2c7fbdd33589d552b6d1bbe79301487a877369738c9be4"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\experiment_request.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/experiment_request.json",
+      "bytes": 462,
+      "sha256": "fdf4dbd3f3595a8ddb717801ec11b336fbc36a6a03c9a133c90576a59c38a2e1"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\latest_experiment.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/latest_experiment.json",
+      "bytes": 180089,
+      "sha256": "e1f6073db6758d6b3f9998f6c7219ddd552ec085dda0858621c3787fe828de50"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\scope.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/scope.json",
+      "bytes": 498,
+      "sha256": "a08cb04fd1b17d476946b05a78620800995b178d55b2a19358a1e820673580c4"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\6048ad6c212a4bcc\\detail.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/6048ad6c212a4bcc/detail.json",
+      "bytes": 152963,
+      "sha256": "16d67e4f16507a4b8649429d3d7582fa154e7496687df1a1442c8249ae43a653"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\6048ad6c212a4bcc\\events.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/6048ad6c212a4bcc/events.json",
+      "bytes": 100017,
+      "sha256": "9f7c04c24f47f01ac6fb541184978b5951c44ae2e1558bfe9f8b6ccb0d88e33e"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\6048ad6c212a4bcc\\report.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/6048ad6c212a4bcc/report.json",
+      "bytes": 66404,
+      "sha256": "14d08d645ae364fedfcb0f5ac1039e458d37cea2f329901c7c7b56c0d7b0c658"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\9a548c3fc9f34a25\\detail.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/9a548c3fc9f34a25/detail.json",
+      "bytes": 168992,
+      "sha256": "b3a278ed23dfc856243edf0f97ad620cf877df0c0287d63bb77944727da39c2c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\9a548c3fc9f34a25\\events.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/9a548c3fc9f34a25/events.json",
+      "bytes": 115449,
+      "sha256": "09482a8242297bdf1fc0b88d07efb7a931408276e2b3bc65d0cca98f606439e5"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\9a548c3fc9f34a25\\report.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/9a548c3fc9f34a25/report.json",
+      "bytes": 70815,
+      "sha256": "3cfce840196ae0c74e7705511ab9f2f879f089bd51f59abdda7f4d76a66f677a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\cceee9da25304e5e\\detail.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/cceee9da25304e5e/detail.json",
+      "bytes": 168463,
+      "sha256": "dac3544376e06de56ec163b15720ea74f3d8f65ba4ff21cf3a213d3b30bfcbd5"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\cceee9da25304e5e\\events.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/cceee9da25304e5e/events.json",
+      "bytes": 114872,
+      "sha256": "20a9f68906c6eb4754a10a6034a9c0fc4dc17864287150a9c850002ceb2ff774"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\minimal\\trials\\cceee9da25304e5e\\report.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/minimal/trials/cceee9da25304e5e/report.json",
+      "bytes": 68996,
+      "sha256": "f83974fbf3deb07404f1e52561ae28473c93cbc62f9850b05b0fb5ea3ab7a450"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\registration_manifest.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/registration_manifest.json",
+      "bytes": 2067,
+      "sha256": "883d85fbbad469ebe59616bcffbf257db2b78d8774affd2223ee57c50d4fa9da"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\secondorder_original.md",
+      "path": "projects/fundamental_completion_20261111/special_prompts/secondorder_original.md",
+      "bytes": 2019,
+      "sha256": "3332fd49e701cb8dd303144c5a2417d8e0649c3eb1e257b5eaef9b681d64bcf1"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\secondorder_registration.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/secondorder_registration.json",
+      "bytes": 2859,
+      "sha256": "44262a28284ff97a3d51582273175868d9b3f5e60e7836d8e41c92faf6add407"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\secondorder_worker_strategy.md",
+      "path": "projects/fundamental_completion_20261111/special_prompts/secondorder_worker_strategy.md",
+      "bytes": 2233,
+      "sha256": "9f19d5ead6b64a08c6c28e184438afb878e9bcea5dd2c0df7226deee2ed0893f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\state_original.md",
+      "path": "projects/fundamental_completion_20261111/special_prompts/state_original.md",
+      "bytes": 1593,
+      "sha256": "ce89342e0bce2f118c5c02344cf1c369f78b30f0f1ea9bfdcae45dbf54f13c29"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\state_registration.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/state_registration.json",
+      "bytes": 2464,
+      "sha256": "a70479d0f2fd5621af0a4c3d9c692de26f4664ff7dc4bcd80eb585b728c6a53c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\state_worker_strategy.md",
+      "path": "projects/fundamental_completion_20261111/special_prompts/state_worker_strategy.md",
+      "bytes": 1838,
+      "sha256": "9467842a1916438539afff6fd54c71473dff2330d93b3ececd81d4181b04c39d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\1d5adfb515604445\\detail.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/1d5adfb515604445/detail.json",
+      "bytes": 91371,
+      "sha256": "1dca5bff6c9ab4d5f90066351a5ee6715398073096367750dc5f177b521f9ef8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\1d5adfb515604445\\events.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/1d5adfb515604445/events.json",
+      "bytes": 32568,
+      "sha256": "fa6b817fc6874ed520a13c9e0ed1d72e44f8d16ece1d1c211956eab28e7ee644"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\1d5adfb515604445\\report.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/1d5adfb515604445/report.json",
+      "bytes": 50354,
+      "sha256": "2183a6824617e850f3601407d50ef10478721c11041b81fb4b3bfd50ce5719ba"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\3c4a699d5b354a45\\detail.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/3c4a699d5b354a45/detail.json",
+      "bytes": 91178,
+      "sha256": "81dedec3f76e97b2c8eda09bcf91f889009e774a7922082243d5f5beee1caecb"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\3c4a699d5b354a45\\events.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/3c4a699d5b354a45/events.json",
+      "bytes": 32568,
+      "sha256": "f2f04a6a61f8894876c1610f661bf24dcda779cb07d76cc88dca08162b67790f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\3c4a699d5b354a45\\report.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/3c4a699d5b354a45/report.json",
+      "bytes": 50148,
+      "sha256": "f025ade2516eb38fc9a9ebc98639bf7077b8ffed432fd3dd870be00ab93f7c7f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\4fcda88dce5e48d3\\detail.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/4fcda88dce5e48d3/detail.json",
+      "bytes": 90783,
+      "sha256": "42c2ecb9637deea78f821fc68d2d08118d001e117ff46e70a1549147dd6422cc"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\4fcda88dce5e48d3\\events.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/4fcda88dce5e48d3/events.json",
+      "bytes": 32567,
+      "sha256": "6afcdbc1b574fb5bf4cc57f22aadcbd4035b2d1f78ffa6507e77115063549a70"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\4fcda88dce5e48d3\\report.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/4fcda88dce5e48d3/report.json",
+      "bytes": 49753,
+      "sha256": "a43c533bc03acd127407e3b07f7bc1248017563a4eb01813af5103ae42f31e11"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\fc4ea4e397494327\\detail.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/fc4ea4e397494327/detail.json",
+      "bytes": 90841,
+      "sha256": "61fc3ec734665d74f6186ba9e233106cf9f4b5d710b5d9dbcff40d4cbf674a3a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\fc4ea4e397494327\\events.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/fc4ea4e397494327/events.json",
+      "bytes": 32569,
+      "sha256": "f20719922c9d5e6651a8fbb63f0e922021594ceb793f9a6a8d6306d2062473ef"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\special_prompts\\trials\\fc4ea4e397494327\\report.json",
+      "path": "projects/fundamental_completion_20261111/special_prompts/trials/fc4ea4e397494327/report.json",
+      "bytes": 49809,
+      "sha256": "dfe071323c3cd952965457847ca4188a18e83e1f8a8faf72405815868d758ab9"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\start_leak_probe.py",
+      "path": "projects/fundamental_completion_20261111/start_leak_probe.py",
+      "bytes": 4497,
+      "sha256": "e52ae2787109b2537b672e8f396d20dfad96c5f28d91975a8d3bf56c82b02a1f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\start_minimal_after_recharge.py",
+      "path": "projects/fundamental_completion_20261111/start_minimal_after_recharge.py",
+      "bytes": 5410,
+      "sha256": "01d4409f4e187acb06cb65fb1923b91943e211e0b2bab2d1b6beeb56af441aa2"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\start_special_experiment.py",
+      "path": "projects/fundamental_completion_20261111/start_special_experiment.py",
+      "bytes": 4258,
+      "sha256": "71bd65fa5d2314aa2b9472d66364f728560f3d2368d1dca903e83c7f1a0cfb52"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\verify_materials.py",
+      "path": "projects/fundamental_completion_20261111/verify_materials.py",
+      "bytes": 7369,
+      "sha256": "76739db81ed087ddcdfc6e04f161fd9a366bdbcf2b491ef5ad071bd542762d3f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\material_manifest.json",
+      "path": "projects/fundamental_completion_20261111/material_manifest.json",
+      "bytes": 36884,
+      "sha256": "da2ac58ed07240714ca3cf5ac08b26bf398f011991cb67256ddaa828b0c119e0"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\verification_result.json",
+      "path": "projects/fundamental_completion_20261111/verification_result.json",
+      "bytes": 373,
+      "sha256": "071c4189987be0426eb9efc6750f69777562b69da6bcaaf5b6e0e409ac21c9c5"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\build_viewer.py",
+      "path": "projects/screenshot_supplement_20261111/build_viewer.py",
+      "bytes": 11502,
+      "sha256": "576e901fb6f4e99fa4c09780d8752e8ab5b95641643dd743345cb9388328d25a"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\capture_records.json",
+      "path": "projects/screenshot_supplement_20261111/capture_records.json",
+      "bytes": 4276,
+      "sha256": "ad4d2a121b779f70b2b78fd86b8b81e9251dd11eb32aac21b360bcd14594ae09"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\capture_scope.json",
+      "path": "projects/screenshot_supplement_20261111/capture_scope.json",
+      "bytes": 1524,
+      "sha256": "3edd9d80cdab086a101e5ed3f74a94596712cf8c8cc6284a4e4f81c9f3cb4529"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_provenance.json",
+      "path": "projects/screenshot_supplement_20261111/evidence_provenance.json",
+      "bytes": 2827,
+      "sha256": "9c0c49737c09a8ad84b1d0195b5f876d3b498ef4ddf999b9dd9f35e74656b140"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_refs\\A3_ping.php",
+      "path": "projects/screenshot_supplement_20261111/evidence_refs/A3_ping.php",
+      "bytes": 567,
+      "sha256": "94f01d9b25de2b04029e836607ced1bc40110a3c83bffb82095a0ef0972d2239"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_refs\\authz_registration.json",
+      "path": "projects/screenshot_supplement_20261111/evidence_refs/authz_registration.json",
+      "bytes": 2520,
+      "sha256": "8963d3a3ff36a9a7bf61de36569aca91732a9db7600c6dbee27137f0599d59ef"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_refs\\injected_full.zip",
+      "path": "projects/screenshot_supplement_20261111/evidence_refs/injected_full.zip",
+      "bytes": 54197,
+      "sha256": "7f7d7c6ad8842e7814d5399134bdb0288ad84845c3bf2186ce9eaa39be912688"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_refs\\injected_selected_events.json",
+      "path": "projects/screenshot_supplement_20261111/evidence_refs/injected_selected_events.json",
+      "bytes": 4341,
+      "sha256": "48cc0670271628cf67677dbacfdf3d5f8a9b54ff6b0c6721f2fd621eb0ee88f1"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_refs\\old_selected_events.json",
+      "path": "projects/screenshot_supplement_20261111/evidence_refs/old_selected_events.json",
+      "bytes": 65769,
+      "sha256": "875b9764946e2de91dcf3e7ce0ce1d14905c50ac3979b48d140d6ff78d0d4cea"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_refs\\secondorder_registration.json",
+      "path": "projects/screenshot_supplement_20261111/evidence_refs/secondorder_registration.json",
+      "bytes": 2859,
+      "sha256": "44262a28284ff97a3d51582273175868d9b3f5e60e7836d8e41c92faf6add407"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\evidence_refs\\state_registration.json",
+      "path": "projects/screenshot_supplement_20261111/evidence_refs/state_registration.json",
+      "bytes": 2464,
+      "sha256": "a70479d0f2fd5621af0a4c3d9c692de26f4664ff7dc4bcd80eb585b728c6a53c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\finalize_screens.py",
+      "path": "projects/screenshot_supplement_20261111/finalize_screens.py",
+      "bytes": 8851,
+      "sha256": "bad67d3e921cfe61f92152b27f8994a444ec337d37922eb2e77539ccc9f1b7c1"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\README.md",
+      "path": "projects/screenshot_supplement_20261111/README.md",
+      "bytes": 760,
+      "sha256": "1f5bfc4075a7ef80deab051ef1285e29e20e66d7a1f8a87dcd959b114b2e15dc"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\INDEX.md",
+      "path": "projects/screenshot_supplement_20261111/screens/INDEX.md",
+      "bytes": 2788,
+      "sha256": "153cde5b0e7248fa6ecf63adcfa86521afaec14d44a86d6545a9c7f9bab9ea49"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C01.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C01.ax.txt",
+      "bytes": 323,
+      "sha256": "9f517ee6e249a320325598f48518dad302e94338ded520cddf6de35ecfbb1d53"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C01.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C01.jpg",
+      "bytes": 130843,
+      "sha256": "295eaf7033ed2eb3b58765ed427a7286967f88c4f39fcb8a15f670f9434935fe"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C02.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C02.ax.txt",
+      "bytes": 477,
+      "sha256": "34588193d3cb45564dc6ce4a9358a03c5808c8d9500309dcaf089d87c1344ca8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C02.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C02.jpg",
+      "bytes": 127343,
+      "sha256": "28fd95667a8ff6a4deea6d8c3455c6b106ad9b8c6429f0326b81d8d89e56d0ef"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C03.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C03.ax.txt",
+      "bytes": 468,
+      "sha256": "dd0d845271f9bc3c3f0f4111042c2adcfd0e71df477184e0ced5cfbdec37c8fa"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C03.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C03.jpg",
+      "bytes": 126681,
+      "sha256": "e94d22b6db157302abaf772638f05daf599c6ab69563d544ba78205fc4d8e239"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C04.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C04.ax.txt",
+      "bytes": 477,
+      "sha256": "de6b8b9e7be9332e43034af5940a756fb80f6350c67890a0a9906efe6bc214f2"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C04.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C04.jpg",
+      "bytes": 117092,
+      "sha256": "3f7dfe490440ea158d5cef062f4bd73046cee8a7efc00e3951ec7c108936b18b"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C05.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C05.ax.txt",
+      "bytes": 282,
+      "sha256": "0174d4c6f8d51be2a53b1bd27853bb2bd55e5546d30476c84cb79be8e5e58e30"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C05.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C05.jpg",
+      "bytes": 118722,
+      "sha256": "017296cc717837735c83d79671d9013cc3ea06c0d068d0c1d7902f92a4d99e2e"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C06.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C06.ax.txt",
+      "bytes": 337,
+      "sha256": "85c6546907737dbdd86e661db443461879d30f7b0b5df0a82d6512b357eeea7d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C06.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C06.jpg",
+      "bytes": 74780,
+      "sha256": "7206381c4f40e7ca77e13020b60e042b9377cc399a94676b7ac25cbb4e2b3977"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C07.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C07.ax.txt",
+      "bytes": 276,
+      "sha256": "c726eb893dbdf8d2b9b79243e9412e639d2e51a3697cbd78a7f47290c7f00104"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C07.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C07.jpg",
+      "bytes": 122158,
+      "sha256": "5ad3d96a18d88036815e76f89dfb5c5e77be80f83ffa34de2db66358924b41bb"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C08.ax.txt",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C08.ax.txt",
+      "bytes": 1212,
+      "sha256": "e4915ed45cc50d54c57a53fd6672931329594f75e0f4e5d9ae2c6c5ecc48682d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens\\S-C08.jpg",
+      "path": "projects/screenshot_supplement_20261111/screens/S-C08.jpg",
+      "bytes": 98477,
+      "sha256": "32ca57f2ddbbb759b546a63278d9c4bad4eec798d205d9aedde1913223f6d731"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\screens_manifest.json",
+      "path": "projects/screenshot_supplement_20261111/screens_manifest.json",
+      "bytes": 6757,
+      "sha256": "ed96a9d37d19f33cfc999e1a057833951b4fe047d0ee77b14ce2b30309666065"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\attribution.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/attribution.html",
+      "bytes": 3797,
+      "sha256": "f5a7639b8590930336b497853e80f1c87e2d8e8902e8964094812c31dc992ec6"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\authz.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/authz.html",
+      "bytes": 7839,
+      "sha256": "d59eb92b7a8e0de424bd9cd6e1d766f04e1091f0c443954b12d6ac6fb28821b7"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\defense.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/defense.html",
+      "bytes": 5986,
+      "sha256": "c9926271202ef0b6eadb3f2fa530996337189704b8ac207220e0529c8e3669ec"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\index.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/index.html",
+      "bytes": 2545,
+      "sha256": "8320d8ee9ad8596e1fb9883ae167e8732e0f965f28bad49a1c95bd38d7bdcbdf"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\leak.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/leak.html",
+      "bytes": 4095,
+      "sha256": "96aeb516b64434cce0ae50c8217b346b8b38572cd556c71d3a39c6f2e0d595e9"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\leak_response.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/leak_response.html",
+      "bytes": 9795,
+      "sha256": "f903c87dc50e5015a66e4838408d28c738d429580b01434cddd811887f22fd7d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\old_event_63417.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/old_event_63417.html",
+      "bytes": 3464,
+      "sha256": "5cd66c16be947f0a9259b04d08fc6c2b6851482a5ff654dbbd03abb98b30ec98"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\secondorder.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/secondorder.html",
+      "bytes": 9474,
+      "sha256": "91f3b44080fbb9caf74269bbe501efd9130087ea9c13ddfba96182cf9d92e0b9"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\state.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/state.html",
+      "bytes": 7628,
+      "sha256": "6ad3047528eba4f8c21246377056bd11ed0e34fb67901d8dd9711ce848cbd888"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer\\units.html",
+      "path": "projects/screenshot_supplement_20261111/viewer/units.html",
+      "bytes": 3768,
+      "sha256": "1ee277dc084ae9621cbb4e2a5ec500bb9b6aeaabbf3e50ee3118b95b6e95058f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\viewer_sources.json",
+      "path": "projects/screenshot_supplement_20261111/viewer_sources.json",
+      "bytes": 3817,
+      "sha256": "f9e6e2b68ec5d6932ca2e12eff01a27b1046873fe95f5d4b532d7add1c15edda"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\screenshot_supplement_20261111\\package_manifest.json",
+      "path": "projects/screenshot_supplement_20261111/package_manifest.json",
+      "bytes": 7008,
+      "sha256": "ef85839c15bb212d20d756fae2931fb2dc87789bee9c5ba80cfdf4906a9ea69f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\新旧闭环评分与真实证据材料包_2026-11-11.zip",
+      "path": "archives/新旧闭环评分与真实证据材料包_2026-11-11.zip",
+      "bytes": 10214013,
+      "sha256": "c0f1d416d22ab3126a80373183322abd2ada5a4d06be4267c92845169a508520"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\新旧闭环评分与真实证据材料包_2026-11-11.zip.sha256.txt",
+      "path": "archives/新旧闭环评分与真实证据材料包_2026-11-11.zip.sha256.txt",
+      "bytes": 125,
+      "sha256": "5a531e36d65d97314f7f6124a9e506199b67897a7d9de20bd12e749d6c7a696e"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\成员E专项接续材料_2026-11-11.zip",
+      "path": "archives/成员E专项接续材料_2026-11-11.zip",
+      "bytes": 1541926,
+      "sha256": "fc4adefbd7fb9e576dfcfeee0f930453c78d384d3a9bf206916e7851126e1732"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\成员E专项接续材料_2026-11-11.zip.sha256.txt",
+      "path": "archives/成员E专项接续材料_2026-11-11.zip.sha256.txt",
+      "bytes": 108,
+      "sha256": "f70bf971e98c5db93de6918a6dce8257e2d1f98e08555549055046e4e3dff271"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\框架调整后模型配对证据_2026-11-11.zip",
+      "path": "archives/框架调整后模型配对证据_2026-11-11.zip",
+      "bytes": 450697,
+      "sha256": "bdcb472cb659895fd48fab668ec1a7a05a08dd887bf4fcee19fe7aa4d1c1ffcf"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\框架调整后模型配对证据_2026-11-11.zip.sha256.txt",
+      "path": "archives/框架调整后模型配对证据_2026-11-11.zip.sha256.txt",
+      "bytes": 116,
+      "sha256": "6680c2fa5fb5b8ebf2a8ce20c2c2238562c349f48af868a104457d5c3577326c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\对抗配对补证检查_2026-11-11.zip",
+      "path": "archives/对抗配对补证检查_2026-11-11.zip",
+      "bytes": 380707,
+      "sha256": "dcae55a1ef591793480773f5ebad3a026b1639220e85ae681cf57304308fb76b"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\对抗配对补证检查_2026-11-11.zip.sha256.txt",
+      "path": "archives/对抗配对补证检查_2026-11-11.zip.sha256.txt",
+      "bytes": 107,
+      "sha256": "c7a0a34246fe5c6440b3912d47a558523f7aa30ea4adae13a315f08502f3f7b7"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\漏洞发现能力补充材料_2026-11-11.zip",
+      "path": "archives/漏洞发现能力补充材料_2026-11-11.zip",
+      "bytes": 540989,
+      "sha256": "aca7f2b0023eff9afc2ea638c4443d1a6571b57b310b52a557675f1e5f12ec78"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\漏洞发现能力补充材料_2026-11-11.zip.sha256.txt",
+      "path": "archives/漏洞发现能力补充材料_2026-11-11.zip.sha256.txt",
+      "bytes": 113,
+      "sha256": "aee10494250bb3f0af56d733164d1b0895b4f32dcf73bd39b333ccb24822983f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\三项关键材料补证包_2026-11-11.zip",
+      "path": "archives/三项关键材料补证包_2026-11-11.zip",
+      "bytes": 4581340,
+      "sha256": "9bf7747980bc5a6d29c805d812dd3c7fcf2078df27ab93f4c92e1d9dd3801300"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\三项关键材料补证包_2026-11-11.zip.sha256.txt",
+      "path": "archives/三项关键材料补证包_2026-11-11.zip.sha256.txt",
+      "bytes": 110,
+      "sha256": "bc2ba862ea41b26988ab1143f1110434bc5e5ea43ce14d75409dd33cba65541c"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\Chrome平台补证截图包_2026-11-11.zip",
+      "path": "archives/Chrome平台补证截图包_2026-11-11.zip",
+      "bytes": 799689,
+      "sha256": "a600020ae55e6b313272b8b32a68b5372633073bf4b37bce1d23c7e2dad0d6c8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\Chrome平台补证截图包_2026-11-11.zip.sha256.txt",
+      "path": "archives/Chrome平台补证截图包_2026-11-11.zip.sha256.txt",
+      "bytes": 110,
+      "sha256": "72d9686003fca326350931483b427df1d484f06cf8080c2d38eb3736e945ae84"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\《网络安全》大实验-基于LLM辅助的漏洞挖掘-项目实施计划书-v3.md",
+      "path": "《网络安全》大实验-基于LLM辅助的漏洞挖掘-项目实施计划书-v3.md",
+      "bytes": 98733,
+      "sha256": "ef8200b4dc42c1d74f435e46442f37f6e63b4353787f03adbad2f8478cf05a07"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\《网络安全》大实验-团队分工与任务清单-v3.md",
+      "path": "《网络安全》大实验-团队分工与任务清单-v3.md",
+      "bytes": 10177,
+      "sha256": "f0028debe08b572d296267a734bef1d81d726de76036b89a1120338f7e2fbd36"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\材料验收口径_漏洞发现能力_2026-11-11.md",
+      "path": "材料验收口径_漏洞发现能力_2026-11-11.md",
+      "bytes": 4227,
+      "sha256": "3b52ed739c56db171ba9f60d717fe729f1052d96ba72a8355bf3109415d2817d"
+    }
+  ],
+  "archive_files": [
+    {
+      "file": "新旧闭环评分与真实证据材料包_2026-11-11.zip",
+      "description": "新旧闭环评分、原始记录与11张真实截图",
+      "sha256": "c0f1d416d22ab3126a80373183322abd2ada5a4d06be4267c92845169a508520",
+      "bytes": 10214013
+    },
+    {
+      "file": "成员E专项接续材料_2026-11-11.zip",
+      "description": "ZAP扫描、15组样本、专项Prompt和历史验证",
+      "sha256": "fc4adefbd7fb9e576dfcfeee0f930453c78d384d3a9bf206916e7851126e1732",
+      "bytes": 1541926
+    },
+    {
+      "file": "框架调整后模型配对证据_2026-11-11.zip",
+      "description": "原始等条件配对审计及配置",
+      "sha256": "bdcb472cb659895fd48fab668ec1a7a05a08dd887bf4fcee19fe7aa4d1c1ffcf",
+      "bytes": 450697
+    },
+    {
+      "file": "对抗配对补证检查_2026-11-11.zip",
+      "description": "单侧接续补证与历史评分",
+      "sha256": "dcae55a1ef591793480773f5ebad3a026b1639220e85ae681cf57304308fb76b",
+      "bytes": 380707
+    },
+    {
+      "file": "漏洞发现能力补充材料_2026-11-11.zip",
+      "description": "候选检出、固定候选去重消融、扫描器三路统计",
+      "sha256": "aca7f2b0023eff9afc2ea638c4443d1a6571b57b310b52a557675f1e5f12ec78",
+      "bytes": 540989
+    },
+    {
+      "file": "三项关键材料补证包_2026-11-11.zip",
+      "description": "八项漏报轨迹、78条输出检查、专项单次调用和canary",
+      "sha256": "9bf7747980bc5a6d29c805d812dd3c7fcf2078df27ab93f4c92e1d9dd3801300",
+      "bytes": 4581340
+    },
+    {
+      "file": "Chrome平台补证截图包_2026-11-11.zip",
+      "description": "8张Chrome既有HTTP平台原图及来源索引",
+      "sha256": "a600020ae55e6b313272b8b32a68b5372633073bf4b37bce1d23c7e2dad0d6c8",
+      "bytes": 799689
+    }
+  ],
+  "credential_pattern_scan": {
+    "checked_objects": 1269,
+    "hits": 0
+  },
+  "original_worktree_modified": false,
+  "model_requests": 0
+}

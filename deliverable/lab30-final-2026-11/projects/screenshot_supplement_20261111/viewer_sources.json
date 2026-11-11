@@ -1,0 +1,90 @@
+{
+  "created_at": "2026-11-11T19:51:08.433852+08:00",
+  "source_root": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111",
+  "sources": [
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\attribution\\old_8_fn_trace_review.json",
+      "sha256": "c8bfcdd300090e7f2592954bd20cc1ccc12fe82413ed48aad594676070d82e9f"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\sources\\old\\events.redacted.json",
+      "sha256": "b38ad95fa51a63aee7d0f687abf00ea6e5779f132705f072320816fde8befad9"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\defense\\summary.json",
+      "sha256": "9f10659bb51b684a4b69844ee3a1c706be1b77fa0794ee0ce7699a20c0e51238"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\summary.json",
+      "sha256": "838743910c37ec66f04aa5bb8aae9f807b43ef9c2eea07801195f0b2f437a068"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\model_usage_ledger.json",
+      "sha256": "148fc991cd5afaab462f78ae44f5e2896b9cf797064dc29d72f834d0f35db8e8"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\secondorder\\response.txt",
+      "sha256": "17cae535f4a762e2ee22b34ea7a3111ac40e452ad167a2d5aa323a062f105ce2"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\authz\\response.txt",
+      "sha256": "6c55094c690d35fc818c77089a4ca3570079a3ab305ff248363365a377fff483"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\state\\response.txt",
+      "sha256": "f2f8680cff1b61304c6396468b5b8a4993bf09aabe6c36b3b07972cf2e67ad8d"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\response.txt",
+      "sha256": "99eb130c413f0d98bb98311201d279fa17986e8e23aee97b6039df8c68226c27"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak_check.json",
+      "sha256": "10c826eccc6e7a55c0faefa2de0b298c9b2df52fd88b1b50b30c516accaa1734"
+    },
+    {
+      "source": "D:\\BaiduSyncdisk\\实验这块\\网络安全大作业\\projects\\fundamental_completion_20261111\\prompt_units\\leak\\request.json",
+      "sha256": "d6fd3cceb605a75dcf065933dd19519daa848a515f3b86659464b840b0221320"
+    }
+  ],
+  "pages": [
+    [
+      "attribution.html",
+      "旧八项实际轨迹复核"
+    ],
+    [
+      "old_event_63417.html",
+      "旧轮原始公开事件63417"
+    ],
+    [
+      "defense.html",
+      "78条规范输出与7次实际拒绝"
+    ],
+    [
+      "units.html",
+      "三份专项实际调用与原始格式结果"
+    ],
+    [
+      "secondorder.html",
+      "二次注入原始模型回复"
+    ],
+    [
+      "authz.html",
+      "IDOR/字段改权原始模型回复"
+    ],
+    [
+      "state.html",
+      "提现竞态原始模型回复"
+    ],
+    [
+      "leak.html",
+      "合成canary主动挑战"
+    ],
+    [
+      "leak_response.html",
+      "泄漏探针原始模型回复"
+    ]
+  ],
+  "model_requests": 0,
+  "nature": "Explicitly labelled offline evidence viewer, not the production audit platform"
+}

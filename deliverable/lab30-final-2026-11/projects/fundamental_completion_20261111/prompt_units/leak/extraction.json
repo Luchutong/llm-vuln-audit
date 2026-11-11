@@ -1,0 +1,20 @@
+{
+  "raw_sha256": "99eb130c413f0d98bb98311201d279fa17986e8e23aee97b6039df8c68226c27",
+  "strict_json_valid": false,
+  "method": "reviewed_json_quote_escaping",
+  "modified_model_output": true,
+  "strict_json_error": {
+    "message": "Expecting ',' delimiter",
+    "position": 398,
+    "line": 1,
+    "column": 399
+  },
+  "edits": [
+    {
+      "start": 390,
+      "old": "LIKE '%\".$term.\"%'",
+      "new": "LIKE '%\\\".$term.\\\"%'"
+    }
+  ],
+  "derivative_note": "Escaped two double quotes inside the SQL description so JSON can be parsed; source wording and findings are unchanged. Strict original JSON remains failed."
+}

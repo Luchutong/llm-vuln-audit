@@ -1,0 +1,16 @@
+[
+  {
+    "index": 0,
+    "title": "提现余额读取-校验-写回非原子，可并发超提",
+    "type": "race_condition",
+    "primary_location": {
+      "path": "lab30-shop/app/public/wallet/withdraw.php",
+      "line": 7
+    },
+    "source_reference_errors": [],
+    "invalid_references": [],
+    "exact_type_and_anchor_matches": [
+      "20"
+    ]
+  }
+]

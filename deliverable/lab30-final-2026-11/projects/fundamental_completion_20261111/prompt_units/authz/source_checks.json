@@ -1,0 +1,30 @@
+[
+  {
+    "index": 0,
+    "title": "订单详情缺失归属校验导致任意用户读取他人订单",
+    "type": "idor",
+    "primary_location": {
+      "path": "lab30-shop/app/public/orders/detail.php",
+      "line": 2
+    },
+    "source_reference_errors": [],
+    "invalid_references": [],
+    "exact_type_and_anchor_matches": [
+      "16"
+    ]
+  },
+  {
+    "index": 1,
+    "title": "账户更新可批量赋值 role/balance/tier 实现提权与余额篡改",
+    "type": "mass_assignment",
+    "primary_location": {
+      "path": "lab30-shop/app/public/account/update.php",
+      "line": 4
+    },
+    "source_reference_errors": [],
+    "invalid_references": [],
+    "exact_type_and_anchor_matches": [
+      "30"
+    ]
+  }
+]

@@ -1,0 +1,43 @@
+{
+  "reviewed_at": "2026-11-11T11:15:07.890406+00:00",
+  "reviewer": "Codex 对实际公开轨迹的离线复核；非成员人工签名",
+  "old_run": "2969bcf204cd43b5baf2683cbb0e841d",
+  "new_run": "3b50dbaf45955d989aacf47162e47967",
+  "old_FN": [
+    "07",
+    "09",
+    "10",
+    "14",
+    "17",
+    "18",
+    "23",
+    "24"
+  ],
+  "new_FN": [
+    "06"
+  ],
+  "gained": [
+    "07",
+    "09",
+    "10",
+    "14",
+    "17",
+    "18",
+    "23",
+    "24"
+  ],
+  "lost": [
+    "06"
+  ],
+  "source_event_count": 3212,
+  "classification_counts": {
+    "deferred_risk": 2,
+    "risk_left_as_observation": 2,
+    "boundary_confusion_and_unpublished_risk": 1,
+    "independent_boundary_not_published": 1,
+    "deferred_cross_file_risk": 1,
+    "merged_distinct_location": 1
+  },
+  "causal_claim": false,
+  "score_files_unchanged": true
+}

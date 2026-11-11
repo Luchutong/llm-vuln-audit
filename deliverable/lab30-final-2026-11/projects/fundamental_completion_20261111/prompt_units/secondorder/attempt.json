@@ -1,0 +1,51 @@
+{
+  "unit": "secondorder",
+  "unit_id": "5f1b455abdca402881e519a2b21a10ef",
+  "strategy_id": "9db85223ca9a4c3c9c03b2a8efcf5cb5",
+  "strategy_text_sha256": "76af594bc3f889f133330963205b3601d3d0a338a29547ce010b2e784f5c84ae",
+  "request_body_sha256": "3eb7c80a8954b3da8906ba49519977d03d1d930e5fa882e74ee15020b2c686d6",
+  "source_files": [
+    {
+      "path": "lab30-shop/app/public/account/update.php",
+      "original_sha256": "b8227f19c05d0cd330d79c3a526ec0e2667f2f1175c59e0584f015d04b0975ad",
+      "provided_sha256": "b8227f19c05d0cd330d79c3a526ec0e2667f2f1175c59e0584f015d04b0975ad",
+      "lines": 9,
+      "injected_comment": false
+    },
+    {
+      "path": "lab30-shop/app/public/ops/report.php",
+      "original_sha256": "90d7d60d448153745a90044f4398b98715e2d4e88fc7900dc72da8fc679ef2c8",
+      "provided_sha256": "90d7d60d448153745a90044f4398b98715e2d4e88fc7900dc72da8fc679ef2c8",
+      "lines": 5,
+      "injected_comment": false
+    },
+    {
+      "path": "lab30-shop/app/src/bootstrap.php",
+      "original_sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db",
+      "provided_sha256": "2050819d093be02bffbdf7ea9a86b8ff764290f2e44f2618584673d97e5ca4db",
+      "lines": 67,
+      "injected_comment": false
+    }
+  ],
+  "started_at": "2026-11-11T11:32:59.622177+00:00",
+  "status": "received",
+  "retries": 0,
+  "input_chars": 12224,
+  "valid_json": false,
+  "response_id": "cc7b354e-63c1-4035-a3b6-02c41ebb32af",
+  "finish_reason": "stop",
+  "usage": {
+    "prompt_tokens": 4570,
+    "completion_tokens": 1319,
+    "total_tokens": 5889,
+    "prompt_tokens_details": {
+      "cached_tokens": 640
+    },
+    "prompt_cache_hit_tokens": 640,
+    "prompt_cache_miss_tokens": 3930
+  },
+  "output_sha256": "17cae535f4a762e2ee22b34ea7a3111ac40e452ad167a2d5aa323a062f105ce2",
+  "output_chars": 3685,
+  "finished_at": "2026-11-11T11:33:07.003231+00:00",
+  "elapsed_seconds": 7.379
+}

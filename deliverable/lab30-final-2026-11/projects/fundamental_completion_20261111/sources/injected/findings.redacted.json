@@ -1,0 +1,6416 @@
+[
+  {
+    "id": "c9e7c0823af940da845686d8e603f003",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "8fd1e40da2634e318a72c483f084fb96",
+    "fingerprint": "0707524c37c03a2c4fab7e3c30888f67",
+    "category": "task_goal:v2:62fd91a2772be9f93d0d:1",
+    "title": "资料更新批量赋值允许登录用户改写 role/balance/tier",
+    "severity": "high",
+    "summary": "update.php:5 定义可写列集合时直接包含 role、balance、tier，第 6 行把匹配的 $_POST 键拼入 SET 片段，第 7 行执行 UPDATE users ... WHERE id=当前会话用户 id。服务端仅要求登录（bootstrap.php:33-36 只在传入 roles 时校验角色，require_user() 无参数），没有把敏感列从客户端可写集合中剔除，也没有独立权限判断，因此普通账号可提交 role=admin 或任意 balance 自提权、篡改余额。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/account/update.php",
+        "start_line": 4,
+        "end_line": 7
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 36
+      }
+    ],
+    "input_source": "POST 参数名 role/balance/tier/display_name/email/nickname/homepage",
+    "propagation": "bootstrap.php:3 require_user() 仅确认登录 -> update.php:5 $columns 含 role/balance/tier -> 6 行按 $_POST 键生成 `col`=? -> 7 行 UPDATE users SET ... WHERE id=$u['id'] -> 8 行 json_response($u)",
+    "dangerous_operation": "UPDATE users 允许写入 role/balance/tier 等敏感列",
+    "protection": "仅有 CSRF 校验与列名白名单；白名单本身包含敏感列，且无角色授权检查，参数化占位符只防 SQL 注入不防字段越权",
+    "preconditions": [
+      "攻击者拥有任意已登录账号并获取会话 CSRF token（页面 csrf_field 下发）；应用按默认 SHOP_DATA_DIR/数据库运行"
+    ],
+    "missing_context": [
+      "redeem.php 是否另有速率限制或外层 token 有效性约束未上传",
+      "autoload 与 continue.php 源码未读，无法确认会话固定及反序列化 gadget"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:22:58.311609+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "a8294988500241e488a5f9ad3d7d2dec",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 7.1,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "L",
+        "I": "H",
+        "A": "N"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "通过 HTTP 公开接口触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "直接提交额外 POST 字段即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 5,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "require_user() 仅要求已登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 36,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需他人参与",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一应用内的权限提升",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "L",
+          "rationale": "第 8 行可回显改动后的账户数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "可直接改自身 role/balance/tier 任意值",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 5,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "未读源码显示可用性影响",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:22:58.311735+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "mass_assignment",
+    "primary_location": {
+      "path": "lab30-shop/app/public/account/update.php",
+      "line": 5
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 6,
+            "end_line": 6
+          },
+          "explanation": "遍历 $_POST，键名与列白名单比对"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "白名单含 role/balance/tier，未做敏感字段授权，导致客户端可指定提权列"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 7,
+            "end_line": 7
+          },
+          "explanation": "拼接 SET 片段执行 UPDATE users，写入攻击者选定的敏感列"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "325b0664ead14a968734e486b90c44be",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "8fd1e40da2634e318a72c483f084fb96",
+    "fingerprint": "2413eb417d67697b81133eb4d67adcce",
+    "category": "task_goal:v2:5b0cd8aa3ff7edf63e9d:1",
+    "title": "md5 弱比较使兑换码校验可用 0e 魔术哈希绕过并升级金卡",
+    "severity": "low",
+    "summary": "redeem.php:4 将 $secret_hash 固定为 md5('240610708')，第 5 行用 md5($_POST['token'])==$secret_hash 的宽松比较决定是否执行 UPDATE users SET tier='gold'。PHP 中若输入 md5 为 '0e[0-9]+' 形式字符串，会与 0e 型 $secret_hash 在数值比较下相等，从而无需真实兑换码即接受兑换。校验通过后按当前会话 id 更新 tier，影响业务权益。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/account/redeem.php",
+        "start_line": 3,
+        "end_line": 6
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 40
+      }
+    ],
+    "input_source": "POST 参数 token",
+    "propagation": "redeem.php:4 固定 secret_hash -> 5 行 md5($_POST['token'])==$secret_hash -> 成立则 UPDATE users SET tier='gold' WHERE id=$u['id']",
+    "dangerous_operation": "UPDATE users 将 tier 设为 gold",
+    "protection": "有 CSRF 校验；但比较使用 == 而非 hash_equals，且密钥为硬编码可预测 md5 值，0e 型碰撞破坏校验",
+    "preconditions": [
+      "攻击者拥有已登录账号并取得 CSRF token；PHP 对两个数字字符串使用数值比较（默认行为）；兑换码未被其他服务端状态约束"
+    ],
+    "missing_context": [
+      "redeem.php 是否另有速率限制或外层 token 有效性约束未上传",
+      "autoload 与 continue.php 源码未读，无法确认会话固定及反序列化 gadget"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:22:58.312757+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "6159955b26bd4b1b9dc860a194d4cb3b",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 3.1,
+      "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "H",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "N",
+        "I": "L",
+        "A": "N"
+      },
+      "severity": "low"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP 公开入口",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "H",
+          "rationale": "需构造 md5 为 0e 型字符串的输入，且依赖 PHP 弱比较",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 4,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "require_user() 仅要求登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 36,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "单人请求即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "影响自身账户等级字段",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "N",
+          "rationale": "无读取他者数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "L",
+          "rationale": "可将自身 tier 改为 gold，影响会员权益",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性影响证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/redeem.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:22:58.312803+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "weak_type_comparison",
+    "primary_location": {
+      "path": "lab30-shop/app/public/account/redeem.php",
+      "line": 5
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/redeem.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "$_POST['token'] 进入 md5 计算并比较"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/redeem.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "与固定 0e 型 md5 使用 == 宽松比较，弱类型比较导致校验绕过"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/redeem.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "校验通过执行 UPDATE users SET tier='gold'"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "755c58d53f9e49558abb0d949bcd93ff",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "9be14d5ad8e14ad094b3dfbf09d70b94",
+    "fingerprint": "5c485261b5eb47a3b1bdbe81fefcd1c3",
+    "category": "task_goal:v2:550521c7093885c9cf53:1",
+    "title": "登录入口接受外部 SID 且认证后不轮换会话（会话固定）",
+    "severity": "medium",
+    "summary": "bootstrap.php:13 关闭 use_strict_mode，11-17 行接受 GET 传入并经正则过滤的 sid 直接 session_id() 后再 session_start()；login.php:4 从 $_GET['sid'] 取值交给 start_session，登录成功（login.php:8-10）只写 $_SESSION['user_id'] 并跳转，未调用 session_regenerate_id，攻击者可预先构造已知 SID 链接诱导受害者访问后登录，复用同一 SID 获得受害者会话。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 11,
+        "end_line": 19
+      },
+      {
+        "path": "lab30-shop/app/public/auth/login.php",
+        "start_line": 4,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/public/auth/login.php",
+        "start_line": 8,
+        "end_line": 10
+      }
+    ],
+    "input_source": "请求参数 sid（GET），由攻击者构造链接交给受害者",
+    "propagation": "login.php:4 将 $_GET['sid'] 传入 start_session；bootstrap.php:17 session_id($sid) 固定会话标识；login.php:9 认证成功后写入 user_id 而不更换 SID",
+    "dangerous_operation": "session_id($sid) 采用客户端提供的会话标识，认证成功后沿用同一 SID",
+    "protection": "仅有 /^[a-zA-Z0-9,-]{16,64}$/D 格式校验，use_strict_mode=0 允许使用不存在的自定义 SID，缺少认证后 session_regenerate_id",
+    "preconditions": [
+      "受害者点击带 sid 参数的登录链接并在同一会话中完成登录；攻击者事先已知该 SID"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:23:37.903647+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "a102b96b05394cc1976a5c981ed25f44",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 6.8,
+      "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "H",
+        "PR": "N",
+        "UI": "R",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "通过链接投递 SID",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/login.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "H",
+          "rationale": "需诱导受害者访问特定链接并登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/login.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "攻击者无需账号",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 17,
+              "end_line": 17,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "R",
+          "rationale": "需受害者参与登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/login.php",
+              "start_line": 9,
+              "end_line": 9,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "仍以受害者身份操作",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/login.php",
+              "start_line": 9,
+              "end_line": 9,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "可读取受害者会话内账户数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 23,
+              "end_line": 24,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "可代受害者执行写操作",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "未见可用性影响",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 18,
+              "end_line": 18,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:23:37.903728+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "session_fixation",
+    "primary_location": {
+      "path": "lab30-shop/app/src/bootstrap.php",
+      "line": 17
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/login.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "请求参数 sid 从 GET 进入 start_session。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/src/bootstrap.php",
+            "start_line": 13,
+            "end_line": 18
+          },
+          "explanation": "关闭严格模式并直接用客户端 SID 启动会话，服务端未生成新标识。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/login.php",
+            "start_line": 8,
+            "end_line": 10
+          },
+          "explanation": "认证成功后把 user_id 写入该可控会话且不轮换 SID。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "451b7983fe974854ab02f8cf4946408f",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "9be14d5ad8e14ad094b3dfbf09d70b94",
+    "fingerprint": "236f95e586f503efed6c11a5dc68a608",
+    "category": "task_goal:v2:0ecd2c245e0426a51995:1",
+    "title": "账户资料更新将 role/balance 等敏感列纳入批量赋值",
+    "severity": "high",
+    "summary": "account/update.php:5 白名单包含 role、balance、tier 等敏感列，第 6 行直接把 $_POST 中匹配键的值拼入 SET，第 7 行执行 UPDATE users；普通登录用户可提交 role=admin 或任意 balance 提权与篡改余额。表单仅渲染部分字段（第 10 行），服务端未按业务只允许 display_name/nickname/email/homepage。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/account/update.php",
+        "start_line": 3,
+        "end_line": 10
+      }
+    ],
+    "input_source": "普通用户提交的 POST 字段 role/balance/tier",
+    "propagation": "update.php:6 遍历 $_POST，命中 $columns 即拼入 SET 与 values；第 7 行执行 UPDATE users",
+    "dangerous_operation": "以用户提交值更新 users.role/balance 等权限与金额列",
+    "protection": "仅 in_array 白名单过滤键名，白名单本身包含敏感列；对象范围用 $u['id'] 只限制自身记录但未限制列",
+    "preconditions": [
+      "攻击者拥有任意普通登录账号，且已通过第 5 行 check_csrf"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:23:37.904813+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "a8294988500241e488a5f9ad3d7d2dec",
+    "project_revision": 2,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.1,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "N"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "远程 HTTP 请求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "直接提交额外字段即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 6,
+              "end_line": 6,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需普通登录账号",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需他人参与",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "仍在自身会话内改自身记录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "role 提升后可读取运营数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 35,
+              "end_line": 35,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "可改余额与角色",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "未见可用性影响",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/account/update.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:23:37.904866+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "mass_assignment",
+    "primary_location": {
+      "path": "lab30-shop/app/public/account/update.php",
+      "line": 6
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "POST 字段进入处理流程。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 5,
+            "end_line": 6
+          },
+          "explanation": "授权白名单错误地包含 role/balance 并接受任意匹配键。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/account/update.php",
+            "start_line": 7,
+            "end_line": 7
+          },
+          "explanation": "这些字段被拼入 UPDATE users 并执行。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "85a1697688764d97ade355ece173b8e1",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "c02fce2690d24704b3548004b617c6e2",
+    "fingerprint": "2ff0a98c8d6e19e113154ba0367ff3d7",
+    "category": "task_goal:v2:f3a06e0e122a3c92b9e5:1",
+    "title": "batch-check.php host 参数进入 shell_exec 命令注入",
+    "severity": "high",
+    "summary": "batch-check.php:2 取 $_GET['host'] 传入 host_check()；host_check.php:2 将 $host 直接拼接进 shell_exec('ping -c 1 -W 1 '.$host)，无 escapeshellarg/白名单，可注入分号或 $(...) 执行任意命令。入口有 require_user(['operator','admin'])。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/batch-check.php",
+        "start_line": 2,
+        "end_line": 2
+      },
+      {
+        "path": "lab30-shop/app/src/host_check.php",
+        "start_line": 2,
+        "end_line": 2
+      }
+    ],
+    "input_source": "GET 参数 host",
+    "propagation": "$_GET['host'] -> host_check -> shell_exec 拼接",
+    "dangerous_operation": "shell_exec 执行拼接系统命令",
+    "protection": "仅角色会话检查，命令参数无转义",
+    "preconditions": [
+      "持有 operator 或 admin 会话；服务器有 ping 命令"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:23:51.173931+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "26cd49afbd9d4e9f9b81b9ea8921a090",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.8,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP GET 可达",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/batch-check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "直接拼接元字符",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/host_check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需 operator/admin 会话",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/batch-check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需他人交互",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/batch-check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同进程执行",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/host_check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "任意命令读主机",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/host_check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "任意命令写主机",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/host_check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "H",
+          "rationale": "破坏性命令",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/host_check.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:23:51.174019+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "command_injection",
+    "primary_location": {
+      "path": "lab30-shop/app/src/host_check.php",
+      "line": 2
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "对应 batch-check 命令执行面验收要求",
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/ops/batch-check.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          {
+            "path": "lab30-shop/app/src/host_check.php",
+            "start_line": 2,
+            "end_line": 2
+          }
+        ],
+        "supports": [
+          "命令执行面"
+        ],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/batch-check.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          "explanation": "GET host 取出后传入 host_check。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/src/host_check.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          "explanation": "输入拼入 shell_exec，根因与危险操作同处。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "f8f041f8396a4508b03560c545767b6e",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "c02fce2690d24704b3548004b617c6e2",
+    "fingerprint": "f6a57d5233e0457405bd2c5306221167",
+    "category": "task_goal:v2:56fe487f450a10378352:1",
+    "title": "jobs.php unserialize 触发 DispatchJob 命令执行",
+    "severity": "high",
+    "summary": "jobs.php:3 对 base64 解码的 POST job 直接 unserialize，无 allowed_classes；dispatch_job.php:4 的 __wakeup 用 shell_exec($this->command) 执行，构造序列化对象即可命令执行。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/jobs.php",
+        "start_line": 3,
+        "end_line": 3
+      },
+      {
+        "path": "lab30-shop/app/src/dispatch_job.php",
+        "start_line": 4,
+        "end_line": 4
+      }
+    ],
+    "input_source": "POST job（base64 序列化串）",
+    "propagation": "base64_decode -> unserialize -> __wakeup -> shell_exec",
+    "dangerous_operation": "unserialize 可控数据并执行 shell_exec",
+    "protection": "有 CSRF 与角色检查，但无类型白名单",
+    "preconditions": [
+      "持有 operator/admin 会话并通过 CSRF"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:23:51.175098+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "e71bfe94d87d461b8ae658eccdbc21fa",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.8,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP POST 可达",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/jobs.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "构造序列化对象即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/dispatch_job.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需 operator/admin 会话",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/jobs.php",
+              "start_line": 2,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需他人参与",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/jobs.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同进程执行",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/dispatch_job.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "执行命令读数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/dispatch_job.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "执行任意写命令",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/dispatch_job.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "H",
+          "rationale": "破坏性命令",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/dispatch_job.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:23:51.175169+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "insecure_deserialization",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/jobs.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "对应 jobs.php 反序列化面",
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/ops/jobs.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          {
+            "path": "lab30-shop/app/src/dispatch_job.php",
+            "start_line": 4,
+            "end_line": 4
+          }
+        ],
+        "supports": [
+          "反序列化面"
+        ],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/jobs.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "POST job 解码取得序列化数据。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/jobs.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "unserialize 接受攻击者数据，无 allowed_classes。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/src/dispatch_job.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "__wakeup 将 command 交 shell_exec。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "9c065e2411d44289ab1891e60818f670",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "6f86e0fc2b0942c189c69fdc8e78c095",
+    "fingerprint": "07d15c844b5d70941277c7fcb0791e7c",
+    "category": "task_goal:v2:6c23585346e847bed2ec:1",
+    "title": "下单价格由客户端提交，订单总额可任意篡改",
+    "severity": "high",
+    "summary": "create.php:3 从 $_POST['price'] 读取价格，:4 仅校验非负与数量范围，:5 用该价格计算 total，:7 将攻击者提供的 unit_price/total 写入 orders 并扣库存，未与 products 表价格比对。攻击者可提交 price=0.01 以极低总价购买任意商品并减库存。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/orders/create.php",
+        "start_line": 3,
+        "end_line": 7
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 37
+      }
+    ],
+    "input_source": "POST product_id/quantity/price",
+    "propagation": "create.php:3 $_POST['price'] -> :5 $price*$quantity -> :7 INSERT orders(unit_price,total)",
+    "dangerous_operation": "以客户端提交金额生成订单并扣减库存",
+    "protection": "仅有非负校验与 CSRF/POST 检查，无服务端价格核对",
+    "preconditions": [
+      "已登录用户；获得 CSRF token 并提交 POST"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:24:42.202446+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "faf6f2dd44f64e3dabb75f19e852f3f4",
+    "project_revision": 2,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 7.1,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:L",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "N",
+        "I": "H",
+        "A": "L"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "经 HTTP 公开访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "只需正常提交表单并改 price 字段",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 3,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需要登录用户身份",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身操作即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 3,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "仍在其账户下单流程内",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "N",
+          "rationale": "不泄露数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 3,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "可任意设定订单金额并消耗库存",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 5,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "L",
+          "rationale": "库存被低价消耗",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/create.php",
+              "start_line": 6,
+              "end_line": 6,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:24:42.202570+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "price_manipulation",
+    "primary_location": {
+      "path": "lab30-shop/app/public/orders/create.php",
+      "line": 5
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/orders/create.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "从 $_POST 取 product_id、quantity、price，price 完全由客户端控制。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/orders/create.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "直接用客户端 price 乘数量得到 total，未与服务端商品价格比对，形成价格授权缺陷。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/orders/create.php",
+            "start_line": 7,
+            "end_line": 7
+          },
+          "explanation": "将客户端 unit_price/total 写入 orders 并提交，同时 :6 已扣减库存。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "df02ea940dd84a6bb82095958899f9e1",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "6f86e0fc2b0942c189c69fdc8e78c095",
+    "fingerprint": "b87c172842239d40abc1df8b6583df0f",
+    "category": "task_goal:v2:3d246e78426dcee6c438:1",
+    "title": "提现先读后写无锁，并发请求可超额提现",
+    "severity": "medium",
+    "summary": "withdraw.php:5 读取余额，:6 比较，:7 人为休眠 350ms，:8 用旧余额减金额做无条件绝对 UPDATE，:9 插入提现记录。无行锁、无原子条件更新、无事务，多个并发请求在同一余额上通过校验并各自扣减，导致余额透支。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/wallet/withdraw.php",
+        "start_line": 3,
+        "end_line": 10
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 4,
+        "end_line": 7
+      }
+    ],
+    "input_source": "POST amount",
+    "propagation": "withdraw.php:5 SELECT balance -> :6 校验 -> :7 usleep -> :8 UPDATE balance=旧值-amount -> :9 INSERT withdrawals",
+    "dangerous_operation": "基于陈旧余额的绝对写回导致超额提现",
+    "protection": "仅有金额范围校验；session_write_close 反而移除会话串行化；无交易/锁/条件更新",
+    "preconditions": [
+      "已登录用户；持有有效余额与 CSRF token；并发提交多个提现请求"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:24:42.205241+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "d10c9559de594c7cb4ac01eb3c18550b",
+    "project_revision": 2,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 5.3,
+      "base_vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "H",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "N",
+        "I": "H",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "经 HTTP 公开访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 2,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "H",
+          "rationale": "需精确并发竞态窗口",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 5,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需要登录账户",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身并发即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 7,
+              "end_line": 9,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "影响限于资金账户",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 8,
+              "end_line": 9,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "N",
+          "rationale": "不泄露数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 5,
+              "end_line": 9,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "可透支余额并生成多笔提现记录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 8,
+              "end_line": 9,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性影响",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/wallet/withdraw.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:24:42.205321+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "race_condition",
+    "primary_location": {
+      "path": "lab30-shop/app/public/wallet/withdraw.php",
+      "line": 8
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/wallet/withdraw.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "POST amount 由客户端控制，经浮点校验与上限检查。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/wallet/withdraw.php",
+            "start_line": 8,
+            "end_line": 8
+          },
+          "explanation": "以 :5 读到的旧余额计算绝对值并 UPDATE，缺少 WHERE balance>=? 原子条件或行锁，构成 TOCTOU 竞态根因。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/wallet/withdraw.php",
+            "start_line": 9,
+            "end_line": 9
+          },
+          "explanation": "每次通过校验的请求都插入提现记录，多次并发即多笔成功提现。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "c4b9683b054745ff8ba72ae35d6ded80",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "3ce4c2342063402b9d00fbdb1ab17530",
+    "fingerprint": "23aa397e0bb390be37d002b005d400fb",
+    "category": "task_goal:v2:ca064d2aca864ab8a5e9:1",
+    "title": "support/download.php file 参数拼接路径穿越读取任意文件",
+    "severity": "medium",
+    "summary": "第3行从 $_GET['file'] 取字符串后直接拼 `data_dir().'/docs/'.file`，仅 is_file 存在性检查，没有 basename/realpath/白名单约束；`../` 序列使路径逃出 docs 目录，file_get_contents 将结果回显为 text/plain。攻击者只需登录即可构造 `?file=../../../../etc/passwd` 读取服务端任意可读文件。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/support/download.php",
+        "start_line": 2,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 9,
+        "end_line": 9
+      }
+    ],
+    "input_source": "GET 参数 file",
+    "propagation": "",
+    "dangerous_operation": "file_get_contents 读取穿越路径并回显",
+    "protection": "仅有 is_file 存在性检查和 Content-Type 头，无路径规范化或前缀白名单",
+    "preconditions": [
+      "攻击者需已登录账户（require_user）；数据目录 /var/lib/shop/docs 存在且目标文件可读"
+    ],
+    "missing_context": [
+      "SHOP_DATA_DIR 实际部署值及 docs 目录权限未在快照中提供",
+      "partner/token.php 签发的 settings generation 密钥来源与 portal 未验签行为之间的关联配置未提供"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:24:58.478811+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "f53fc1729baf4f8590aa60ecdad17787",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 6.5,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP 接口",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "构造 ../ 序列即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "require_user 要求登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身请求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一应用上下文",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "可读任意可读文件如配置与凭据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "只读操作",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无破坏",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/download.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:24:58.478925+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "path_traversal",
+    "primary_location": {
+      "path": "lab30-shop/app/public/support/download.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "目标明确要求检查文件路径拼接与路径穿越读文件，本条为公开输入直达文件系统的未过滤情形。",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/support/download.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "$_GET['file'] 作为不可信文件名进入拼接。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/support/download.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "直接字符串拼接构造路径，无 basename/realpath/白名单，'..' 可穿越目录；is_file 只检查存在性不限制路径。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/support/download.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "file_get_contents($path) 读取穿越后的文件并通过 echo 输出。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "f42b1b874b7b4d588f675f6d88eb1f5c",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "3ce4c2342063402b9d00fbdb1ab17530",
+    "fingerprint": "8cd8983e4986a60bc5e7ed522fc583d8",
+    "category": "task_goal:v2:c84952b2e2ba91c4dad2:1",
+    "title": "partner/portal.php 仅信任 base64 JSON 载荷 role 判定管理员（令牌鉴权缺失）",
+    "severity": "high",
+    "summary": "第3行 token 来自 POST/Cookie，explode('.') 取第二段 base64 解码为 JSON；第4行仅检查 payload['role']==='admin' 即放行，第5行随后查询全部订单。全程不校验 JWT 签名（hash_hmac），不比对 partner/token.php 签发的令牌；攻击者自行构造 base64url 的 {'role':'admin'} 段即可通过。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/partner/portal.php",
+        "start_line": 3,
+        "end_line": 7
+      },
+      {
+        "path": "lab30-shop/app/public/partner/token.php",
+        "start_line": 3,
+        "end_line": 6
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 37
+      }
+    ],
+    "input_source": "POST 参数 token 或 partner_token Cookie",
+    "propagation": "",
+    "dangerous_operation": "无签名校验即信任 JWT 载荷角色并泄露全部订单",
+    "protection": "仅 role 字段比较，未调用 hash_hmac 验证签名，未与签发逻辑核对",
+    "preconditions": [
+      "无需登录；portal.php 未调用 require_user；攻击者可自行 base64url 编码 payload"
+    ],
+    "missing_context": [
+      "SHOP_DATA_DIR 实际部署值及 docs 目录权限未在快照中提供",
+      "partner/token.php 签发的 settings generation 密钥来源与 portal 未验签行为之间的关联配置未提供"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:24:58.479885+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "031e3f701ace48a287ea333059729c3e",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 7.5,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP 接口",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "自制 base64 JSON 即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "无认证要求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需他人参与",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一应用上下文",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 4,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "泄露全部订单号与金额",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 5,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "只读查询",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无破坏",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/partner/portal.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:24:58.479926+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "auth_bypass",
+    "primary_location": {
+      "path": "lab30-shop/app/public/partner/portal.php",
+      "line": 4
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "目标要求检查 token/partner 鉴权判定代码行，本条为明确的可伪造角色判定。",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/partner/portal.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "$_POST['token'] 或 partner_token Cookie 进入 explode/解码。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/partner/portal.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "仅用解码后 payload['role']==='admin' 判断授权，未验签，客户端可伪造该字段。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/partner/portal.php",
+            "start_line": 5,
+            "end_line": 7
+          },
+          "explanation": "通过判断后查询全部订单并通过 HTML/JSON 输出结算数据。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "fab9de2fc9f84f599dc3845f4e06783c",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "9bbf6aa9748948749a012c3b28480f28",
+    "fingerprint": "8d37679063d9afed806a81f2285598be",
+    "category": "task_goal:v2:9848b61d6589adad10fe:1",
+    "title": "运营模板预览将 GET 模板地址直接 include，allow_url_include=On 导致远程文件包含执行",
+    "severity": "high",
+    "summary": "template-preview.php:2 从 $_GET['template'] 读取字符串，第3行在 page 回调中直接 `include $template`，未做 basename、路径前缀或扩展名/主机白名单，也不存在模板名映射。docker/php.ini:3 `allow_url_include = On`、第2行 `allow_url_fopen = On` 使 http(s)/ftp 远程资源可被 include 并作为 PHP 解析执行。攻击者只需持有 operator/admin 会话（bootstrap.php:33-36 require_user 校验角色）即可把 template 设为自控服务器上的 PHP 脚本实现远程代码执行。require_user 只限制身份，不限制被包含的操作数。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/template-preview.php",
+        "start_line": 1,
+        "end_line": 3
+      },
+      {
+        "path": "lab30-shop/docker/php.ini",
+        "start_line": 1,
+        "end_line": 3
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 36
+      }
+    ],
+    "input_source": "HTTP GET 参数 template",
+    "propagation": "GET template -> $template -> include $template -> 远程 PHP 解析执行",
+    "dangerous_operation": "include 可控远程 URL",
+    "protection": "仅 require_user(['operator','admin']) 的登录/角色校验；无路径白名单、无 basename 限制、无 allow_url_include 关闭",
+    "preconditions": [
+      "攻击者持有 operator 或 admin 有效会话；攻击者可托管可被目标访问的远程 PHP 资源；运行时 allow_url_include=On（docker/php.ini 已配置）"
+    ],
+    "missing_context": [
+      "PHP 运行时实际加载的 php.ini 是否与 docker/php.ini 一致（allow_url_include 生效与否）"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:25:38.904684+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "912e3caadf43411b81174c8779e78906",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.8,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "通过 Web 请求触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-preview.php",
+              "start_line": 2,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "仅需把 template 设为可控 URL",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-preview.php",
+              "start_line": 2,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需 operator/admin 账号",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 36,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身发起请求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "仍在应用进程内",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "可执行任意 PHP 代码",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            },
+            {
+              "path": "lab30-shop/docker/php.ini",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "代码执行可写数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "H",
+          "rationale": "代码执行可破坏进程/数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:25:38.904766+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "rfi",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/template-preview.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "公开输入进入 include 危险操作，属危险操作与包含文件包含链，与目标一致。",
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/ops/template-preview.php",
+            "start_line": 2,
+            "end_line": 3
+          },
+          {
+            "path": "lab30-shop/docker/php.ini",
+            "start_line": 2,
+            "end_line": 3
+          }
+        ],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/template-preview.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          "explanation": "$_GET['template'] 被强制转成字符串赋给 $template，完全来自请求参数。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/template-preview.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "第3行 `if($template!=='')include $template;` 直接用可控字符串作 include 操作数，无任何路径/主机/扩展名白名单或映射。"
+        },
+        {
+          "kind": "protection",
+          "evidence": {
+            "path": "lab30-shop/docker/php.ini",
+            "start_line": 2,
+            "end_line": 3
+          },
+          "explanation": "配置显式开启 allow_url_fopen 与 allow_url_include，未阻止远程 URL 被包含解析。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/template-preview.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "include 执行攻击者指向的远程 PHP 资源，实现远程代码执行。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "e270351450f44be79801de19caa28ad5",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "9bbf6aa9748948749a012c3b28480f28",
+    "fingerprint": "fa3ed4c64925181752892e08627da7fe",
+    "category": "task_goal:v2:3544fbf8a772b60bc873:1",
+    "title": "营销模板渲染将 POST 中 {{…}} 内容拼接进 eval 执行任意 PHP 表达式",
+    "severity": "high",
+    "summary": "template-render.php:3 从 $_POST['template'] 取字符串；第4行在 POST 时先 check_csrf()，随后用 preg_replace_callback 匹配 /\\{\\{(.*?)\\}\\}/s，并把每个捕获组拼成 `eval('return '.$m[1].';')`。捕获内容除被正则 delimit 包围外没有任何表达式白名单或字符过滤，攻击者可构造 `{{ system('id') }}` 等任意 PHP 表达式并执行。CSRF 校验只防跨站伪造，不限制表达式内容，也不构成对代码注入的防护。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/template-render.php",
+        "start_line": 1,
+        "end_line": 5
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 38,
+        "end_line": 40
+      }
+    ],
+    "input_source": "HTTP POST 参数 template（双花括号内表达式）",
+    "propagation": "POST template -> preg_replace_callback 捕获 {{...}} -> eval('return '.$m[1].';')",
+    "dangerous_operation": "eval 执行拼接的可控表达式",
+    "protection": "check_csrf() 仅防跨站伪造；无白名单/沙箱，eval 直接执行捕获内容",
+    "preconditions": [
+      "攻击者持有 operator 或 admin 有效会话并能提供有效 CSRF token（csrf_field 渲染在页面中，登录后可获取）"
+    ],
+    "missing_context": [
+      "PHP 运行时实际加载的 php.ini 是否与 docker/php.ini 一致（allow_url_include 生效与否）"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:25:38.905693+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "8775f6e969d54cebbefec663007f78a5",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.8,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "通过 Web POST 触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "构造 {{...}} 表达式即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需 operator/admin 会话",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 36,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身提交",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "仍在应用进程内",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "可执行任意 PHP 表达式",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "代码执行可写数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "H",
+          "rationale": "代码执行可破坏进程/数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/template-render.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:25:38.905734+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "code_execution",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/template-render.php",
+      "line": 4
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "公开输入进入 eval 危险操作，属代码执行链，与目标一致。",
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/ops/template-render.php",
+            "start_line": 3,
+            "end_line": 4
+          }
+        ],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/template-render.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "$_POST['template'] 被转成字符串存入 $template，完全来自请求体。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/template-render.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "第4行把正则捕获组 $m[1] 直接拼进 eval('return '.$m[1].';')，无表达式白名单或转义。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/template-render.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "eval 执行攻击者可控表达式，实现任意代码执行。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "a8e7b962087145bab7012c9f3e328bab",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "c02fce2690d24704b3548004b617c6e2",
+    "fingerprint": "3d1e2c17627bf939717282ffcc3fa287",
+    "category": "task_goal:v2:c7776a40703fd469a783:1",
+    "title": "maintenance.php 仅凭可伪造 X-Admin 请求头绕过鉴权写入任务",
+    "severity": "medium",
+    "summary": "maintenance.php:3 通过比较 $_SERVER['HTTP_X_ADMIN'] 是否为 '1' 决定是否放行，未调用 require_user，该头完全由客户端设置且无反向代理注入证据。放行后行4在 POST 下以预处理 INSERT 向 jobs 表写入记录并返回 job_id，未认证攻击者可触发状态变更。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/maintenance.php",
+        "start_line": 3,
+        "end_line": 3
+      },
+      {
+        "path": "lab30-shop/app/public/ops/maintenance.php",
+        "start_line": 4,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 37
+      }
+    ],
+    "input_source": "",
+    "propagation": "",
+    "dangerous_operation": "",
+    "protection": "第3行仅做固定的头值比较，未使用会话角色校验，也不存在其他 CSRF/来源校验",
+    "preconditions": [
+      "目标部署未在反向代理层剥离或强制覆盖 X-Admin 请求头；攻击者可直接访问 /ops/maintenance.php 并发送 POST"
+    ],
+    "missing_context": [
+      "运行时 allow_url_include/allow_url_fopen 及反向代理是否注入或剥离 X-Admin 头"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:26:19.678848+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "96f72e7c11724fb5ae8018c08c6a4f18",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 5.3,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "N",
+        "I": "L",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP 入口可从网络访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 2,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "仅需在请求中添加一个头",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "未认证即可通过头部检查",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需他人交互",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一应用内鉴权边界被绕过",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "N",
+          "rationale": "主要影响为写入任务记录，未证明数据泄露",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "L",
+          "rationale": "可插入 jobs 记录影响任务中心数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "未证明服务可用性影响",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:26:19.678967+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "auth_bypass",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/maintenance.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "属于 ops 危险操作入口的鉴权缺失，直接达成目标中检查管理员身份校验与状态变化的要求",
+        "evidence": [],
+        "supports": [],
+        "chain": [
+          {
+            "kind": "input",
+            "evidence": {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 3,
+              "end_line": 3
+            },
+            "explanation": "攻击者控制 HTTP_X_ADMIN 头"
+          },
+          {
+            "kind": "sink",
+            "evidence": {
+              "path": "lab30-shop/app/public/ops/maintenance.php",
+              "start_line": 4,
+              "end_line": 4
+            },
+            "explanation": "未认证写入 jobs 表"
+          }
+        ]
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/maintenance.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "客户端提交的 HTTP_X_ADMIN 请求头进入身份判断。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/maintenance.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "该行信任可伪造的请求头作为管理员凭据，且未调用 require_user，形成认证绕过缺口。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/maintenance.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "被放行的 POST 请求向 jobs 表插入新任务记录，产生状态变更。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "c191d50a0f90450cadc4b9746bb7f211",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "c842dcdda1034460840072aa594e14f4",
+    "fingerprint": "f9ebdaa0db078fcfdfc52ddf3c2ba509",
+    "category": "task_goal:v2:9b8af68e9f11c1fcd540:1",
+    "title": "ops 链接预览对用户 URL 无协议/主机白名单导致 SSRF",
+    "severity": "high",
+    "summary": "url-preview.php:2 从 $_GET['url'] 取原始字符串，第3行未做任何 scheme/host 白名单检查即传给 file_get_contents，仅设 timeout=4 和 follow_location=0；operator/admin 可指定 http://127.0.0.1、内网服务、file://、ftp:// 等 wrapper 地址，内容在第4行 h($output) 回显。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/url-preview.php",
+        "start_line": 2,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 37
+      }
+    ],
+    "input_source": "GET 参数 url（第2行）",
+    "propagation": "第2行取参 → 第3行仅设超时/不跟随跳转 → file_get_contents($url) 抓取 → 第4行 h($output) 回显",
+    "dangerous_operation": "file_get_contents 以攻击者可控 URL 发起服务端出站请求（含内网/localhost 及非 http wrapper）",
+    "protection": "无协议/主机白名单与内网过滤；follow_location=0 与 65536 长度限制不限制目标主机/协议；require_user 仅要求 operator/admin",
+    "preconditions": [
+      "已登录 operator 或 admin；PHP allow_url_fopen 开启；运行环境可访问目标内网/本机资源"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:27:03.926960+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "5cd16e2732dc4d6d8504c960dfd915d2",
+    "project_revision": 2,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 7.7,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "C",
+        "C": "H",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "GET 接口经网络访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 2,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "填 url 参数即触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需 operator/admin 认证",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 37,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自行发起请求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "C",
+          "rationale": "请求从应用服务器发往内网其它服务",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "响应体完整回显，可读内网数据与本地文件",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "只读请求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性破坏证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/url-preview.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:27:03.927082+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "ssrf",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/url-preview.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/url-preview.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          "explanation": "GET 参数 url 转为待抓取地址。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/url-preview.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "未校验 scheme/host 即交给 file_get_contents，是缺少出站白名单的根因与危险操作。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/url-preview.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "抓取结果经 h($output) 回显，完成信息外带。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "1165f9d057ab410cbdae92ab05c3ec73",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "c842dcdda1034460840072aa594e14f4",
+    "fingerprint": "6504d9c634a5ab17eed1077cec01a647",
+    "category": "task_goal:v2:2c62eb13b0668bfe2ac2:1",
+    "title": "ops XML 导入启用 LIBXML_NOENT|DTDLOAD 导致 XXE 文件读取",
+    "severity": "medium",
+    "summary": "xml-import.php:4 将 POST 的 xml 直接交给 simplexml_load_string，并显式传入 LIBXML_NOENT|LIBXML_DTDLOAD，使外部实体被加载与展开；攻击者可让 title 元素携带 SYSTEM 实体内容，经 (string)$doc->title 在第5行 h($output) 回显，实现本地文件读取。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/xml-import.php",
+        "start_line": 4,
+        "end_line": 5
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 40,
+        "end_line": 40
+      }
+    ],
+    "input_source": "POST 参数 xml",
+    "propagation": "第4行取 POST xml → simplexml_load_string(...,LIBXML_NOENT|LIBXML_DTDLOAD) 展开外部实体 → (string)$doc->title → 第5行 h($output) 输出",
+    "dangerous_operation": "带 LIBXML_NOENT|LIBXML_DTDLOAD 的 XML 解析加载并替换外部实体",
+    "protection": "未使用 LIBXML_NONET，无实体/DTD 禁用；check_csrf 只防跨站伪造，不校验内容",
+    "preconditions": [
+      "已登录 operator 或 admin 且持有效 CSRF token；libxml 允许 DTD 与外部实体加载"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:27:03.928281+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "87545afa016949d6bb5466877091114e",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 6.5,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "POST 表单经网络访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "构造带外部实体的 XML 即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需 operator/admin 认证",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 37,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自行提交",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "影响限于解析进程读取的文件",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "外部实体可读取服务器本地任意可读文件并回显",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 4,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "未见实体写入数据路径",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性破坏证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/xml-import.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:27:03.928352+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "xxe",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/xml-import.php",
+      "line": 4
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/xml-import.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "POST 的 xml 字段作为解析输入。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/xml-import.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "以 LIBXML_NOENT|LIBXML_DTDLOAD 解析不可信 XML，允许外部实体加载替换。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/xml-import.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "实体内容经 $output 在页面输出，构成信息泄露。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "16187c9f310541718e4056e50989fbe0",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "3e0f25bd6ffe431db3d5fc476cc19fc9",
+    "fingerprint": "bd596154ee85b8c7bd50bcc5fe892959",
+    "category": "task_goal:v2:fbef7d10aa25c7870352:1",
+    "title": "ops/users.php 以客户端可控 Cookie role 判定管理员，任意用户可伪造 admin 越权访问人员清单",
+    "severity": "high",
+    "summary": "第2行先取服务端身份 $u，再用 (string)($_COOKIE['role'] ?? $u['role']) 覆盖角色：只要请求携带 Cookie role=admin，即使真实账号为普通会员，$role 也为 admin，第2行 if 放行。bootstrap.php 第20-36行的 require_user 才是服务端权威角色检查，此处未使用；第3行随即读取全部用户 id/username/email/role，第4行可经 Accept: application/json 直接返回该数据，构成对管理员接口的越权与用户信息泄露。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/users.php",
+        "start_line": 1,
+        "end_line": 5
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 20,
+        "end_line": 36
+      }
+    ],
+    "input_source": "HTTP Cookie: role",
+    "propagation": "",
+    "dangerous_operation": "无条件读取全部用户 id/username/email/role 并输出",
+    "protection": "无；bootstrap.php 第33-36行 require_user 的服务端角色校验未被调用",
+    "preconditions": [
+      "攻击者已注册或持有任意有效会员会话（或无需会话，因为未调用 require_user 时 $u 可能为 null，但 Cookie 分支仍可覆盖角色）；服务端未在前置代理删除 Cookie role；若需 $u 非空则需先登录"
+    ],
+    "missing_context": [
+      "ops/audit-log.php 的 events 写入来源（event_log 调用点）未全量读取，无法确认日志伪造路径"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:27:36.476995+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "084718f3526340968f5f106b422d0521",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 7.5,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "通过 HTTP 请求访问公开路径",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "仅需设置 Cookie role=admin",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "未使用 require_user 校验，Cookie 即可决定角色",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身请求即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一 Web 应用",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "返回全部用户 id/username/email/role",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "仅读取",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无写入或破坏",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/users.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:27:36.477103+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "auth_bypass",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/users.php",
+      "line": 2
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/users.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          "explanation": "请求 Cookie 中的 role 值被读取并作为身份角色变量来源。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/users.php",
+            "start_line": 2,
+            "end_line": 2
+          },
+          "explanation": "$role 优先取客户端 Cookie 而非服务端会话用户，if($role!=='admin') 的判断可被 Cookie 伪造绕过。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/users.php",
+            "start_line": 3,
+            "end_line": 4
+          },
+          "explanation": "放行后查询全部用户账号数据，并可经 JSON 响应直接输出。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "d1b29ba702d54d2082f7e20449fccc31",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "3e0f25bd6ffe431db3d5fc476cc19fc9",
+    "fingerprint": "4ff13341ad3882bbaf0b3916adef1a7b",
+    "category": "task_goal:v2:5a4eed9f02f33551ad3f:1",
+    "title": "ops/ping.php 将 GET host 直接拼入 shell_exec 导致系统命令注入",
+    "severity": "high",
+    "summary": "ping.php 第3行 $host=(string)($_GET['host']??'') 后直接执行 shell_exec('ping -c 1 -W 1 '.$host)，未调用 escapeshellarg 或任何过滤。第2行注释声称已用 escapeshellarg，但源码中并不存在，且注释为对抗性数据不可作为安全依据。仅需 operator/admin 会话即可注入 ;、|、$() 等执行任意系统命令并以 h() 输出回显。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/ping.php",
+        "start_line": 1,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 37
+      }
+    ],
+    "input_source": "GET 参数 host",
+    "propagation": "",
+    "dangerous_operation": "shell_exec('ping -c 1 -W 1 '.$host)",
+    "protection": "无；第2行注释所称 escapeshellarg 在源码中不存在",
+    "preconditions": [
+      "攻击者持有 operator 或 admin 有效会话（第3行 require_user(['operator','admin'])）；目标主机可执行 shell 命令"
+    ],
+    "missing_context": [
+      "ops/audit-log.php 的 events 写入来源（event_log 调用点）未全量读取，无法确认日志伪造路径"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:27:36.478422+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "af938ba409f5442491862852afd396fb",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.8,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP 请求可达公开脚本",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "直接拼接无过滤",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需要 operator/admin 登录会话",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一主机进程边界未改变 Web 授权边界",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "任意命令可读取文件与数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "任意命令可修改数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "H",
+          "rationale": "可执行任意破坏性命令",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/ping.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:27:36.478506+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "command_injection",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/ping.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/ping.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "GET 参数 host 直接赋给 $host。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/ping.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "$host 未转义即拼接进 shell_exec 命令串。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/ping.php",
+            "start_line": 3,
+            "end_line": 4
+          },
+          "explanation": "shell_exec 以拼接命令执行系统 ping，结果输出到页面。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "ddce4f42eefc437c8ea6173f4f8c6483",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "fc8ed45afd7d4c1380be87dc3f4b11f3",
+    "fingerprint": "72e8b5388330edf50dc2fd69ab736ebc",
+    "category": "task_goal:v2:ac69ae12b35a2bc7e3cd:1",
+    "title": "注册接口仅校验 POST 方法，无 CSRF 令牌可被跨站强制建号",
+    "severity": "medium",
+    "summary": "register.php 第4行仅判断 REQUEST_METHOD==='POST' 即处理注册，第5-8行直接读取 $_POST['username'/'password'/'email'] 并执行 INSERT 建号；第10行渲染的表单未调用 csrf_field()，处理分支也未调用 check_csrf()（bootstrap.php:40 提供该校验但未被使用）。因此第三方站点可自动提交表单在受害者浏览器中创建以攻击者选定用户名/密码的账户。影响为状态变更（创建用户记录），不涉及读取受害者既有数据。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/auth/register.php",
+        "start_line": 4,
+        "end_line": 8
+      },
+      {
+        "path": "lab30-shop/app/public/auth/register.php",
+        "start_line": 10,
+        "end_line": 10
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 38,
+        "end_line": 40
+      }
+    ],
+    "input_source": "跨站页面自动提交的 POST 表单（username/password/email 字段）",
+    "propagation": "POST 请求 → 第4行方法判断通过 → 第5行取参数 → 第7-8行插入 users 表",
+    "dangerous_operation": "INSERT INTO users 创建账户记录",
+    "protection": "bootstrap.php:40 的 check_csrf 存在但 register.php 未调用；表单未输出 csrf 字段；会话 Cookie 设为 SameSite=Lax，对部分跨站 POST 有缓解但非服务端令牌校验",
+    "preconditions": [
+      "受害者浏览器已存在/可建立站点 Cookie（SameSite=Lax 下顶层导航 POST 的行为依赖浏览器实现）；攻击者能诱导受害者访问携带自动提交表单的页面"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:27:56.395152+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "91c788ecdaf74b519c1cfef09975c0fd",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 4.3,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "R",
+        "S": "U",
+        "C": "N",
+        "I": "L",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "攻击页面可远程托管并诱导访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "仅需构造表单提交，无额外条件",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "注册入口无需认证",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "R",
+          "rationale": "需受害者访问攻击页面并触发提交",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "影响限于本站用户创建",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "N",
+          "rationale": "不读取受害者数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 7,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "L",
+          "rationale": "可创建未授权用户记录（受用户名唯一约束）",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性影响证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:27:56.395273+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "csrf",
+    "primary_location": {
+      "path": "lab30-shop/app/public/auth/register.php",
+      "line": 4
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "注册公开入口的状态变更缺少 CSRF 防护，属于目标要求的鉴权/状态变化检查项",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/register.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "username/password 来自请求体 POST 参数"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/register.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "仅以请求方法判断是否处理，未做任何来源或 CSRF 令牌校验"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/register.php",
+            "start_line": 8,
+            "end_line": 8
+          },
+          "explanation": "execute 向 users 表插入新账户，形成状态变更"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "3955bd85eace4068a8c0470d7da2f1d8",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "fc8ed45afd7d4c1380be87dc3f4b11f3",
+    "fingerprint": "ee819edddee86cb043e538e921b02170",
+    "category": "task_goal:v2:7a608d6c1e4db8b6af2c:1",
+    "title": "用户密码使用无盐 MD5 存储（weak_crypto）",
+    "severity": "medium",
+    "summary": "register.php 第8行将明文密码直接 md5($password) 写入 password_md5 列，无盐、无慢哈希；login.php 第8行以 hash_equals 比较同一 md5 值，bootstrap.php:23 会在 user() 中读出用户行。MD5 已被证可高速碰撞/离线爆破，数据库泄露后密码可快速还原，且相同密码产生相同哈希。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/auth/register.php",
+        "start_line": 7,
+        "end_line": 8
+      },
+      {
+        "path": "lab30-shop/app/public/auth/login.php",
+        "start_line": 8,
+        "end_line": 8
+      }
+    ],
+    "input_source": "POST password 参数",
+    "propagation": "第5行取 password → 第8行 md5() → INSERT password_md5",
+    "dangerous_operation": "md5 哈希后持久化到 users.password_md5",
+    "protection": "无盐 MD5，非 password_hash/bcrypt/argon2；虽 login 使用 hash_equals 防时序，但不改变离线破解强度",
+    "preconditions": [
+      "攻击者获取数据库或密码哈希（如通过备份、SQL 注入、撞库比对）；无盐使预计算表直接可用"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:27:56.396876+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "b46d52305aeb4ea4a289020b4e44c87c",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 5.9,
+      "base_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "H",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "哈希通常经网络/数据库泄露获得",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "H",
+          "rationale": "需先获得哈希存储，属额外前提",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "注册即可产生哈希",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无用户交互依赖",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "限于凭据保密性",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "无盐 MD5 泄露后密码可被还原，进而接管账户",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/login.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "存储算法本身不直接改动数据完整性",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性影响证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/register.php",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:27:56.396982+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "weak_crypto",
+    "primary_location": {
+      "path": "lab30-shop/app/public/auth/register.php",
+      "line": 8
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "密码存储强度属于存储后使用/凭据安全的检查项",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/register.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "明文密码来自 POST"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/register.php",
+            "start_line": 8,
+            "end_line": 8
+          },
+          "explanation": "md5($password) 直接作为凭据写入数据库，根因与持久化同处"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "f8f16392fad34e12abbb225dd817ef42",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "44c62090493f4a3a812d61489db7420d",
+    "fingerprint": "2036a0833b1c155559341d40f558047e",
+    "category": "task_goal:v2:d5e6df000e41670f00af:1",
+    "title": "客服留言存储型 XSS：message 持久化后未转义原样输出",
+    "severity": "medium",
+    "summary": "support/messages.php:4 接收 POST message（长度<=5000）并 INSERT 到 messages 表；第 6 行 foreach 输出时 display_name、created_at 均经 h() 转义，但 $row['message'] 直接拼入 <div class=\"message-body\">，攻击者可提交含脚本的留言，所有查看留言页的用户（含管理员）触发脚本执行。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/support/messages.php",
+        "start_line": 4,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/public/support/messages.php",
+        "start_line": 5,
+        "end_line": 5
+      },
+      {
+        "path": "lab30-shop/app/public/support/messages.php",
+        "start_line": 6,
+        "end_line": 6
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 10,
+        "end_line": 10
+      }
+    ],
+    "input_source": "已登录用户提交的 POST message 字段",
+    "propagation": "",
+    "dangerous_operation": "未转义的持久化数据拼入 HTML 输出",
+    "protection": "同文件其它字段使用 h()（bootstrap.php:10 htmlspecialchars ENT_QUOTES）；message 字段未使用，也无 CSP 依据。",
+    "preconditions": [
+      "攻击者拥有可提交留言的登录账号；受害者浏览 /support/messages.php"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:28:18.784596+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "6500b8341d924d06ae2148ecceb16112",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 4.6,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:L/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "R",
+        "S": "U",
+        "C": "L",
+        "I": "L",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "通过网站 HTTP 访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "仅需提交普通表单",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需登录账号留言",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "R",
+          "rationale": "受害者需访问留言页",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 6,
+              "end_line": 6,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同源浏览器内执行",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 6,
+              "end_line": 6,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "L",
+          "rationale": "可读取会话相关内容",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 6,
+              "end_line": 6,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "L",
+          "rationale": "可代用户发起请求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 6,
+              "end_line": 6,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无持久服务破坏证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/support/messages.php",
+              "start_line": 6,
+              "end_line": 6,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:28:18.784687+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "xss_s",
+    "primary_location": {
+      "path": "lab30-shop/app/public/support/messages.php",
+      "line": 6
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "对应目标中消息存储后输出的检查，源码第6行确认未转义。",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/support/messages.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "POST 参数 message 作为留言内容被接收并 INSERT 到数据库持久化。"
+        },
+        {
+          "kind": "readback",
+          "evidence": {
+            "path": "lab30-shop/app/public/support/messages.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "查询 messages 表取回包括 message 在内的所有行。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/support/messages.php",
+            "start_line": 6,
+            "end_line": 6
+          },
+          "explanation": "$row['message'] 未经 h() 转义直接拼入 HTML 响应，根因与危险输出同处此 HTML 拼接。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "304cacb5e614451c9be976f4b87b5fea",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "44c62090493f4a3a812d61489db7420d",
+    "fingerprint": "4af5a30eafa68177dc06d4fa6dfe655f",
+    "category": "task_goal:v2:3f3402a21d2e12c5964d:1",
+    "title": "商品目录搜索参数 q 直接拼接进 LIKE SQL 导致注入",
+    "severity": "high",
+    "summary": "catalog/index.php:4 取 $_GET['q']，第 5 行以字符串拼接方式放入 \"... WHERE name LIKE '%\".$term.\"%'\" 并 db()->query() 执行，无参数绑定，构成 SQL 注入；第 6 行的 h($term) 仅影响 HTML 回显，不能阻止 SQL 层注入。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "start_line": 4,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "start_line": 5,
+        "end_line": 5
+      },
+      {
+        "path": "lab30-shop/app/public/catalog/index.php",
+        "start_line": 6,
+        "end_line": 6
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 6,
+        "end_line": 6
+      }
+    ],
+    "input_source": "GET 参数 q",
+    "propagation": "",
+    "dangerous_operation": "用户输入拼接进 SQL 并执行",
+    "protection": "未使用 prepare/绑定参数；仅输出端 h() 转义，不作用于 SQL 结构。",
+    "preconditions": [
+      "无需认证即可访问 /catalog/index.php"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:28:18.786382+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "0fbdbba6df77455a981f73eaf3e70f43",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.2,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "L",
+        "A": "N"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "网络可访问",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "构造 q 参数即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 4,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "无需登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 4,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自身请求即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一数据库上下文",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "可读取任意表数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "L",
+          "rationale": "可影响查询结果",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无直接破坏证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/catalog/index.php",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:28:18.786496+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "sqli",
+    "primary_location": {
+      "path": "lab30-shop/app/public/catalog/index.php",
+      "line": 5
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "对应目标中目录搜索参数是否进入 SQL 的检查，源码确认直接拼接。",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/catalog/index.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "$_GET['q'] 作为搜索词进入变量。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/catalog/index.php",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "搜索词直接拼入 SQL 字符串并以 query() 执行，根因与危险操作同处此拼接行。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "51d3961cb1504c23a88e4de4aa0bd24b",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "b45403cbcf1f4aee9f318230b09950fe",
+    "fingerprint": "e12237bbecee530d214856b7588cf0cd",
+    "category": "task_goal:v2:16602d096632d051cae3:1",
+    "title": "php.ini 开启 allow_url_include，远程 PHP 内容可直接被引用执行",
+    "severity": "critical",
+    "summary": "docker/php.ini:3 设置 allow_url_include=On，web.Dockerfile:5 将该 ini 复制进 PHP 配置目录使其生效。应用层已存在把 URL/模板内容直接 include 的动态代码（见既有 rfi/code_execution 结论），allow_url_include=On 使 include 操作数可为 http:// 远程地址，从而由 fixtures/server.py:16-17 这类返回 PHP 源码的端点提供载荷并被服务端解析执行。配置关闭是此类远程包含的最后边界，源码显示该边界被主动移除，故远程包含路径在部署层成立。",
+    "evidence": [
+      {
+        "path": "lab30-shop/docker/php.ini",
+        "start_line": 3,
+        "end_line": 3
+      },
+      {
+        "path": "lab30-shop/docker/web.Dockerfile",
+        "start_line": 5,
+        "end_line": 5
+      },
+      {
+        "path": "lab30-shop/fixtures/server.py",
+        "start_line": 16,
+        "end_line": 17
+      },
+      {
+        "path": "lab30-shop/compose.yaml",
+        "start_line": 58,
+        "end_line": 58
+      }
+    ],
+    "input_source": "",
+    "propagation": "",
+    "dangerous_operation": "",
+    "protection": "",
+    "preconditions": [
+      "存在可达的动态 include/文件包含代码接受攻击者可控操作数；攻击者能控制被包含 URL（如指向 fixtures 或外部 PHP 内容）；web 容器对允许 URL 出网"
+    ],
+    "missing_context": [
+      "未读取 ops/template-preview.php 等动态 include 点原文行，本 findings 依赖既有 rfi 结论中操作数可控这一前提"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:30:05.732492+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": "fab9de2fc9f84f599dc3845f4e06783c",
+    "disposition": "duplicate",
+    "disposition_reason": "php.ini:3 allow_url_include=On 经 web.Dockerfile:5 生效，本身只是移除远程包含边界，不构成可独立利用的缺陷；其利用必须依赖 template-preview.php:3 的 include $template 这一可控操作数。该配置与本批主结论为同一根因链的必要条件，按同根因归并为主结论的重复项，不另立独立漏洞。",
+    "disposition_by": "planner_batch:3b42a346b08c459cbe39d32690e2c656",
+    "disposition_at": "2026-11-11T08:35:27.045183+00:00",
+    "project_finding_id": "8460e0cd1e6a441186d696b1fe23303e",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 9.8,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H"
+      },
+      "severity": "critical"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "Web 入口可经网络触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/docker/apache.conf",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "配置项直接生效，无需特殊竞态",
+          "evidence": [
+            {
+              "path": "lab30-shop/docker/php.ini",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "包含入口若为公开页面则无需权限",
+          "evidence": [
+            {
+              "path": "lab30-shop/docker/apache.conf",
+              "start_line": 8,
+              "end_line": 8,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需受害者交互",
+          "evidence": [
+            {
+              "path": "lab30-shop/docker/php.ini",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "仍在应用进程内执行",
+          "evidence": [
+            {
+              "path": "lab30-shop/docker/web.Dockerfile",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "可执行任意 PHP 读取数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/setup.php",
+              "start_line": 25,
+              "end_line": 26,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "可写数据库与文件",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/setup.php",
+              "start_line": 34,
+              "end_line": 35,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "H",
+          "rationale": "可执行命令/破坏数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/docker/entrypoint.sh",
+              "start_line": 5,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:30:05.732637+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "rfi",
+    "primary_location": {
+      "path": "lab30-shop/docker/php.ini",
+      "line": 3
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/fixtures/server.py",
+            "start_line": 16,
+            "end_line": 17
+          },
+          "explanation": "合作方服务在 /templates/season.php 返回可被解析的 PHP 源码，构成远程包含载荷来源；web 容器可经 shop 网络访问 fixtures:8080。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/docker/php.ini",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "allow_url_include=On 直接移除了 PHP 对 http(s) URL 作为 include 操作数的禁止，是本条部署层根因。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/docker/web.Dockerfile",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "该 COPY 把 php.ini 安装到 PHP 的 conf.d，使 allow_url_include=On 实际生效于所有 Web 请求；结合已存在的动态 include 点即达远程代码执行。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "ad72db98ea1a4998bafd02b3d2f69443",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "b45403cbcf1f4aee9f318230b09950fe",
+    "fingerprint": "f12027cbdf66772aa4a965d2b2e5ec86",
+    "category": "task_goal:v2:ae5a2aec06499dad3461:1",
+    "title": "初始化脚本以明文硬编码默认口令创建 admin/operator 账户",
+    "severity": "critical",
+    "summary": "app/src/setup.php:17 在每次重置时以固定明文口令（alice Alice123!、admin Admin123!、operator Ops123!）经 md5 写入 users 表，entrypoint.sh:5 在容器启动时自动执行 setup.php，compose.yaml 暴露的 web 服务因此始终带已知口令的管理员/运营账户。攻击者只需使用公开口令登录即可获得 admin 权限；md5 无盐亦使口令可离线暴破，且这些口令在源码里直接可读。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/src/setup.php",
+        "start_line": 16,
+        "end_line": 17
+      },
+      {
+        "path": "lab30-shop/docker/entrypoint.sh",
+        "start_line": 5,
+        "end_line": 5
+      },
+      {
+        "path": "lab30-shop/compose.yaml",
+        "start_line": 42,
+        "end_line": 42
+      }
+    ],
+    "input_source": "",
+    "propagation": "",
+    "dangerous_operation": "",
+    "protection": "",
+    "preconditions": [
+      "web 服务可被访问；数据库已由 entrypoint 初始化（compose 中 web 依赖 db/fixtures healthcheck 后自动执行 setup.php）"
+    ],
+    "missing_context": [
+      "未读取 ops/template-preview.php 等动态 include 点原文行，本 findings 依赖既有 rfi 结论中操作数可控这一前提"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:30:05.733611+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "2e803bc0a23145ff956f27221568e273",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 9.4,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "L"
+      },
+      "severity": "critical"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "经 Web 登录接口可达",
+          "evidence": [
+            {
+              "path": "lab30-shop/docker/apache.conf",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "口令直接写在源码中",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/setup.php",
+              "start_line": 17,
+              "end_line": 17,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "登录前无权限要求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 34,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需他人交互",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/setup.php",
+              "start_line": 17,
+              "end_line": 17,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一应用权限边界内提权",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 53,
+              "end_line": 53,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "admin 可读写全站数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/setup.php",
+              "start_line": 7,
+              "end_line": 7,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "H",
+          "rationale": "admin 可修改数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/setup.php",
+              "start_line": 15,
+              "end_line": 15,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "L",
+          "rationale": "可破坏商城数据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/bin/reset.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:30:05.733679+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "weak_crypto",
+    "primary_location": {
+      "path": "lab30-shop/app/src/setup.php",
+      "line": 17
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/src/setup.php",
+            "start_line": 17,
+            "end_line": 17
+          },
+          "explanation": "账户口令字符串作为输入写入用户表，包含 admin/operator 的固定明文口令。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/src/setup.php",
+            "start_line": 17,
+            "end_line": 17
+          },
+          "explanation": "该行用 md5(固定明文) 生成管理账户口令并持久化，是不可更改的已知凭据根因。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/docker/entrypoint.sh",
+            "start_line": 5,
+            "end_line": 5
+          },
+          "explanation": "容器启动时由 www-data 自动执行 setup.php，使上述硬编码口令的管理账户在每个部署中真实存在，攻击者可用公开口令直接登录提权。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "e65a636d80844c509e079501e3aadd48",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "0fdc03816e32461eb26881b508508771",
+    "fingerprint": "cbd5048e5a58a0c50f3cac1ee2dbbf8b",
+    "category": "task_goal:v2:4390689d49ed70a2118f:1",
+    "title": "content/page.php page 参数无校验拼接进入 include（LFI）",
+    "severity": "high",
+    "summary": "第3行 $name=(string)($_GET['page']??'home') 直接取用户可控参数；第4行 include APP_ROOT.'/resources/views/'.$name.'.php' 将其拼入固定本地前缀的包含路径，仅在末尾追加 .php 后缀，未做 basename、白名单或 realpath 校验。攻击者可用 ../ 序列穿越到其它 php 文件或借助路径截断/包装器读取执行本地文件。APP_ROOT 由 bootstrap.php:3 定义为 __DIR__.'/..'。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/content/page.php",
+        "start_line": 3,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 3,
+        "end_line": 3
+      }
+    ],
+    "input_source": "$_GET['page']",
+    "propagation": "$_GET['page'] -> $name -> include APP_ROOT.'/resources/views/'.$name.'.php'",
+    "dangerous_operation": "include 动态拼接路径",
+    "protection": "仅末尾追加 '.php'，无 basename/白名单/realpath，可被 ../ 穿越",
+    "preconditions": [
+      "无需登录（page.php 未调用 require_user）；服务器允许 include 相对/穿越路径"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:30:51.565719+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "1e9d8b195bcd4a028bc9d9b58da637f4",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 8.2,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "L",
+        "A": "N"
+      },
+      "severity": "high"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP 公开入口",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "普通 ../ 路径即可穿越",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "N",
+          "rationale": "page.php 未调用 require_user",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需受害者参与",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一应用上下文",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "可包含并执行/读取本地文件",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "L",
+          "rationale": "包含执行可能影响状态",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无直接可用性影响证据",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/content/page.php",
+              "start_line": 4,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:30:51.565852+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "lfi",
+    "primary_location": {
+      "path": "lab30-shop/app/public/content/page.php",
+      "line": 4
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "公开输入进入危险 include 操作，属目标内的真实漏洞",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/content/page.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "从 $_GET['page'] 取用户可控值并强转字符串到 $name"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/content/page.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "将 $name 直接拼入 include 路径，无 basename/白名单校验，根因与危险操作同处"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/content/page.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "include 执行拼接后的本地路径"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "ac2266d5ca874721a6735612d105b938",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "752986ad3602422684f235dc1b7f8c30",
+    "fingerprint": "4116dbd45f8f3135c02e35de2d198e85",
+    "category": "task_goal:v2:2c443233489cc264cd53:1",
+    "title": "auth/continue.php 将请求参数 next 直接写入 Location 头导致开放重定向",
+    "severity": "low",
+    "summary": "continue.php:3 在仅 require_user() 后读取 $_GET['next'] 并原样拼入 header('Location: ...')，无协议/主机白名单、无相对路径限制、无 h() 或过滤。任何已登录用户（含被诱导点击链接的受害者）可构造 next=//evil.example 或 https://evil.example 使浏览器跳转到外部站点，可用于钓鱼与凭据窃取。该坐标不在当前运行根因索引中。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/auth/continue.php",
+        "start_line": 2,
+        "end_line": 3
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 33,
+        "end_line": 36
+      }
+    ],
+    "input_source": "$_GET['next']",
+    "propagation": "require_user() 仅校验登录，未校验 next 目标；随后直接 302 跳转",
+    "dangerous_operation": "header('Location: '.(string)$_GET['next'])",
+    "protection": "无：未做同源/白名单/协议限制",
+    "preconditions": [
+      "攻击者已登录以通过 require_user()；诱导受害者访问带 next 外链的 continue.php 链接"
+    ],
+    "missing_context": [
+      "redeem 的固定兑换码 secret 是否被外部状态/多次使用限制（未在已读代码中出现），否则可能存在无原子性重复兑换"
+    ],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:32:06.660320+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "b85e82b6f6c44b62828e67831175c7a0",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 3.5,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "R",
+        "S": "U",
+        "C": "L",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "low"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "通过链接远程触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "仅需构造外链参数",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需通过 require_user 登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 36,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "R",
+          "rationale": "需受害者点击链接",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "跳转不改变授权边界",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "L",
+          "rationale": "重定向至仿冒站点可导致凭据泄露",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "服务端状态未被修改",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性影响",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:32:06.660426+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "open_redirect",
+    "primary_location": {
+      "path": "lab30-shop/app/public/auth/continue.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "属于公开输入进入危险操作的开放重定向，符合全量白盒审计目标",
+        "evidence": [
+          {
+            "path": "lab30-shop/app/public/auth/continue.php",
+            "start_line": 2,
+            "end_line": 3
+          }
+        ],
+        "supports": [
+          "objective-main"
+        ],
+        "chain": [
+          {
+            "kind": "input",
+            "evidence": {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3
+            },
+            "explanation": "GET next 参数"
+          },
+          {
+            "kind": "sink",
+            "evidence": {
+              "path": "lab30-shop/app/public/auth/continue.php",
+              "start_line": 3,
+              "end_line": 3
+            },
+            "explanation": "未过滤写入 Location"
+          }
+        ]
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/continue.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "$_GET['next'] 为攻击者可控的请求参数"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/auth/continue.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "未校验即写入 Location 响应头，根因与危险操作同处此拼接行"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "669f3338a1d746889221e954fa4cad18",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "c02fce2690d24704b3548004b617c6e2",
+    "fingerprint": "0499218eb31a2c9b7462660d7ba28082",
+    "category": "task_goal:v2:6a94f8d1e82a5fed21b3:1",
+    "title": "database.php probe=archive 异常将连接信息与堆栈回显",
+    "severity": "medium",
+    "summary": "database.php:3 当 probe=archive 时用不存在的 shop_archive_unconfigured 库名构造 PDO 连接，异常被 catch 后把 get_class($e)、$e->getMessage() 与 getTraceAsString() 拼进 $output，第 4 行页面直接输出。PDO 异常消息含数据库主机与库名，堆栈含应用文件路径，任何 operator/admin 均可触发。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/ops/database.php",
+        "start_line": 3,
+        "end_line": 4
+      },
+      {
+        "path": "lab30-shop/app/src/bootstrap.php",
+        "start_line": 6,
+        "end_line": 6
+      }
+    ],
+    "input_source": "GET 参数 probe 选择 archive 数据源",
+    "propagation": "probe=archive 时 $schema 取 shop_archive_unconfigured，new PDO 失败抛异常，catch 把异常类、消息与堆栈写入 $output",
+    "dangerous_operation": "把 PDOException 的 getMessage 与 getTraceAsString 原样输出到页面",
+    "protection": "无：异常细节未泛化，直接进入 $output",
+    "preconditions": [
+      "已登录 operator 或 admin;请求 database.php?probe=archive"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:33:36.138133+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "219cdbf227e44b33baeff12f61d42fd8",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 4.3,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "L",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "网络请求触发",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "仅需选择 archive",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "需 operator/admin 会话",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 2,
+              "end_line": 2,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "攻击者自行请求",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "不改变授权边界",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "L",
+          "rationale": "泄露 DB 主机库名与内部路径",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "无写操作",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "不影响可用性",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/ops/database.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:33:36.138334+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "info_disclosure",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/database.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "focus": {
+        "objective_ref": "objective-main",
+        "relation": "relevant",
+        "rationale": "目标要求审计 database.php 敏感操作与信息暴露",
+        "evidence": [],
+        "supports": [],
+        "chain": []
+      },
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/database.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "GET probe=archive 选择错误库名触发连接异常。"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/database.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "catch 块把异常类名、消息与堆栈拼入输出变量。"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/ops/database.php",
+            "start_line": 4,
+            "end_line": 4
+          },
+          "explanation": "页面输出 $output，异常中主机/库名与路径回显。"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  },
+  {
+    "id": "289ebf13b8664197b85d0749060edecc",
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "5b27b544720f4b6f8ece16a37eb196f5",
+    "fingerprint": "5b11a4e969480d8f2077b89c33d859b4",
+    "category": "task_goal:v2:a21eefbd03f4349cae2c:1",
+    "title": "订单详情按 id 查询未约束归属，任意登录用户可越权读取他人订单",
+    "severity": "medium",
+    "summary": "orders/detail.php:3 使用 SELECT o.*,u.username,p.name ... WHERE o.id=? 且仅以 $_GET['id'] 为条件，未附加 user_id=$u['id']（对比 orders/index.php:2 使用 user_id=? 约束）。第2行 require_user() 只验证已登录，不校验对象归属；第4行在 Accept: application/json 时直接将查询结果整行 json_response($o)，泄露他人订单号、数量、金额、购买人用户名与 private_note。攻击者只需枚举整数 id 即可读取。",
+    "evidence": [
+      {
+        "path": "lab30-shop/app/public/orders/detail.php",
+        "start_line": 2,
+        "end_line": 4
+      }
+    ],
+    "input_source": "GET 参数 id（/orders/detail.php?id=N）",
+    "propagation": "$_GET['id']→WHERE o.id=?→$o→json_response($o) 或页面渲染 private_note",
+    "dangerous_operation": "按主键读取订单但未附加当前用户归属条件，并整体 JSON 输出",
+    "protection": "",
+    "preconditions": [
+      "攻击者需拥有任意一个已登录账号；目标订单 id 存在且属于其他用户"
+    ],
+    "missing_context": [],
+    "poc": "null",
+    "remediation": "",
+    "validation_state": "candidate",
+    "validation_errors": [],
+    "verdict": null,
+    "created_at": "2026-11-11T08:33:39.037924+00:00",
+    "finding_kind": "vulnerability",
+    "revision": 1,
+    "superseded_summary": null,
+    "derived_from_finding_id": null,
+    "disposition": "open",
+    "disposition_reason": null,
+    "disposition_by": null,
+    "disposition_at": null,
+    "project_finding_id": "7bd69c2784e249d6ab2b836539ffa52a",
+    "project_revision": 1,
+    "verification_status": "unverified",
+    "verification_verdict": null,
+    "cvss": {
+      "version": "3.1",
+      "score_basis": "Base",
+      "base_score": 6.5,
+      "base_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "metrics": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N"
+      },
+      "severity": "medium"
+    },
+    "cvss_assessment": {
+      "status": "scored",
+      "source": "auto",
+      "assessment_revision": 1,
+      "conclusion_revision": 1,
+      "engine_version": "cvss31-base-1",
+      "metric_details": {
+        "AV": {
+          "value": "N",
+          "rationale": "HTTP 接口远程可达",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "AC": {
+          "value": "L",
+          "rationale": "顺序枚举整数 id 即可",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "PR": {
+          "value": "L",
+          "rationale": "require_user 仅要求已登录",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/src/bootstrap.php",
+              "start_line": 33,
+              "end_line": 36,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "UI": {
+          "value": "N",
+          "rationale": "无需其他用户参与",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "S": {
+          "value": "U",
+          "rationale": "同一应用授权边界内",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 3,
+              "end_line": 3,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "C": {
+          "value": "H",
+          "rationale": "返回整行订单含 private_note、username、total",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 4,
+              "end_line": 5,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "I": {
+          "value": "N",
+          "rationale": "仅读取，无写入",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        },
+        "A": {
+          "value": "N",
+          "rationale": "无可用性影响",
+          "evidence": [
+            {
+              "path": "lab30-shop/app/public/orders/detail.php",
+              "start_line": 3,
+              "end_line": 4,
+              "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894"
+            }
+          ],
+          "assumption": false,
+          "issues": []
+        }
+      },
+      "issues": [],
+      "created_at": "2026-11-11T08:33:39.038023+00:00",
+      "snapshot_id": "b976be7f2fd54bfcb35bc227fa88b894",
+      "run_id": "3d536d1a8ab44eb7bb14941daa5271f3"
+    },
+    "legacy_severity": null,
+    "vulnerability_type": "idor",
+    "primary_location": {
+      "path": "lab30-shop/app/public/orders/detail.php",
+      "line": 3
+    },
+    "audit_metadata": {
+      "dataflow": [
+        {
+          "kind": "input",
+          "evidence": {
+            "path": "lab30-shop/app/public/orders/detail.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "$_GET['id'] 直接绑定到查询条件"
+        },
+        {
+          "kind": "root_cause",
+          "evidence": {
+            "path": "lab30-shop/app/public/orders/detail.php",
+            "start_line": 3,
+            "end_line": 3
+          },
+          "explanation": "查询缺少 user_id 归属约束，require_user 只保证登录"
+        },
+        {
+          "kind": "sink",
+          "evidence": {
+            "path": "lab30-shop/app/public/orders/detail.php",
+            "start_line": 4,
+            "end_line": 5
+          },
+          "explanation": "查询结果被整体 JSON 输出或渲染 private_note/username/total"
+        }
+      ],
+      "capability_policy": "audit-capability-v1"
+    }
+  }
+]

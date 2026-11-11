@@ -1,0 +1,722 @@
+[
+  {
+    "ref": "event:92556:code",
+    "text_sha256": "2d06dea407e1ea663b2c3b2695562e4c61fa18a1d427a7e584b63ab675041c5a",
+    "chars": 296,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92589:assessment",
+    "text_sha256": "da90350b8fb9945220cde0e41064dc67b834c1ec98554bd90d93d338ac677c56",
+    "chars": 12932,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92619:code",
+    "text_sha256": "ada74c79ea7afd26aea33f4e9a71b5719defecd551b8e68c60f1c4e2bf1cdff7",
+    "chars": 596,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92626:assessment",
+    "text_sha256": "1ebcc1334b48bb689bd5496c3ef1c706e98bba8616c11d2d617bf2ba721ffbac",
+    "chars": 15145,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92650:assessment",
+    "text_sha256": "dc0538f7873956b468daf34955b7cfc38b9d8a7ddea1667b108dd66feaa7a9f1",
+    "chars": 12305,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92671:code",
+    "text_sha256": "f8867232f8aa0342587aa88cb7c9becf615cbdfa0cdbc115b09a53eaaa76ef4a",
+    "chars": 325,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92685:code",
+    "text_sha256": "f8813a4bbf7f5ff47debeccba55735407d4b5e564168bf0be8b1a5943a664721",
+    "chars": 309,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92705:code",
+    "text_sha256": "7fd0bda6a0f9a11cad0d165c962b34f61eb49190fc23d208244087c8373b7e24",
+    "chars": 273,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92708:assessment",
+    "text_sha256": "e247be9bd8389dd5e5a981e7ed5b5cafd3e2cbac97f320d6c2fcac49f5362a5e",
+    "chars": 13286,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92742:code",
+    "text_sha256": "d2e9adf2b9377a13f990a6a8100e643391a110248bfa1a5576407954db1ced81",
+    "chars": 234,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92744:code",
+    "text_sha256": "c2538a83bf1f4febe3c82172abca4d042eeef09e512f69443dcb78cad190549c",
+    "chars": 428,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92757:code",
+    "text_sha256": "c85cb6707d1e63dc42e1d9d4992ae87681841b352c3cbc36764e8817d761fc5e",
+    "chars": 235,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92775:code",
+    "text_sha256": "04a0d17db991d1a5c4cbd359f283e6cd90d54e6f3d67f868421760b29bad7e8e",
+    "chars": 432,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92781:code",
+    "text_sha256": "2063c16da0dda479b9e9dcfb9a8bd41131fa39fbec74131a5cc4617b835aa20f",
+    "chars": 102,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92788:code",
+    "text_sha256": "05f8e031b452fc851525433dc7164b751225f16d02d5f9c25b34fdeb9ca3e7f9",
+    "chars": 4096,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92794:assessment",
+    "text_sha256": "959311ec8e878c406a5fa5f28956529e4b29c6fe227cfd3cf29b16e748fe3098",
+    "chars": 13549,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92803:code",
+    "text_sha256": "a4220102974b34b197ee1a9273eafdbc4344fce909dce04356d4bee400985801",
+    "chars": 4096,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92805:assessment",
+    "text_sha256": "4e4ac612744b12d1a73922ac80d19dc5975af913ac3122ea38e4e13de068d9a5",
+    "chars": 28616,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92884:code",
+    "text_sha256": "3bac9d74f287dad7d1b89e32bd648e40761d02625484eb6a8751ee644f7dad0b",
+    "chars": 330,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92897:code",
+    "text_sha256": "0293e916aaf0763a6f43e72092d4ce0e19c4adc021f8518ea43c09a6e7b24730",
+    "chars": 332,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92904:assessment",
+    "text_sha256": "b9077a63b596f0cf519a49a13f7fcc06d723945549f3312fa98721e0ba809e0b",
+    "chars": 12002,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92931:code",
+    "text_sha256": "cdfddf66d330c4e3c7e0cb61d9a7e1352e52204e111c1b75ec05eff212065132",
+    "chars": 488,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92938:assessment",
+    "text_sha256": "549d54d4f0aa6a1bbc9c0966a357c0261a98c4056d58dea90022b28d311e9c69",
+    "chars": 11199,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92957:assessment",
+    "text_sha256": "2348016cd2d3e9e44875fcb5c0d8e7da97e9f9cabf704a98a1af1f7c4864aae9",
+    "chars": 11430,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92983:code",
+    "text_sha256": "1d8e0e9f93e23b2dd518dbbeae7b1fac5802bfbfc3e1ffb5c376a45d38683b59",
+    "chars": 326,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:92996:code",
+    "text_sha256": "c5ff2b446ea3a20301ad253e2e7b93419199d8b1d928231c0270796a03c8382d",
+    "chars": 362,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93012:assessment",
+    "text_sha256": "7a1274370ef6c68aacd3fb8144419f9877a75ed643a5c6cdf764777359b16337",
+    "chars": 8678,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93032:code",
+    "text_sha256": "ce8032624fea630da58078e6f96eefa07eb2e3b7c5b857c5f9dae6e30e300290",
+    "chars": 4096,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93034:assessment",
+    "text_sha256": "3f5425031bc4c629ec02b5fc8e3d294a8576065edc35275ec189fe4dd4df4624",
+    "chars": 10232,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93066:code",
+    "text_sha256": "9e757ac36e55f23e84381525a9cf2a1368067e238a755f0cab65a4232c36de3d",
+    "chars": 397,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93067:code",
+    "text_sha256": "c7fcf02c5625a2a36fd5525642d6d29d9396e2580052721ed560c7ef373bde01",
+    "chars": 302,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93077:assessment",
+    "text_sha256": "eea666f2953f0ea2aa8ec971f4d650ceee1bd31d3ee11c94c2c2dae752edaaf5",
+    "chars": 13062,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93100:assessment",
+    "text_sha256": "cf0b60f5b3fa2c736da45ce41e9374791150893ddb6e5da2a81f376d83b3f701",
+    "chars": 10230,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93106:code",
+    "text_sha256": "574bbc3e943c23e6efa2baac0d756169333283e9756be89b4965fe299145c5f7",
+    "chars": 139,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93124:code",
+    "text_sha256": "e78c801382cc97a46eb2082af89d1fe862e0baf7c0f7aa84d46b0d9f10f5bee3",
+    "chars": 316,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93132:code",
+    "text_sha256": "9a9035b722bd26c7dce7b58574ede1199ef9be1bb03b0bf801d9a01f09341401",
+    "chars": 240,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93144:code",
+    "text_sha256": "0d9c1e30249de6167e2f01677c9473d0d1918fc2b53d4e50ad56e63bc366641b",
+    "chars": 363,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93152:assessment",
+    "text_sha256": "d56c4d23cc3b02e6e84266727d462b490ee47c30265fec18b90c2eccf597f0cc",
+    "chars": 9163,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93221:code",
+    "text_sha256": "e5e1f2181bb1d53db2c7e4ec57894ebb21224155bc5699799a693272e1627408",
+    "chars": 258,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93224:code",
+    "text_sha256": "263d03b790a476bd8181ad4d8b6f5dbfe15d887bbcf7e872e80b0483ab6f1426",
+    "chars": 467,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93243:assessment",
+    "text_sha256": "537e00f9f0a01174c999e47efed031ff05e727ed4edcf85fa0b7d53fd36818eb",
+    "chars": 7140,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93265:code",
+    "text_sha256": "44e2f1bfa32c4fbcfdc32b5c811be276b0aa1cb94c1cd13845714d3bf0f6b423",
+    "chars": 271,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93271:code",
+    "text_sha256": "775c90923cfb8e24b406a7316919f5017ce0ed4d0529a4eee4229d92ee528cbd",
+    "chars": 479,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93283:code",
+    "text_sha256": "6652e87c4cdf2376a842dda3614b823aa81186078479a196162917ab2eb52d1a",
+    "chars": 4096,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93284:assessment",
+    "text_sha256": "6c4e4d8aa47d72eae7d574d27bc6a20f981cd3a82e5eda47fdb677600d1cc1cc",
+    "chars": 11525,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93294:assessment",
+    "text_sha256": "457ca6228aead6629719ec216114f71527f5eb0d190edd1c8ab3cd2611f9ce60",
+    "chars": 10376,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93312:code",
+    "text_sha256": "c1b8a0a69fd1fe5ce5b8788054ba1dac73163cf9d9091a62bb5db9d37834f832",
+    "chars": 163,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93325:code",
+    "text_sha256": "da22c48f6915df28590c74d01e2a11bb3014072f4fa458b00e5cc74f5c58056d",
+    "chars": 93,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93332:code",
+    "text_sha256": "1ba47a10c9b82c1ea89cf3934f0b5c72d79b3ecd77a148a1d8a00ee5f3036131",
+    "chars": 191,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93337:code",
+    "text_sha256": "be23c1a985614d895d39c397e11fd3ad834cbead3a2feceed019b868cfe694bf",
+    "chars": 74,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93342:code",
+    "text_sha256": "08b9e6080a31161f6ff51f9ad983c17acae5f05b3c599ac4b6bec3c43f198f1b",
+    "chars": 2555,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93344:assessment",
+    "text_sha256": "73fd33d3432c41d91ec4221fee3c98eb5722338667d2661eec89ecddc74e0845",
+    "chars": 11665,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93433:code",
+    "text_sha256": "089725f5b34e1c99da7677a18b0a1431407cd9f15b86fd0c672469d18b1be4ab",
+    "chars": 256,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93434:code",
+    "text_sha256": "b498c66d45ad794982db89db3593551509b212ba85ce79a639d4e7755f4a5941",
+    "chars": 311,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93453:code",
+    "text_sha256": "bd8899cae92a6b3cffa4acd7eccdfbd9fc6135fb17c9e5562bf6194a6c248d05",
+    "chars": 160,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93461:code",
+    "text_sha256": "3ee0cc32ab76d19913cf58eccd9e189cbfc2493b582155219f01f5151f60e103",
+    "chars": 243,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93470:code",
+    "text_sha256": "9d6d61ce85239ca3346fd9542fd2abc3555269935f4130f522ec064966bf40c6",
+    "chars": 2825,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93478:code",
+    "text_sha256": "f72a87f095b5b06591a1bbeddc0bb13ea17218aa11695815c324190ca5805300",
+    "chars": 3198,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93479:code",
+    "text_sha256": "256e07979af25d85f8515c376f494f7c0721bc40c3d52b5cf174226b9f1092c0",
+    "chars": 2218,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93481:assessment",
+    "text_sha256": "a7a16c24e38b529ba0c70a12e5287c807fbaa7708f80e58595c19eb54e4190f4",
+    "chars": 15323,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93504:assessment",
+    "text_sha256": "bdf8b79a0a6d9c1c7ac705037be5a1a2ef709bd480891f4f8de9ffc88919e3f4",
+    "chars": 10341,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93526:code",
+    "text_sha256": "578aad170fedb66b71308940a3900b68384cbcc1a945fdb219d2d173467dbd14",
+    "chars": 411,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93537:code",
+    "text_sha256": "d680798b6adbe15dd0d6df81039afd725593b88f749f1645f63a32f78aa4b579",
+    "chars": 251,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93544:assessment",
+    "text_sha256": "b5fd5e8975f55560ed38d8062a8bc17f7d9646da93eea361fbf6d41732e09039",
+    "chars": 20139,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "event:93559:assessment",
+    "text_sha256": "0820fcf172a759ff6a639c8c61ae0e9462a3d10c65ba16e477cb1a87e541120c",
+    "chars": 11431,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:0e83be60eca2444fa0109727db4cb05e",
+    "text_sha256": "2e52890a60bdb0f55df5d45b3337be214efbf0966e405b56fbee35bb1b4572bc",
+    "chars": 3382,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:1cd7cd607a364146a0120002f80ef029",
+    "text_sha256": "7b39415552d28eaf4ea4221dab3d1202a4900c52ad4e8c273d936f294146a3be",
+    "chars": 3302,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:23c98ac6832342ff8d3c5536c50346c2",
+    "text_sha256": "1e5aa3dc4c65ce855ee7e2e8e19ae7ff865bec8483d91479b8aee04b2a7fe778",
+    "chars": 3054,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:35cb594a16274ac79907a659717056d0",
+    "text_sha256": "66acb6fb918cccc5ac69f78ee12e4a3c9b9142d84a3dba8b1ce97e29e966bf5d",
+    "chars": 2460,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:36c8c2fb17cc40cba0f51497cf7e5660",
+    "text_sha256": "b08c7806e674454f8445b6579e75d21a9e95635831773682a4b6f1541200f4a1",
+    "chars": 2556,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:3d7bcd8666c149e884a6533f109c96f2",
+    "text_sha256": "7d8a7a324defb5cc068a3ec945db5384a2d71105536e08ae9f7714b1b0eef495",
+    "chars": 2696,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:40ec9be4c53d4ff08355dcde6b587325",
+    "text_sha256": "4a98b033ae2d6f252715c0f955c63e207811a576fe2f466e5c1974678d0d43b4",
+    "chars": 3454,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:56c0464441f246508577af40015970db",
+    "text_sha256": "eff5f40a6ce663a5997c8df08718cd5e91ec8825bbfdf7bab378006285fef1b5",
+    "chars": 2559,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:56f54658f280433a8f8ff76647f5a2bb",
+    "text_sha256": "5b4eaa09077d12ca188a6a65adc6d30360a00c303a8434ee98397fa2191b937e",
+    "chars": 3189,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:5a1f8b8736b246b9ae6d081c49f50198",
+    "text_sha256": "d0e293849b75b806a84c3c54caa767c38c5240e2b86eb551beb14aa2fbd0a85f",
+    "chars": 3281,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:5d835e18be184dd1adc9b1859197d869",
+    "text_sha256": "3c0add5b7c63c0f1e295dd4ace66c3574d1693fe967d371bf5812d6522f396ae",
+    "chars": 2565,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:5f8a819f26e14990a4204f0220c29672",
+    "text_sha256": "8a7c35f9c93d0eb52f26101c5a1c6871bb4680830154f82e9f49a8b9ed49e126",
+    "chars": 2358,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:63b82922f003437a85edbdf1c0f4815d",
+    "text_sha256": "19473c4483cd58713a158dc8ca6aad7736b7b0df9767f28d40cd2973493e90d9",
+    "chars": 2752,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:64268c0a4de34e97be080f87280a283e",
+    "text_sha256": "2dea16aea84f22e1af5f03cc5d1d0ec6bf5d6868fd6581c0f2b6afd061f124d2",
+    "chars": 2740,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:7905401b64084de6956b3ecd7b67e0a9",
+    "text_sha256": "7b8b840358f8c39717ba5cf7189ace9ac6a71d9f422ffe0c81b3abd22520b8bd",
+    "chars": 3322,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:826648a7edd145b49e4b129a18676634",
+    "text_sha256": "9773ba415c3e8b42055e92da9df9600d46db6e23266327a13bbcf87ed25e73cb",
+    "chars": 2910,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:a22c46190d7c4ca88a9b49f446720bae",
+    "text_sha256": "eb2020b7ae88275cfee8204eced5211eb117970562b51a5149a800a1d4307b00",
+    "chars": 2679,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:a23d3c2349074c80b22331e731e8e38f",
+    "text_sha256": "c2a48b5e9ba967fbcbe4ba0c58a357a9044c42a9603556297f84508465ca32a4",
+    "chars": 3148,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:a6c87a73989d4d67aaf397954e85188f",
+    "text_sha256": "64bddc1c62df7380a5628c1af570b606622af4db1dfe2942eff2ab9c604a9871",
+    "chars": 3305,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:bfd1580e14754964a21945d15907d435",
+    "text_sha256": "eb206f3056bd6dbef187508a74f41cd94fcd52be0e1a0fee2e13cf40016fa3aa",
+    "chars": 3422,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:c75a2af277c24086a450dc46dad72708",
+    "text_sha256": "f10444426a4f6a2bf5eb15ab42671e8223bd6e781eba8122218f6abfc54274d6",
+    "chars": 2789,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:eb9e892b5be7452a82879af9db51ec46",
+    "text_sha256": "a6612b36640e7493f1bd3ffc3cda76dd2ae8a0e2051baabaca6cb5963a7e56a2",
+    "chars": 3441,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:ee852c468bef4ba583a4e7ccaeb277a4",
+    "text_sha256": "22fbf34a0dd19cde948aac882b5ef532aaa5735602dae18e19dce4fcc415a745",
+    "chars": 3157,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:f3efe5e2280f49569a160e2b80409dcf",
+    "text_sha256": "9896bc2ce69671c67c07ebcfb81c93092c09a4f8bd55498d4313691e33508ec3",
+    "chars": 3722,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  },
+  {
+    "ref": "canonical:f8837fb68e0e49afbe0698aba470e43a",
+    "text_sha256": "bc220f04767e058920135196eb33968cfa8d062d8a74288c1e9472a24dd5728c",
+    "chars": 2875,
+    "strict_patterns": [],
+    "host_phrases": [],
+    "review_keywords": []
+  }
+]

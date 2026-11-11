@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "checks": 404,
+  "material_files": 203,
+  "historical_FN_reviewed": 8,
+  "canonical_claims": 78,
+  "source_binding_rejection_events": 7,
+  "single_prompt_calls": 4,
+  "raw_json_valid": 2,
+  "special_roots": [
+    "16",
+    "20",
+    "28",
+    "30"
+  ],
+  "active_canary_model_replies": 1,
+  "model_requests_during_verification": 0
+}

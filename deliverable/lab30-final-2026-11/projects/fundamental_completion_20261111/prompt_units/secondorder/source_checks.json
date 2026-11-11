@@ -1,0 +1,16 @@
+[
+  {
+    "index": 0,
+    "title": "会员昵称二次注入：update.php 参数化写入 nickname，ops/report.php 字符串拼接读出",
+    "type": "sqli",
+    "primary_location": {
+      "path": "lab30-shop/app/public/ops/report.php",
+      "line": 3
+    },
+    "source_reference_errors": [],
+    "invalid_references": [],
+    "exact_type_and_anchor_matches": [
+      "28"
+    ]
+  }
+]

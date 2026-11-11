@@ -1,0 +1,129 @@
+[
+  {
+    "finding_id": "13a0f5bed6414ab0948f6f25117d47f5",
+    "verification_id": "6f36db7f40214c7cadffa824f0aeb327",
+    "status": "verified",
+    "jobs": [
+      "24e9f4abef2748de84d5795562c06dd4"
+    ],
+    "result": {
+      "status": "verified",
+      "summary": "人工核读同一 alice 会话：改订单 id 即读出 bob 私有订单信息。",
+      "normal_observation": "alice 自有订单索引只有 id=1；以该身份读取 id=1 返回 user_id=1 与 alice 私有配送备注。",
+      "attack_observation": "保持 alice 会话，只把详情 id 改为2，200 返回 user_id=2、username=bob、BOB_PRIVATE_ORDER_gift_for_family；不存在的 id=3..20 返回404。",
+      "evidence_notes": "恢复已结束的原脚本输出，不重放请求。仅证明跨用户订单读取，未推断修改订单或数据库写入。",
+      "jobs": [
+        "24e9f4abef2748de84d5795562c06dd4"
+      ],
+      "normal_evidence": [
+        {
+          "job_id": "24e9f4abef2748de84d5795562c06dd4",
+          "channel": "stdout",
+          "excerpt": "CONTROL 1 200 {\"id\":1,\"order_no\":\"SG-1001\",\"user_id\":1,\"product_id\":1,\"quantity\":1,\"unit_price\":\"129.00\",\"total\":\"129.00\",\"private_note\":\"ALICE_PRIVATE_ORDER_delivery_morning\",\"created_at\":\"2026-11-10 17:13:09\",\"username\":\"alice\",\"name\":\"晨光手冲壶\"}"
+        }
+      ],
+      "attack_evidence": [
+        {
+          "job_id": "24e9f4abef2748de84d5795562c06dd4",
+          "channel": "stdout",
+          "excerpt": "ATTACK 2 200 {\"id\":2,\"order_no\":\"SG-1002\",\"user_id\":2,\"product_id\":2,\"quantity\":2,\"unit_price\":\"79.00\",\"total\":\"158.00\",\"private_note\":\"BOB_PRIVATE_ORDER_gift_for_family\",\"created_at\":\"2026-11-10 17:13:09\",\"username\":\"bob\",\"name\":\"山野帆布包\"}"
+        }
+      ],
+      "experiment": {
+        "security_property": "登录用户只能访问其本人订单和私有配送备注",
+        "attacker_identity": "alice",
+        "resource_owner": "bob",
+        "initial_state": "alice 的索引只列 id=1；bob 的 id=2 已存在且有不同属主及私有备注。",
+        "preconditions": [
+          "已验证 alice customer 身份，保持同一登录会话"
+        ],
+        "control": "GET detail.php?id=1 返回 alice 的自有订单",
+        "attack_variable": "仅将请求对象标识 id 从1改为2",
+        "expected_discriminator": "访问他人 id 应拒绝或不返回他人的私有订单数据",
+        "observed_discriminator": "相同 alice 会话获得 bob 订单及私有配送备注，且不存在的 id 返回404，证明按对象标识越权读取。",
+        "effect_kind": "read",
+        "normal_job_ids": [
+          "24e9f4abef2748de84d5795562c06dd4"
+        ],
+        "attack_job_ids": [
+          "24e9f4abef2748de84d5795562c06dd4"
+        ],
+        "readback_job_ids": [],
+        "limitations": [
+          "仅证明读取，未测试订单写入。"
+        ]
+      }
+    }
+  },
+  {
+    "finding_id": "bd815376f74949faa53e29011c3e66ac",
+    "verification_id": "86535f278c1949a6935c2276ac18bb67",
+    "status": "verified",
+    "jobs": [
+      "efdb0950c0294d04bd34482c9ee83a4f",
+      "37765fff4fca4196b2bce5c336cc7131"
+    ],
+    "result": {
+      "status": "verified",
+      "summary": "人工核读：注册表单无 CSRF 字段，guest 无令牌 POST 建号成功且独立会话读回该账户。",
+      "normal_observation": "alice 正常会话确认钱包表单有 csrf，向受保护的提现端点不带令牌 POST 返回403。注册页 GET 为200，注册表单没有 csrf 字段。",
+      "attack_observation": "guest 向注册入口提交无 CSRF 令牌的普通表单字段，ATTACK_STATUS 200 且注册成功；另建 cookie jar 使用所建凭据登录，账户页读回用户名和邮箱均存在。",
+      "evidence_notes": "证实注册状态变更没有 CSRF 令牌门槛及真实创建账户；普通 URL 编码表单可由跨源表单提交。未运行真实跨站浏览器，也未证明自动登录、接管受害者会话或绑定既有受害者账户；影响限于无令牌注册。",
+      "jobs": [
+        "efdb0950c0294d04bd34482c9ee83a4f",
+        "37765fff4fca4196b2bce5c336cc7131"
+      ],
+      "normal_evidence": [
+        {
+          "job_id": "efdb0950c0294d04bd34482c9ee83a4f",
+          "channel": "stdout",
+          "excerpt": "WALLET_HAS_CSRF_FIELD True\nWITHDRAW_NO_TOKEN_STATUS 403"
+        },
+        {
+          "job_id": "37765fff4fca4196b2bce5c336cc7131",
+          "channel": "stdout",
+          "excerpt": "GET_REGISTER_STATUS 200\nFORM_HAS_CSRF_FIELD False"
+        }
+      ],
+      "attack_evidence": [
+        {
+          "job_id": "37765fff4fca4196b2bce5c336cc7131",
+          "channel": "stdout",
+          "excerpt": "ATTACK_STATUS 200\nATTACK_NOTICE_REGISTERED True"
+        },
+        {
+          "job_id": "37765fff4fca4196b2bce5c336cc7131",
+          "channel": "stdout",
+          "excerpt": "READBACK_USERNAME_PRESENT True\nREADBACK_EMAIL_PRESENT True"
+        }
+      ],
+      "experiment": {
+        "security_property": "跨源可提交的注册表单执行建号前应具备明确的请求来源或 CSRF 约束",
+        "attacker_identity": "guest",
+        "resource_owner": "新注册账户，非既有受害者账户",
+        "initial_state": "新唯一用户名尚未注册，guest 无已登录身份；注册表单没有 csrf 字段。",
+        "preconditions": [
+          "已确认 guest 身份；可访问公开注册端点"
+        ],
+        "control": "受保护提现缺令牌返回403；注册GET显示无令牌字段",
+        "attack_variable": "在公开注册入口提交攻击者指定的用户名/邮箱/密码，省略CSRF令牌",
+        "expected_discriminator": "若注册端点有CSRF门槛，无令牌表单应拒绝建号且独立登录不应成功",
+        "observed_discriminator": "无令牌POST注册成功，独立cookie会话能登录并读回所建账户；只主张公开建号缺少请求来源门槛。",
+        "effect_kind": "write",
+        "normal_job_ids": [
+          "efdb0950c0294d04bd34482c9ee83a4f"
+        ],
+        "attack_job_ids": [
+          "37765fff4fca4196b2bce5c336cc7131"
+        ],
+        "readback_job_ids": [
+          "37765fff4fca4196b2bce5c336cc7131"
+        ],
+        "limitations": [
+          "未运行跨站浏览器。",
+          "未证明自动登录或既有账户接管；影响限于公开注册缺少CSRF检查。"
+        ]
+      }
+    }
+  }
+]

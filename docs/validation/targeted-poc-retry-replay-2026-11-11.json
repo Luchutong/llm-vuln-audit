@@ -1,0 +1,128 @@
+{
+  "request_id": "user-complete-existing-record-20261111",
+  "finding_ids": [
+    "0e88b1f8b3d04a0798676aeccba07cf9",
+    "13160cf2233d456381d1bb93c4cebd70",
+    "13a0f5bed6414ab0948f6f25117d47f5",
+    "6ea737d111da4451a1c0cbab2c63aa92",
+    "bd815376f74949faa53e29011c3e66ac"
+  ],
+  "previous_attempts": [
+    {
+      "attempt": {
+        "key": "3e2665fb1c8317968ac087527997477aa41971d434b6ed4b7a0825722c620807",
+        "run_id": "3b50dbaf45955d989aacf47162e47967",
+        "finding_id": "0e88b1f8b3d04a0798676aeccba07cf9",
+        "ledger_id": "17d47f6b6cc8418fb411bf5108cb571d",
+        "revision": 6,
+        "finding_revision": 1,
+        "project_finding_revision": 6,
+        "target_key": "0f6146dec81c894fc3281d4308f49bc94227c9e0dbb1963a377d84edff6fc19a",
+        "execution_epoch": 3,
+        "state": "completed",
+        "verification_id": "2c8534a5c376408ca657fba30ba6c9cf",
+        "runner_job_id": null,
+        "created_at": "2026-11-10T14:28:28.318219+00:00",
+        "updated_at": "2026-11-10T14:30:24.132662+00:00"
+      },
+      "context_id": "dd71aa8ca96f434ba922cd8cc0844caf",
+      "known_terminal_jobs": []
+    },
+    {
+      "attempt": {
+        "key": "cfe5baeac4b92429aac3c2523bb487e70843797da0d44a0e43cc3dd6bc77d4d1",
+        "run_id": "3b50dbaf45955d989aacf47162e47967",
+        "finding_id": "13160cf2233d456381d1bb93c4cebd70",
+        "ledger_id": "7ad3c684a4d54adb899e29e34e560d5e",
+        "revision": 12,
+        "finding_revision": 1,
+        "project_finding_revision": 12,
+        "target_key": "0f6146dec81c894fc3281d4308f49bc94227c9e0dbb1963a377d84edff6fc19a",
+        "execution_epoch": 3,
+        "state": "completed",
+        "verification_id": "0a8067a3b2124eb38dc6cbe02ccc6d79",
+        "runner_job_id": "d754c47c50704839a90d9371a7325b14",
+        "created_at": "2026-11-10T14:30:36.592682+00:00",
+        "updated_at": "2026-11-10T14:42:18.656659+00:00"
+      },
+      "context_id": "3e5838fae659431d9540a062d356f2d3",
+      "known_terminal_jobs": [
+        "37621d257c084803a8a9cfc7672f7146",
+        "5232fbc3bc02444dbc172bd200a5a4ef",
+        "57ca35ba3d794f7683b9a22936675990",
+        "d754c47c50704839a90d9371a7325b14"
+      ]
+    },
+    {
+      "attempt": {
+        "key": "89bf514f5447f7c3a86170ef4b93e12698ecfca8ab31c56665ed86119c52f0dc",
+        "run_id": "3b50dbaf45955d989aacf47162e47967",
+        "finding_id": "13a0f5bed6414ab0948f6f25117d47f5",
+        "ledger_id": "4e35ce72f856430faf590095346c382a",
+        "revision": 37,
+        "finding_revision": 1,
+        "project_finding_revision": 37,
+        "target_key": "0f6146dec81c894fc3281d4308f49bc94227c9e0dbb1963a377d84edff6fc19a",
+        "execution_epoch": 2,
+        "state": "completed",
+        "verification_id": "8cd5e936eb0b4e98bd6ecc64b460b4b2",
+        "runner_job_id": "b3daf734f67b448daf59927589133133",
+        "created_at": "2026-11-10T13:08:08.449045+00:00",
+        "updated_at": "2026-11-10T13:12:17.170921+00:00"
+      },
+      "context_id": "ed44812d3715440a9ffc8274c1864650",
+      "known_terminal_jobs": [
+        "769ba3fdb3834216b86da7e890498668",
+        "b3daf734f67b448daf59927589133133",
+        "b966b9fc4dd94c908a3c7dd6b68b17f0",
+        "e660739688c44a0a937b939a49aa80a9"
+      ]
+    },
+    {
+      "attempt": {
+        "key": "8bcf3955fc5d8414197bcf8f78e2db06365badb43d35160eb8ae982fb9c2b777",
+        "run_id": "3b50dbaf45955d989aacf47162e47967",
+        "finding_id": "6ea737d111da4451a1c0cbab2c63aa92",
+        "ledger_id": "789679de40ea47fb9537300f9c51eba3",
+        "revision": 1,
+        "finding_revision": 1,
+        "project_finding_revision": 1,
+        "target_key": "0f6146dec81c894fc3281d4308f49bc94227c9e0dbb1963a377d84edff6fc19a",
+        "execution_epoch": 3,
+        "state": "interrupted",
+        "verification_id": null,
+        "runner_job_id": null,
+        "created_at": "2026-11-10T14:42:45.317363+00:00",
+        "updated_at": "2026-11-10T14:44:24.737710+00:00"
+      },
+      "context_id": "b136058d630d4cb3b536d001ed326334",
+      "known_terminal_jobs": []
+    },
+    {
+      "attempt": {
+        "key": "10af3a9c4abf81d750cb704e8a650eedafa1f3a7778b57c6aa05daeb236c067a",
+        "run_id": "3b50dbaf45955d989aacf47162e47967",
+        "finding_id": "bd815376f74949faa53e29011c3e66ac",
+        "ledger_id": "ea00d30987c6424db9190e1366b09b88",
+        "revision": 1,
+        "finding_revision": 1,
+        "project_finding_revision": 1,
+        "target_key": "0f6146dec81c894fc3281d4308f49bc94227c9e0dbb1963a377d84edff6fc19a",
+        "execution_epoch": 2,
+        "state": "completed",
+        "verification_id": "1f391a290868453bb13dc3352b61d131",
+        "runner_job_id": null,
+        "created_at": "2026-11-10T13:12:30.582585+00:00",
+        "updated_at": "2026-11-10T13:15:32.663237+00:00"
+      },
+      "context_id": "3931e4b4c4a344ad87a6fbb177e63a8a",
+      "known_terminal_jobs": []
+    }
+  ],
+  "at": "2026-11-10T16:48:03.873433+00:00",
+  "added_budget": {
+    "responses": 0,
+    "tools": 0,
+    "seconds": 0
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-10T16:58:00.678652+00:00",
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "plan_id": "873d660fadb44a38940cb349310feca0",
+  "task_key": "settle-459ad9c146ef14ca",
+  "revisions": 2,
+  "usage": {
+    "limits": "{\"responses\": 284, \"tools\": 5075, \"seconds\": 10110}",
+    "responses_used": 223,
+    "tools_used": 165,
+    "active_elapsed_ms": 5115989
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "at": "2026-11-10T17:09:07.431471+00:00",
+  "run_id": "3b50dbaf45955d989aacf47162e47967",
+  "plan_id": "32bf1d3466034ad9a91ff6ae6b4ad39c",
+  "completed": [
+    {
+      "task_key": "operator-host-callgraph",
+      "state": "completed"
+    },
+    {
+      "task_key": "operator-payment-scope",
+      "state": "completed"
+    }
+  ],
+  "assessments": [
+    {
+      "outcome": "no_evidence",
+      "summary": "人工完成 maintenance/jobs 的完整 require 与调用链核对；没有 host_check 传播路径。",
+      "reasoning": "限定 maintenance/jobs 到 host_check 的可达性：maintenance.php 全5行仅引入 bootstrap、比较 X-Admin 并用预处理 INSERT 维护 jobs。jobs.php 全5行仅引入 bootstrap 和 DispatchJob，POST 由 unserialize 到 DispatchJob::__wakeup，属于另一既有对象注入根因。bootstrap 全67行没有 include/require host_check 或调用该函数；DispatchJob 全5行也无相关引入。host_check 仅在 batch-check.php:2 被引入并调用，ping.php:2 是独立内联 shell_exec。因此本方向假设的 maintenance/jobs→host_check 传播路径在冻结实现不可达，不抹除两个真实命令执行根因。",
+      "direction_results": [
+        {
+          "direction_id": "dir_e7054e87895bd639bf2b174d8d501852",
+          "outcome": "no_evidence",
+          "rationale": "限定 maintenance/jobs 到 host_check 的可达性：maintenance.php 全5行仅引入 bootstrap、比较 X-Admin 并用预处理 INSERT 维护 jobs。jobs.php 全5行仅引入 bootstrap 和 DispatchJob，POST 由 unserialize 到 DispatchJob::__wakeup，属于另一既有对象注入根因。bootstrap 全67行没有 include/require host_check 或调用该函数；DispatchJob 全5行也无相关引入。host_check 仅在 batch-check.php:2 被引入并调用，ping.php:2 是独立内联 shell_exec。因此本方向假设的 maintenance/jobs→host_check 传播路径在冻结实现不可达，不抹除两个真实命令执行根因。",
+          "disproof": {
+            "basis": "unreachable",
+            "rationale": "限定 maintenance/jobs 到 host_check 的可达性：maintenance.php 全5行仅引入 bootstrap、比较 X-Admin 并用预处理 INSERT 维护 jobs。jobs.php 全5行仅引入 bootstrap 和 DispatchJob，POST 由 unserialize 到 DispatchJob::__wakeup，属于另一既有对象注入根因。bootstrap 全67行没有 include/require host_check 或调用该函数；DispatchJob 全5行也无相关引入。host_check 仅在 batch-check.php:2 被引入并调用，ping.php:2 是独立内联 shell_exec。因此本方向假设的 maintenance/jobs→host_check 传播路径在冻结实现不可达，不抹除两个真实命令执行根因。",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/ops/maintenance.php",
+                "start_line": 1,
+                "end_line": 5
+              },
+              {
+                "path": "lab30-shop/app/public/ops/jobs.php",
+                "start_line": 1,
+                "end_line": 5
+              },
+              {
+                "path": "lab30-shop/app/src/bootstrap.php",
+                "start_line": 1,
+                "end_line": 67
+              },
+              {
+                "path": "lab30-shop/app/src/dispatch_job.php",
+                "start_line": 1,
+                "end_line": 5
+              },
+              {
+                "path": "lab30-shop/app/src/host_check.php",
+                "start_line": 1,
+                "end_line": 2
+              },
+              {
+                "path": "lab30-shop/app/public/ops/batch-check.php",
+                "start_line": 1,
+                "end_line": 3
+              },
+              {
+                "path": "lab30-shop/app/public/ops/ping.php",
+                "start_line": 1,
+                "end_line": 3
+              }
+            ]
+          }
+        }
+      ],
+      "findings": [],
+      "finding_references": [],
+      "candidate_updates": [],
+      "observations": [],
+      "remaining_work": [],
+      "missing_context": []
+    },
+    {
+      "outcome": "no_evidence",
+      "summary": "人工完成冻结范围内订单金额全部实际使用点、运维与 CLI 路径核对；不扩大资金影响。",
+      "reasoning": "限定本次冻结包的 total/unit_price 后续资金链。全冻结文本检索 orders/unit_price/checkout/refund/cron 后核读命中的实际实现：create.php:5-7 仅计算入库订单金额与库存；index/detail 只查询回显；partner/portal.php:4-6 的“结算摘要”仅 SELECT+JSON/HTML 展示；wallet/withdraw.php:4-8 仅处理用户余额与 withdrawals，没有订单字段；ops/report.php:2-5 只查 users；setup.php 中 orders 读写为建表/测试种子。所给 CLI/启动脚本无支付、退款、发货扣款或 cron 的额外 orders.total 使用点。价格入库缺陷保留，但冻结范围无证据支持展示之外实际扣款/对账影响。部署外未提供实现不在本次结论范围，不能为其虚构安全保证。",
+      "direction_results": [
+        {
+          "direction_id": "dir_f5d097e4764f7ba70ef49ca79790c610",
+          "outcome": "no_evidence",
+          "rationale": "限定本次冻结包的 total/unit_price 后续资金链。全冻结文本检索 orders/unit_price/checkout/refund/cron 后核读命中的实际实现：create.php:5-7 仅计算入库订单金额与库存；index/detail 只查询回显；partner/portal.php:4-6 的“结算摘要”仅 SELECT+JSON/HTML 展示；wallet/withdraw.php:4-8 仅处理用户余额与 withdrawals，没有订单字段；ops/report.php:2-5 只查 users；setup.php 中 orders 读写为建表/测试种子。所给 CLI/启动脚本无支付、退款、发货扣款或 cron 的额外 orders.total 使用点。价格入库缺陷保留，但冻结范围无证据支持展示之外实际扣款/对账影响。部署外未提供实现不在本次结论范围，不能为其虚构安全保证。",
+          "disproof": {
+            "basis": "not_applicable",
+            "rationale": "限定本次冻结包的 total/unit_price 后续资金链。全冻结文本检索 orders/unit_price/checkout/refund/cron 后核读命中的实际实现：create.php:5-7 仅计算入库订单金额与库存；index/detail 只查询回显；partner/portal.php:4-6 的“结算摘要”仅 SELECT+JSON/HTML 展示；wallet/withdraw.php:4-8 仅处理用户余额与 withdrawals，没有订单字段；ops/report.php:2-5 只查 users；setup.php 中 orders 读写为建表/测试种子。所给 CLI/启动脚本无支付、退款、发货扣款或 cron 的额外 orders.total 使用点。价格入库缺陷保留，但冻结范围无证据支持展示之外实际扣款/对账影响。部署外未提供实现不在本次结论范围，不能为其虚构安全保证。",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "start_line": 2,
+                "end_line": 7
+              },
+              {
+                "path": "lab30-shop/app/public/orders/index.php",
+                "start_line": 1,
+                "end_line": 3
+              },
+              {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "start_line": 1,
+                "end_line": 4
+              },
+              {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "start_line": 1,
+                "end_line": 6
+              },
+              {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "start_line": 1,
+                "end_line": 11
+              },
+              {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "start_line": 1,
+                "end_line": 5
+              },
+              {
+                "path": "lab30-shop/app/src/setup.php",
+                "start_line": 1,
+                "end_line": 39
+              },
+              {
+                "path": "lab30-shop/bin/lab",
+                "start_line": 1,
+                "end_line": 19
+              },
+              {
+                "path": "lab30-shop/bin/package.py",
+                "start_line": 1,
+                "end_line": 79
+              },
+              {
+                "path": "lab30-shop/docker/entrypoint.sh",
+                "start_line": 1,
+                "end_line": 6
+              }
+            ]
+          }
+        },
+        {
+          "direction_id": "dir_42d06836210bd8306c27e35df1061131",
+          "outcome": "no_evidence",
+          "rationale": "限定本次冻结包的 total/unit_price 后续资金链。全冻结文本检索 orders/unit_price/checkout/refund/cron 后核读命中的实际实现：create.php:5-7 仅计算入库订单金额与库存；index/detail 只查询回显；partner/portal.php:4-6 的“结算摘要”仅 SELECT+JSON/HTML 展示；wallet/withdraw.php:4-8 仅处理用户余额与 withdrawals，没有订单字段；ops/report.php:2-5 只查 users；setup.php 中 orders 读写为建表/测试种子。所给 CLI/启动脚本无支付、退款、发货扣款或 cron 的额外 orders.total 使用点。价格入库缺陷保留，但冻结范围无证据支持展示之外实际扣款/对账影响。部署外未提供实现不在本次结论范围，不能为其虚构安全保证。",
+          "disproof": {
+            "basis": "not_applicable",
+            "rationale": "限定本次冻结包的 total/unit_price 后续资金链。全冻结文本检索 orders/unit_price/checkout/refund/cron 后核读命中的实际实现：create.php:5-7 仅计算入库订单金额与库存；index/detail 只查询回显；partner/portal.php:4-6 的“结算摘要”仅 SELECT+JSON/HTML 展示；wallet/withdraw.php:4-8 仅处理用户余额与 withdrawals，没有订单字段；ops/report.php:2-5 只查 users；setup.php 中 orders 读写为建表/测试种子。所给 CLI/启动脚本无支付、退款、发货扣款或 cron 的额外 orders.total 使用点。价格入库缺陷保留，但冻结范围无证据支持展示之外实际扣款/对账影响。部署外未提供实现不在本次结论范围，不能为其虚构安全保证。",
+            "evidence": [
+              {
+                "path": "lab30-shop/app/public/orders/create.php",
+                "start_line": 2,
+                "end_line": 7
+              },
+              {
+                "path": "lab30-shop/app/public/orders/index.php",
+                "start_line": 1,
+                "end_line": 3
+              },
+              {
+                "path": "lab30-shop/app/public/orders/detail.php",
+                "start_line": 1,
+                "end_line": 4
+              },
+              {
+                "path": "lab30-shop/app/public/partner/portal.php",
+                "start_line": 1,
+                "end_line": 6
+              },
+              {
+                "path": "lab30-shop/app/public/wallet/withdraw.php",
+                "start_line": 1,
+                "end_line": 11
+              },
+              {
+                "path": "lab30-shop/app/public/ops/report.php",
+                "start_line": 1,
+                "end_line": 5
+              },
+              {
+                "path": "lab30-shop/app/src/setup.php",
+                "start_line": 1,
+                "end_line": 39
+              },
+              {
+                "path": "lab30-shop/bin/lab",
+                "start_line": 1,
+                "end_line": 19
+              },
+              {
+                "path": "lab30-shop/bin/package.py",
+                "start_line": 1,
+                "end_line": 79
+              },
+              {
+                "path": "lab30-shop/docker/entrypoint.sh",
+                "start_line": 1,
+                "end_line": 6
+              }
+            ]
+          }
+        }
+      ],
+      "findings": [],
+      "finding_references": [],
+      "candidate_updates": [],
+      "observations": [],
+      "remaining_work": [],
+      "missing_context": []
+    }
+  ],
+  "model_requests": 0,
+  "source_reads": 22
+}

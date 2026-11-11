@@ -245,6 +245,7 @@ class ContinuationStoreMixin:
                     unresolved_verifications=options['retestable_count'])
             task = {**parent['task_spec'], 'workflow_limits': None, 'continuation': info,
                     'budget_exhaustion_policy': 'pause-v1', 'review_reuse_policy': 'incremental-v1',
+                    'output_policy': parent['task_spec'].get('output_policy', 'audit-evidence-v1'),
                     'risk_fact_policy': 'operation-v2'}
             if request.get('close_unresolved'):
                 if request['mode'] != 'audit' or not self.exhaustive_enabled(parent_id):

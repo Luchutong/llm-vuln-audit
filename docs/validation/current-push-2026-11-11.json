@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-11",
+  "timezone": "Asia/Shanghai",
+  "scope": "Complete working tree before requested main push, including subsequent direction-source and investigation/closure fixes",
+  "base_commit": "61e30cd224a5f8381e0911103046130c97cd4eba",
+  "backend": {
+    "passed": 2675,
+    "expected_collected": 2675,
+    "wall_seconds": 56.852,
+    "source_sha256": "bb8b23668540fa79d7058bfe28f4458895b20caa3a733bc13dc6631af5fe0c35",
+    "code_unchanged": true,
+    "temporary_filesystem": "tmpfs /dev/shm",
+    "live_model_requests": 0,
+    "runner_jobs": 0
+  },
+  "backend_groups": [
+    {
+      "group": 1,
+      "returncode": 0,
+      "passed": 540,
+      "summary": "540 passed in 13.37s"
+    },
+    {
+      "group": 2,
+      "returncode": 0,
+      "passed": 735,
+      "summary": "735 passed in 55.50s"
+    },
+    {
+      "group": 3,
+      "returncode": 0,
+      "passed": 667,
+      "summary": "667 passed in 23.45s"
+    },
+    {
+      "group": 4,
+      "returncode": 0,
+      "passed": 733,
+      "summary": "733 passed, 1 warning in 27.02s"
+    }
+  ],
+  "frontend": {
+    "passed": 133,
+    "failed": 0,
+    "source_unchanged_since_production_build_and_13_browser_checks": true
+  },
+  "regression_repair": {
+    "test": "test_ledger_trimming_keeps_verified_and_rejected_rows_over_unverified_leads",
+    "cause": "Unconditional blocked-candidate guidance displaced a verified row from a 4 KiB Planner situation.",
+    "fix": "Include candidate handoff guidance only when a blocked task has pending candidates; preserve the existing retention assertion and add coverage for the relevant handoff."
+  },
+  "live_model_requests": 0,
+  "runner_jobs": 0,
+  "raw_logs": ".run/current-push-20261111 (ignored local files)"
+}

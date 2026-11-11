@@ -1,0 +1,130 @@
+{
+  "date": "2026-11-11",
+  "timezone": "Asia/Shanghai",
+  "scope": "audit-evidence-v1 output publication and necessary frozen evidence delivery",
+  "backend": {
+    "passed": 2674,
+    "expected_collected": 2674,
+    "wall_seconds": 57.633,
+    "source_sha256": "882e4218297adfc1223c30f382bed94c89052ac022db2a7245c63bb9dd874c0a",
+    "code_unchanged": true,
+    "temporary_filesystem": "tmpfs /dev/shm",
+    "live_model_requests": 0,
+    "runner_jobs": 0
+  },
+  "frontend": {
+    "passed": 133,
+    "failed": 0,
+    "production_build": "passed",
+    "report_delivery_browser_checks": 13,
+    "network": "all UI API requests intercepted; no model/runner"
+  },
+  "measurements": {
+    "live_model_requests": 0,
+    "runner_jobs": 0,
+    "measurement": "UTF-8 bytes and ZIP members; not measured provider tokens or billing",
+    "controlled_worker": {
+      "legacy": {
+        "request_text_bytes": 27631,
+        "response_object_bytes": 490,
+        "requests": 1
+      },
+      "audit-evidence-v1": {
+        "request_text_bytes": 24897,
+        "response_object_bytes": 401,
+        "requests": 1
+      },
+      "request_reduction_percent": 9.89
+    },
+    "frozen_history": {
+      "run_id": "3b50dbaf45955d989aacf47162e47967",
+      "input_hash": "c23b6cfc1a968df64a06c66ef539d1ebc3ed2778185a0307e18282ff0be1dbcd",
+      "archive_output_hash": "059d06eed05e8dd24c2c3df60ebb40d67e9e3a09dcd5a8d847f3080fc44dea79",
+      "counts": {
+        "accepted": 31,
+        "canonical": 31,
+        "contested": 0,
+        "pending": 0
+      },
+      "original_report_unmodified": true,
+      "legacy_delivery": {
+        "members": 197,
+        "markdown_members": 33,
+        "zip_bytes": 2169930,
+        "uncompressed_bytes": 10925898
+      },
+      "minimal_delivery": {
+        "members": 74,
+        "markdown_members": 1,
+        "zip_bytes": 734680,
+        "uncompressed_bytes": 2213319
+      },
+      "markdown_bytes": 332204,
+      "source_fragments_checked": 73,
+      "artifact_hashes_checked": 73,
+      "missing_attachments": 0,
+      "render_quality": {
+        "schema_version": "render-quality/v1",
+        "view": "report",
+        "counts": {
+          "accepted": 31,
+          "canonical": 31,
+          "contested": 0,
+          "pending": 0
+        },
+        "checks": {
+          "scope_matches": true,
+          "unique_identity": true,
+          "counts": true,
+          "numbering": true,
+          "attempt_ownership": true,
+          "review_ownership": true,
+          "source_closure": true,
+          "missing_source_disclosed": true,
+          "no_empty_poc_sentence": true,
+          "no_object_repr": true,
+          "fences": true,
+          "narrow_tables": true,
+          "unique_anchors": true,
+          "sections": true,
+          "detail_anchors": true
+        },
+        "passed": true,
+        "failed_checks": []
+      }
+    },
+    "saved_deliverables_serve_without_derived_cache": true
+  },
+  "archive_replay": {
+    "assets_verified": 7,
+    "expected": {
+      "protocol": "lab30-v2",
+      "truths": 30,
+      "findings": 23,
+      "TP": 22,
+      "D": 0,
+      "U": 1,
+      "FP": 1,
+      "FN": 8,
+      "precision": 0.9565217391304348,
+      "recall": 0.7333333333333333,
+      "f1": 0.8301886792452831
+    },
+    "result": "passed"
+  },
+  "source_files": {
+    "backend/audit/agent.py": "98aab730bb93c2c6a732528bd6ddffe96193266a88875ccf6a339790c8b2873d",
+    "backend/audit/app.py": "353319fa7324ae10d0200e449a01f1175b19219f8f6235fbf3413168ee6e5a61",
+    "backend/audit/audit_report.py": "489c699308ecddbeab300ed5c7cec2617315eda63646cfafac9a748583b058c4",
+    "backend/audit/frozen_reports.py": "bbc459665e7c13365e59c8dfc1c0d73a35e288313b321dc49c80e45784d8eeb4",
+    "backend/audit/output_policy.py": "fbd79435797325dce9a68efd20f7b8bc649e4077473a4bcbd3b629c8ec5677ac",
+    "backend/audit/report_readable.py": "034748a87dad3c5d208115c4d403da2fb90930a7f1221aa5e66e4c4d3ef99550",
+    "backend/tests/test_minimal_audit_outputs.py": "2876e1ee6bddd92c9fad429927a699fc5d49506e6b2d64428cf35f58bc382525",
+    "frontend/src/components/ReportDownloads.tsx": "c3545bf45237293fbe6a0cfebca24a4b0922695b453bc89f7b9cbb5f4072a598",
+    "scripts/ui_report_delivery_smoke.py": "509091f9127ef810f8ac883e673de55f15434955c17acebbba939dfe0a6aa583"
+  },
+  "verification_note": "An early standalone measure script invoked the app lifecycle via TestClient context management. Corrected to no-lifespan isolated requests with mock store and forbidden derived-cache access. No running or queued audits at verification; latest model_response remains 2026-11-11T05:15:34.116047+00:00. Frozen input/output hashes unchanged.",
+  "live_model_requests": 0,
+  "runner_jobs": 0,
+  "raw_logs": ".run/minimal-output-20261111 (ignored local files)"
+}

@@ -109,6 +109,12 @@ test('a new interactive run does not inherit the previous evidence contract', ()
   }
 });
 
+test('a new run uses the current output contract while the historical draft stays frozen', () => {
+  const clone = draftTask({ output_policy: 'legacy' });
+  assert.equal('output_policy' in taskForStart(clone, '复核当前源码与必要证据'), false);
+  assert.equal(clone.output_policy, 'legacy');
+});
+
 test('a new interactive run uses the current investigation policy while history stays frozen', () => {
   for (const investigation_policy of ['legacy', 'bounded-v1']) {
     const clone = draftTask({ investigation_policy });

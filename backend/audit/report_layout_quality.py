@@ -53,12 +53,13 @@ def evaluate(doc, markdown):
         anchors.extend(re.findall(r'<a id="([^"]+)"></a>', line))
     checks.update(fences=fence is None, narrow_tables=tables_ok, unique_anchors=len(anchors) == len(set(anchors)))
     sections = {"audit": {"结果与完成性", "漏洞清单", "覆盖与未完成工作", "后续行动", "限制与追溯"},
+                "report": {"结果与完成性", "漏洞清单", "覆盖与未完成工作", "结论与证据", "限制与追溯"},
                 "finding": {"影响与受影响位置", "利用前提", "根因与源码证据", "复现与实际验证", "终审结论与限制", "CVSS 3.1 依据", "修复建议与复测", "来源与附件"},
                 "accepted": {f"终审接受（{doc['counts']['accepted']}）"},
                 "vulnerabilities": {f"{label}（{doc['counts'][key]}）" for key, label in
                                     (("accepted", "终审接受"), ("pending", "待终审"), ("contested", "存疑或排除"))}}
     checks["sections"] = sections[doc["view"]] <= set(headings)
-    if doc["view"] in {"vulnerabilities", "accepted"}:
+    if doc["view"] in {"report", "vulnerabilities", "accepted"}:
         checks["detail_anchors"] = {number.lower() for number in numbers.values()} <= set(anchors)
     if doc["view"] == "accepted":
         checks["accepted_scope"] = all(e.get("final_disposition") == "accepted" for e in entries)

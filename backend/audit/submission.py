@@ -5,6 +5,8 @@ from copy import deepcopy
 import hashlib
 import json
 
+from .review_policy import allowed_review_decisions, bind_peer_indices
+
 
 def reference_coordinates(item):
     """Small host-owned coordinates survive paging; they grant no read receipts."""
@@ -22,17 +24,6 @@ def reference_coordinates(item):
                      for ref in payload.get("evidence") or []],
         "notice": "引用坐标不是源码或已读凭据；分页正文必须实际传送并审阅。",
     }
-
-
-def allowed_review_decisions(item, phase):
-    context = ((item.get('payload') or {}).get('resolution_context') or {})
-    if item['kind'] == 'direction' and context.get('can_resolve') is False:
-        return ['needs_evidence']
-    if item["kind"] in {"direction", "risk"}:
-        required = ((item.get("payload") or {}).get("resolution_context") or {}).get("requirement") == "required"
-        return ["resolve", "needs_evidence"] if required else ["resolve", "needs_evidence", "skip"]
-    return (["accept", "needs_evidence", "contested", "duplicate", "withdraw"] if phase == "final" else
-            ["retain", "needs_evidence", "contested", "duplicate", "withdraw"])
 
 
 def focus_references(item):
@@ -113,6 +104,7 @@ def bind_review_submission(payload, batch):
         if value.get("decision") not in allowed_review_decisions(item, batch["phase"]):
             raise ValueError(f"review_decisions[{item['item_id']}].decision 只能为 "
                              + ",".join(allowed_review_decisions(item, batch["phase"])))
+    result['review_decisions'] = bind_peer_indices(result['review_decisions'])
     refs = {r["finding_id"]: r for r in review_contract(batch)["verification_review_refs"]}
     for value in result.get("verification_reviews") or []:
         if not isinstance(value, dict):
@@ -133,12 +125,12 @@ def review_contract(batch):
     batch_ids = {item["item_id"] for item in items}
     return {
         "field_hierarchy": {"top_level": ["goal_state", "basis_summary", "review_batch_id", "review_decisions", "verification_reviews"],
-                            "review_decisions[]": ["item_id", "revision", "decision", "rationale", "focus", "risk_outcome", "finding_ids", "comparison_assessments", "distinct_from", "duplicate_of"],
+                            "review_decisions[]": ["item_id", "revision", "decision", "rationale", "focus", "risk_outcome", "finding_ids", "comparison_assessments", "duplicate_of"],
                             "verification_reviews[]": ["finding_id", "revision", "verification_id", "decision", "rationale_summary"],
                             "notice": "verification_reviews 只在顶层，不能放入 review_decisions；宿主绑定当前 ID/版本，显式给出错误值仍会拒绝。"},
         'fields_by_kind': {
             'direction': ['item_id','revision','decision','rationale','finding_ids'],
-            'finding': ['item_id','revision','decision','rationale','focus','comparison_assessments','distinct_from','duplicate_of'],
+            'finding': ['item_id','revision','decision','rationale','focus','comparison_assessments','duplicate_of'],
             'risk': ['item_id','revision','decision','rationale','focus','risk_outcome','finding_ids']},
         "version": "review-submission/v1", "batch_id": batch["id"],
         "items": [{"item_id": item["item_id"], "revision": item["revision"], "kind": item["kind"],
@@ -167,7 +159,7 @@ def review_contract(batch):
                        "verification_review_required_fields": ["decision:confirmed|contested", "rationale_summary:真实双侧观测判读"]}
                       if item.get("requires_verification_review") else {})} for item in items],
         "fill_in": ["独立处置与具体 rationale", "目标关联 focus（新任务）", "需要时的正常/攻击判读 rationale_summary",
-                    "逐项 comparison_assessments（item_id、relation、rationale），真实不同才写入 distinct_from"],
+                    "逐项 comparison_assessments（item_id、relation、rationale）；distinct_from 由宿主生成，无须重复填写"],
         "verification_review_refs": [{"item_id": item["item_id"], "finding_id": item["finding_id"],
             "revision": item["finding_revision"], "verification_id": item["verification_id"],
             "required_for_accept": bool(item.get("requires_verification_review"))}
@@ -190,7 +182,7 @@ def review_contract(batch):
                                "两个互不相关的 sink 不能用一段共同证据合报结清。payload.findings 是导航事实，不是既定判决。"
                                "无漏洞用 no_evidence 并说明实际防护依据。",
         "peer_policy": "duplicate_of、distinct_from、comparison_assessments.item_id 均使用规范 item_id，不能复制运行 finding_id。"
-                       "accept 对保留对照须同时提交 comparison_assessments=[{item_id,relation:distinct,rationale}] 与 distinct_from，逐项说明真实差异；"
+                       "accept 对保留对照提交 comparison_assessments=[{item_id,relation:distinct,rationale}]，逐项说明真实差异；distinct_from 索引由宿主生成。"
                        "同根因须 duplicate 并选主结论，未决用 needs_evidence。评分／POC 差别不是根因差别。",
     }
 
@@ -242,16 +234,12 @@ def review_schema(schema, batch, *, allow_direction_updates=False):
             branches.append(branch)
             continue
         focus = deepcopy(schema['$defs']['FocusAssessment'])
+        # Prefer bound evidence refs; retain typed legacy coordinates without
+        # repeating every allowed range here. The common focus gate checks scope.
         refs = focus_references(item)
         focus['properties']['evidence_refs'] = dict(type='array', maxItems=len(refs),
             items={'type':'string', **({'enum':[ref['reference_id'] for ref in refs]} if refs else {})},
             description='优先选当前项的 focus_evidence_refs.reference_id；宿主还原为 evidence 坐标，省略 evidence。')
-        if refs:
-            focus['properties']['evidence'] = {'type':'array','maxItems':16,'items':{'anyOf':[
-                {'type':'object','additionalProperties':False,'required':['path','start_line','end_line'],
-                 'properties':{'path':{'type':'string','const':ref['path']},
-                               'start_line':{'type':'integer','minimum':ref['start_line'],'maximum':ref['end_line']},
-                               'end_line':{'type':'integer','minimum':ref['start_line'],'maximum':ref['end_line']}}} for ref in refs]}}
         branch['properties']['focus'] = {'anyOf':[focus,{'type':'null'}]}
         if item['kind'] == 'risk':
             fields = {'item_id', 'revision', 'decision', 'rationale', 'focus', 'risk_outcome', 'finding_ids'}
@@ -296,8 +284,7 @@ def review_schema(schema, batch, *, allow_direction_updates=False):
         assessment["properties"]["item_id"] = {"type": "string", **({"enum": peers} if peers else {})}
         branch["properties"]["comparison_assessments"] = {
             "type": "array", "maxItems": len(peers), "items": assessment}
-        branch["properties"]["distinct_from"] = {
-            "type": "array", "maxItems": len(peers), "items": {"type": "string", **({"enum": peers} if peers else {})}}
+        branch["properties"].pop("distinct_from", None)
         targets = sorted(set(peers) | {i["item_id"] for i in batch["items"]
                                      if i["kind"] == "finding" and i["item_id"] != item["item_id"]})
         branch["properties"]["duplicate_of"] = ({"anyOf": [{"type": "string", "enum": targets}, {"type": "null"}]}

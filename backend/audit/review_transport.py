@@ -87,11 +87,18 @@ class ReviewTransportMixin:
             if any(not same_input(i, current.get(i["item_id"])) for i in batch["items"]):
                 raise ValueError("批次版本已变化，不能继续读取旧分页")
             needs_related = any(p["field"] == "payload.related_claims" for i in batch["items"] for p in i.get("paged_fields", []))
-            enriched = self._review_source_inputs(candidates, repository) if needs_related else {}
+            needs_direction = any(i["kind"] == "direction" for i in batch["items"])
+            enriched = {}
+            if repository is not None:
+                if needs_related:
+                    enriched = self._review_source_inputs(candidates, repository)
+                if needs_direction:
+                    enriched.update(self._direction_source_inputs(candidates, repository))
             assembled = []
             for item in batch["items"]:
                 full = current[item["item_id"]]
-                if batch["phase"] == "final" and full["kind"] in {"finding", "risk"}:
+                if repository is not None and ((batch["phase"] == "final" and full["kind"] in {"finding", "risk"})
+                        or full["kind"] == "direction"):
                     full = enriched.get(item["item_id"]) or source_input(full, repository)
                 value = deepcopy(item)
                 for part in item.get("paged_fields", []):

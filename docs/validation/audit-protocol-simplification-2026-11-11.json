@@ -1,0 +1,635 @@
+{
+  "version": "audit-protocol-simplification/v1",
+  "date": "2026-11-11",
+  "baseline_commit": "61e30cd",
+  "backend": {
+    "groups": [
+      {
+        "group": 1,
+        "returncode": 0,
+        "passed": 662,
+        "seconds": 20.23,
+        "log": ".run/protocol-simplification-20261111/regression/group-1.log",
+        "files": [
+          "backend/tests/test_worker_finding_contract.py",
+          "backend/tests/test_dataset_scoring.py",
+          "backend/tests/test_structured_output.py",
+          "backend/tests/test_full_comparison.py",
+          "backend/tests/test_action_failure_diagnostics.py",
+          "backend/tests/test_claude_poc_sdk_compat.py",
+          "backend/tests/test_prompt_evaluation.py",
+          "backend/tests/test_poc_gateway_budget.py",
+          "backend/tests/test_cvss_runtime.py",
+          "backend/tests/test_toolkit.py",
+          "backend/tests/test_review_protocol_simplification.py",
+          "backend/tests/test_poc_handoff_repair.py",
+          "backend/tests/test_discovery_context.py",
+          "backend/tests/test_finding_reuse.py",
+          "backend/tests/test_blocker_progress_recovery.py",
+          "backend/tests/test_code_prompt.py",
+          "backend/tests/test_claude_poc_preparation.py",
+          "backend/tests/test_task_contract.py",
+          "backend/tests/test_closure_reconcile_order.py",
+          "backend/tests/test_planner_revision.py",
+          "backend/tests/test_verification_review.py",
+          "backend/tests/test_prompt_comparison_api.py",
+          "backend/tests/test_incremental_budget_checkpoints.py",
+          "backend/tests/test_planner_publication_recovery.py",
+          "backend/tests/test_claude_poc_diagnostic.py",
+          "backend/tests/test_lab_seed.py",
+          "backend/tests/test_run_pause.py",
+          "backend/tests/test_scenario_prompts.py",
+          "backend/tests/test_report_rounds.py",
+          "backend/tests/test_planner_coverage.py",
+          "backend/tests/test_project_api.py",
+          "backend/tests/test_completion_gap_recovery.py",
+          "backend/tests/test_recon.py",
+          "backend/tests/test_planner_decision_sanitize.py",
+          "backend/tests/test_poc_dev_relay.py",
+          "backend/tests/test_worker_navigation.py",
+          "backend/tests/test_api_projection.py",
+          "backend/tests/test_operator_assessment.py"
+        ],
+        "summary": "662 passed in 18.71s"
+      },
+      {
+        "group": 2,
+        "returncode": 0,
+        "passed": 662,
+        "seconds": 28.794,
+        "log": ".run/protocol-simplification-20261111/regression/group-2.log",
+        "files": [
+          "backend/tests/test_comparison_trial.py",
+          "backend/tests/test_claude_poc_runtime.py",
+          "backend/tests/test_poc_conclusion_context.py",
+          "backend/tests/test_poc_job_budget.py",
+          "backend/tests/test_poc_runner_contexts.py",
+          "backend/tests/test_finding_disposition.py",
+          "backend/tests/test_exhaustive_exploration.py",
+          "backend/tests/test_code_executor.py",
+          "backend/tests/test_planner_verification_context.py",
+          "backend/tests/test_host_queue.py",
+          "backend/tests/test_final_review_bundle.py",
+          "backend/tests/test_poc_source.py",
+          "backend/tests/test_prompt_experiments.py",
+          "backend/tests/test_execution_stability.py",
+          "backend/tests/test_host_review_protocol.py",
+          "backend/tests/test_poc_readiness.py",
+          "backend/tests/test_host_sink_dedup.py",
+          "backend/tests/test_metrics.py",
+          "backend/tests/test_agent_stability.py",
+          "backend/tests/test_project_findings_api.py",
+          "backend/tests/test_poc_evidence_publication.py",
+          "backend/tests/test_finding_policy.py",
+          "backend/tests/test_lab30_score_acceptance.py",
+          "backend/tests/test_review_batch_recovery.py",
+          "backend/tests/test_remaining_work_lifecycle_review.py",
+          "backend/tests/test_closure_checkpoint.py",
+          "backend/tests/test_project_findings.py",
+          "backend/tests/test_worker_runtime.py",
+          "backend/tests/test_budget_presets_and_review_readiness.py",
+          "backend/tests/test_lifecycle.py",
+          "backend/tests/test_report_verification.py",
+          "backend/tests/test_prompt_library.py",
+          "backend/tests/test_planner_investigations.py",
+          "backend/tests/test_continuation_reopen_allowance.py",
+          "backend/tests/test_planner_pins.py",
+          "backend/tests/test_report_final_endpoints.py",
+          "backend/tests/test_evidence_pause_balance_and_review_lease.py",
+          "backend/tests/test_report_context.py",
+          "backend/tests/test_poc_model_gateway_app.py"
+        ],
+        "summary": "662 passed in 27.33s"
+      },
+      {
+        "group": 3,
+        "returncode": 0,
+        "passed": 662,
+        "seconds": 22.104,
+        "log": ".run/protocol-simplification-20261111/regression/group-3.log",
+        "files": [
+          "backend/tests/test_poc_model_gateway.py",
+          "backend/tests/test_review_closure_repair.py",
+          "backend/tests/test_source.py",
+          "backend/tests/test_code_model.py",
+          "backend/tests/test_timed_comparison_api.py",
+          "backend/tests/test_report_chapters.py",
+          "backend/tests/test_tool_reliability.py",
+          "backend/tests/test_lab30_e2e_script.py",
+          "backend/tests/test_audit_progress.py",
+          "backend/tests/test_finding_deletion.py",
+          "backend/tests/test_worker_evidence_roles.py",
+          "backend/tests/test_finding_deletion_api.py",
+          "backend/tests/test_high_recall_continuation.py",
+          "backend/tests/test_run_continuations.py",
+          "backend/tests/test_poc_runner_client.py",
+          "backend/tests/test_poc_stored_script.py",
+          "backend/tests/test_reuse_autocve.py",
+          "backend/tests/test_planner_situation.py",
+          "backend/tests/test_context_budget.py",
+          "backend/tests/test_task_contract_and_source_context.py",
+          "backend/tests/test_poc_runner_http.py",
+          "backend/tests/test_full_audit_creation.py",
+          "backend/tests/test_poc_store.py",
+          "backend/tests/test_review_input_repair.py",
+          "backend/tests/test_worker_publication_recovery.py",
+          "backend/tests/test_duplicate_guard.py",
+          "backend/tests/test_recent_final_review_repair.py",
+          "backend/tests/test_capability_contract.py",
+          "backend/tests/test_review_closure.py",
+          "backend/tests/test_poc_credential_recovery.py",
+          "backend/tests/test_worker_evidence_commit.py",
+          "backend/tests/test_replay_lfi_evidence.py",
+          "backend/tests/test_planner_tools.py",
+          "backend/tests/test_defence.py",
+          "backend/tests/test_poc_verification.py",
+          "backend/tests/test_retired_models.py",
+          "backend/tests/test_final_review_stall.py",
+          "backend/tests/test_run_profile_snapshot.py",
+          "backend/tests/test_prompt_v2_migration.py"
+        ],
+        "summary": "662 passed, 1 warning in 20.88s"
+      },
+      {
+        "group": 4,
+        "returncode": 0,
+        "passed": 661,
+        "seconds": 56.93,
+        "log": ".run/protocol-simplification-20261111/regression/group-4.log",
+        "files": [
+          "backend/tests/test_poc_http_contract.py",
+          "backend/tests/test_poc_agent.py",
+          "backend/tests/test_agent_runtime.py",
+          "backend/tests/test_claude_poc_queue.py",
+          "backend/tests/test_goal_tasks.py",
+          "backend/tests/test_lab30_support.py",
+          "backend/tests/test_poc_evidence_context.py",
+          "backend/tests/test_worker_strategies.py",
+          "backend/tests/test_bounded_investigation.py",
+          "backend/tests/test_cvss31_reference.py",
+          "backend/tests/test_report_delivery.py",
+          "backend/tests/test_prompt_cache.py",
+          "backend/tests/test_poc_diagnostics.py",
+          "backend/tests/test_worker_root_cause_contract.py",
+          "backend/tests/test_blocked_task_redefinition.py",
+          "backend/tests/test_coverage_review_policy.py",
+          "backend/tests/test_timed_comparison_runner.py",
+          "backend/tests/test_poc_durable_facts.py",
+          "backend/tests/test_discovery_workflow.py",
+          "backend/tests/test_audit_directions.py",
+          "backend/tests/test_partial_review_delivery.py",
+          "backend/tests/test_recent_closure_repair.py",
+          "backend/tests/test_prompt_comparison.py",
+          "backend/tests/test_context_config.py",
+          "backend/tests/test_model_profiles.py",
+          "backend/tests/test_workflow_limits.py",
+          "backend/tests/test_record_deletion.py",
+          "backend/tests/test_event_stream.py",
+          "backend/tests/test_risk_review_contract.py",
+          "backend/tests/test_projects.py",
+          "backend/tests/test_evidence.py",
+          "backend/tests/test_poc_targeted_retry.py",
+          "backend/tests/test_worker_strategy_v2.py",
+          "backend/tests/test_generic_web_project.py",
+          "backend/tests/test_report_poc_statistics.py",
+          "backend/tests/test_round_selection.py",
+          "backend/tests/test_model_env_sync.py",
+          "backend/tests/test_workflow_review_boundaries.py",
+          "backend/tests/test_worker_reserve_admission.py"
+        ],
+        "summary": "661 passed in 55.57s"
+      }
+    ],
+    "passed": 2647,
+    "expected_collected": 2647,
+    "wall_seconds": 56.954,
+    "source_sha256": "d98cab54e3ccce23e1cdb41d65bccd80d23c98d7b1227e5df0dfd4e67e56572e",
+    "code_unchanged": true,
+    "temporary_filesystem": "tmpfs /dev/shm",
+    "live_model_requests": 0,
+    "runner_jobs": 0
+  },
+  "new_cases": 22,
+  "targeted": {
+    "passed": 171,
+    "log": ".run/protocol-simplification-20261111/targeted.log"
+  },
+  "final_compatibility": {
+    "passed": 91,
+    "log": ".run/protocol-simplification-20261111/compatibility.log"
+  },
+  "frontend": "unchanged; no frontend checks repeated",
+  "request_text_comparison": {
+    "1": {
+      "before": {
+        "system_bytes": 1006,
+        "user_bytes": 19732,
+        "total_text_bytes": 20739,
+        "requests": 1,
+        "tools": 0
+      },
+      "after": {
+        "system_bytes": 3633,
+        "user_bytes": 12813,
+        "total_text_bytes": 16447,
+        "requests": 1,
+        "tools": 0
+      },
+      "text_byte_reduction": 0.2069530835623704
+    },
+    "4": {
+      "before": {
+        "system_bytes": 1006,
+        "user_bytes": 89273,
+        "total_text_bytes": 90280,
+        "requests": 1,
+        "tools": 0
+      },
+      "after": {
+        "system_bytes": 3633,
+        "user_bytes": 68377,
+        "total_text_bytes": 72011,
+        "requests": 1,
+        "tools": 0
+      },
+      "text_byte_reduction": 0.20235932653965438
+    }
+  },
+  "comparison_scope": "same synthetic fixtures; UTF-8 bytes, not measured provider tokens or billing",
+  "historical_replay": {
+    "run_id": "3b50dbaf45955d989aacf47162e47967",
+    "batches": 47,
+    "all_roundtrips_exact": true,
+    "all_nonincreasing": true,
+    "before_bytes": 4427195,
+    "after_bytes": 4427195,
+    "reduced_batches": 0,
+    "legacy_index_conflicts": 0,
+    "frozen_report_hashes": {
+      "input_hash": "c23b6cfc1a968df64a06c66ef539d1ebc3ed2778185a0307e18282ff0be1dbcd",
+      "output_hash": "059d06eed05e8dd24c2c3df60ebb40d67e9e3a09dcd5a8d847f3080fc44dea79"
+    },
+    "live_model_requests": 0,
+    "scope": "projection of historical leased inline facts; not reconstruction of complete historical requests or a new execution",
+    "items": [
+      {
+        "batch_id": "ee4a9d6886b149acaea15d52c67b4b02",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 946045,
+        "projected_bytes": 946045
+      },
+      {
+        "batch_id": "279d231959184c4d8214b20d6b09dbdd",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 37631,
+        "projected_bytes": 37631
+      },
+      {
+        "batch_id": "018d854b88194746aff34ba0f75a282f",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 862738,
+        "projected_bytes": 862738
+      },
+      {
+        "batch_id": "3fd3ef95e01e450cbd343ba846e87695",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 902687,
+        "projected_bytes": 902687
+      },
+      {
+        "batch_id": "4c876bee77d2427abfdcd3b7661f333b",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 43805,
+        "projected_bytes": 43805
+      },
+      {
+        "batch_id": "648ed5edbd8e4fa19cbd440d8d2a58fb",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 45385,
+        "projected_bytes": 45385
+      },
+      {
+        "batch_id": "83f56b4705754e7fb027e6f5db31157c",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 38602,
+        "projected_bytes": 38602
+      },
+      {
+        "batch_id": "983acc6aeaad45339cf252a1a2e69f2c",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 48298,
+        "projected_bytes": 48298
+      },
+      {
+        "batch_id": "7d36baf414be46839c179c831c3c3e2e",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 45048,
+        "projected_bytes": 45048
+      },
+      {
+        "batch_id": "04d1b79269574856b284cbde71c9678a",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 48244,
+        "projected_bytes": 48244
+      },
+      {
+        "batch_id": "d6beccbf03d149d3b864d51c226c5cf3",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 46994,
+        "projected_bytes": 46994
+      },
+      {
+        "batch_id": "f35246a81702484ea43871c21d2cd784",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 48224,
+        "projected_bytes": 48224
+      },
+      {
+        "batch_id": "fb1957b0958c4713a36041c7dee037f9",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 46500,
+        "projected_bytes": 46500
+      },
+      {
+        "batch_id": "036512da906d4d0d981f9ab8c1e3e4b8",
+        "phase": "final",
+        "status": "completed",
+        "original_bytes": 33726,
+        "projected_bytes": 33726
+      },
+      {
+        "batch_id": "ffd4107157514a2db96cd67edbc045e9",
+        "phase": "final",
+        "status": "split",
+        "original_bytes": 42877,
+        "projected_bytes": 42877
+      },
+      {
+        "batch_id": "41f06a88f4b6417e8e8e567e21d07e4d",
+        "phase": "final",
+        "status": "split",
+        "original_bytes": 48733,
+        "projected_bytes": 48733
+      },
+      {
+        "batch_id": "e8431705856d42699391483f91957d43",
+        "phase": "final",
+        "status": "split",
+        "original_bytes": 46334,
+        "projected_bytes": 46334
+      },
+      {
+        "batch_id": "109036fb7ed34ea29467af2c8d47f12f",
+        "phase": "final",
+        "status": "stale",
+        "original_bytes": 43805,
+        "projected_bytes": 43805
+      },
+      {
+        "batch_id": "2540fc21f7944c258b267845d2b3c7df",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 46643,
+        "projected_bytes": 46643
+      },
+      {
+        "batch_id": "ba1360da0b4b418ebe59ca3b5af6b789",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 41045,
+        "projected_bytes": 41045
+      },
+      {
+        "batch_id": "5c78594644384cfab42fd595f7fa0364",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 32398,
+        "projected_bytes": 32398
+      },
+      {
+        "batch_id": "5feffd506b414659adb062f147785eff",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 41241,
+        "projected_bytes": 41241
+      },
+      {
+        "batch_id": "33b9c2fb033d4ef180eab8c0b33b4ffc",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 42586,
+        "projected_bytes": 42586
+      },
+      {
+        "batch_id": "2cb14e38043441a0a9636096589fe6fb",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 45334,
+        "projected_bytes": 45334
+      },
+      {
+        "batch_id": "3154b6d231b7439bb2e1d633822e92df",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 37759,
+        "projected_bytes": 37759
+      },
+      {
+        "batch_id": "82548d55db0e422aa5560402809d01d5",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 31736,
+        "projected_bytes": 31736
+      },
+      {
+        "batch_id": "68c11c218ad94c0c8cd6937afdc970e7",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 36710,
+        "projected_bytes": 36710
+      },
+      {
+        "batch_id": "5bd1fc82007e430faa08b034a4fb97db",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 12781,
+        "projected_bytes": 12781
+      },
+      {
+        "batch_id": "9b84ac3184954992b89daaf519e0976f",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 40429,
+        "projected_bytes": 40429
+      },
+      {
+        "batch_id": "15b2781bfb9c43d2b34fa9af5b00b7e0",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 24713,
+        "projected_bytes": 24713
+      },
+      {
+        "batch_id": "606a53e940314ea2996328a33688cb19",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 7049,
+        "projected_bytes": 7049
+      },
+      {
+        "batch_id": "ceba9ffa1d294b079cc571e2119efd8f",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 21819,
+        "projected_bytes": 21819
+      },
+      {
+        "batch_id": "6344e20376e646879c34f752ae78d7c7",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 41048,
+        "projected_bytes": 41048
+      },
+      {
+        "batch_id": "a9502b39afb643b3884c937039e6cdb4",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 42626,
+        "projected_bytes": 42626
+      },
+      {
+        "batch_id": "0dfec5a18ee3429e8a5b8458976d474b",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 48427,
+        "projected_bytes": 48427
+      },
+      {
+        "batch_id": "a57e868961834fc990697d44768602c5",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 46265,
+        "projected_bytes": 46265
+      },
+      {
+        "batch_id": "bedf3375e68d4f469dd68fdea6c24277",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 46660,
+        "projected_bytes": 46660
+      },
+      {
+        "batch_id": "0f239666f3cb408b9103e8a5d68f2120",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 42202,
+        "projected_bytes": 42202
+      },
+      {
+        "batch_id": "0210e98361cd41ee9728778d63825a6b",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 48189,
+        "projected_bytes": 48189
+      },
+      {
+        "batch_id": "a752fb61476e4a9a91ef45b3dcbc9ca7",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 30590,
+        "projected_bytes": 30590
+      },
+      {
+        "batch_id": "45f6493f1ccc41c6be4e85c98303eae5",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 43804,
+        "projected_bytes": 43804
+      },
+      {
+        "batch_id": "9f8f432d59e24392a0fe8892cfcbe8ee",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 28075,
+        "projected_bytes": 28075
+      },
+      {
+        "batch_id": "7eaf7fe6025e436ba8d165270320dd58",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 41802,
+        "projected_bytes": 41802
+      },
+      {
+        "batch_id": "b99b0b03678f46da84e862f63ef83911",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 23140,
+        "projected_bytes": 23140
+      },
+      {
+        "batch_id": "ce59e90950c14b9c824e88ee3f544717",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 33892,
+        "projected_bytes": 33892
+      },
+      {
+        "batch_id": "3cc1a51385bd4d2cb3938b2b9be6ac3c",
+        "phase": "integration",
+        "status": "completed",
+        "original_bytes": 26029,
+        "projected_bytes": 26029
+      },
+      {
+        "batch_id": "dcbca1b8d2fa4dc8a2f3d8151635823b",
+        "phase": "integration",
+        "status": "stale",
+        "original_bytes": 46527,
+        "projected_bytes": 46527
+      }
+    ]
+  },
+  "original_report_unchanged": true,
+  "live_model_requests": 0,
+  "runner_jobs": 0,
+  "archive": {
+    "assets_verified": 7,
+    "score": {
+      "protocol": "lab30-v2",
+      "TP": 22,
+      "FN": 8,
+      "D": 0,
+      "U": 1,
+      "FP": 1
+    }
+  },
+  "diff_check_passed": true,
+  "files_sha256": {
+    "backend/audit/agent.py": "9a9372585c2906950abbc29e2901f7207b676e724f47c35d87d5d0be83d5a7b5",
+    "backend/audit/review_policy.py": "a042622af1a41d08cc788aadf046d7e9e28e25a26fbfb7248c6a79362f7f4483",
+    "backend/audit/review_store.py": "f631894c7f9222686bd95837718811a3bdbfefc2d36ef2bb994c911514e70b10",
+    "backend/audit/submission.py": "ef6194756f757e1104d0cdf3dafc92e8f7a8ac51a78efff32312c3f75eab68bf",
+    "backend/audit/review_prompt.py": "c640a6e9d2c1edc73c211f076233412254208c99d4ecb0457b54400072ce2f4b",
+    "backend/tests/test_review_protocol_simplification.py": "e0abc201cb084558d089559af06be73670b69e531bd04d23c71d43cb09315a3d",
+    "backend/tests/test_review_closure_repair.py": "8fd0b2d5c9fee6856e20ba445aa4ec51aec44bc0ab540d1e771a3bda6fa7446e"
+  },
+  "limits": [
+    "输入对照使用受控模型与合成证据；字节不等于供应商token、缓存命中或账单。",
+    "历史47个租约仅回放已保存内联字段，无去重收益；不据此推算完整历史请求消耗。",
+    "没有新增模型或动态实验，不宣称已验证生产成功率或30/30效果。"
+  ]
+}

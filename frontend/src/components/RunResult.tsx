@@ -25,7 +25,7 @@ export function RunResult({ detail, onChanged, onDetails }: {
     <div className="result-heading">{complete ? <ShieldCheck size={21} /> : <CircleHelp size={21} />}<div><h2>{status}</h2><span className="small muted">{loading ? '正在读取终审结果…' : source}</span></div></div>
     {state === 'error' ? <p role="status">终审读取失败：{error} <button className="text-button" onClick={retry}>重试终审读取</button></p> : <>
       {facts ? <>
-        {(facts.counts?.accepted ?? 0) > 0 && <p className="run-result-conclusion">已确认 {facts.counts.accepted} 条结论，可独立下载漏洞报告。{(facts.counts?.pending ?? 0) > 0 && `另有 ${facts.counts.pending} 条待终审，不影响已确认部分交付。`}</p>}
+        {(facts.counts?.accepted ?? 0) > 0 && <p className="run-result-conclusion">已确认 {facts.counts.accepted} 条结论，审计报告及证据包已保留。{(facts.counts?.pending ?? 0) > 0 && `另有 ${facts.counts.pending} 条待终审，在同一报告中单独标注。`}</p>}
         <p className="run-result-conclusion">{FINAL_REVIEW_PUBLISH_LABELS[facts.quality_result?.publishability] ?? '报告结论暂无数据'}{(facts.counts?.pending ?? 0) > 0 ? '，未完成项保留待审。' : incomplete ? '，本次审计未完成。' : '。'}</p>
         <div className="run-result-counts">{(['canonical', 'accepted', 'pending'] as const).map((key) => <div key={key}><strong>{displayCount(facts.counts?.[key])}</strong><span>{FINAL_REVIEW_COUNT_LABELS[key]}</span></div>)}</div>
         {typeof facts.counts?.contested === 'number' && facts.counts.contested > 0 && <p className="small muted">另有 {facts.counts.contested} 项存疑或排除，见终审报告。</p>}

@@ -174,6 +174,10 @@ def merge_candidates(previous, updates, findings, spans, file_lines, *, referenc
             raise ValueError("候选仍缺关键上下文时只能 pending，不能宣告 supported/excluded")
         if item.get("blocked_on") and (item["status"] != "pending" or not item["missing_context"] or not item["next_step"].strip()):
             raise ValueError("blocked_on 只用于 pending，必须列出 missing_context 和具体 next_step")
+        if item.get("blocked_on"):
+            from .investigation import blocked_context_error
+            if message := blocked_context_error(item, file_lines):
+                raise ValueError(message)
         if item["status"] == "supported":
             index = item["finding_index"]
             existing_id = item.get("finding_id")
@@ -193,6 +197,10 @@ def merge_candidates(previous, updates, findings, spans, file_lines, *, referenc
         if history:
             item["anchor_history"] = history
         journal[ident] = item
+    from .investigation import blocked_context_error
+    for item in journal.values():
+        if message := blocked_context_error(item, file_lines):
+            raise ValueError(message + "；该候选沿用自上轮账本，本轮也必须处理，不能原样保留一个可读/可算的阻塞。")
     if len(journal) > MAX_CANDIDATES:
         raise ValueError("当前任务候选账本已达16项；先发布/排除已有候选，将额外具体方向交回 Planner")
     return list(journal.values())

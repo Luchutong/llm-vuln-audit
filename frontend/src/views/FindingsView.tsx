@@ -8,7 +8,6 @@ import { Disclosure } from '../components/Disclosure';
 import { LongContent } from '../components/LongContent';
 import { isVulnerabilityFinding, sourceObservations, vulnerabilityFindings } from '../results';
 import { groupLedgerEvidence } from '../ledger';
-import { FindingReportDownloads } from '../components/ReportDownloads';
 
 const CATEGORY_LABELS: Record<string, string> = {
   sqli: 'SQL 注入',
@@ -336,7 +335,6 @@ export function FindingDetail({ finding, snapshotId, observation = false, pocDow
   const genericSourceFinding = isGenericSourceFinding(finding);
   return (
     <div className="grid">
-      {!canonical && !observation && runStatus && <FindingReportDownloads key={`${finding.id}:${finding.revision}:${finding.cvss_assessment?.assessment_revision}`} runId={finding.run_id} status={runStatus} findingId={finding.id} revision={finding.revision} assessmentRevision={finding.cvss_assessment?.assessment_revision} />}
       <section className="panel" aria-label={observation ? '排查记录详情' : canonical ? '漏洞台账详情' : '漏洞候选详情'}>
         <div className="panel-head">
           <div>

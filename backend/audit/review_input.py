@@ -62,6 +62,10 @@ def source_input(item, repository):
     """Every citation is read; neither the number of refs nor long ranges imply failure."""
     result = {**item, "source_excerpts": [], "evidence_complete": True}
     refs = item["payload"].get("evidence") or []
+    if not refs and item.get("kind") == "direction":
+        # Directions carry worker-read spans instead of finding evidence ranges.
+        # Without these the review saw only prose and could not resolve them.
+        refs = item["payload"].get("source_refs") or []
     result["evidence_complete"] = bool(refs) and repository is not None
     for ref in refs:
         try:

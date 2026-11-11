@@ -85,9 +85,13 @@ def test_paged_coordinates_keep_refs_and_schema_binds_the_current_item():
     decision=schema['properties']['review_decisions']['items']['anyOf'][0]
     spec=decision['properties']['focus']['anyOf'][0]['properties']
     assert spec['evidence_refs']['items']['enum']==[full[0]['reference_id']]
-    ranges=spec['evidence']['items']['anyOf']
-    assert ranges[0]['properties']['start_line']['minimum']==2
-    assert ranges[0]['properties']['end_line']['maximum']==3
+    # Compact schemas keep typed legacy coordinates; the authoritative shared
+    # gate enforces the same per-item range rather than repeating it in schema.
+    assert '$ref' in spec['evidence']['items']
+    claim={'evidence':item['reference_coordinates']['evidence']}
+    validate_focus(RUN,focus([ref(2,3)]),claim=claim)
+    with pytest.raises(ValueError,match='允许的连续区间'):
+        validate_focus(RUN,focus([ref(1,3)]),claim=claim)
 
 
 def pause(store, run):

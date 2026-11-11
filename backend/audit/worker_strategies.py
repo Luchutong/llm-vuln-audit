@@ -330,7 +330,9 @@ POC_SCRIPT_CONTRACT = (
 )
 
 
-def worker_poc_requirement(*, require_poc: bool = False) -> str:
+def worker_poc_requirement(*, require_poc: bool = False, minimal: bool = False) -> str:
+    if minimal and not require_poc:
+        return "本工作项不生成 POC；需要动态验证时由独立 POC Agent 根据冻结源码证据生成实验材料。"
     return (
         "当前任务要求每条 achieved finding 的 poc 包含完整、可复现的 POC 与运行说明；"
         "require_poc 仅约束脚本完整性，是否自动执行由宿主的 poc_mode 与可用环境决定。"
@@ -340,10 +342,10 @@ def worker_poc_requirement(*, require_poc: bool = False) -> str:
     ) + POC_SCRIPT_CONTRACT
 
 
-def worker_host_contract(*, require_poc: bool = False, include_cvss: bool = True) -> str:
+def worker_host_contract(*, require_poc: bool = False, include_cvss: bool = True, minimal: bool = False) -> str:
     """Exactly the common template the real Worker binds, without strategy text."""
     from .cvss_assessment import INSTRUCTION
     return (
-        WORKER_HOST_CONTRACT + "\n" + worker_poc_requirement(require_poc=require_poc)
+        WORKER_HOST_CONTRACT + "\n" + worker_poc_requirement(require_poc=require_poc, minimal=minimal)
         + "\n" + WORKER_FINDING_CONTRACT + (INSTRUCTION if include_cvss else "")
     )

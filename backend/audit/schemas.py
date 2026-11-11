@@ -240,6 +240,7 @@ class TaskSpec(BaseModel):
     objective: str = Field(min_length=8, max_length=2000, description="Vulnerability risks the agents should investigate in the selected source")
     budget_exhaustion_policy: Literal['pause-v1', 'terminal-v1'] = 'pause-v1'
     review_reuse_policy: Literal['incremental-v1', 'legacy'] = 'incremental-v1'
+    output_policy: Literal['audit-evidence-v1', 'legacy'] = 'audit-evidence-v1'
     success_criteria: str = Field(
         default="在所选源码中找到至少一处由原始行号证据支撑、具有明确触发条件的目标相关漏洞风险。提供 CVSS 3.1 基础指标与依据，信息不足时保留待评分状态。",
         min_length=8,

@@ -28,6 +28,48 @@ _RELATED_STOP = {
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
 _TABLE_REF = re.compile(r"(?:from|join|into|update|table)\s+`?([A-Za-z_][A-Za-z0-9_]*)`?", re.IGNORECASE)
 _DOTTED_REF = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b")
+_SOURCE_PATH = re.compile(
+    r"[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:php|py|js|jsx|ts|tsx|java|rb|go|rs|c|h|cc|cpp|sql|yml|yaml|json|ini|conf|sh|md|txt|html|xml|svg)"
+)
+
+
+def direction_source_refs(text, read_ranges, snapshot_id, limit=8):
+    """Exact worker-read spans named by a direction, for review paging.
+
+    Direction items used to carry only prose and coordinates, so a reviewer told to
+    judge against real source could only answer needs_evidence -- and a non-final
+    needs_evidence then discarded the worker's supported result. These refs let the
+    same host paging that serves findings deliver source the worker already read.
+    """
+    tokens = []
+    for token in _SOURCE_PATH.findall(text or ""):
+        token = token.strip("./")
+        if token and token not in tokens:
+            tokens.append(token)
+
+    def named(path):
+        return any(path == token or path.endswith("/" + token) for token in tokens)
+
+    usable = [ref for ref in (read_ranges or [])
+              if isinstance(ref, dict) and isinstance(ref.get("path"), str)
+              and type(ref.get("start_line")) is int and type(ref.get("end_line")) is int
+              and 1 <= ref["start_line"] <= ref["end_line"]]
+    ordered = sorted(usable, key=lambda ref: (ref["path"], ref["start_line"], ref["end_line"]))
+    # A named file that the worker never read must stay visible as missing, not be
+    # replaced by unrelated reads. With no path token at all, the read spans are
+    # the only source available for the reviewer.
+    ordered = [item for item in ordered if named(item["path"])] if tokens else ordered
+    seen, refs = set(), []
+    for ref in ordered:
+        key = (ref["path"], ref["start_line"], ref["end_line"])
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append({"snapshot_id": snapshot_id, "path": ref["path"],
+                     "range": {"start": ref["start_line"], "end": ref["end_line"]}})
+        if len(refs) >= limit:
+            break
+    return refs
 
 
 def _excerpt_text(excerpt):
@@ -212,9 +254,8 @@ def validate_batch(batch, decisions, *, current_items=None):
         item = expected[decision["item_id"]]
         if decision.get("revision") != item["revision"]:
             raise ValueError("批次结论版本已变化，请读取当前批次后重新提交")
-        allowed = {"resolve", "needs_evidence", "skip"} if item["kind"] in {"direction", "risk"} else (
-            {"accept", "needs_evidence", "contested", "duplicate", "withdraw"} if batch["phase"] == "final"
-            else {"retain", "needs_evidence", "contested", "duplicate", "withdraw"})
+        from .review_policy import allowed_review_decisions
+        allowed = set(allowed_review_decisions(item, batch["phase"]))
         if decision.get("decision") not in allowed or len(str(decision.get("rationale") or "").strip()) < 8:
             raise ValueError("批次处置类型或具体理由不合法")
         if item["kind"] == "risk":
@@ -334,8 +375,9 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
         from .final_review import canonical_groups, comparison_candidates
         from .review_input import compact_observations
         items = []
-        row = self._row('SELECT task_spec FROM runs WHERE id=?', (run_id,))
-        run = dict(id=run_id, task_spec=json.loads(row[0] or '{}') if row else {})
+        row = self._row('SELECT snapshot_id,task_spec FROM runs WHERE id=?', (run_id,))
+        run = dict(id=run_id, snapshot_id=row[0] if row else None,
+                   task_spec=json.loads(row[1] or '{}') if row else {})
         tasks = {task["task_key"]: task for task in self.list_tasks(run_id, include_attempts=False)}
         hosted = self.host_queue_enabled(run_id)
         if (phase == "integration" or hosted) and self.discovery_first(run_id):
@@ -355,6 +397,8 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                          "worker_results": result.get("direction_results", [])}
                 basis["read_ranges"] = [ref for attempt in (self.list_task_attempts(task["id"]) if task else [])
                                         for ref in (attempt.get("seen") or [])][:32]
+                basis["source_refs"] = direction_source_refs(
+                    direction.get("text"), basis["read_ranges"], run["snapshot_id"])
                 from .investigation import enabled as bounded
                 if bounded(run['task_spec']) or run['task_spec'].get('budget_exhaustion_policy') == 'pause-v1':
                     basis["resolution_context"] = self.direction_resolution_context(run_id, direction, tasks=tasks)
@@ -464,6 +508,13 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                 item["payload"] = {**item["payload"], "related_claims": facts}
         return enriched
 
+    @staticmethod
+    def _direction_source_inputs(candidates, repository):
+        """Directions get their worker-read spans as source, in every phase."""
+        from .review_input import source_input
+        return {item["item_id"]: source_input(item, repository)
+                for item in candidates if item["kind"] == "direction"}
+
     def review_batches_pending(self, run_id, phase, repository=None, *, for_scheduling=False):
         """Pure packing used by both budget estimates and actual leases."""
         reviewed = {(r["item_id"], r["revision"]) for r in self._rows(
@@ -497,11 +548,15 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
             if for_scheduling:
                 pending = [i for i in pending if (i["item_id"], i["revision"]) not in deferred]
         enriched = {}
-        if phase == "final" and repository is not None:
-            # The corroboration pool is every current claim, not only the unreviewed
-            # ones: a write-path claim accepted in an earlier batch is still the fact
-            # that proves a later second-order injection's source column.
-            enriched = self._review_source_inputs(candidates, repository)
+        if repository is not None:
+            if phase == "final":
+                # The corroboration pool is every current claim, not only the unreviewed
+                # ones: a write-path claim accepted in an earlier batch is still the fact
+                # that proves a later second-order injection's source column.
+                enriched = self._review_source_inputs(candidates, repository)
+            # Direction reviews need the source the worker actually read in both
+            # phases; integration-only prose forced reviewers into needs_evidence.
+            enriched.update(self._direction_source_inputs(candidates, repository))
         # A single finding payload is ~15-20 KB after corroboration excerpts; at 32 KB
         # the packer fell back to one item per final batch in a real run (56 of 80
         # batches), which spent the whole wall-clock budget on round-trip latency while
@@ -512,7 +567,8 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
         policy_row = self._row("SELECT agent_policy,task_spec FROM runs WHERE id=?", (run_id,))
         atomic_comparisons = bool(policy_row and json.loads(policy_row[1] or "{}").get("comparison_policy") == COMPARISON_POLICY)
         for related in comparison_groups(pending):
-            prepared = [bounded_item(enriched.get(i["item_id"], i) if phase == "final" else i)
+            prepared = [bounded_item(enriched.get(i["item_id"], i)
+                                     if phase == "final" or i["kind"] == "direction" else i)
                         for i in related]
             if (not atomic_comparisons or len(related) == 1) and any((i["item_id"], i["revision"]) in isolated for i in related):
                 if selected:
@@ -571,6 +627,10 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                 # Large raw POC fields must not reread every peer on every page.
                 full = (self._review_source_inputs(candidates, repository)[item_id]
                         if field == "payload.related_claims" else source_input(full, repository))
+            elif full["kind"] == "direction":
+                # The direction's source excerpts are derived from worker read
+                # spans, not stored in the frozen payload; reconstruct before paging.
+                full = source_input(full, repository)
             text = dump(field_values(full)[field])
             if digest(text) != manifest["sha256"] or len(text) != manifest["characters"]:
                 raise ValueError("被审原文已变化，请重新领取批次")
@@ -718,8 +778,9 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
             validated_items.append({**item,
                 "requires_verification_review": False if decision == "confirmed" else item.get("requires_verification_review"),
                 "conflicts": item.get("conflicts", []) + ([{"kind": "review_contested"}] if decision == "contested" else [])})
+        from .review_policy import COMPARISON_POLICY, bind_peer_indices, validate_peer_assessments
+        decisions = bind_peer_indices(decisions)
         decisions = validate_batch({**batch, "items": validated_items}, decisions, current_items=current.values())
-        from .review_policy import COMPARISON_POLICY, validate_peer_assessments
         row = self._row('SELECT task_spec FROM runs WHERE id=?', (run_id,))
         run = dict(id=run_id, task_spec=json.loads(row[0] or '{}') if row else {})
         if batch["phase"] == "final" and run['task_spec'].get("comparison_policy") == COMPARISON_POLICY:
@@ -770,8 +831,9 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
         if problems:
             raise ValueError("accept 前须判读 comparison_candidates：同一根因用 duplicate；不同根因在 distinct_from 列出保留的对照 item_id，并在 rationale 说明操作或前提差异。POC 状态及评分不同不代表不同根因。 本批次逐项要求："
                              + "；".join(problems) + "。")
-        tasks = {task["task_key"]: task for task in self.list_tasks(run_id)}
-        directions = self._audit_direction_records(run_id)
+        needs_directions = any(current[d["item_id"]]["kind"] == "direction" and d["decision"] == "resolve" for d in decisions)
+        tasks = {task["task_key"]: task for task in self.list_tasks(run_id, include_attempts=False)} if needs_directions else {}
+        directions = self._audit_direction_records(run_id) if needs_directions else {}
         risk_problems = []
         for decision in decisions:
             item = current[decision["item_id"]]
@@ -839,9 +901,14 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                                 "task_key": item["task_key"], "rationale_summary": decision["rationale"],
                                 "finding_ids": list(decision.get("finding_ids") or [])})
             if item["kind"] == "direction" and choice == "needs_evidence" and batch["phase"] != "final":
+                # Keep the existing assignment and its worker result. Resetting to
+                # pending/unassigned used to erase the only supported/no_evidence
+                # result, so the final review could never resolve the direction and
+                # the run closed inconclusive with no path back. The Planner may
+                # still explicitly reassign an open direction; when it does not, a
+                # later phase can judge the preserved result against the source.
                 records = self._audit_direction_records(run_id)
-                records[item["item_id"]].update(state="pending", assigned_task_key=None,
-                                               review_reason=decision["rationale"])
+                records[item["item_id"]]["review_reason"] = decision["rationale"]
                 self._persist_audit_directions_tx(run_id, records)
             if item["kind"] == "finding" and choice in {"withdraw", "duplicate"}:
                 related = current.get(decision.get("duplicate_of")) if choice == "duplicate" else None
@@ -849,8 +916,11 @@ class ReviewStoreMixin(ReviewControlMixin, ReviewTransportMixin):
                     raise ValueError("重复结论引用必须属于本运行的另一条当前结论")
                 affected = [item["finding_id"]]
                 if self.host_queue_enabled(run_id):
-                    from .final_review import group_key
-                    affected = [r["id"] for r in self.list_findings(run_id) if group_key(r) == item["item_id"]]
+                    # Same run-scoped group identity as final_review.group_key,
+                    # without hydrating every finding and its experiment history.
+                    affected = [r["id"] for r in self._db.execute(
+                        "SELECT id FROM findings WHERE run_id=? AND COALESCE(NULLIF(project_finding_id,''),id)=?",
+                        (run_id, item["item_id"]))]
                 for finding_id in affected:
                     self._db.execute("UPDATE findings SET disposition=?,disposition_reason=?,disposition_by=?,disposition_at=? WHERE id=? AND run_id=?",
                                      ("duplicate" if choice == "duplicate" else "retracted", decision["rationale"], "planner_batch:" + batch_id,

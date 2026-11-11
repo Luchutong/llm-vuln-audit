@@ -3,6 +3,7 @@ export type RunStatus =
   | 'pending' | 'running' | 'paused'
   | 'completed' | 'unreachable' | 'inconclusive' | 'failed' | 'cancelled' | 'interrupted';
 export interface TaskSpec {
+  output_policy?: 'audit-evidence-v1' | 'legacy';
   role_policy?: 'legacy' | 'worker-evidence-v1' | 'worker-evidence-v2' | null;
   investigation_policy?: 'legacy' | 'bounded-v1' | null;
   objective: string;

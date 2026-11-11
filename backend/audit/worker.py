@@ -753,6 +753,11 @@ class AuditWorker:
         last_planner_failure = ""
         gap_signature = None
         gap_stalls = 0
+        # A host-initiated closure can be deferred by an open required direction or a
+        # blocked task. Non-exhaustive runs have no pre-closure loop for either, so
+        # without a bounded re-plan the deferred request is immediately sealed even
+        # though the missing step is dispatching or reopening work.
+        closure_replans = 0
         # ``project_finding_id`` -> revision already sent to the POC agent this process.
         # Verification happens as soon as a worker wave is quiet, before coverage
         # review or a stalled blocker can close the run. The durable verifier keeps
@@ -2110,6 +2115,30 @@ class AuditWorker:
             if (standing or inherited) and (closing or not queue["active"]):
                 if hosted:
                     if not await finish_goal("met", "现有源码任务和覆盖已结算，进入统一证据终审。"):
+                        # The deferral is the host's own closure request being refused for
+                        # an open obligation. Required directions and blocked tasks are such
+                        # obligations; let the Planner assign, reopen or resolve them
+                        # instead of treating the refusal as a terminal inconclusive. The
+                        # attempt count bounds a Planner that keeps declaring closure
+                        # without dispatching work.
+                        directions = self.store.audit_direction_summary(run_id)
+                        frontier_now = self.store.task_queue_state(run_id)
+                        unsettled = int(directions.get("unsettled_required_total") or 0)
+                        blocked = int(frontier_now.get("blocked") or 0)
+                        if ((unsettled or blocked) and not closing
+                                and closure_replans < int(policy.planner_decision_retries)):
+                            closure_replans += 1
+                            self.bus.emit(run_id, None, "closure_replan_requested", {
+                                "unsettled_required_total": unsettled,
+                                "blocked_tasks": blocked,
+                                "items": directions.get("items") or [],
+                                "attempt": closure_replans,
+                                "limit": int(policy.planner_decision_retries),
+                            })
+                            state = await run_planner_round()
+                            if state == "closed" or stop.is_set():
+                                return
+                            continue
                         await finish_goal("inconclusive", "保留源码未决方向，进入验证与统一终审。")
                     return
                 signature = conclusion_state()

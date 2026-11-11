@@ -1,6 +1,42 @@
 """Bounded review costs and explicit peer judgments; no automatic sign-off."""
+from copy import deepcopy
 
 COMPARISON_POLICY = "explicit-peers-v1"
+
+
+def allowed_review_decisions(item, phase):
+    """One action vocabulary for the schema, publication and transaction gates."""
+    context = (item.get("payload") or {}).get("resolution_context") or {}
+    if item["kind"] == "direction" and context.get("can_resolve") is False:
+        return ["needs_evidence"]
+    if item["kind"] in {"direction", "risk"}:
+        return ["resolve", "needs_evidence"] if context.get("requirement") == "required" else ["resolve", "needs_evidence", "skip"]
+    return (["accept", "needs_evidence", "contested", "duplicate", "withdraw"] if phase == "final"
+            else ["retain", "needs_evidence", "contested", "duplicate", "withdraw"])
+
+
+def bind_peer_indices(decisions):
+    """Derive a redundant index only from explicit judgments, never from prose/IDs.
+
+    Old clients may still send the index, but conflicting explicit judgments must
+    be corrected. Membership and semantic requirements are checked separately.
+    """
+    result = deepcopy(decisions)
+    for decision in result:
+        assessments = decision.get("comparison_assessments") or []
+        if not assessments:
+            continue  # A legacy distinct_from alone never supplies a judgment.
+        if any(not isinstance(a, dict) or not isinstance(a.get("item_id"), str) for a in assessments):
+            raise ValueError(f"review_decisions[{decision.get('item_id')}].comparison_assessments：须提供逐项 item_id/relation/rationale")
+        distinct = list(dict.fromkeys(a["item_id"] for a in assessments if a.get("relation") == "distinct"))
+        supplied = decision.get("distinct_from")
+        if supplied is not None and (not isinstance(supplied, list)
+                or any(not isinstance(ident, str) for ident in supplied)
+                or supplied and set(supplied) != set(distinct)):
+            raise ValueError(f"review_decisions[{decision.get('item_id')}].distinct_from 与显式 comparison_assessments 判读不一致；"
+                             "省略该索引由宿主生成，same_root 不能标作 distinct，未决关系保留 needs_evidence")
+        decision["distinct_from"] = distinct
+    return result
 
 
 def batch_response_reserve(items, *, corrections=2):
@@ -39,7 +75,7 @@ def validate_peer_assessments(decisions, current):
         for peer in sorted(retained):
             if peer not in judged or judged[peer]["relation"] != "distinct":
                 problems.append(f"{field}[{peer}]：accept 须提交 {{item_id:{peer},relation:distinct,rationale:具体差异至少12字}}；"
-                                "不能只填 distinct_from。same_root 应 duplicate 并选保留主结论；本批其他项可指向该主结论，"
+                                "不能只填 distinct_from；该索引由宿主从显式 distinct 判读生成。same_root 应 duplicate 并选保留主结论；本批其他项可指向该主结论，"
                                 "未决应 needs_evidence，不能为接受捏造 distinct")
     if problems:
         raise ValueError("候选对照逐项要求：" + "；".join(problems))

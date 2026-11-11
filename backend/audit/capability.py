@@ -118,6 +118,8 @@ def poc_in_focus(run, finding, *, known_ids=()):
 def outcome(run, coverage, entries, *, risk=None):
     """A versioned policy projection, never a retrospective rewrite of legacy facts."""
     from .report_readable import delivery_gaps
+    def gaps(entry):
+        return delivery_gaps(entry, run.get("task_spec"))
     focus = focus_summary(entries)
     mode = (run.get("poc_policy") or {}).get("mode", "off")
     verification = coverage["verification"]
@@ -146,8 +148,8 @@ def outcome(run, coverage, entries, *, risk=None):
                                                     "pending": verification.get("pending"),
                                                     "policy": "至少一条目标相关兼容验证" if mode == "required" else "不设动态通过数量门槛"},
                            "final_review_complete": final_met,
-                           "delivery_readiness": {"complete": all(not delivery_gaps(e) for e in entries),
+                           "delivery_readiness": {"complete": all(not gaps(e) for e in entries),
                                                   "basis": "材料填写完整性检查，不代替修复正确性与回归有效性的独立复核。",
-                                                  "gaps": [{"canonical_id": e["canonical_id"], "items": delivery_gaps(e)}
-                                                           for e in entries if delivery_gaps(e)]}},
+                                                  "gaps": [{"canonical_id": e["canonical_id"], "items": gaps(e)}
+                                                           for e in entries if gaps(e)]}},
             "focus": focus}

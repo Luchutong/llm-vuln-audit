@@ -59,6 +59,7 @@ export function taskForStart(task: TaskSpec, objective: string, scopeSuffix = ''
   delete payload.workflow_limits;
   // A new interactive audit uses the server's current evidence contract. Keep the
   // cloned run's frozen version on its history, rather than silently reusing it.
+  delete payload.output_policy;
   delete payload.role_policy;
   delete payload.investigation_policy;
   return payload;

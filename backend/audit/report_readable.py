@@ -247,16 +247,17 @@ def _inventory(doc, entries):
     return lines + [""]
 
 
-def delivery_gaps(entry):
+def delivery_gaps(entry, task=None):
     claim = entry.get("frozen_claim") or {}
     gaps = []
     def present(value):
         if isinstance(value,list):
             return bool(value) and all(present(item) for item in value)
         return str(value or '').strip().strip('。.').casefold() not in {'','无','待补充','暂无数据','todo','unknown','n/a','none','不适用','-','—','...','…'}
-    if not present(claim.get("remediation")):
+    from .output_policy import enabled
+    if not enabled(task) and not present(claim.get("remediation")):
         gaps.append("修复建议待补充")
-    if not present(claim.get("retest")):
+    if not enabled(task) and not present(claim.get("retest")):
         gaps.append("修复后复测步骤与回归条件待补充")
     if not present(claim.get("preconditions")):
         gaps.append("登录、权限与业务初始状态待补充")
@@ -416,9 +417,9 @@ def markdown(doc):
     return "\n".join(lines)
 
 
-def _attachments(frozen, doc):
+def _attachments(frozen, doc, *, declared_only=False):
     """Use only names actually owned by the selected frozen rows, never id prefixes."""
-    from .report import original_poc_name, adapted_script_name, safe_name
+    from .report import original_poc_name, adapted_script_name, safe_name, _verification_source
     allowed = set()
     refs = {r["finding_id"] for e in doc["canonical_findings"] for r in e.get("source_record_refs") or []}
     verification_ids = {a["verification_id"] for a in doc["verification_attempts"]}
@@ -430,8 +431,10 @@ def _attachments(frozen, doc):
         for v in record.get("verifications") or []:
             if v.get("id") not in verification_ids:
                 continue
-            allowed.add(adapted_script_name(record, v))
-            allowed.add(f"{v['id']}-runner-manifest.json")
+            if not declared_only or v.get("modified_script"):
+                allowed.add(adapted_script_name(record, v))
+            if not declared_only or _verification_source(v) == "poc_agent":
+                allowed.add(f"{v['id']}-runner-manifest.json")
             allowed.update(safe_name(str(a.get("path") or "")) for a in v.get("artifacts") or [])
             allowed.update(str(a.get("stored")) for a in v.get("files") or [])
     result, missing = {}, []
@@ -452,6 +455,9 @@ def _attachments(frozen, doc):
 
 
 def export(frozen, *, view="audit", format="markdown", canonical_id=None):
+    if view == "report" and canonical_id is None:
+        from .audit_report import export as audit_export
+        return audit_export(frozen, format=format)
     doc = document(frozen, view, canonical_id)
     md = markdown(doc)
     from .report_layout_quality import evaluate

@@ -2028,7 +2028,7 @@ def _attach_final_review(state: Services, bundle: dict) -> dict | None:
 
 @app.get("/api/runs/{run_id}/report")
 async def report(request: Request, run_id: str, format: Literal["markdown", "json", "zip"] = Query("markdown"),
-                 view: Literal["audit", "vulnerabilities", "accepted", "archive"] = Query("archive")):
+                 view: Literal["report", "audit", "vulnerabilities", "accepted", "archive"] = Query("archive")):
     state = services(request)
     if state.store.get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run does not exist")
@@ -2080,6 +2080,8 @@ def _delivery_response(state, run_id, view, format, canonical_id=None):
     # Never reconstruct historical facts from mutable rows, even if the archive
     # endpoint can still render a legacy report. Read only already saved facts.
     from .report_readable import export, digest, dump, VERSION as DELIVERY_VERSION, TEMPLATE
+    if view == "report":
+        from .audit_report import VERSION as DELIVERY_VERSION, TEMPLATE
     run = state.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run does not exist")
@@ -2093,15 +2095,24 @@ def _delivery_response(state, run_id, view, format, canonical_id=None):
         raise HTTPException(status_code=409, detail={"code": "legacy_facts_unavailable", "message": "历史运行缺少冻结事实；可下载归档原件。"})
     if canonical_id is not None and not any(e["canonical_id"] == canonical_id for e in frozen["facts"].get("canonical_findings") or []):
         raise HTTPException(status_code=404, detail="Canonical finding does not belong to this frozen run")
-    cache_key = digest(dump({"renderer": DELIVERY_VERSION, "template": TEMPLATE, "view": view, "format": format,
-                             "canonical_id": canonical_id, "input": frozen.get("input_hash"),
-                             "facts": digest(dump(frozen["facts"])), "archive": frozen.get("output_hash")}))
-    cached = getattr(state.store, "delivery_export", lambda *args: None)(run_id, cache_key)
+    from .output_policy import enabled as minimal_outputs
+    saved_output = view == "report" and minimal_outputs((frozen["input"].get("run") or {}).get("task_spec"))
+    if saved_output:
+        # The normal deliverables already exist at closure. Avoid another render,
+        # whole-facts hashing pass and duplicate derived-cache storage per format.
+        cached = frozen[{"markdown": "markdown", "json": "json_export", "zip": "zip_blob"}[format]]
+        if isinstance(cached, str):
+            cached = cached.encode()
+    else:
+        cache_key = digest(dump({"renderer": DELIVERY_VERSION, "template": TEMPLATE, "view": view, "format": format,
+                                 "canonical_id": canonical_id, "input": frozen.get("input_hash"),
+                                 "facts": digest(dump(frozen["facts"])), "archive": frozen.get("output_hash")}))
+        cached = getattr(state.store, "delivery_export", lambda *args: None)(run_id, cache_key)
     try:
         content = cached if cached is not None else export(frozen, view=view, format=format, canonical_id=canonical_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Canonical finding does not belong to this frozen run") from None
-    if cached is None and hasattr(state.store, "cache_delivery_export"):
+    if not saved_output and cached is None and hasattr(state.store, "cache_delivery_export"):
         state.store.cache_delivery_export(run_id, cache_key, content)
     suffix, media = {"markdown": ("md", "text/markdown; charset=utf-8"), "json": ("json", "application/json"),
                      "zip": ("zip", "application/zip")}[format]

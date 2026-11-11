@@ -434,6 +434,16 @@ def test_ledger_trimming_keeps_verified_and_rejected_rows_over_unverified_leads(
     assert bounded["counts"]["project_findings"] == 30
 
 
+def test_pending_candidate_handoff_rule_is_scoped_to_its_blocked_task():
+    context = {"tasks": [{"task_key": "query-path", "state": "blocked", "result": {
+        "candidate_journal": [{"candidate_id": "query-boundary", "status": "pending", "blocked_on": "environment",
+                               "next_step": "确认目标进程实际数据库身份后复核当前操作。"}]}}]}
+    situation = agent._planner_situation(context)
+    assert situation["settled"][0]["pending_candidates"][0]["candidate_id"] == "query-boundary"
+    assert "updates.reopen" in situation["dispatch_rule"]
+    assert "pending_candidates" not in agent._planner_situation({"tasks": []})["dispatch_rule"]
+
+
 def test_verification_records_travel_with_the_situation_and_guide_closure_review():
     """Per-finding POC feedback reaches the audit agent, and the closure notice tells
     it how to use the detail (the missing feedback loop from POC agent to audit agent)."""

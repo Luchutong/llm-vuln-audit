@@ -76,6 +76,13 @@ def bind_review_submission(payload, batch):
                 if value.get(field) not in (None, [], {}):
                     raise ValueError(f"review_decisions[{item['item_id']}].{field}：direction 不允许此字段；只提交当前项的合法动作与依据")
                 value.pop(field, None)
+            context=(item.get('payload') or {}).get('resolution_context') or {}
+            outcomes={r.get('outcome') for r in context.get('worker_results') or []}
+            if value.get('decision')=='resolve' and outcomes=={'supported'} and not value.get('finding_ids'):
+                ids=context.get('eligible_finding_ids') or [f['id'] for f in context.get('eligible_findings') or []]
+                raise ValueError(f"review_decisions[{item['item_id']}].finding_ids：supported 方向 resolve 必须显式选取当前有效 finding ID；可对照 {ids}")
+            if value.get('decision')=='resolve' and outcomes=={'no_evidence'} and value.get('finding_ids'):
+                raise ValueError(f"review_decisions[{item['item_id']}].finding_ids：no_evidence 方向须为空，引用对应 Worker 的实际源码反证")
         focus = value.get('focus')
         if isinstance(focus, dict) and focus.get('supports'):
             if not isinstance(focus['supports'], list) or any(not isinstance(ident, str) for ident in focus['supports']):
@@ -222,6 +229,16 @@ def review_schema(schema, batch, *, allow_direction_updates=False):
         if item['kind'] == 'direction':
             fields = {'item_id','revision','decision','rationale','finding_ids'}
             branch['properties'] = {k:v for k,v in branch['properties'].items() if k in fields}
+            context=(item.get('payload') or {}).get('resolution_context') or {}
+            outcomes={r.get('outcome') for r in context.get('worker_results') or []}
+            if outcomes in ({'supported'},{'no_evidence'}):
+                ids=context.get('eligible_finding_ids') or [f['id'] for f in context.get('eligible_findings') or []]
+                branch['properties']['finding_ids']=dict(type='array',maxItems=min(8,len(ids)),items=dict(type='string',**({'enum':ids} if ids else {})))
+                if outcomes=={'supported'}:
+                    branch['allOf']=[{'if':{'properties':{'decision':{'const':'resolve'}},'required':['decision']},
+                                      'then':{'required':['finding_ids'],'properties':{'finding_ids':{'minItems':1}}}}]
+                else:
+                    branch['properties']['finding_ids']['maxItems']=0
             branches.append(branch)
             continue
         focus = deepcopy(schema['$defs']['FocusAssessment'])

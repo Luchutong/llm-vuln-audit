@@ -234,8 +234,10 @@ def _assessment_disproof(task, item, label, spans, *, paths=()):
     except ValueError as exc:
         if not separate_root(task):
             raise
-        raise ValueError(label + ".disproof：须提供 {basis:effective_protection|unreachable|not_applicable,"
-            "rationale:具体源码反证,evidence:[{path,start_line,end_line}]}，并引用本次实际读取的对应路径；" + str(exc)) from exc
+        raise ValueError(label + ".disproof：" + ('direction_id='+item['direction_id']+'；' if item.get('direction_id') else '')
+            + "须提供 {basis:effective_protection|unreachable|not_applicable,"
+            "rationale:具体源码反证,evidence:[{path,start_line,end_line}]}，并引用本次实际读取的对应路径；"
+            + ('本方向要求的路径至少覆盖一条：'+', '.join(paths)+'；' if paths else '') + str(exc)) from exc
 
 
 def validate_assessment(task, result, seen, file_lines, *, previous=(), known_findings=()):

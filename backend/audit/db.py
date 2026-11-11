@@ -1911,6 +1911,13 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                     # owner can be queued. A quick resume cannot overlap generations.
                     self._db.execute("ROLLBACK")
                     return False
+                if self._db.execute("SELECT 1 FROM planner_tasks WHERE run_id=? AND state='running' LIMIT 1",(run_id,)).fetchone():
+                    self._db.execute('ROLLBACK')
+                    return False
+                phase=self._db.execute('SELECT phase FROM run_execution_state WHERE run_id=?',(run_id,)).fetchone()
+                if phase and str(phase[0]).startswith('operator_'):
+                    self._db.execute('ROLLBACK')
+                    return False
                 checkpoint = self._db.execute('SELECT workflow FROM run_execution_state WHERE run_id=?', (run_id,)).fetchone()
                 if checkpoint and (_loads(checkpoint[0], {}) or {}).get('budget_pause'):
                     from .budget_checkpoints import reuse_source_balance_tx
@@ -3592,7 +3599,7 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
             for row in rows
         ]
 
-    def begin_planner_round(self, run_id: str, session_id: str) -> dict | None:
+    def begin_planner_round(self, run_id: str, session_id: str, *, checkpoint_repair: bool = False) -> dict | None:
         """Reserve exactly one serialized Planner round and create its draft plan."""
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
@@ -3605,7 +3612,18 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                 if session is None or session["session_id"] != session_id:
                     self._db.execute("COMMIT")
                     return None
-                if session["run_status"] != "running" or session["goal_status"] != "open":
+                repair_allowed=False
+                if checkpoint_repair:
+                    execution=self._db.execute('SELECT phase,claim_epoch FROM run_execution_state WHERE run_id=?',(run_id,)).fetchone()
+                    spec=_loads(self._db.execute('SELECT task_spec FROM runs WHERE id=?',(run_id,)).fetchone()[0],{})
+                    repair_allowed=(session['run_status']=='paused' and execution and execution['phase']=='paused'
+                        and run_id not in self._active_clocks and spec.get('completion_recovery_policy')=='assigned-gaps-v1'
+                        and not self.task_queue_state(run_id)['active']
+                        and not self._row("SELECT 1 FROM planner_plans WHERE run_id=? AND status='planning'",(run_id,))
+                        and not self._row("SELECT 1 FROM poc_attempts WHERE run_id=? AND (state='running' OR (state='claimed' AND execution_epoch=?))",(run_id,execution['claim_epoch'])))
+                    if not repair_allowed:
+                        self._db.execute('COMMIT');return None
+                if (session["run_status"] != "running" and not repair_allowed) or session["goal_status"] != "open":
                     self._db.execute("COMMIT")
                     return None
                 if not self.host_queue_enabled(run_id) and int(session["current_round"]) >= int(session["max_rounds"]):
@@ -3630,6 +3648,8 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                     "current_plan_id = ?, updated_at = ? WHERE run_id = ?",
                     (round_no, revision, plan_id, stamp, run_id),
                 )
+                if repair_allowed:
+                    self.append_event(run_id,None,'planner_checkpoint_repair_started',dict(plan_id=plan_id,round=round_no))
                 self._db.execute("COMMIT")
             except Exception:
                 self._db.execute("ROLLBACK")
@@ -3699,6 +3719,10 @@ class Store(PromptCacheStoreMixin, RiskCoverageMixin, ContinuationStoreMixin, Re
                     raise ValueError("Planner round is not an active draft")
                 from .role_policy import validate_planner_actions, enabled as worker_owned
                 role_task = _loads(self._db.execute("SELECT task_spec FROM runs WHERE id=?", (run_id,)).fetchone()[0], {})
+                if (tasks and role_task.get('completion_recovery_policy')=='assigned-gaps-v1'
+                        and (self.coverage_review(run_id) or {}).get('complete')
+                        and any(not item.get('direction_ids') for item in tasks)):
+                    raise ValueError('源码已覆盖的收尾任务必须绑定未决 direction_ids；不得换名重复挖掘已有结论')
                 validate_planner_actions(role_task, updates, tasks={t["task_key"]: t for t in
                     self.list_tasks(run_id, include_attempts=False)} if worker_owned(role_task) else {},
                     coverage_updates=coverage_review)

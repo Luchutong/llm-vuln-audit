@@ -81,7 +81,7 @@ def repair_paused_source_task(store, run_id, task_id):
             raise
 
 
-def planner_schema(schema, project_map, tasks):
+def planner_schema(schema, project_map, tasks, *, closure_direction_ids=None):
     """Small maps advertise exact legal files, directories and redefinable keys."""
     files=sorted({f['path'] for f in project_map.get('files') or [] if f.get('path') and f.get('kind')!='binary'
                   and int(f.get('line_count') or 0)>0})
@@ -89,6 +89,13 @@ def planner_schema(schema, project_map, tasks):
         files=[p for p in files if p in project_map['scope']]
     directories=sorted({str(parent) for path in files for parent in PurePosixPath(path).parents if str(parent)!='.'})
     defs=schema['$defs'];proposal=defs['PlannerTaskProposal'];props=proposal['properties']
+    if closure_direction_ids is not None:
+        proposal['required']=list(dict.fromkeys([*(proposal.get('required') or []),'direction_ids']))
+        props['direction_ids'].update(minItems=1)
+        if closure_direction_ids:
+            props['direction_ids']['items']={'type':'string','enum':sorted(set(closure_direction_ids))}
+        else:
+            schema['properties']['tasks']['maxItems']=0
     if files and len(files)<=256:
         defs['PlannerSourceRef']['properties']['path'].update(enum=files)
         if len(files)+len(directories)<=1024:

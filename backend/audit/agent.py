@@ -2468,6 +2468,13 @@ def _to_check(name: str, verdict: CategoryVerdict, proof: CategoryPoc | None) ->
 def _worker_publication_schema(batch_limit: int, *, task: dict | None = None) -> dict:
     """Expose the live contract without changing historical payload parsing."""
     schema = GoalAssessment.model_json_schema()
+    if role_policy.enabled(task):
+        direction=schema['$defs']['WorkerDirectionResult']
+        direction['allOf']=[dict(
+            **{'if':dict(properties=dict(outcome=dict(const='no_evidence')),required=['outcome']),
+               'then':dict(required=['disproof'],properties=dict(disproof={'$ref':'#/$defs/WorkerDisproof'}))})]
+        if (task or {}).get('assigned_direction_ids'):
+            direction['properties']['direction_id']['enum']=task['assigned_direction_ids']
     schema["properties"]["findings"]["maxItems"] = batch_limit
     # The legacy singular field still parses old payloads, but advertising both
     # teaches a worker to print its first complete finding twice.
@@ -3532,6 +3539,7 @@ def _validate_planner_decision(
     workflow: dict | None = None,
     directions: list[dict] | None = None,
     on_sanitize=None,
+    closure_only: bool = False,
 ) -> PlannerDecision:
     """Apply host-owned map and graph constraints before a Planner may mutate the frontier.
 
@@ -3597,6 +3605,8 @@ def _validate_planner_decision(
     if sum(update.action == "reopen" for update in decision.updates) != len(reopen_keys):
         raise ModelRetry("同一任务在一个 Planner 回合中只能 reopen 一次")
     for proposal in decision.tasks:
+        if closure_only and not proposal.direction_ids:
+            raise ModelRetry('源码已覆盖的收尾任务必须绑定未决 direction_ids；不得换名重复挖掘已有结论')
         if workflow_policy == "discovery_first" and not (
             proposal.source_refs or any(_frozen_path(path) in files for path in proposal.scope_paths)
             or any(str(value).casefold() in {
@@ -4267,6 +4277,8 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                         run_reopens=int((run_context.get("planner") or {}).get("task_reopens") or 0),
                         workflow_policy=str(task.get("workflow_policy") or "legacy"),
                         workflow=run_context.get("workflow") or {},
+                        closure_only=(task.get('completion_recovery_policy')=='assigned-gaps-v1'
+                                      and bool((run_context.get('coverage_review') or {}).get('complete'))),
                         directions=deps.direction_records() if task.get("workflow_policy") == "discovery_first" else [],
                         on_sanitize=pending.append,
                     )
@@ -4495,8 +4507,13 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                                                         exhaustive=task.get("exploration_policy") == "exhaustive-v1")
                 if task.get('workflow_policy')=='discovery_first' and not run_context.get('review_batch'):
                     from .task_contract import planner_schema as scope_schema
-                    schema=scope_schema(schema,project_map,prior_tasks)
-                schema["properties"]["tasks"]["maxItems"] = 0 if review_only else task_limit
+                    closure_ids=([d['id'] for d in deps.direction_records() if d.get('state') in {'pending','assigned'}]
+                        if task.get('completion_recovery_policy')=='assigned-gaps-v1'
+                        and (run_context.get('coverage_review') or {}).get('complete') else None)
+                    schema=scope_schema(schema,project_map,prior_tasks,closure_direction_ids=closure_ids)
+                else:
+                    closure_ids=None
+                schema["properties"]["tasks"]["maxItems"] = 0 if review_only or closure_ids==[] else task_limit
                 if hosted and not run_context.get('review_batch') and 'verification_reviews' in schema['properties']:
                     schema['properties']['verification_reviews']['maxItems'] = 0
                 # An actual frozen path avoids teaching the model a fictitious evidence
@@ -4509,7 +4526,7 @@ scope_paths 同样只能包含冻结快照中实际存在的文件或目录；�
                 }
                 if review_only:
                     sample = {"goal_state": "inconclusive", "basis_summary": "当前只能说明已完成部分成果，尚未完成的方向和未读取验证继续保留未决。", "tasks": []}
-                if sample_file and not review_only:
+                if sample_file and not review_only and closure_ids is None:
                     example_key='entry-boundary'
                     taken={t.get('task_key') for t in prior_tasks}
                     while example_key in taken:
@@ -4944,6 +4961,8 @@ async def pursue_planner_task(
         "success_criteria": planner_task.get("acceptance_criteria") or run_task.get("success_criteria"),
         "max_iterations": planner_task.get("max_attempts") or run_task.get("max_iterations"),
         "assigned_direction_ids": [item["id"] for item in (planner_task.get("result") or {}).get("active_directions") or []],
+        "assigned_direction_paths": {item['id']:item.get('paths') or []
+            for item in (planner_task.get('result') or {}).get('active_directions') or []},
         "assigned_risk_obligations": [item for item in (run_task.get("risk_obligation_set") or {}).get("items", [])
                                       if item["id"] in (planner_task.get("context_spec") or {}).get("obligation_ids", [])],
     }
@@ -4956,7 +4975,9 @@ async def pursue_planner_task(
     if discovery_first:
         assigned = [
             {"id": str(item.get("id") or ""), "text": _planner_text(item.get("text"), 600),
-             "state": item.get("state"), "origin_task_key": item.get("origin_task_key")}
+             "state": item.get("state"), "origin_task_key": item.get("origin_task_key"),
+             "paths": item.get('paths') or [], "unknown_paths":item.get('unknown_paths') or [],
+             "no_evidence_requires":'disproof={basis:effective_protection|unreachable|not_applicable,rationale,evidence}; evidence须覆盖本项paths至少一条且实际已读'}
             for item in result.get("active_directions") or [] if isinstance(item, dict)
         ]
         focus = (
